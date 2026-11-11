@@ -105,11 +105,16 @@ export function useSearchState({
   t,
 }: UseSearchStateParams) {
   const [searchQuery, setSearchQuery] = useState('');
+  const searchQueryRef = useRef('');
+  const localCompletedQueryRef = useRef<string | null>(null);
+  const localInFlightQueryRef = useRef<string | null>(null);
+  const [isSearchingLocal, setIsSearchingLocal] = useState(false);
   const searchSeqRef = useRef(0);
   const currentSearchIdRef = useRef<string>('');
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
+  const isSearchingOnlineRef = useRef(false);
   const [onlineSearchPerformed, setOnlineSearchPerformed] = useState(false);
-  // 在线搜索翻页状态：提交即在线调第 1 页，触底且满页/has_more 时 page+1 追加到在线段。
+  // 在线搜索翻页状态：用户显式触发在线搜索后拉第 1 页，触底且满页/has_more 时 page+1 追加到在线段。
   // 上下分段：apps 永远是本地结果，在线结果单独存 onlineApps（HomeView 本地在上、在线在下两段展示）。
   const [isOnlineResultSet, setIsOnlineResultSet] = useState(false);
   const [onlineApps, setOnlineApps] = useState<AppSummary[]>([]);
@@ -124,6 +129,31 @@ export function useSearchState({
   const onlineAppsRef = useRef<AppSummary[]>([]);
   onlineAppsRef.current = onlineApps;
 
+  // 清空当前在线结果集与翻页游标（同步更新 state 与 ref，避免 stale 读）。
+  const clearOnlineResults = () => {
+    onlineAppsRef.current = [];
+    setOnlineApps([]);
+    isOnlineResultSetRef.current = false;
+    setIsOnlineResultSet(false);
+    onlineHasMoreRef.current = false;
+    setOnlineHasMore(false);
+    onlinePageRef.current = 1;
+    setOnlinePage(1);
+    onlineQueryRef.current = '';
+  };
+
+  // 重置全部在线搜索状态：换词或清空搜索时立即清理上一轮残留的在线列表、加载态与回声窗。
+  const resetOnlineState = (seq: number) => {
+    isSearchingOnlineRef.current = false;
+    setIsSearchingOnline(false);
+    setOnlineSearchPerformed(false);
+    isLoadingOnlineMoreRef.current = false;
+    setIsLoadingOnlineMore(false);
+    clearOnlineResults();
+    // 关闭上一轮在线搜索的回声窗，防止旧词迟到的 icon-ready 事件立期望。
+    currentSearchIdRef.current = `local-${seq}`;
+  };
+
   // 搜索 stale 守卫 + 错误回退合一：seq 过期返回 true（调用方直接 return）；
   // 否则若传入 err 则记录日志并执行 fallback，返回 false。
   const guardFreshSearch = (seq: number, err?: unknown, logPrefix?: string, fallback?: () => void): boolean => {
@@ -135,120 +165,148 @@ export function useSearchState({
     return false;
   };
 
-  // 搜索逻辑（本地内存搜索，防抖触发）
-  const handleSearchChange = async (q: string) => {
+  // 输入防抖预备态：键入新词时立即同步 searchQuery、标记本地搜索中并清空上一词残留在线结果，
+  // 避免 250ms 防抖窗口内继续展示旧在线列表或按钮误提交旧词。
+  const handleSearchDraft = (q: string) => {
     const trimmed = q.trim();
-    // 同词且已是该词的在线结果集 → 保持在线结果，不回退本地。
-    // （TitleBar 回车会连调 onSearchChange + onSearchSubmit；此处若清掉在线态，
-    // 提交侧的同词去重守卫将失效，导致重复在线请求。）
-    if (
-      trimmed &&
-      trimmed === searchQuery.trim() &&
-      trimmed === onlineQueryRef.current &&
-      isOnlineResultSetRef.current
-    ) {
+    const prevTrimmed = searchQueryRef.current.trim();
+    if (!trimmed) return;
+    if (trimmed === prevTrimmed) {
+      searchQueryRef.current = q;
+      setSearchQuery(q);
       return;
     }
+    searchQueryRef.current = q;
+    localCompletedQueryRef.current = null;
+    localInFlightQueryRef.current = null;
     setSearchQuery(q);
-    setOnlineSearchPerformed(false);
-    // 新搜索词切回本地结果集：清掉上一轮在线翻页状态，搜索态回到首屏 20（HomeView 负责）。
-    // 保留旧列表：miss 时不清 onlineApps，保留旧在线列表直到新 hits>0 再替换，迟到 icon-ready patch
-    // 落在非空 prev 上可落定，不再因重搜清空致空 prev 永久丢。
-    setIsOnlineResultSet(false);
-    isOnlineResultSetRef.current = false;
-    setOnlineHasMore(false);
-    onlineHasMoreRef.current = false;
-    setOnlinePage(1);
-    onlinePageRef.current = 1;
-    onlineQueryRef.current = '';
-    setIsLoadingOnlineMore(false);
-    isLoadingOnlineMoreRef.current = false;
+    setIsSearchingLocal(true);
     const seq = ++searchSeqRef.current;
+    resetOnlineState(seq);
+  };
+
+  // 第一阶段：本地搜索（输入防抖、回车、历史点击或深链触发，只搜索本地目录并清空旧在线残留）
+  const handleSearchChange = async (q: string) => {
+    const trimmed = q.trim();
+    const prevTrimmed = searchQueryRef.current.trim();
+    // 同词且本地已完成/进行中（或已处于该词在线结果集/请求中）：不重复发本地请求，也不冲掉当前词已主动触发的在线结果。
+    if (
+      trimmed &&
+      trimmed === prevTrimmed &&
+      (localCompletedQueryRef.current === trimmed ||
+        localInFlightQueryRef.current === trimmed ||
+        (trimmed === onlineQueryRef.current && (isOnlineResultSetRef.current || isSearchingOnlineRef.current)))
+    ) {
+      if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+        navigate('home');
+      }
+      return;
+    }
+    searchQueryRef.current = q;
+    localCompletedQueryRef.current = null;
+    localInFlightQueryRef.current = trimmed || null;
+    setSearchQuery(q);
+    setIsSearchingLocal(Boolean(trimmed));
+    const seq = ++searchSeqRef.current;
+    // 新搜索词或清空立即清空上一轮在线搜索残留结果与状态。
+    resetOnlineState(seq);
     try {
       const results = await tauriApi.searchApps(q);
       if (guardFreshSearch(seq)) return;
+      localCompletedQueryRef.current = trimmed;
       setApps(results);
-      if (q && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+      if (trimmed && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
         navigate('home');
       }
     } catch (err) {
       if (guardFreshSearch(seq, err, 'searchApps error')) return;
+    } finally {
+      if (seq === searchSeqRef.current) {
+        localInFlightQueryRef.current = null;
+        setIsSearchingLocal(false);
+      }
     }
   };
 
-  // 在线搜索提交逻辑（按回车或点击“在线搜索”按钮：即使本地有结果也发起在线搜索）
+  // 第二阶段：在线搜索（由用户在搜索结果页显式选择触发）
   const handleSearchSubmit = async (queryToSubmit?: string) => {
-    const q = (queryToSubmit !== undefined ? queryToSubmit : searchQuery).trim();
+    const q = (queryToSubmit !== undefined ? queryToSubmit : searchQueryRef.current).trim();
     if (!q) return;
     // 搜索列表缓存 sweep 过期。
     sweepExpiredSearchListCache();
 
-    // 同词且已是该词的在线结果集 → 直接返回，避免重复请求；
-    // 本地结果集（isOnlineResultSet 为 false）则必须允许转在线。
-    if (
-      q === searchQuery.trim() &&
-      q === onlineQueryRef.current &&
-      isOnlineResultSetRef.current
-    ) {
+    // 同一词的在线搜索正在进行中 → 直接返回，避免连点造成并发重复请求。
+    if (isSearchingOnlineRef.current && q === onlineQueryRef.current) {
       return;
     }
 
     const seq = ++searchSeqRef.current;
+    const queryChanged = q !== searchQueryRef.current.trim();
+    const needsLocalSearch = queryChanged || localCompletedQueryRef.current !== q;
 
-    // 若本地搜索尚未完成或搜索词变更，先查一次本地并展示（异词先本地后在线）
-    // 异词先本地阶段不清 onlineApps，
-    // 旧在线列表直展到新 hits>0 再替换，迟到 patch 不再打在空 prev 上永久丢。
-    if (q !== searchQuery.trim()) {
+    if (queryChanged) {
+      searchQueryRef.current = q;
+      localCompletedQueryRef.current = null;
       setSearchQuery(q);
-      setOnlineSearchPerformed(false);
-      setIsOnlineResultSet(false);
-      isOnlineResultSetRef.current = false;
-      setOnlineHasMore(false);
-      onlineHasMoreRef.current = false;
-      setOnlinePage(1);
-      onlinePageRef.current = 1;
-      onlineQueryRef.current = '';
-      try {
-        const freshLocal = await tauriApi.searchApps(q);
-        if (guardFreshSearch(seq)) return;
-        setApps(freshLocal);
-        if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
-          navigate('home');
-        }
-      } catch (err) {
-        // 本地失败不阻塞：照常转在线（apps 保持原样，在线无结果/失败则提示）。
-        if (guardFreshSearch(seq, err, 'searchApps error')) return;
-      }
+      resetOnlineState(seq);
+    } else if (onlineQueryRef.current !== q) {
+      clearOnlineResults();
     }
 
-    // 提交即在线：不再以本地零结果为 gate（第 1 页，per_page 与后端默认 20 对齐）；
-    // 上下分段：本地结果保留在 apps，在线结果单独存 onlineApps（HomeView 本地在上、在线在下）。
-    // 在线无结果/失败则保持本地结果 + 提示（内部分支处理）。
-    // 搜索列表缓存：提交前先读搜索列表缓存，
-    // 后台仍 searchAppsOnline revalidate（沿用 searchSeqRef/guardFreshSearch 防串）；
-    // 换词冷启动的 loading 平台每次重查（lazyBackfill 照常跑，不跳过）。
-    let hadCacheHit = false;
-    const listCached = readSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE });
-    if (listCached && listCached.length > 0) {
-      const assembledCached = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], listCached);
-      if (assembledCached.length > 0) {
-        hadCacheHit = true;
-        setOnlineApps(assembledCached);
-        setOnlineSearchPerformed(true);
-        setIsOnlineResultSet(true);
-        isOnlineResultSetRef.current = true;
-        setOnlinePage(1);
-        onlinePageRef.current = 1;
-        onlineQueryRef.current = q;
-        // 满页即视为还有下一页（与网络分支同口径；单条直查只回 1 条，天然到底）。
-        const cachedHasMore = listCached.length >= ONLINE_SEARCH_PER_PAGE;
-        setOnlineHasMore(cachedHasMore);
-        onlineHasMoreRef.current = cachedHasMore;
-        lazyBackfillPlatforms(listCached, seq, true);
+    // 在首个 await 前锁定同词在途去重键，防止冷启动未命中缓存时连点穿透。
+    onlineQueryRef.current = q;
+    isSearchingOnlineRef.current = true;
+    setIsSearchingOnline(true);
+
+    try {
+      // 若本地搜索尚未完成、失败或搜索词变更，先查一次本地并展示（先本地后在线）
+      if (needsLocalSearch) {
+        localInFlightQueryRef.current = q;
+        setIsSearchingLocal(true);
+        try {
+          const freshLocal = await tauriApi.searchApps(q);
+          if (guardFreshSearch(seq)) return;
+          localCompletedQueryRef.current = q;
+          setApps(freshLocal);
+          if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+            navigate('home');
+          }
+        } catch (err) {
+          // 本地失败不阻塞：照常转在线（apps 保持原样，在线无结果/失败则提示）。
+          if (guardFreshSearch(seq, err, 'searchApps error')) return;
+        } finally {
+          if (seq === searchSeqRef.current) {
+            localInFlightQueryRef.current = null;
+            setIsSearchingLocal(false);
+          }
+        }
       }
-    }
-    {
-      setIsSearchingOnline(true);
+
+      // 搜索列表缓存：提交前先读当前搜索词的搜索列表缓存，
+      // 后台仍 searchAppsOnline revalidate（沿用 searchSeqRef/guardFreshSearch 防串）；
+      // 换词冷启动的 loading 平台每次重查（lazyBackfill 照常跑，不跳过）。
+      let hadCacheHit = false;
+      const listCached = readSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE });
+      if (listCached && listCached.length > 0) {
+        const assembledCached = assembleOnlineRowsWithIcons([], listCached);
+        if (assembledCached.length > 0) {
+          hadCacheHit = true;
+          onlineAppsRef.current = assembledCached;
+          setOnlineApps(assembledCached);
+          setOnlineSearchPerformed(true);
+          setIsOnlineResultSet(true);
+          isOnlineResultSetRef.current = true;
+          setOnlinePage(1);
+          onlinePageRef.current = 1;
+          onlineQueryRef.current = q;
+          // 满页即视为还有下一页（与网络分支同口径；单条直查只回 1 条，天然到底）。
+          const cachedHasMore = listCached.length >= ONLINE_SEARCH_PER_PAGE;
+          setOnlineHasMore(cachedHasMore);
+          onlineHasMoreRef.current = cachedHasMore;
+          lazyBackfillPlatforms(listCached, seq, true);
+        }
+      }
+
       const searchId = `search-${seq}-${Date.now()}`;
       // 回声窗：先清空期望（门控任一空即放行），窗内直播按回声 sid 收，不以请求串号判 stale；
       // 首个回声到达即立期望（下行回声见下，直播首事件见 App 侧），之后异 sid 才丢。
@@ -261,8 +319,10 @@ export function useSearchState({
         if (pageRes.sid) settlePageEcho(currentSearchIdRef, pageRes.sid);
         setOnlineSearchPerformed(true);
         if (onlineResults && onlineResults.length > 0) {
-          // 同词在线集去重 + 图标回填。
-          const deduped = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], onlineResults);
+          // 仅同词缓存命中时与当轮缓存行粘性合并，绝不混入旧词残留行。
+          const prevForSameQuery = hadCacheHit ? (onlineAppsRef.current ?? []) : [];
+          const deduped = assembleOnlineRowsWithIcons(prevForSameQuery, onlineResults);
+          onlineAppsRef.current = deduped;
           setOnlineApps(deduped);
           lazyBackfillPlatforms(onlineResults, seq, true);
           setIsOnlineResultSet(true);
@@ -278,32 +338,25 @@ export function useSearchState({
           writeSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE }, deduped);
           showToast(t('search.online_success'), 'success');
         } else {
-          // 保留旧列表：已直展时不清空。
+          // 同词缓存已直展时不清空。
           if (hadCacheHit) return;
-          setOnlineApps([]);
-          setIsOnlineResultSet(false);
-          isOnlineResultSetRef.current = false;
-          setOnlineHasMore(false);
-          onlineHasMoreRef.current = false;
+          clearOnlineResults();
           // 调不到或无结果就保持本地结果+提示，不报错
           showToast(t('search.online_no_results'), 'info');
         }
       } catch (err) {
         if (guardFreshSearch(seq, err, 'searchAppsOnline error', () => {
-          // 保留旧列表：后台失败不清空。
+          // 同词缓存已直展时后台失败不清空。
           if (hadCacheHit) return;
           setOnlineSearchPerformed(true);
-          setOnlineApps([]);
-          setIsOnlineResultSet(false);
-          isOnlineResultSetRef.current = false;
-          setOnlineHasMore(false);
-          onlineHasMoreRef.current = false;
+          clearOnlineResults();
           showToast(t('search.online_failed'), 'info');
         })) return;
-      } finally {
-        if (seq === searchSeqRef.current) {
-          setIsSearchingOnline(false);
-        }
+      }
+    } finally {
+      if (seq === searchSeqRef.current) {
+        setIsSearchingOnline(false);
+        isSearchingOnlineRef.current = false;
       }
     }
   };
@@ -312,7 +365,7 @@ export function useSearchState({
   // 限流/失败 toast 与首屏保持原样（info 级，不抛错阻塞列表）。
   // 搜索列表缓存翻页。
   const handleOnlineLoadMore = useCallback(async () => {
-    if (isLoadingOnlineMoreRef.current || isSearchingOnline) return;
+    if (isLoadingOnlineMoreRef.current || isSearchingOnlineRef.current || isSearchingOnline) return;
     if (!isOnlineResultSetRef.current || !onlineHasMoreRef.current) return;
     const q = (onlineQueryRef.current || searchQuery.trim()).trim();
     if (!q) return;
@@ -407,6 +460,7 @@ export function useSearchState({
     setSearchQuery,
     searchSeqRef,
     currentSearchIdRef,
+    isSearchingLocal,
     isSearchingOnline,
     onlineSearchPerformed,
     isOnlineResultSet,
@@ -422,6 +476,7 @@ export function useSearchState({
     isLoadingOnlineMoreRef,
     onlineAppsRef,
     guardFreshSearch,
+    handleSearchDraft,
     handleSearchChange,
     handleSearchSubmit,
     handleOnlineLoadMore,

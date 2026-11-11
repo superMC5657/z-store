@@ -30,7 +30,7 @@
 - 搜缓存（搜缓存=搜索 L1）`services/search/searchListCache.ts` 纯前端内存独立 Map，不共用 `trendsCache`（榜缓存一级内存）实例；value=`{at, rows}`（当次页 rows，非累计）。
 - key=`search|normQuery|page|perPage`（norm=trim 小写连续空白压单空格，翻页不串）。
 - TTL 30min；空 norm/空 rows 拒绝写（空结果不存）；上限 50 条写时 FIFO 删最旧。
-- 切搜/翻页入口顺手 `sweepExpiredSearchListCache`，不加 timer；`elapsed<0`（时钟回拨/未来戳）按过期，读 miss 时调用方保留旧列表。
+- 切搜/翻页入口顺手 `sweepExpiredSearchListCache`，不加 timer；`elapsed<0`（时钟回拨/未来戳）按过期。切搜新词或清空搜索时立即清空上一词的在线列表，仅先展示本地结果（再由用户显式触发在线搜索）；读 cache miss 时直接走网络直查，仅当同词缓存已直展且后台 revalidate 失败/为空时保留该同词缓存列表。
 - 写前 JSON 字节预检复用 `services/trends/cache.ts` 的 256KB 阈值思想（同一 `TREND_DB_PAYLOAD_MAX_BYTES`），超限放弃写。
 
 ## 5. 列表与坐标共享裁决

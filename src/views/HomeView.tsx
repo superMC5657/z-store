@@ -50,6 +50,8 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   isOnlineResults?: boolean;
   /** 搜索在线段（App 已做平台过滤，保序）：搜索态渲染在本地段下方，复用同一 AppCard。 */
   onlineApps?: AppSummary[];
+  /** 正在执行本地搜索（防抖等待或 IPC 进行中，先完成本地搜索后再开放显式在线搜索）。 */
+  isSearchingLocal?: boolean;
   /** 正在在线搜索（在线段展示加载提示，首屏与翻页共用）。 */
   isSearchingOnline?: boolean;
   /** 已发起过在线搜索（在线段空时区分“还没搜”与“搜过无结果”）。 */
@@ -60,6 +62,8 @@ interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   isLoadingOnlineMore?: boolean;
   /** 在线结果触底回调：App 负责 page+1 并拼接到 apps，失败/限流由 App toast。 */
   onOnlineLoadMore?: () => void;
+  /** 用户显式选择发起在线搜索回调。 */
+  onSearchOnline?: () => void;
   /**
    * custom 草稿已存在 id 集（归一小写；App 侧以后端 customApps 全量 + 本地乐观移入合成，
    * 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合）：
@@ -93,11 +97,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onResetPlatformFilter,
   isOnlineResults = false,
   onlineApps = [],
+  isSearchingLocal = false,
   isSearchingOnline = false,
   onlineSearchPerformed = false,
   onlineHasMore = false,
   isLoadingOnlineMore = false,
   onOnlineLoadMore,
+  onSearchOnline,
   customIds,
   localApps,
 }) => {
@@ -147,9 +153,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
   // 本地橘黄：目录用 apps 数组本体（含本地 source，远端优先语义由上游合并保证），
   // 同 id/owner-repo 命中本地叠加 source='local'/status（蓝优先；远端已存在同仓行经显式 localApps 亦命中）。
   // custom 缺席透传，就绪后经 localApps deps 重标（缺席不误终态）。
+  const activeOnlineApps = isOnlineResults ? onlineApps : [];
   const annotatedOnlineApps = React.useMemo(
-    () => annotateOnlineCataloged(onlineApps, apps, localApps),
-    [onlineApps, apps, localApps],
+    () => annotateOnlineCataloged(activeOnlineApps, apps, localApps),
+    [activeOnlineApps, apps, localApps],
   );
 
   // 合并目录基线（远端优先去重语义由上游保证，此处仅搬标记/星数，不重排）。
@@ -300,8 +307,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
     queueAssembledRowIcons(dedupedFeaturedApps);
     queueAssembledRowIcons(dedupedDisplayedFeed);
     if (annotatedRecentApps.length > 0) queueAssembledRowIcons(annotatedRecentApps);
-    if (onlineApps.length > 0) queueAssembledRowIcons(onlineApps);
-  }, [heroApp, dedupedFeaturedApps, dedupedDisplayedFeed, annotatedRecentApps, onlineApps]);
+    if (activeOnlineApps.length > 0) queueAssembledRowIcons(activeOnlineApps);
+  }, [heroApp, dedupedFeaturedApps, dedupedDisplayedFeed, annotatedRecentApps, activeOnlineApps]);
 
   // 非搜索态筛选为空才走平台空态；搜索态本地为空但在线有结果时仍进双段展示，
   // 本地段给轻量空提示（两段都空时 App 侧整页空态已拦截，此处兜底同样进双段）。
@@ -574,7 +581,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" style={{ marginTop: '28px' }} data-testid="search-online-section">
             <h3 className="section-title">
               <Globe size={16} />
-              <span>{t('search.online_results', { count: onlineApps.length })}</span>
+              <span>{t('search.online_results', { count: annotatedOnlineApps.length })}</span>
             </h3>
           </div>
           {annotatedOnlineApps.length > 0 ? (
@@ -601,11 +608,33 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           ) : (
             <div className="feed-end" data-testid="search-online-empty">
-              {isSearchingOnline
-                ? t('search.online_searching')
-                : onlineSearchPerformed
-                  ? t('search.online_empty')
-                  : t('search.online_prompt')}
+              <div>
+                {isSearchingLocal
+                  ? t('search.local_searching')
+                  : isSearchingOnline
+                    ? t('search.online_searching')
+                    : onlineSearchPerformed
+                      ? t('search.online_empty')
+                      : t('search.online_prompt')}
+              </div>
+              {!isSearchingLocal && !isSearchingOnline && onSearchOnline && (
+                <div className="feed-more-row" style={{ paddingTop: '10px', paddingBottom: 0 }}>
+                  <button
+                    type="button"
+                    data-testid="search-online-trigger"
+                    className={`btn-fluent ${onlineSearchPerformed ? 'btn-secondary' : 'btn-primary'}`}
+                    onClick={onSearchOnline}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Globe size={14} />
+                    <span>
+                      {onlineSearchPerformed
+                        ? t('search.retry_online')
+                        : t('search.search_online_btn')}
+                    </span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {(isSearchingOnline || isLoadingOnlineMore) && (
@@ -640,7 +669,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <ChevronsDown size={15} aria-hidden="true" />
               </div>
               <div className="online-armed-sub">
-                {t('search.online_armed_hint', { count: onlineApps.length })}
+                {t('search.online_armed_hint', { count: annotatedOnlineApps.length })}
               </div>
               <div className="feed-more-row online-armed-btn">
                 <button
@@ -657,9 +686,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
             </div>
           ) : (
-            onlineApps.length > 0 && !onlineHasMore && (
+            annotatedOnlineApps.length > 0 && !onlineHasMore && (
               <div data-testid="feed-end" className="feed-end">
-                {t('search.online_end', { count: onlineApps.length })}
+                {t('search.online_end', { count: annotatedOnlineApps.length })}
               </div>
             )
           )}

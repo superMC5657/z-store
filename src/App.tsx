@@ -187,6 +187,7 @@ export const App: React.FC = () => {
     searchQuery,
     searchSeqRef,
     currentSearchIdRef,
+    isSearchingLocal,
     isSearchingOnline,
     onlineSearchPerformed,
     isOnlineResultSet,
@@ -195,6 +196,7 @@ export const App: React.FC = () => {
     onlineHasMore,
     isLoadingOnlineMore,
     onlineAppsRef,
+    handleSearchDraft,
     handleSearchChange,
     handleSearchSubmit,
     handleOnlineLoadMore,
@@ -525,8 +527,8 @@ export const App: React.FC = () => {
       {/* 顶部标题栏 */}
       <TitleBar
         searchQuery={searchQuery}
+        onSearchDraft={handleSearchDraft}
         onSearchChange={handleSearchChange}
-        onSearchSubmit={handleSearchSubmit}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         language={settings.language}
@@ -563,21 +565,21 @@ export const App: React.FC = () => {
                 <EmptyState
                   icon={<Search size={40} strokeWidth={1.5} />}
                   title={
-                    isSearchingOnline
+                    isSearchingLocal || isSearchingOnline
                       ? t('search.searching_online')
                       : onlineSearchPerformed
                         ? t('search.no_online_results')
                         : t('search.no_local_results')
                   }
                   description={
-                    isSearchingOnline
+                    isSearchingLocal || isSearchingOnline
                       ? t('search.searching_online_desc')
                       : onlineSearchPerformed
                         ? t('search.online_empty_desc')
-                        : t('search.press_enter_online_hint')
+                        : t('search.local_empty_online_hint')
                   }
                   action={
-                    !isSearchingOnline && (
+                    !isSearchingLocal && !isSearchingOnline && (
                       <button
                         type="button"
                         className="btn-fluent btn-primary"
@@ -611,11 +613,13 @@ export const App: React.FC = () => {
                 onResetPlatformFilter={handleResetPlatformFilter}
                 isOnlineResults={isOnlineResultSet}
                 onlineApps={platformFilteredOnlineApps}
+                isSearchingLocal={isSearchingLocal}
                 isSearchingOnline={isSearchingOnline}
                 onlineSearchPerformed={onlineSearchPerformed}
                 onlineHasMore={onlineHasMore}
                 isLoadingOnlineMore={isLoadingOnlineMore}
                 onOnlineLoadMore={handleOnlineLoadMore}
+                onSearchOnline={() => handleSearchSubmit(searchQuery)}
                 customIds={customIds}
                 localApps={localLibrarySummaries}
               />

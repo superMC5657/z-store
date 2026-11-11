@@ -7,8 +7,8 @@ import { closeWindow, minimizeWindow, toggleMaximizeWindow, isWindowMaximized } 
 
 interface TitleBarProps {
   searchQuery: string;
+  onSearchDraft?: (q: string) => void;
   onSearchChange: (q: string) => void;
-  onSearchSubmit?: (q: string) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   language?: string;
@@ -19,8 +19,8 @@ interface TitleBarProps {
 
 export const TitleBar: React.FC<TitleBarProps> = ({
   searchQuery,
+  onSearchDraft,
   onSearchChange,
-  onSearchSubmit,
   theme,
   onToggleTheme,
   language,
@@ -35,6 +35,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastCompositionEndAtRef = useRef<number | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
 
@@ -91,24 +92,44 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     setLocalQuery(val);
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
+    if (!val.trim()) {
+      onSearchChange('');
+      return;
+    }
+    // 立即通知上层清空旧在线残留并同步当前输入词，再防抖执行本地检索
+    onSearchDraft?.(val);
     // 250ms 防抖响应（纯本地内存搜索，不写/读历史）
     debounceTimerRef.current = setTimeout(() => {
       onSearchChange(val);
     }, 250);
   };
 
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLInputElement>) => {
+    lastCompositionEndAtRef.current = e.timeStamp;
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
+      if (e.nativeEvent.isComposing || e.keyCode === 229) {
+        return;
+      }
+      if (
+        lastCompositionEndAtRef.current !== null &&
+        Math.abs(e.timeStamp - lastCompositionEndAtRef.current) < 50
+      ) {
+        return;
+      }
+      e.preventDefault();
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
       }
       setIsDropdownOpen(false);
       const query = localQuery.trim();
+      // 搜索框回车仅立即执行本地搜索并记录搜索历史，在线搜索由用户在结果页显式点击触发
       onSearchChange(localQuery);
-      if (onSearchSubmit) {
-        onSearchSubmit(localQuery);
-      }
       if (query) {
         tauriApi.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
       }
@@ -118,6 +139,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   const handleSelectHistory = (query: string) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
     setLocalQuery(query);
     onSearchChange(query);
@@ -239,6 +261,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             type="text"
             value={localQuery}
             onChange={(e) => handleInputChange(e.target.value)}
+            onCompositionEnd={handleCompositionEnd}
             onKeyDown={handleKeyDown}
             onFocus={() => {
               loadSearchHistory();

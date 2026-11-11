@@ -137,4 +137,32 @@ describe('HomeView online search armed boundary', () => {
     expect(queryByTestId('feed-load-more')).toBeNull();
     expect(getByTestId('feed-end').textContent).toContain('到底了 · 在线共 20 个');
   });
+
+  it('local search stage hides stale onlineApps when isOnlineResults is false and lets user trigger online search', () => {
+    const onSearchOnline = vi.fn();
+    const { getByTestId, queryByTestId } = renderOnlineSearch({
+      isOnlineResults: false,
+      onlineSearchPerformed: false,
+      onlineHasMore: false,
+      onSearchOnline,
+    });
+    expect(queryByTestId('search-online-grid')).toBeNull();
+    expect(getByTestId('search-online-section').textContent).toContain('在线结果 (0)');
+    const triggerBtn = getByTestId('search-online-trigger');
+    expect(triggerBtn.textContent).toContain('在线搜索');
+    fireEvent.click(triggerBtn);
+    expect(onSearchOnline).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides online trigger button while local search is still running', () => {
+    const { getByTestId, queryByTestId } = renderOnlineSearch({
+      isOnlineResults: false,
+      isSearchingLocal: true,
+      onlineSearchPerformed: false,
+      onlineHasMore: false,
+      onSearchOnline: vi.fn(),
+    });
+    expect(getByTestId('search-online-empty').textContent).toContain('正在搜索本地应用');
+    expect(queryByTestId('search-online-trigger')).toBeNull();
+  });
 });

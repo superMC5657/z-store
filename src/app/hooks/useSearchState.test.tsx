@@ -2,10 +2,11 @@
  * useSearchState 回归：
  *
  * - 本地搜索路由：结果落 setApps；非 home/trends/categories 视图跳回 home；
+ * - 换词草稿态：handleSearchDraft 立即同步新词、置本地搜索中并清空上一轮在线残留；
  * - stale 守卫：旧词迟到的本地/在线回包不覆盖新词（seq 串号丢弃）；
- * - 同词去重：已是在线结果集时 handleSearchChange 同词早退，不重复请求；
- * - 提交即在线：第 1 页 20/页、结果落在线段、满页视为还有下一页；
- * - 在线空/失败保持本地结果并提示（info，不报错）；
+ * - 同词去重：本地已完成或在线结果集时 handleSearchChange 同词早退；冷启动在途连点不重复发包；
+ * - 用户选择在线搜索（handleSearchSubmit）：本地未完成/失败时先补查本地再在线，第 1 页 20/页、结果落在线段；
+ * - 在线空/失败保持本地结果并提示（info，不报错），显式重试允许重新发起；
  * - 触底翻页：守卫（loading 中 / 无下一页不拉）、按 id 去重追加、缓存翻页；
  * - 回声窗纯函数（echo）三语义锁定。
  */
@@ -63,7 +64,7 @@ function makeApp(id: string, over: Partial<AppSummary> = {}): AppSummary {
   };
 }
 
-function renderSearch(currentView: 'home' | 'installed' = 'home') {
+function renderSearch(currentView: 'home' | 'installed' | 'trends' | 'categories' = 'home') {
   const deps = {
     currentView,
     navigate: vi.fn(),
@@ -81,8 +82,8 @@ beforeEach(() => {
 });
 
 describe('useSearchState：本地搜索路由', () => {
-  it('非 home 视图搜索后跳回 home；home 视图不跳', async () => {
-    for (const view of ['installed', 'home'] as const) {
+  it('非 home/trends/categories 视图搜索后跳回 home；home/trends/categories 保持原视图', async () => {
+    for (const view of ['installed', 'home', 'trends', 'categories'] as const) {
       const { rendered, deps } = renderSearch(view);
       mocks.searchApps.mockResolvedValue([makeApp('acme/atlas')]);
       await act(async () => {
@@ -135,6 +136,91 @@ describe('useSearchState：本地搜索路由', () => {
     expect(rendered.result.current.isOnlineResultSet).toBe(true);
   });
 
+  it('换词搜索立即清空上一轮残留的 onlineApps 与在线状态', async () => {
+    const { rendered, deps } = renderSearch('home');
+    mocks.searchApps
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeApp('openai/codex')]);
+    mocks.searchAppsOnline.mockResolvedValueOnce({
+      rows: [makeApp('affaan-m/ecc'), makeApp('anomalyco/opencode')],
+      sid: 'sid-old',
+    });
+
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('claude');
+    });
+    expect(rendered.result.current.onlineApps).toHaveLength(2);
+    expect(rendered.result.current.isOnlineResultSet).toBe(true);
+
+    // 搜索新词 codex：先搜本地，过去的在线搜索结果必须立即被清除，且不自动触发在线搜索
+    mocks.searchAppsOnline.mockClear();
+    await act(async () => {
+      await rendered.result.current.handleSearchChange('codex');
+    });
+    expect(deps.setApps).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'openai/codex' })]);
+    expect(rendered.result.current.onlineApps).toEqual([]);
+    expect(rendered.result.current.onlineAppsRef.current).toEqual([]);
+    expect(rendered.result.current.isOnlineResultSet).toBe(false);
+    expect(rendered.result.current.onlineSearchPerformed).toBe(false);
+    expect(mocks.searchAppsOnline).not.toHaveBeenCalled();
+  });
+
+  it('在线搜索进行中切换新词：立即复位 isSearchingOnline 并丢弃迟到的旧词在线回包', async () => {
+    const { rendered } = renderSearch('home');
+    let resolveOnlineOld: ((res: { rows: AppSummary[]; sid: string }) => void) | undefined;
+    mocks.searchApps.mockResolvedValue([makeApp('openai/codex')]);
+    mocks.searchAppsOnline.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveOnlineOld = resolve; }),
+    );
+
+    await act(async () => {
+      void rendered.result.current.handleSearchSubmit('oldword');
+    });
+    expect(rendered.result.current.isSearchingOnline).toBe(true);
+
+    await act(async () => {
+      await rendered.result.current.handleSearchChange('codex');
+    });
+    expect(rendered.result.current.isSearchingOnline).toBe(false);
+    expect(rendered.result.current.onlineApps).toEqual([]);
+
+    await act(async () => {
+      resolveOnlineOld?.({ rows: [makeApp('old/ lingering')], sid: 'sid-old' });
+    });
+    expect(rendered.result.current.onlineApps).toEqual([]);
+    expect(rendered.result.current.isOnlineResultSet).toBe(false);
+  });
+
+  it('handleSearchDraft 防抖窗口内立即同步新词、清空旧在线结果并标记本地搜索中', async () => {
+    const { rendered, deps } = renderSearch('home');
+    mocks.searchApps.mockResolvedValueOnce([]);
+    mocks.searchAppsOnline.mockResolvedValueOnce({
+      rows: [makeApp('affaan-m/ecc')],
+      sid: 'sid-claude',
+    });
+
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('claude');
+    });
+    expect(rendered.result.current.onlineApps).toHaveLength(1);
+
+    act(() => {
+      rendered.result.current.handleSearchDraft('codex');
+    });
+    expect(rendered.result.current.searchQuery).toBe('codex');
+    expect(rendered.result.current.isSearchingLocal).toBe(true);
+    expect(rendered.result.current.onlineApps).toEqual([]);
+    expect(rendered.result.current.isOnlineResultSet).toBe(false);
+
+    // 防抖到达后执行本地 searchApps('codex')
+    mocks.searchApps.mockResolvedValueOnce([makeApp('openai/codex')]);
+    await act(async () => {
+      await rendered.result.current.handleSearchChange('codex');
+    });
+    expect(rendered.result.current.isSearchingLocal).toBe(false);
+    expect(deps.setApps).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'openai/codex' })]);
+  });
+
   it('搜索失败：不抛出、本地列表不动', async () => {
     const { rendered, deps } = renderSearch('home');
     mocks.searchApps.mockRejectedValue(new Error('db locked'));
@@ -145,7 +231,7 @@ describe('useSearchState：本地搜索路由', () => {
   });
 });
 
-describe('useSearchState：提交即在线', () => {
+describe('useSearchState：用户选择在线搜索', () => {
   it('空词提交 no-op', async () => {
     const { rendered, deps } = renderSearch('home');
     await act(async () => {
@@ -153,6 +239,67 @@ describe('useSearchState：提交即在线', () => {
     });
     expect(deps.showToast).not.toHaveBeenCalled();
     expect(mocks.searchAppsOnline).not.toHaveBeenCalled();
+  });
+
+  it('本地搜索尚在进行中时触发在线搜索：先补查本地，再发起在线搜索', async () => {
+    const { rendered, deps } = renderSearch('home');
+    let resolvePendingLocal: ((rows: AppSummary[]) => void) | undefined;
+    mocks.searchApps
+      .mockImplementationOnce(
+        () => new Promise<AppSummary[]>((resolve) => { resolvePendingLocal = resolve; }),
+      )
+      .mockResolvedValueOnce([makeApp('openai/codex')]);
+    mocks.searchAppsOnline.mockResolvedValueOnce({
+      rows: [makeApp('online/codex-ext')],
+      sid: 'sid-codex',
+    });
+
+    await act(async () => {
+      void rendered.result.current.handleSearchChange('codex');
+    });
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('codex');
+    });
+
+    // 迟到的原 handleSearchChange 本地回包必须被丢弃，且提交链自己完成了本地+在线搜索
+    await act(async () => {
+      resolvePendingLocal?.([makeApp('stale/wrong')]);
+    });
+    expect(mocks.searchApps).toHaveBeenCalledTimes(2);
+    expect(deps.setApps).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'openai/codex' })]);
+    expect(rendered.result.current.onlineApps).toEqual([expect.objectContaining({ id: 'online/codex-ext' })]);
+  });
+
+  it('冷启动在线搜索进行中连点同词去重；已出结果后显式重试可重新请求', async () => {
+    const { rendered } = renderSearch('home');
+    let resolveFirst: ((res: { rows: AppSummary[]; sid: string }) => void) | undefined;
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.searchAppsOnline
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { resolveFirst = resolve; }),
+      )
+      .mockResolvedValueOnce({ rows: [makeApp('online/retry-hit')], sid: 'sid-retry' });
+
+    await act(async () => {
+      await rendered.result.current.handleSearchChange('coldword');
+    });
+    await act(async () => {
+      void rendered.result.current.handleSearchSubmit('coldword');
+      await rendered.result.current.handleSearchSubmit('coldword');
+    });
+    expect(mocks.searchAppsOnline).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirst?.({ rows: [makeApp('online/first-hit')], sid: 'sid-first' });
+    });
+    expect(rendered.result.current.isOnlineResultSet).toBe(true);
+
+    // 若结果被平台过滤隐藏，用户显式点击“重新在线搜索”必须重新发包而非 no-op
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('coldword');
+    });
+    expect(mocks.searchAppsOnline).toHaveBeenCalledTimes(2);
+    expect(rendered.result.current.onlineApps).toEqual([expect.objectContaining({ id: 'online/retry-hit' })]);
   });
 
   it('异词提交先本地后在线；在线段落定 20/页口径', async () => {
