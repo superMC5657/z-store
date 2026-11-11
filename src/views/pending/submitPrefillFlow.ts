@@ -1,7 +1,6 @@
 /**
- * 待收录提交/预填共享流（单条与批量共用尾段）：
- * 「取 URL → https 门 → 超长复制后端载荷 → 打开预填页」单一实现，
- * 单条（handleSubmitPr）与批量（handleBatchSubmit）各自保留 gate→校验→忙态前段。
+ * 待收录提交/预填流程：
+ * 「取 URL → https 门 → 超长复制后端载荷 → 打开预填页」单一实现。
  */
 import type { TFunction } from 'i18next';
 import { copyTextToClipboard } from '../../services/api/catalog';
@@ -12,7 +11,7 @@ import type { ShowToast } from './pendingText';
 /**
  * 预填 URL 长度门限（判定口径为编码后预填链接全长，含 percent-encoding 膨胀；
  * 与 Spec §5 对齐，阈值 8000）：
- * 超过即提示分批提交，单条/批量同口径；超长时优先复制后端产出的提交载荷
+ * 超过即优先复制后端产出的提交载荷
  * （前端不拼装 JSON），再照常尝试打开预填页；载荷不可得则退化为复制链接。
  */
 export const PREFILL_URL_LENGTH_LIMIT = 8000;
@@ -89,24 +88,24 @@ async function notifyPrefillOpenFailed(
   );
 }
 
-/** 共享尾段参数（单条/批量差异全部由此表达）。 */
+/** 预填流参数。 */
 interface SubmitPrefillFlowArgs {
-  /** 预填 URL 提供方（单条 getCustomAppPrUrl / 批量 getCustomAppsBatchPrUrl）；缺席即预览模式硬拦。 */
+  /** 预填 URL 提供方（getCustomAppPrUrl）；缺席即预览模式硬拦。 */
   loadUrl: (() => Promise<string>) | undefined;
   /** 后端提交载荷提供方（超长时优先复制）；缺席退化为复制链接。 */
   loadPayload: (() => Promise<string>) | undefined;
-  /** 非法 URL 提示里的目标标识（trim 后为空才用：单条传 id、批量传 ids.join('、') || 'batch'）。 */
+  /** 非法 URL 提示里的目标标识（trim 后为空才用：单条传 id）。 */
   failLabel: string;
-  /** 超长提示附加 i18n 参数（批量附 count，单条为空对象）。 */
-  tooLongParams: Record<string, unknown>;
-  /** 预填页打开成功后的收尾（批量清选中 + batch_submitted；单条为空）。 */
+  /** 超长提示附加 i18n 参数（可选）。 */
+  tooLongParams?: Record<string, unknown>;
+  /** 预填页打开成功后的收尾（可选）。 */
   onOpened?: () => void;
 }
 
 /**
- * 单条/批量提交共享尾段（busy 置位后调用）：
+ * 提交预填流程（busy 置位后调用）：
  * 预览模式硬拦 → 取 URL（后端门禁错透出 toast 中止）→ https 门（fail-closed）→
- * 超长（> PREFILL_URL_LENGTH_LIMIT）优先复制后端载荷、否则提示分批并复制链接 →
+ * 超长（> PREFILL_URL_LENGTH_LIMIT）优先复制后端载荷、否则复制链接并提示 →
  * 打开预填页（失败复制链接并 toast，不谎报成功）→ 成功后执行 onOpened 收尾。
  * 任何失败路径均不开成功 toast、不触发 onOpened。
  */
@@ -152,7 +151,7 @@ export async function runSubmitPrefillFlow(
       notify(
         t('pending.pr.url_too_long', {
           length: url.length,
-          ...args.tooLongParams,
+          ...(args.tooLongParams ?? {}),
         }),
         'warning',
       );

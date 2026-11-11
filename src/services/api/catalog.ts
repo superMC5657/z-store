@@ -437,26 +437,11 @@ export async function getCustomAppPrUrl(id: string): Promise<string> {
 }
 
 /**
- * 批量收录申请预填链接：选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一）。
- */
-export async function getCustomAppsBatchPrUrl(ids: string[]): Promise<string> {
-  return tauriInvoke<string>(CMD.getCustomAppsBatchPrUrl, { ids });
-}
-
-/**
  * 单条提交载荷（后端序列化的 JSON 对象文本）：预填链接超长时直接复制给用户。
  * 前端只原样透传字符串，不自行拼装/格式化 JSON。
  */
 export async function getCustomAppPrPayload(id: string): Promise<string> {
   return tauriInvoke<string>(CMD.getCustomAppPrPayload, { id });
-}
-
-/**
- * 批量提交载荷（后端序列化的 JSON 数组文本）：批量预填链接超长时直接复制给用户。
- * 前端只原样透传字符串，不自行拼装/格式化 JSON。
- */
-export async function getCustomAppsBatchPrPayload(ids: string[]): Promise<string> {
-  return tauriInvoke<string>(CMD.getCustomAppsBatchPrPayload, { ids });
 }
 
 /**

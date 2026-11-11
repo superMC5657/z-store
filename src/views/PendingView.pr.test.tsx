@@ -77,7 +77,6 @@ describe('PendingView one-click Issue submit (Lane D)', () => {
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onMarkSubmitted={onMarkSubmitted}
         onGetLicenseAllowlist={gateProvider}
@@ -109,7 +108,6 @@ describe('PendingView one-click Issue submit (Lane D)', () => {
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onMarkSubmitted={onMarkSubmitted}
         onGetLicenseAllowlist={gateProvider}
@@ -136,7 +134,6 @@ describe('PendingView one-click Issue submit (Lane D)', () => {
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -161,7 +158,6 @@ describe('PendingView one-click Issue submit (Lane D)', () => {
     await i18n.changeLanguage('zh-CN');
     render(
       <PendingView
-        showBatchBar={false}
         onGetLicenseAllowlist={gateProvider}
         initialEntries={[
           draftEntry({ id: 'o/b', status: 'submitted', pr_url: 'https://github.com/x/y/pull/1' }),
@@ -174,67 +170,11 @@ describe('PendingView one-click Issue submit (Lane D)', () => {
     expect(link?.getAttribute('href')).toBe('https://github.com/x/y/pull/1');
     expect(link?.getAttribute('target')).toBe('_blank');
   });
-});
-
-describe('PendingView batch submit via list multi-select + list toolbar button (no separate bar)', () => {
-  it('merges selected drafts into one prefill URL without auto-marking (stays collected)', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
-    const onGetBatchPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
-    const onMarkSubmitted = vi.fn().mockResolvedValue(undefined);
-
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' }), draftEntry({ id: 'o/b', status: 'collected' })]}
-        onGetBatchPrUrl={onGetBatchPrUrl}
-        onMarkSubmitted={onMarkSubmitted}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
-    // 默认草稿分组列表底部工具行批量隐藏，切到本地收录才展出（空选禁用，无独立批量栏；按钮不在页头区）。
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    fireEvent.click(screen.getByText('本地收录'));
-    const batchBtn = screen.getByTestId('pending-batch-submit') as HTMLButtonElement;
-    expect(batchBtn.disabled).toBe(true);
-    expect(container.querySelector('.pending-header [data-testid="pending-batch-submit"]')).toBeNull();
-    expect(container.querySelector('.pending-list-toolbar [data-testid="pending-batch-submit"]')).toBeTruthy();
-    // 工具行位于列表底部：.pending-list 最后一个子节点，排在所有列表项之后
-    expect(container.querySelector('.pending-list')?.lastElementChild?.getAttribute('data-testid')).toBe('pending-batch-toolbar');
-
-    // 列表多选勾选两条（checkbox aria-label=id，点击不触发详情选中）
-    const boxA = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/a"]') as HTMLInputElement;
-    const boxB = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/b"]') as HTMLInputElement;
-    expect(boxA).toBeTruthy();
-    expect(boxB).toBeTruthy();
-    fireEvent.click(boxA);
-    fireEvent.click(boxB);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByTestId('pending-batch-submit'));
-
-    await waitFor(() => expect(onGetBatchPrUrl).toHaveBeenCalledWith(['o/a', 'o/b']));
-    expect(openSpy).toHaveBeenCalledWith(BATCH_URL);
-    // 打开预填页不自动 mark：各条目靠手动贴链接确认，停留 collected 可重新提交
-    expect(onMarkSubmitted).not.toHaveBeenCalled();
-    expect(screen.getByTestId('pending-batch-submit')).toBeTruthy();
-  });
-
-  it('hides batch entry and multi-select when showBatchBar is false', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]} onGetLicenseAllowlist={gateProvider} />);
-    fireEvent.click(screen.getByText('本地收录'));
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
-  });
 
   it('switches one-click Issue copy between Chinese and English (collected only)', async () => {
     await i18n.changeLanguage('en-US');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -246,7 +186,7 @@ describe('PendingView batch submit via list multi-select + list toolbar button (
 
   it('draft has no submit Issue button (must collect locally first)', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} onGetLicenseAllowlist={gateProvider} />);
+    render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} onGetLicenseAllowlist={gateProvider} />);
     fireEvent.click(screen.getByText('o/a'));
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
     const collectBtn = screen.getByTestId('pending-collect-local');
@@ -262,7 +202,6 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     await i18n.changeLanguage('zh-CN');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -285,7 +224,6 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     const onNotify = vi.fn();
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
@@ -317,7 +255,6 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     const onNotify = vi.fn();
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[
           draftEntry({ id: 'o/a', status: 'collected' }),
           draftEntry({ id: 'o/b', status: 'collected' }),
@@ -347,7 +284,6 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     const onRevertToDraft = vi.fn().mockResolvedValue(undefined);
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
         onRevertToDraft={onRevertToDraft}
         onGetLicenseAllowlist={gateProvider}
@@ -367,7 +303,6 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     await i18n.changeLanguage('zh-CN');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'arch/one', archived: true })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -479,7 +414,6 @@ describe('Lane C move-in placeholder license (draft-lenient, submit-strict)', ()
     render(
       <PendingView
         initialEntries={[placeholder]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onMarkSubmitted={onMarkSubmitted}
         onNotify={onNotify}
@@ -512,49 +446,6 @@ describe('Lane C move-in placeholder license (draft-lenient, submit-strict)', ()
       expect.anything(),
     );
   });
-
-  it('batch submit stays clickable and lists invalid ids inline without toast', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const bad = draftEntry({ id: 'o/b', status: 'collected' });
-    bad.item.license = 'OpenSource';
-    const onGetBatchPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
-    const onMarkSubmitted = vi.fn().mockResolvedValue(undefined);
-    const onNotify = vi.fn();
-
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' }), bad]}
-        onGetBatchPrUrl={onGetBatchPrUrl}
-        onMarkSubmitted={onMarkSubmitted}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
-    // 列表多选 + 列表底部工具行批量：先切到本地收录分组再勾选（按钮在列表底部工具行，不在页头）。
-    fireEvent.click(screen.getByText('本地收录'));
-    expect(container.querySelector('.pending-header [data-testid="pending-batch-submit"]')).toBeNull();
-    expect(container.querySelector('.pending-list-toolbar [data-testid="pending-batch-submit"]')).toBeTruthy();
-    // 工具行位于列表底部：.pending-list 最后一个子节点，排在所有列表项之后
-    expect(container.querySelector('.pending-list')?.lastElementChild?.getAttribute('data-testid')).toBe('pending-batch-toolbar');
-    const boxA = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/a"]') as HTMLInputElement;
-    const boxB = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/b"]') as HTMLInputElement;
-    fireEvent.click(boxA);
-    fireEvent.click(boxB);
-    const batchBtn = screen.getByTestId('pending-batch-submit') as HTMLButtonElement;
-    // 缺项仍可点击，title 复用 license_fix_hint
-    await waitFor(() => expect(batchBtn.disabled).toBe(false));
-    expect(batchBtn.title).toContain('o/b');
-    fireEvent.click(batchBtn);
-    // 行内列出 ids（复用 batch_blocked 文案），不 toast
-    await waitFor(() => expect(screen.getByTestId('pending-batch-blocked')).toBeTruthy());
-    expect(screen.getByTestId('pending-batch-blocked').textContent).toContain('o/b');
-    expect(onGetBatchPrUrl).not.toHaveBeenCalled();
-    expect(onMarkSubmitted).not.toHaveBeenCalled();
-    expect(onNotify).not.toHaveBeenCalledWith(
-      expect.stringContaining('o/b'),
-      'warning',
-    );
-  });
 });
 
 describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-in list)', () => {
@@ -567,7 +458,6 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onMarkSubmitted={onMarkSubmitted}
         onNotify={onNotify}
@@ -595,7 +485,6 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
 
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a' })]}
         onNotify={onNotify}
       />,
@@ -621,53 +510,7 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
   });
 });
 
-describe('PendingView top tabs sync batch entry and submitted with activeGroup', () => {
-  it('list toolbar batch only shows in collected, hides in draft/submitted/archived (no separate bar)', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const entries = [
-      draftEntry({ id: 'o/draft' }),
-      draftEntry({ id: 'o/col', status: 'collected' }),
-      draftEntry({ id: 'o/sub', status: 'submitted', pr_url: 'https://github.com/x/y/pull/9' }),
-      draftEntry({ id: 'o/arch', archived: true }),
-    ];
-    const { container } = render(<PendingView initialEntries={entries} onGetLicenseAllowlist={gateProvider} />);
-    // 页头无计数徽标、无新建入口：页头仅标题 + 描述，计数由 Tab 自带
-    expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
-    expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
-    expect(container.querySelectorAll('.segmented-count')).toHaveLength(3);
-    // 默认草稿分组：列表工具行批量隐藏，无独立批量栏，无多选
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
-    // 切到本地收录：列表底部工具行批量展出（空选禁用，不在页头区）+ 列表多选
-    fireEvent.click(screen.getByText('本地收录'));
-    const batchBtn = screen.getByTestId('pending-batch-submit') as HTMLButtonElement;
-    expect(batchBtn.disabled).toBe(true);
-    expect(container.querySelector('.pending-header [data-testid="pending-batch-submit"]')).toBeNull();
-    expect(container.querySelector('.pending-list-toolbar [data-testid="pending-batch-submit"]')).toBeTruthy();
-    // 工具行位于列表底部：.pending-list 最后一个子节点，排在所有列表项之后
-    expect(container.querySelector('.pending-list')?.lastElementChild?.getAttribute('data-testid')).toBe('pending-batch-toolbar');
-    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]')).toBeTruthy();
-    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/sub"]')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    // 切到本地收录 · 已提交：工具行批量隐藏，无多选，无独立栏
-    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    // 切到已归档：工具行批量隐藏，无多选
-    fireEvent.click(screen.getByText('已归档'));
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
-    // 切回草稿：仍隐藏
-    fireEvent.click(screen.getByText('草稿'));
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-  });
-
+describe('PendingView top tabs sync activeGroup and submitted', () => {
   it('cross-tab switches reset detail selection to empty state (no stale form/rich)', async () => {
     await i18n.changeLanguage('zh-CN');
     const entries = [
@@ -676,7 +519,6 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
     ];
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={entries}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -700,7 +542,7 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
 
   it('submitted shows rich Issue link without duplicate submit or manual mark', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(
+    render(
       <PendingView
         initialEntries={[
           draftEntry({ id: 'o/sub', status: 'submitted', pr_url: 'https://github.com/x/y/pull/9' }),
@@ -708,15 +550,8 @@ describe('PendingView top tabs sync batch entry and submitted with activeGroup',
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    // 草稿分组下列表工具行批量隐藏（draft 不可选）
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByTestId('pending-segment-submitted'));
-    // 已提交分段无批量：工具行隐藏、列表不可多选
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
     fireEvent.click(screen.getByText('o/sub'));
     // 已提交仅展 Issue 链接（列表与详情各一次，同文案双节点），无重复提交/退回/收录
     expect(screen.getAllByText('https://github.com/x/y/pull/9').length).toBeGreaterThanOrEqual(1);
@@ -740,7 +575,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
@@ -764,7 +598,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
@@ -799,7 +632,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
@@ -838,7 +670,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
@@ -857,76 +688,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error');
   });
 
-  it('batch fallback opens via native window.open and reports batch_submitted', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockRejectedValue(new Error('shell open denied'));
-    const windowOpenSpy = vi
-      .spyOn(window, 'open')
-      .mockReturnValue({} as unknown as Window);
-    const onNotify = vi.fn();
-    const onGetBatchPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
-
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' }), draftEntry({ id: 'o/b', status: 'collected' })]}
-        onGetBatchPrUrl={onGetBatchPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
-    fireEvent.click(screen.getByText('本地收录'));
-    const boxA = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/a"]') as HTMLInputElement;
-    const boxB = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/b"]') as HTMLInputElement;
-    fireEvent.click(boxA);
-    fireEvent.click(boxB);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByTestId('pending-batch-submit'));
-
-    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
-    await waitFor(() =>
-      expect(windowOpenSpy).toHaveBeenCalledWith(BATCH_URL, '_blank', 'noopener,noreferrer'),
-    );
-    // 兜底成功报 batch_submitted，不报 open_failed
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success'),
-    );
-    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error');
-  });
-
-  it('batch open failure never reports batch_submitted and keeps selection for retry', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockRejectedValue(new Error('shell open denied'));
-    const windowOpenSpy = vi.spyOn(window, 'open').mockReturnValue(null);
-    const onNotify = vi.fn();
-    const onGetBatchPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
-
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' }), draftEntry({ id: 'o/b', status: 'collected' })]}
-        onGetBatchPrUrl={onGetBatchPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
-    fireEvent.click(screen.getByText('本地收录'));
-    const boxA = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/a"]') as HTMLInputElement;
-    const boxB = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/b"]') as HTMLInputElement;
-    fireEvent.click(boxA);
-    fireEvent.click(boxB);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByTestId('pending-batch-submit'));
-
-    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(BATCH_URL));
-    await waitFor(() =>
-      expect(windowOpenSpy).toHaveBeenCalledWith(BATCH_URL, '_blank', 'noopener,noreferrer'),
-    );
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('预填页打开失败'), 'error'),
-    );
-    // 打开失败不谎报 batch_submitted
-    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success');
-  });
-
   it('single over-long prefill URL warns to split batches but still opens', async () => {
     await i18n.changeLanguage('zh-CN');
     expect(PREFILL_URL_LENGTH_LIMIT).toBe(8000);
@@ -938,7 +699,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
@@ -955,39 +715,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     );
   });
 
-  it('batch over-long prefill URL warns to split batches but still opens', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const longUrl = `https://example.com/new?body=${'y'.repeat(PREFILL_URL_LENGTH_LIMIT + 10)}`;
-    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
-    const onNotify = vi.fn();
-    const onGetBatchPrUrl = vi.fn().mockResolvedValue(longUrl);
-
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' }), draftEntry({ id: 'o/b', status: 'collected' })]}
-        onGetBatchPrUrl={onGetBatchPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
-    fireEvent.click(screen.getByText('本地收录'));
-    const boxA = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/a"]') as HTMLInputElement;
-    const boxB = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/b"]') as HTMLInputElement;
-    fireEvent.click(boxA);
-    fireEvent.click(boxB);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByTestId('pending-batch-submit'));
-
-    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(longUrl));
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('过长'), 'warning'),
-    );
-    // 超长仍尝试打开并报 batch_submitted（仅打开失败才不报）
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success'),
-    );
-  });
-
   it('single over-limit copies the backend payload verbatim and still opens the prefill URL', async () => {
     await i18n.changeLanguage('zh-CN');
     const longUrl = `https://example.com/new?body=${'x'.repeat(PREFILL_URL_LENGTH_LIMIT + 100)}`;
@@ -1001,7 +728,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onGetPrPayload={onGetPrPayload}
         onNotify={onNotify}
@@ -1024,45 +750,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('建议分批提交'), 'warning');
   });
 
-  it('batch over-limit copies the backend batch payload and still opens the prefill URL', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const longUrl = `https://example.com/new?body=${'y'.repeat(PREFILL_URL_LENGTH_LIMIT + 10)}`;
-    const payload = '[{"id":"o/a"},{"id":"o/b"}]';
-    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
-    const writeSpy = stubClipboard();
-    const onNotify = vi.fn();
-    const onGetBatchPrUrl = vi.fn().mockResolvedValue(longUrl);
-    const onGetBatchPrPayload = vi.fn().mockResolvedValue(payload);
-
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' }), draftEntry({ id: 'o/b', status: 'collected' })]}
-        onGetBatchPrUrl={onGetBatchPrUrl}
-        onGetBatchPrPayload={onGetBatchPrPayload}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
-    fireEvent.click(screen.getByText('本地收录'));
-    const boxA = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/a"]') as HTMLInputElement;
-    const boxB = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/b"]') as HTMLInputElement;
-    fireEvent.click(boxA);
-    fireEvent.click(boxB);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByTestId('pending-batch-submit'));
-
-    await waitFor(() => expect(onGetBatchPrPayload).toHaveBeenCalledWith(['o/a', 'o/b']));
-    await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(payload));
-    await waitFor(() => expect(openSpy).toHaveBeenCalledWith(longUrl));
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已复制提交载荷'), 'success'),
-    );
-    // 复制载荷即当作本次提交流程继续：打开成功仍报批量已打开
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已批量打开 Issue 预填页'), 'success'),
-    );
-  });
-
   it('over-limit without a payload provider falls back to copying the prefill URL', async () => {
     await i18n.changeLanguage('zh-CN');
     const longUrl = `https://example.com/new?body=${'z'.repeat(PREFILL_URL_LENGTH_LIMIT + 50)}`;
@@ -1074,7 +761,6 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     render(
       <PendingView
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        showBatchBar={false}
         onGetPrUrl={onGetPrUrl}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}

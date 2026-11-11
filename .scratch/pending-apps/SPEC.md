@@ -17,7 +17,7 @@ platforms, identifiers
 - Issue 载荷序列化风格：2 空格；字符串数组单行内联；`identifiers` 对象按固定键序展开；
   空数组/空对象/空串字段直接省略（不出现 `[]` 换行）。
 - 前端：`src/services/api/catalog.ts`（`toOrderedPrPayload/formatPrObject/inlineJsonStringArray`）；
-  后端：`src-tauri/src/commands/catalog_custom.rs`（`pr_single_payload_json/pr_batch_payload_json`）。
+  后端：`src-tauri/src/commands/catalog_custom.rs`（`pr_single_payload_json`）。
 
 ## 2. 草稿表单（draft 态）
 
@@ -39,7 +39,6 @@ platforms, identifiers
 
 - 顶层 Tab：草稿 / 本地收录 / 已归档；「本地收录」内部分段：全部 / 待提交 / 已提交。
   切 Tab/分段重置选中/表单/报错并联动底部控件；计数按 Tab 分区不重计。
-- 批量栏只在「本地收录」且分段非已提交时出现（多选 + 右下批量提交）；`submitted` 不可勾选。
 - 草稿态：表单 + 收录主按钮（右置主样式），无“提交 Issue”；
   库内后链路（collected/submitted/archived）：一律富卡（`AppCard` + 黄标），不再出现参数表单；
   `submitted` 只展 Issue 链接 + 标记为未提交；`archived` 只读 + 复制为新草稿。
@@ -48,7 +47,7 @@ platforms, identifiers
 - 退回草稿：仅 `collected` 可 `revert_collected_to_draft` 落盘（`status=draft + pr_url` 清空），
   前端命令名必须用规范名（曾因 `revert_collected_app` 不一致致重启回潮）；退回后停留收录页不跳 Tab。
 - 标记为未提交：`withdraw_submitted` 落盘（`status=collected + pr_url` 清空，payload 不动），
-  行回到待提交、批量重新可选；Issue 需用户在 GitHub 自行关闭。
+  行回到待提交；Issue 需用户在 GitHub 自行关闭。
 
 ## 4. 本地库对齐与黄标
 

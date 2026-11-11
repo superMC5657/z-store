@@ -67,51 +67,6 @@ pub fn build_single_pr_url(entry: &CustomAppEntry) -> String {
     )
 }
 
-/// 批量收录申请预填链接（纯函数，可单测，二期开关）：
-/// 选中多条合并为一个 JSON 数组，经一个预填 URL 提交（批量合一 Issue）。
-/// 每条校验状态经提交档 `validate_custom_item(strict)` 逐条标注；
-/// 空集合返回空数组占位页，不 panic。
-pub fn build_batch_pr_url(entries: &[CustomAppEntry], gate: &LicenseGateConfig) -> String {
-    let title = if entries.len() <= 1 {
-        "[批量收录申请]".to_string()
-    } else {
-        format!("[批量收录申请] {} 项", entries.len())
-    };
-    let mut checklist = String::new();
-    for entry in entries {
-        let check = match crate::db::custom_apps::validate_custom_item(
-            &entry.item,
-            ValidateMode::SubmitStrict,
-            gate,
-        ) {
-            Ok(_) => "校验通过".to_string(),
-            Err(reason) => format!("校验失败：{}", reason),
-        };
-        checklist.push_str(&format!("- `{}`：{}\n", entry.id, check));
-    }
-    if checklist.is_empty() {
-        checklist.push_str("- （暂无条目）\n");
-    }
-    let items: Vec<CatalogItem> = entries.iter().map(|e| normalize_pr_item(&e.item)).collect();
-    let payload = pr_batch_payload_json(&items);
-    let body = format!(
-        "## 批量收录申请（本地自维护草稿预填，共 {count} 项）\n\n\
-{checklist}\n\
-{check_note}\n\n\
-### payload_json\n\n```json\n{payload}\n```\n",
-        count = entries.len(),
-        checklist = checklist,
-        check_note = PR_BODY_CHECK_NOTE,
-        payload = payload,
-    );
-    format!(
-        "{}?title={}&body={}",
-        CATALOG_REPO_ISSUES_URL,
-        urlencoding::encode(&title),
-        urlencoding::encode(&body),
-    )
-}
-
 /// Issue 提交前置门禁（纯函数，可单测）：仅 `status==collected` 行允许走 Issue 链路；
 /// 草稿行首行即拦（提示先收录），已提交行只读（明确文案，不走收录门禁）。
 /// `status`/`pr_url` 经 `list_custom_apps`/`get` 透出，无需新增轮询。
@@ -121,7 +76,7 @@ pub fn build_batch_pr_url(entries: &[CustomAppEntry], gate: &LicenseGateConfig) 
 /// (homepage → platforms → identifiers); field order is enforced by the manual
 /// formatter below, not by struct order. Preset is_verified=true on the
 /// prefill clone only (matches catalog.json all-true); stored payload on disk
-/// stays false, batch shares this helper.
+/// stays false.
 fn normalize_pr_item(item: &CatalogItem) -> CatalogItem {
     let mut out = item.clone();
     if out
@@ -191,18 +146,6 @@ fn pr_ordered_identifier_keys(map: &std::collections::HashMap<String, Vec<String
 /// identifiers 对象展开且内层数组内联，空数组/空对象直接省略）。
 fn pr_single_payload_json(item: &CatalogItem) -> String {
     pr_item_json_with_indent(item, "")
-}
-
-/// 批量 Issue payload JSON 数组（内层对象同单条模板风格，整体 2 空格）。
-fn pr_batch_payload_json(items: &[CatalogItem]) -> String {
-    if items.is_empty() {
-        return "[]".to_string();
-    }
-    let bodies: Vec<String> = items
-        .iter()
-        .map(|it| pr_item_json_with_indent(it, "  "))
-        .collect();
-    format!("[\n{}\n]", bodies.join(",\n"))
 }
 
 fn pr_item_json_with_indent(item: &CatalogItem, base: &str) -> String {
@@ -576,7 +519,7 @@ pub fn get_merged_catalog_view(
 }
 
 /// Issue 链路通用取件（单条）：canonical 归一 → 取行 → 收录门禁 → 提交档二次全校验。
-/// 四个 Issue 入口（单条/批量 × URL/payload）共用此门禁。
+/// Issue 入口（URL/payload）共用此门禁。
 fn load_pr_entry(
     db: &crate::db::Database,
     id: &str,
@@ -592,20 +535,6 @@ fn load_pr_entry(
             crate::AppError::new(format!("草稿 {} 提交校验未通过：{}", key, reason))
         })?;
     Ok(entry)
-}
-
-/// 批量 Issue 链路通用取件：逐条同口径门禁，任一条缺席/未收录/校验不过即整批拒绝，
-/// 不静默丢条（错误已带 id，指到待补字段）。
-fn load_pr_entries(
-    db: &crate::db::Database,
-    ids: &[String],
-    gate: &LicenseGateConfig,
-) -> crate::AppResult<Vec<CustomAppEntry>> {
-    let mut entries = Vec::with_capacity(ids.len());
-    for id in ids {
-        entries.push(load_pr_entry(db, id, gate)?);
-    }
-    Ok(entries)
 }
 
 /// 收录申请预填链接：由草稿 payload 生成清单仓库 Issue 预填 URL（预填 Issue 链路入口）。
@@ -630,35 +559,6 @@ pub fn get_custom_app_pr_payload(
     let gate = crate::db::custom_apps::resolve_license_gate();
     let entry = load_pr_entry(&db, &id, &gate)?;
     Ok(pr_single_payload_json(&normalize_pr_item(&entry.item)))
-}
-
-/// 批量收录申请预填链接（二期开关）：多条草稿合并为一个 JSON 数组，经一个预填 URL
-/// 提交（批量合一 Issue）；任一条缺席即整批拒绝，不静默丢条；首行逐条收录门禁
-///（任一条非 collected 即整批 `须先收录进本地再提交 Issue`）；任一条提交档二次校验不过
-/// 即整批拒绝（附 id，指到待补字段）。
-#[tauri::command]
-pub fn get_custom_apps_batch_pr_url(
-    state: State<'_, AppState>,
-    ids: Vec<String>,
-) -> crate::AppResult<String> {
-    let db = state.db().map_err(crate::AppError::from)?;
-    let gate = crate::db::custom_apps::resolve_license_gate();
-    let entries = load_pr_entries(&db, &ids, &gate)?;
-    Ok(build_batch_pr_url(&entries, &gate))
-}
-
-/// 批量收录申请预填 payload（原始 JSON 数组）：与 `get_custom_apps_batch_pr_url`
-/// 同口径门禁，逐条归一化后按模板顺序输出。
-#[tauri::command]
-pub fn get_custom_apps_batch_pr_payload(
-    state: State<'_, AppState>,
-    ids: Vec<String>,
-) -> crate::AppResult<String> {
-    let db = state.db().map_err(crate::AppError::from)?;
-    let gate = crate::db::custom_apps::resolve_license_gate();
-    let entries = load_pr_entries(&db, &ids, &gate)?;
-    let items: Vec<CatalogItem> = entries.iter().map(|e| normalize_pr_item(&e.item)).collect();
-    Ok(pr_batch_payload_json(&items))
 }
 
 /// 许可名单只读查询结果（ADR-0018）：名单唯一源头为后端编译时配置，
@@ -729,10 +629,6 @@ mod tests {
         }
     }
 
-    fn strict_gate() -> LicenseGateConfig {
-        LicenseGateConfig::default()
-    }
-
     #[test]
     fn license_allowlist_mirrors_compiled_gate() {
         // ADR-0018 唯一源头：只读命令返回编译时门禁（默认开 + 37 项全量）。
@@ -764,40 +660,6 @@ mod tests {
     }
 
     #[test]
-    fn batch_pr_url_merges_ids_into_one_json_array() {
-        let url = build_batch_pr_url(&[entry("o/a"), entry("o/b")], &strict_gate());
-        assert!(url.starts_with(CATALOG_REPO_ISSUES_URL));
-        assert!(url.contains("o%2Fa"));
-        assert!(url.contains("o%2Fb"));
-        assert!(url.contains("payload_json"));
-        assert!(url.contains("validate_custom_item"));
-    }
-
-    #[test]
-    fn batch_pr_url_empty_does_not_panic() {
-        let url = build_batch_pr_url(&[], &strict_gate());
-        assert!(url.starts_with(CATALOG_REPO_ISSUES_URL));
-    }
-
-    #[test]
-    fn batch_checklist_marks_opensource_as_failed() {
-        // 批量清单逐条走提交档：占位 license 标校验失败（D1 门禁在提交时）。
-        let url = build_batch_pr_url(
-            &[
-                entry_with_license("o/a", "MIT"),
-                entry_with_license("o/b", "OpenSource"),
-            ],
-            &strict_gate(),
-        );
-        let decoded = urlencoding::decode(&url)
-            .expect("prefill url decodes")
-            .into_owned();
-        assert!(decoded.contains("`o/a`：校验通过"));
-        assert!(decoded.contains("`o/b`：校验失败"));
-        assert!(decoded.contains("OSI"));
-    }
-
-    #[test]
     fn pr_payload_marks_verified_true_while_stored_stays_false() {
         // Prefill body carries is_verified=true (matches catalog.json all-true);
         // stored entry payload stays false (local drafts never pose as verified).
@@ -808,22 +670,6 @@ mod tests {
             .into_owned();
         assert!(decoded.contains("\"is_verified\": true"));
         assert!(!e.item.is_verified);
-
-        let batch = vec![entry("o/a"), entry("o/b")];
-        let decoded = urlencoding::decode(&build_batch_pr_url(&batch, &strict_gate()))
-            .expect("prefill url decodes")
-            .into_owned();
-        let payload = decoded
-            .split("```json\n")
-            .nth(1)
-            .and_then(|s| s.split("\n```").next())
-            .expect("payload block exists");
-        let items: Vec<serde_json::Value> = serde_json::from_str(payload).expect("payload parses");
-        assert_eq!(items.len(), 2);
-        for v in &items {
-            assert_eq!(v.get("is_verified"), Some(&serde_json::Value::Bool(true)));
-        }
-        assert!(batch.iter().all(|x| !x.item.is_verified));
     }
 
     fn collected_entry(id: &str) -> CustomAppEntry {
@@ -887,18 +733,6 @@ mod tests {
         gate_legacy.status = "local_collected".to_string();
         assert!(ensure_collected_for_pr(&gate_legacy).is_ok());
         assert!(ensure_collected_for_pr(&reverted).is_err());
-    }
-
-    fn pr_payload_of(url: &str) -> String {
-        let decoded = urlencoding::decode(url)
-            .expect("prefill url decodes")
-            .into_owned();
-        decoded
-            .split("```json\n")
-            .nth(1)
-            .and_then(|s| s.split("\n```").next())
-            .expect("payload block exists")
-            .to_string()
     }
 
     fn full_entry(id: &str) -> CustomAppEntry {
@@ -1025,36 +859,5 @@ mod tests {
         assert_eq!(normalized.added_at, None);
         let payload = pr_single_payload_json(&normalized);
         assert!(!payload.contains("added_at"));
-    }
-
-    #[test]
-    fn pr_batch_payload_uses_same_template_style() {
-        let items = vec![
-            normalize_pr_item(&full_entry("o/a").item),
-            normalize_pr_item(&full_entry("o/b").item),
-        ];
-        let payload = pr_batch_payload_json(&items);
-        let parsed: Vec<serde_json::Value> =
-            serde_json::from_str(&payload).expect("batch payload parses");
-        assert_eq!(parsed.len(), 2);
-        for v in &parsed {
-            assert!(v.get("install_dirs").is_none());
-            assert!(v.get("search_subdirs").is_none());
-            assert!(v.get("publishers").is_none());
-            assert_eq!(v.get("is_verified"), Some(&serde_json::Value::Bool(true)));
-        }
-        // 批量内层对象同单条模板风格：数组内联、identifiers 展开。
-        assert!(payload.contains("\"aliases\": ["));
-        assert!(payload.contains("\"platforms\": ["));
-        assert!(payload.contains("\"identifiers\": {"));
-        // 空集合保持 [] 占位，不 panic。
-        assert_eq!(pr_batch_payload_json(&[]), "[]");
-        // 预填 URL 携带同风格 payload。
-        let url = build_batch_pr_url(&[full_entry("o/a"), full_entry("o/b")], &strict_gate());
-        let body_payload = pr_payload_of(&url);
-        let body_parsed: Vec<serde_json::Value> =
-            serde_json::from_str(&body_payload).expect("url payload parses");
-        assert_eq!(body_parsed.len(), 2);
-        assert!(body_parsed[0].get("install_dirs").is_none());
     }
 }

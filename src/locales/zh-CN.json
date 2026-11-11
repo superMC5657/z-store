@@ -337,13 +337,7 @@
       "url_copied_open_hint": "已复制 Issue 预填链接，可直接粘贴到浏览器打开",
       "payload_copied": "Issue 预填链接过长（{{length}} 字符），已复制提交载荷，正在打开 Issue 预填页",
       "open_pr": "打开提交链接",
-      "batch_submit": "批量提交 ({{count}})",
-      "batch_submitting": "提交中…",
-      "batch_submitted": "已批量打开 Issue 预填页：{{count}} 条",
-      "batch_need_selection": "请勾选至少一条草稿",
-      "batch_selected": "已选 {{count}}",
       "license_fix_hint": "请补齐 SPDX 协议：{{id}}",
-      "batch_blocked": "草稿校验未通过（请检查协议）：{{ids}}",
       "allowlist_load_failed": "名单加载失败，请重试"
     },
     "id_preview": "canonical 预览：{{id}}",

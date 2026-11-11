@@ -24,7 +24,7 @@ OSI 全量名单。用户需求希望门禁可配置、可控范围（例如本�
    `normalize_license` 归一（config 子集大小写/空格形态同样命中）。
    门禁唯一源为编译时 config：行为只由 `config.toml` 在编译发行时确定，
    无运行时覆盖、无用户提醒，静默生效。
-3. **生效点**：仅提交档（`mark_submitted` / 单条与批量 Issue 预填链接）；
+3. **生效点**：仅提交档（`mark_submitted` / Issue 预填链接）；
    暂存档（`DraftLenient`）行为不变。门禁关闭放行任意非空 license，但记
    WARN 审计日志（`license gate DISABLED … (local-only bypass, non-official)`，
    口径参照 `fetch_remote_catalog` 非默认源 WARN，仅日志文件可见）。
@@ -47,7 +47,6 @@ OSI 全量名单。用户需求希望门禁可配置、可控范围（例如本�
 ## 4. 后果
 
 - 正面：本地实验/企业内源场景可关可配；官方口径不受影响。
-- 中性：`validate_custom_item` / 批量预填 URL 构建函数新增 `gate` 参数
-  （单条构建无门禁注记）。
+- 中性：`validate_custom_item` 新增 `gate` 参数。
 - 风险：用户关闭门禁后提交的非 OSI 条目在官方仓被拒——WARN 日志已明示
   “仅本地生效”，风险外显而非静默（日志可见，不打扰用户）。

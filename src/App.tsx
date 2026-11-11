@@ -689,11 +689,7 @@ export const App: React.FC = () => {
               onRevertToDraft={(id) => handleRevertCollectedApp(id)}
               onWithdrawSubmitted={(id) => handleWithdrawSubmitted(id)}
               onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
-              onGetBatchPrUrl={DEMO_MODE ? undefined : (ids) => tauriApi.getCustomAppsBatchPrUrl(ids)}
               onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}
-              onGetBatchPrPayload={
-                DEMO_MODE ? undefined : (ids) => tauriApi.getCustomAppsBatchPrPayload(ids)
-              }
               onNotify={(message, type) => showToast(message, type ?? 'info')}
             />
           )}

@@ -36,7 +36,6 @@
    `withdraw_submitted`（`submitted`→`collected` + 清空 `pr_url`，payload 不动；已归档/非 submitted 拒绝）/
    `retire_on_sync`（远端 id 命中即 `archived=1`，返回转正提示）/
    `get_merged_catalog_view`（合并查询 helper）/ `get_custom_app_pr_url`（单条预填链路入口，
-   提交档校验后生成）/ `get_custom_apps_batch_pr_url` + `build_batch_pr_url`（批量预填链路，
    提交档校验后生成）。
 3. **全局合并为视图（非写回）**：`CatalogService` 持有远端精选目录 + 本地收录 overlay
    （`collected: RwLock<Vec<CatalogItem>>`，启动与 `custom_apps` 变更后经 `sync_collected_from_db` 同步）；
@@ -51,13 +50,12 @@
 4. **转正闭环**：`sync_catalog` 成功路径（含本地降级）以远端 id 集合自动退役命中草稿，
    消息尾部追加转正提示（`with_graduation_hint`）；`retire_on_sync` 亦可独立调用
    （`remote_ids=None` 时以当前内存目录为准）。
-5. **预填 Issue 链路**：`build_single_pr_url` / `build_batch_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL
+5. **预填 Issue 链路**：`build_single_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL
    （标题带 canonical id，正文含关键字段 + 完整 JSON），用户在浏览器确认后提交，
-   maintainer 转 PR——草稿“本地先生效、远端后收录”不断链。单条入口为
-   `get_custom_app_pr_url` / `get_custom_app_pr_payload`，批量入口为
-   `get_custom_apps_batch_pr_url` / `get_custom_apps_batch_pr_payload` /
-   `build_batch_pr_url`（提交档校验后生成，门禁口径见 ADR-0018）；payload 命令只返回
-   Rust 序列化的 JSON 文本（单对象 / 数组），供预填链接超长时原样复制，前端不拼模板。
+   maintainer 转 PR——草稿“本地先生效、远端后收录”不断链。入口为
+   `get_custom_app_pr_url` / `get_custom_app_pr_payload`
+   （提交档校验后生成，门禁口径见 ADR-0018）；payload 命令只返回
+   Rust 序列化的 JSON 文本（单对象），供预填链接超长时原样复制，前端不拼模板。
    （内部命令与字段沿用 `pr_url` 命名，界面文案呈现为 Issue。）
 6. **前端接线**：待收录页 `PendingView.tsx`
   （+ `PendingView.test.tsx` / `PendingView.pr.test.tsx`、`styles/components-pending.css`，

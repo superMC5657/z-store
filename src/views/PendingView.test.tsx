@@ -150,7 +150,7 @@ describe('PendingView grouping and empty states', () => {
       draftEntry({ id: 'o/b', status: 'submitted', pr_url: 'https://github.com/x/y/pull/1' }),
       draftEntry({ id: 'o/c', archived: true }),
     ];
-    const { container } = render(<PendingView showBatchBar={false} initialEntries={entries} />);
+    const { container } = render(<PendingView initialEntries={entries} />);
     // 三态分组：草稿 / 本地收录 / 已归档；Issue 进度降为本地收录内部分段
     expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
     expect(screen.getByText('草稿')).toBeTruthy();
@@ -240,7 +240,7 @@ describe('Sidebar pending nav (discovery group + badge slot)', () => {  it('rend
 describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校验/提交）', () => {
   it('左右分栏走 CSS 类（无内联双列），中小宽度由样式表堆叠', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} />);
+    const { container } = render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />);
     const layout = container.querySelector('.pending-layout') as HTMLElement | null;
     expect(layout).toBeTruthy();
     // 分栏列定义在样式表，行内不留 grid-template-columns。
@@ -255,7 +255,7 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
 
   it('无多列网格残留：行容器拆除，每字段独占一整行', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} />);
+    const { container } = render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />);
     fireEvent.click(screen.getByText('o/a'));
     const card = container.querySelector('.pending-editor-card') as HTMLElement | null;
     expect(card).toBeTruthy();
@@ -289,7 +289,7 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
 
   it('renders category as a styled select-fluent dropdown with 10 official categories and auto-fills category_name', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} />);
+    render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />);
     fireEvent.click(screen.getByText('o/a'));
 
     const select = screen.getByTestId('pending-select-category') as HTMLSelectElement;
@@ -331,7 +331,7 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
   it('长 id 标题省略 + title 悬浮看全', async () => {
     await i18n.changeLanguage('zh-CN');
     const longId = 'verylongownername/verylongreponame-0123456789abcdef';
-    const { container } = render(<PendingView showBatchBar={false} initialEntries={[draftEntry({ id: longId })]} />);
+    const { container } = render(<PendingView initialEntries={[draftEntry({ id: longId })]} />);
     fireEvent.click(screen.getByText(longId));
     const title = container.querySelector('.pending-editor-title') as HTMLElement | null;
     expect(title).toBeTruthy();
@@ -349,7 +349,6 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
     await i18n.changeLanguage('zh-CN');
     const { container } = render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[
           {
             id: 'owner1/repo1',
@@ -392,7 +391,6 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
 
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[
           {
             id: 'owner1/repo1',
@@ -442,7 +440,6 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
     await i18n.changeLanguage('zh-CN');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'arch/one', archived: true })]}
       />,
     );
@@ -469,7 +466,6 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
     await i18n.changeLanguage('zh-CN');
     const { container } = render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'owner1/repo1' })]}
       />,
     );
@@ -491,7 +487,7 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
 describe('PendingView 回归（自动派生 canonical id + duplicate 警告 + 旧 key 迁移）', () => {
   it('新建态输入大写 owner/repo 自动按小写 owner/repo 派生 id 并保存', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView showBatchBar={false} />);
+    render(<PendingView />);
     fireEvent.click(screen.getByText('新建草稿'));
     const [ownerInput, repoInput] = screen.getAllByPlaceholderText('rustdesk') as HTMLInputElement[];
     fireEvent.change(ownerInput, { target: { value: 'OwnerA' } });
@@ -506,7 +502,6 @@ describe('PendingView 回归（自动派生 canonical id + duplicate 警告 + �
     const onNotify = vi.fn();
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a' })]}
         onNotify={onNotify}
       />,
@@ -549,7 +544,6 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
     const onCollectLocal = vi.fn().mockResolvedValue(undefined);
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a' })]}
         onNotify={onNotify}
         onCollectLocal={onCollectLocal}
@@ -589,7 +583,6 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
     placeholder.item.license = 'OpenSource';
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[placeholder]}
         onNotify={onNotify}
         onGetPrUrl={onGetPrUrl}
@@ -631,7 +624,7 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
   it('gate 未就绪时 license 暂不标错（快照口径，不每键 IPC）', async () => {
     await i18n.changeLanguage('zh-CN');
     render(
-      <PendingView showBatchBar={false} initialEntries={[draftEntry({ id: 'o/a' })]} />,
+      <PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />,
     );
     fireEvent.click(screen.getByText('o/a'));
     // 故意不传 onGetLicenseAllowlist：非 Tauri 单测默认拉取失败，快照为空按 disabled 口径
@@ -660,20 +653,15 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     ];
   }
 
-  it('draft=表单+收录主按钮（页头无新建入口、无计数徽标），列表工具行批量隐藏、无多选', async () => {
+  it('draft=表单+收录主按钮（页头无新建入口、无计数徽标）', async () => {
     await i18n.changeLanguage('zh-CN');
     const { container } = render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
-    // 页头不再设新建入口、无计数徽标；默认草稿分组列表工具行批量隐藏（仅 collected 可见），无独立批量栏
+    // 页头不再设新建入口、无计数徽标
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
     // Tab 自带草稿/收录计数保留
     expect(container.querySelector('.segmented-group')?.textContent).toContain('草稿');
     expect(container.querySelectorAll('.segmented-count')).toHaveLength(3);
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    // draft 列表无多选 checkbox
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
     fireEvent.click(screen.getByText('o/draft'));
     // 表单态：保存草稿 + 收录主按钮，无提交 Issue，无富卡黄标
     expect(screen.getByText('保存草稿')).toBeTruthy();
@@ -683,26 +671,11 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     expect(document.querySelector('.pending-editor .verified-badge-local')).toBeNull();
   });
 
-  it('collected=富卡+提交主/退回次+列表多选汇总到列表工具行批量', async () => {
+  it('collected=富卡+提交主/退回次', async () => {
     await i18n.changeLanguage('zh-CN');
     const { container } = render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
     fireEvent.click(screen.getByText('本地收录'));
-    // 列表底部工具行批量按钮可见（空选禁用），不在页头区，无独立批量栏
-    const batchBtn = screen.getByTestId('pending-batch-submit') as HTMLButtonElement;
-    expect(batchBtn).toBeTruthy();
-    expect(batchBtn.disabled).toBe(true);
-    expect(container.querySelector('.pending-header [data-testid="pending-batch-submit"]')).toBeNull();
-    expect(container.querySelector('.pending-list-toolbar [data-testid="pending-batch-submit"]')).toBeTruthy();
-    // 工具行位于列表底部：.pending-list 最后一个子节点，排在所有列表项之后
-    expect(container.querySelector('.pending-list')?.lastElementChild?.getAttribute('data-testid')).toBe('pending-batch-toolbar');
-    expect(screen.queryByTestId('pending-batch-bar')).toBeNull();
-    // 列表多选 checkbox 仅 collected 行可见（submitted 同列但不可勾选）
-    const checkbox = container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]') as HTMLInputElement;
-    expect(checkbox).toBeTruthy();
-    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/sub"]')).toBeNull();
-    fireEvent.click(checkbox);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    // 点左侧列表项进详情（checkbox 点击不触发选中，已由 stopPropagation 隔离）
+    // 点左侧列表项进详情
     const listItem = container.querySelector('.pending-list .pending-list-item') as HTMLElement;
     expect(listItem?.textContent).toContain('o/col');
     fireEvent.click(listItem);
@@ -715,9 +688,9 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
   });
 
-  it('submitted=富卡+PR链接+删除无重复提交，无批量（工具行隐藏、列表不可多选）', async () => {
+  it('submitted=富卡+PR链接+删除无重复提交', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(
+    render(
       <PendingView
         initialEntries={fourStateEntries()}
         onGetLicenseAllowlist={gateProvider}
@@ -725,10 +698,6 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByTestId('pending-segment-submitted'));
-    // 已提交分段无批量：工具行隐藏、列表不可多选
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
     fireEvent.click(screen.getByText('o/sub'));
     // 列表与详情各展一次 Issue 链接（同文案双节点），断言至少详情区展出
     expect(screen.getAllByText('https://github.com/x/y/pull/9').length).toBeGreaterThanOrEqual(1);
@@ -751,7 +720,6 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     const onNotify = vi.fn();
     const { container } = render(
       <PendingView
-        showBatchBar={false}
         initialEntries={fourStateEntries()}
         onNotify={onNotify}
         onGetLicenseAllowlist={gateProvider}
@@ -779,7 +747,6 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     const onDelete = vi.fn().mockResolvedValue(undefined);
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={fourStateEntries()}
         onDelete={onDelete}
         onGetLicenseAllowlist={gateProvider}
@@ -793,14 +760,10 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith('o/sub'));
   });
 
-  it('archived=富卡只读+复制为新草稿，无表单、无批量', async () => {
+  it('archived=富卡只读+复制为新草稿，无表单', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
+    render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
     fireEvent.click(screen.getByText('已归档'));
-    // archived 不可多选：无 checkbox，列表工具行批量隐藏
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
     fireEvent.click(screen.getByText('o/arch'));
     // 富卡只读：无表单保存/输入，展黄标 + 已归档徽标 + 复制按钮
     expect(screen.queryByText('保存草稿')).toBeNull();
@@ -818,12 +781,11 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     await i18n.changeLanguage('zh-CN');
     const { container } = render(
       <PendingView
-        showBatchBar={false}
         initialEntries={fourStateEntries()}
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    // 页头无计数徽标、无新建入口（showBatchBar=false 时工具行同样隐藏）
+    // 页头无计数徽标、无新建入口
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
     fireEvent.click(screen.getByText('o/draft'));
@@ -871,7 +833,7 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
   it('segments filter all / to-submit / pending-merge and reset the detail selection', async () => {
     await i18n.changeLanguage('zh-CN');
     const { container } = render(
-      <PendingView showBatchBar={false} entries={libraryEntries()} onGetLicenseAllowlist={gateProvider} />,
+      <PendingView entries={libraryEntries()} onGetLicenseAllowlist={gateProvider} />,
     );
     const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
     fireEvent.click(screen.getByText('本地收录'));
@@ -899,57 +861,12 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
 
   it('empty segment shows its own copy instead of the generic group empty state', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView showBatchBar={false} entries={[draftEntry({ id: 'o/col', status: 'collected' })]} />);
+    render(<PendingView entries={[draftEntry({ id: 'o/col', status: 'collected' })]} />);
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByTestId('pending-segment-submitted'));
     expect(screen.getByText('暂无已提交应用')).toBeTruthy();
     expect(screen.getByText('已提交等待收录的应用显示在此。')).toBeTruthy();
     expect(screen.queryByText('该分组暂无草稿')).toBeNull();
-  });
-
-  it('batch bar only exists in library non-pending-merge; submitted ids are never selectable', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView entries={libraryEntries()} onGetLicenseAllowlist={gateProvider} />);
-    fireEvent.click(screen.getByText('本地收录'));
-    // 待提交段：批量栏在，collected 行有 checkbox
-    expect(screen.getByTestId('pending-batch-toolbar')).toBeTruthy();
-    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]')).toBeTruthy();
-    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/lc"]')).toBeTruthy();
-    expect(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/sub"]')).toBeNull();
-    // 勾选 collected → 批量可点
-    fireEvent.click(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]') as HTMLInputElement);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    // 切到已提交：批量栏消失、无复选框
-    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
-    expect(screen.queryByTestId('pending-batch-toolbar')).toBeNull();
-    expect(screen.queryByTestId('pending-batch-submit')).toBeNull();
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
-    // 切回待提交：批量栏回来，上一段选择已在切换时重置
-    fireEvent.click(screen.getByTestId('pending-segment-to_submit'));
-    expect(screen.getByTestId('pending-batch-toolbar')).toBeTruthy();
-    expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('prunes a selected collected id when the row becomes submitted after a parent refresh', async () => {
-    await i18n.changeLanguage('zh-CN');
-    const collected = draftEntry({ id: 'o/col', status: 'collected' });
-    const { container, rerender } = render(
-      <PendingView entries={[collected]} onGetLicenseAllowlist={gateProvider} />,
-    );
-    fireEvent.click(screen.getByText('本地收录'));
-    fireEvent.click(container.querySelector('.pending-list input[type="checkbox"][aria-label="o/col"]') as HTMLInputElement);
-    await waitFor(() => expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(false));
-    // 父级刷新：同 id 变为 submitted（仍在库内，但不可入批）
-    rerender(
-      <PendingView
-        entries={[draftEntry({ id: 'o/col', status: 'submitted', pr_url: 'https://github.com/x/y/pull/3' })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
-    await waitFor(() =>
-      expect((screen.getByTestId('pending-batch-submit') as HTMLButtonElement).disabled).toBe(true),
-    );
-    expect(container.querySelector('.pending-list input[type="checkbox"]')).toBeNull();
   });
 });
 
@@ -1103,7 +1020,7 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
   it('草稿列表项随语言切换简介、空回退另一语言', async () => {
     await i18n.changeLanguage('zh-CN');
     const { container, unmount } = render(
-      <PendingView showBatchBar={false} initialEntries={[bilingualEntry({ id: 'o/a' })]} />,
+      <PendingView initialEntries={[bilingualEntry({ id: 'o/a' })]} />,
     );
     const listTextZh = container.querySelector('.pending-list')?.textContent ?? '';
     expect(listTextZh).toContain('中文简介');
@@ -1112,7 +1029,7 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
 
     await i18n.changeLanguage('en-US');
     const { container: containerEn, unmount: unmountEn } = render(
-      <PendingView showBatchBar={false} initialEntries={[bilingualEntry({ id: 'o/a' })]} />,
+      <PendingView initialEntries={[bilingualEntry({ id: 'o/a' })]} />,
     );
     const listTextEn = containerEn.querySelector('.pending-list')?.textContent ?? '';
     expect(listTextEn).toContain('English desc');
@@ -1124,7 +1041,7 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     const fallback = bilingualEntry({ id: 'o/b' });
     fallback.item.description_en = '   ';
     const { container: containerFb, unmount: unmountFb } = render(
-      <PendingView showBatchBar={false} initialEntries={[fallback]} />,
+      <PendingView initialEntries={[fallback]} />,
     );
     expect(containerFb.querySelector('.pending-list')?.textContent ?? '').toContain('中文简介');
     unmountFb();
@@ -1135,14 +1052,14 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     empty.item.description = '   ';
     empty.item.description_en = '  ';
     const { container: containerEmpty, unmount: unmountEmpty } = render(
-      <PendingView showBatchBar={false} initialEntries={[empty]} />,
+      <PendingView initialEntries={[empty]} />,
     );
     expect(containerEmpty.querySelector('.pending-list')?.textContent ?? '').toContain('暂无简介');
     unmountEmpty();
 
     await i18n.changeLanguage('en-US');
     const { container: containerEmptyEn, unmount: unmountEmptyEn } = render(
-      <PendingView showBatchBar={false} initialEntries={[empty]} />,
+      <PendingView initialEntries={[empty]} />,
     );
     expect(containerEmptyEn.querySelector('.pending-list')?.textContent ?? '').toContain('No description');
     unmountEmptyEn();
@@ -1152,7 +1069,6 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     await i18n.changeLanguage('zh-CN');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[bilingualEntry({ id: 'o/a' })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1172,7 +1088,6 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     await i18n.changeLanguage('en-US');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[bilingualEntry({ id: 'o/a' })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1189,7 +1104,6 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     empty.item.description_en = '   ';
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[empty]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1202,7 +1116,6 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     await i18n.changeLanguage('en-US');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[empty]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1216,7 +1129,6 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[bilingualEntry({ id: 'o/a', status: 'collected' })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1229,7 +1141,6 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     await i18n.changeLanguage('en-US');
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[bilingualEntry({ id: 'o/a', status: 'collected' })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1273,7 +1184,6 @@ describe('PendingView 富卡 stars/forks 取真值（pendingDraftToAppSummary）
     entry.item.forks = 400;
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[entry]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1289,7 +1199,6 @@ describe('PendingView 富卡 stars/forks 取真值（pendingDraftToAppSummary）
     const entry = draftEntry({ id: 'o/a', status: 'collected' });
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[entry]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1319,7 +1228,6 @@ describe('PendingView 保存类回调失败路径（Issue 05）', () => {
     const onSave = vi.fn().mockRejectedValue(new Error('db offline'));
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a' })]}
         onNotify={onNotify}
         onSave={onSave}
@@ -1341,7 +1249,6 @@ describe('PendingView 保存类回调失败路径（Issue 05）', () => {
     const onDelete = vi.fn().mockRejectedValue(new Error('db offline'));
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a' })]}
         onNotify={onNotify}
         onDelete={onDelete}
@@ -1366,7 +1273,6 @@ describe('PendingView 保存类回调失败路径（Issue 05）', () => {
     const onMarkSubmitted = vi.fn().mockRejectedValue(new Error('db offline'));
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
         onNotify={onNotify}
         onMarkSubmitted={onMarkSubmitted}
@@ -1393,7 +1299,6 @@ describe("PendingView 国际化（中英语言切换）", () => {
     await i18n.changeLanguage("zh-CN");
     const { unmount } = render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: "o/a" })]}
       />,
     );
@@ -1419,7 +1324,6 @@ describe("PendingView 国际化（中英语言切换）", () => {
     await i18n.changeLanguage("en-US");
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: "o/a" })]}
       />,
     );
@@ -1451,7 +1355,6 @@ describe("PendingView 草稿编辑直点收录进本地（自动落盘最新表�
     await i18n.changeLanguage("zh-CN");
     const { container } = render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: "o/a" })]}
         onGetLicenseAllowlist={gateProvider}
       />,
@@ -1476,7 +1379,6 @@ describe("PendingView 草稿编辑直点收录进本地（自动落盘最新表�
 
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[entry]}
         onSave={onSave}
         onCollectLocal={onCollectLocal}
@@ -1515,7 +1417,6 @@ describe("PendingView 草稿编辑直点收录进本地（自动落盘最新表�
     await i18n.changeLanguage("zh-CN");
     render(
       <PendingView
-        showBatchBar={false}
         initialEntries={[draftEntry({ id: "o/a" })]}
         onGetLicenseAllowlist={gateProvider}
       />,

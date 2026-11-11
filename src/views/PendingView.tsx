@@ -31,7 +31,6 @@ import {
   type PendingSegmentId,
 } from './pending/draftModel';
 import { runSubmitPrefillFlow } from './pending/submitPrefillFlow';
-import { errorStyle } from './pending/pendingStyles';
 import type { ShowToast } from './pending/pendingText';
 import { PendingListColumn } from './pending/PendingListColumn';
 import { PendingRichCard } from './pending/PendingRichCard';
@@ -51,7 +50,7 @@ import { PendingDraftForm } from './pending/PendingDraftForm';
  *   缺席时走内部本地态（浏览器预览/单测可独立渲染编辑）。
  * - 设计走 Linear 去彩单色：仅用文本层级 + 边框 + 单色图标，不引入彩色语义。
  * - 领域纯函数（校验/归一/分组）收容于 `pending/draftModel`，
- *   单条/批量提交共享尾段收容于 `pending/submitPrefillFlow`。
+ *   提交尾段收容于 `pending/submitPrefillFlow`。
  */
 
 interface PendingViewProps {
@@ -80,28 +79,16 @@ interface PendingViewProps {
    */
   onGetPrUrl?: (id: string) => Promise<string>;
   /**
-   * 批量预填 URL 提供方（App 透传 tauriApi.getCustomAppsBatchPrUrl；
-   * 缺席时用本地同形兜底）。
-   */
-  onGetBatchPrUrl?: (ids: string[]) => Promise<string>;
-  /**
    * 单条提交载荷（后端 `get_custom_app_pr_payload` 产出的 JSON 对象文本；
    * 前端只原样复制，不自行拼装/格式化）。预填链接超长时优先复制它。
    */
   onGetPrPayload?: (id: string) => Promise<string>;
-  /**
-   * 批量提交载荷（后端 `get_custom_apps_batch_pr_payload` 产出的 JSON 数组文本；
-   * 前端只原样复制）。批量预填链接超长时优先复制它。
-   */
-  onGetBatchPrPayload?: (ids: string[]) => Promise<string>;
   /**
    * 许可名单提供方（后端只读命令的前端封装；
    * 缺席时默认走 `getLicenseAllowlist`，单测可注入桩）。
    * 启动/提交前拉取，失败不回退写死名单（暂存放行、提交提示重试）。
    */
   onGetLicenseAllowlist?: () => Promise<LicenseAllowlistResult>;
-  /** 批量提交入口开关（默认开启，传 false 隐藏本地收录列表工具行批量按钮与列表多选；开启时也仅本地收录分组可见）。 */
-  showBatchBar?: boolean;
   /** 轻提示通道（缺席时静默）。 */
   onNotify?: ShowToast;
 }
@@ -118,10 +105,6 @@ const SEGMENT_META: ReadonlyArray<{ id: PendingSegmentId }> = [
   { id: 'to_submit' },
   { id: 'submitted' },
 ];
-
-function formatLocalizedList(items: string[], lang: string): string {
-  return items.join(lang.startsWith('zh') ? '、' : ', ');
-}
 
 /** 归一草稿表单与文本态字段（id 由非空 owner/repo 自动按小写派生，否则保留已有 id）。 */
 function buildNormalizedFormItem(
@@ -169,14 +152,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
   onRevertToDraft,
   onWithdrawSubmitted,
   onGetPrUrl,
-  onGetBatchPrUrl,
   onGetPrPayload,
-  onGetBatchPrPayload,
   onGetLicenseAllowlist,
-  showBatchBar = true,
   onNotify,
 }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
   const entries = controlledEntries ?? localEntries;
   const [activeGroup, setActiveGroup] = useState<PendingGroupId>('draft');
@@ -186,20 +166,18 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [prUrlInput, setPrUrlInput] = useState('');
   const [formErrors, setFormErrors] = useState<PendingDraftErrors>({});
-  // 单卡提交/收录忙态：提交中 id + 收录中 id + 批量选中/提交中（避免重复提交）。
+  // 单卡提交/收录忙态：提交中 id + 收录中 id（避免重复提交）。
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [collectingId, setCollectingId] = useState<string | null>(null);
   const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null);
   const [revertingId, setRevertingId] = useState<string | null>(null);
   const [confirmWithdrawId, setConfirmWithdrawId] = useState<string | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
-  const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
-  const [batchBusy, setBatchBusy] = useState(false);
   const [previewExpanded, setPreviewExpanded] = useState(true);
 
   /**
    * 顶层三态切换（draft/library/archived）：
-   * 右侧详情 + 底部批量栏 + 操作按钮随 activeGroup 联动，
+   * 右侧详情 + 操作按钮随 activeGroup 联动，
    * 切 Tab 即重置跨分组选中（含新建态与二次确认态）与分段（回默认「待提交」），无选中走空态提示。
    */
   const handleGroupChange = (group: PendingGroupId) => {
@@ -213,10 +191,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setConfirmWithdrawId(null);
     setPrUrlInput('');
     setFormErrors({});
-    setBatchSelected(new Set());
   };
 
-  /** 分段切换沿用切 Tab 的重置语义（选中/表单/报错/批量选择归零）。 */
+  /** 分段切换沿用切 Tab 的重置语义（选中/表单/报错归零）。 */
   const handleSegmentChange = (segment: PendingSegmentId) => {
     if (segment === activeSegment) return;
     setActiveSegment(segment);
@@ -227,7 +204,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setConfirmWithdrawId(null);
     setPrUrlInput('');
     setFormErrors({});
-    setBatchSelected(new Set());
   };
 
   // 表单 B/C 分节的展开/收起偏好（localStorage 持久化，A 核心必填不许折叠隐藏；
@@ -464,18 +440,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
     }, 0);
   };
 
-  const scrollToBatchBlocked = () => {
-    window.setTimeout(() => {
-      const el = document.querySelector('[data-testid="pending-batch-blocked"]');
-      if (!el) return;
-      try {
-        (el as HTMLElement).scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-      } catch {
-        /* 忽略 */
-      }
-    }, 0);
-  };
-
   const handleDuplicateDraft = () => {
     if (!editingEntry) return;
     // 复制为新草稿归 draft 分组：切回草稿 Tab 再展新建表单。
@@ -678,12 +642,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
         setPrUrlInput('');
         setFormErrors({});
       }
-      setBatchSelected((prev) => {
-        if (!prev.has(id)) return prev;
-        const nextSet = new Set(prev);
-        nextSet.delete(id);
-        return nextSet;
-      });
       onNotify?.(t('pending.reverted', { id }), 'info');
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
@@ -720,17 +678,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setWithdrawingId(id);
     try {
       await onWithdrawSubmitted(id);
-      // 撤下后行离开已提交：选中清空（父级刷新后回待提交分段），批量重新可选。
+      // 撤下后行离开已提交：选中清空（父级刷新后回待提交分段）。
       setSelectedId(null);
       setIsCreating(false);
       setPrUrlInput('');
       setFormErrors({});
-      setBatchSelected((prev) => {
-        if (!prev.has(id)) return prev;
-        const nextSet = new Set(prev);
-        nextSet.delete(id);
-        return nextSet;
-      });
       onNotify?.(t('pending.withdrawn', { id }), 'success');
     } catch (e) {
       onNotify?.(e instanceof Error ? e.message : String(e), 'error');
@@ -784,7 +736,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
         flipLocalCollected(id, item);
       }
       loadIntoForm(item);
-      // 收录后切到本地收录 · 待提交，右侧切富卡 + 批量栏可见。
+      // 收录后切到本地收录 · 待提交，右侧切富卡。
       setActiveGroup('library');
       setActiveSegment('to_submit');
       onNotify?.(t('pending.collected', { id }), 'success');
@@ -828,115 +780,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
           loadUrl: onGetPrUrl ? () => onGetPrUrl(id) : undefined,
           loadPayload: onGetPrPayload ? () => onGetPrPayload(id) : undefined,
           failLabel: target.id,
-          tooLongParams: {},
         },
       );
       // 打开预填页后即止：不 mark submitted、不切分组，停留 collected 等手动确认。
     } finally {
       setSubmittingId(null);
-    }
-  };
-
-  /** 批量提交候选：仅已收录未归档（collected 系；draft 先收录进本地，已提交/已归档不进批）。 */
-  const batchCandidates = useMemo(
-    () => entries.filter((e) => !e.archived && isPendingCollectedStatus(e.status)),
-    [entries],
-  );
-
-  // 提交态/归档态一旦离开候选（父级刷新或本地翻态），立即从批量选中剔除，保证 submitted 永不入批。
-  useEffect(() => {
-    setBatchSelected((prev) => {
-      if (prev.size === 0) return prev;
-      const candidateIds = new Set(batchCandidates.map((e) => e.id));
-      const next = new Set<string>();
-      for (const id of prev) if (candidateIds.has(id)) next.add(id);
-      return next.size === prev.size ? prev : next;
-    });
-  }, [batchCandidates]);
-
-  /** 列表多选可用性：仅本地收录 · 非已提交分段可勾选；行本身仍限 collected 系（submitted/draft/archived 不可选）。 */
-  const isBatchSelectableGroup = activeGroup === 'library' && activeSegment !== 'submitted';
-  const showBatchSelection = showBatchBar && isBatchSelectableGroup;
-
-  const toggleBatchSelected = (id: string) => {
-    const target = entries.find((e) => e.id === id);
-    if (!target || target.archived || !isPendingCollectedStatus(target.status)) return;
-    setBatchSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  // 批量选中项的 submit 档 live 拦阻（快照口径，不每键 IPC；未就绪按 disabled 暂不标 license）。
-  const batchPicked = useMemo(
-    () => batchCandidates.filter((e) => batchSelected.has(e.id)),
-    [batchCandidates, batchSelected],
-  );
-  const batchBlockedLive = useMemo(
-    () =>
-      batchPicked.filter(
-        (e) => Object.keys(validatePendingDraft(e.item, 'submit', effectiveGate)).length > 0,
-      ),
-    [batchPicked, effectiveGate],
-  );
-  const hasBatchErrors = batchBlockedLive.length > 0;
-  const batchLicenseErrorId = useMemo(() => {
-    for (const e of batchBlockedLive) {
-      if (validatePendingDraft(e.item, 'submit', effectiveGate).license) return e.id;
-    }
-    return null;
-  }, [batchBlockedLive, effectiveGate]);
-
-  /**
-   * 批量提交（仅本地收录分组：列表多选 + 列表工具行按钮，随切 Tab 显隐）：先确保后端许可名单就绪（失败提示重试并中止）→
-   * 选中多条 → 提交档本地预检（缺项可点击：拦阻行内列出 ids，不 toast 不开页不标记）→
-   * 共享提交尾段（取批量合一预填 URL→https 判→超长复制批量载荷→开页，
-   * 见 pending/submitPrefillFlow）即止：不自动 mark，各条目 submitted 态靠用户逐条手动贴链接确认，
-   * 取消则停留 collected 可重新提交。仅打开成功才清选中 + 报 batch_submitted。
-   * showBatchBar=false 时隐藏工具行入口与多选。
-   */
-  const handleBatchSubmit = async () => {
-    const picked = batchCandidates.filter((e) => batchSelected.has(e.id));
-    if (picked.length === 0 || batchBusy) {
-      if (picked.length === 0) {
-        onNotify?.(t('pending.pr.batch_need_selection'), 'warning');
-      }
-      return;
-    }
-    const gate = await ensureLicenseGate();
-    if (!gate) return;
-    const blocked = picked.filter(
-      (e) => Object.keys(validatePendingDraft(e.item, 'submit', gate)).length > 0,
-    );
-    if (blocked.length > 0) {
-      setFormErrors(validatePendingDraft(blocked[0].item, 'submit', gate));
-      scrollToBatchBlocked();
-      return;
-    }
-    setBatchBusy(true);
-    try {
-      const ids = picked.map((e) => e.id);
-      await runSubmitPrefillFlow(
-        { t, notify: (message, type) => onNotify?.(message, type) },
-        {
-          loadUrl: onGetBatchPrUrl ? () => onGetBatchPrUrl(ids) : undefined,
-          loadPayload: onGetBatchPrPayload ? () => onGetBatchPrPayload(ids) : undefined,
-          failLabel: formatLocalizedList(ids, i18n.language) || 'batch',
-          tooLongParams: { count: ids.length },
-          onOpened: () => {
-            // 打开预填页后即止：不逐条 mark submitted，停留 collected 等手动确认。
-            setBatchSelected(new Set());
-            onNotify?.(t('pending.pr.batch_submitted', { count: ids.length }), 'success');
-          },
-        },
-      );
-    } finally {
-      setBatchBusy(false);
     }
   };
 
@@ -1024,19 +872,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
         </div>
       )}
 
-      {/* 3. 批量拦阻行内提示（仅本地收录分组随多选展出；复用同文案/testid） */}
-      {showBatchSelection && hasBatchErrors && batchPicked.length > 0 && (
-        <div
-          data-testid="pending-batch-blocked"
-          style={{ ...errorStyle, margin: '0 0 12px' }}
-        >
-          {t('pending.pr.batch_blocked', {
-            ids: formatLocalizedList(batchBlockedLive.map((e) => e.id), i18n.language),
-          })}
-        </div>
-      )}
-
-      {/* 4. 主区：草稿全空时展示全局引导；有草稿时展示 master-detail 左右分栏 */}
+      {/* 3. 主区：草稿全空时展示全局引导；有草稿时展示 master-detail 左右分栏 */}
       {entries.length === 0 && !isCreating ? (
         <FilterEmptyState
           icon={<Inbox size={28} strokeWidth={1.25} aria-hidden="true" />}
@@ -1047,21 +883,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
         />
       ) : (
         <div className="pending-layout">
-          {/* 左：Master 草稿列表（含批量多选与工具行） */}
+          {/* 左：Master 草稿列表 */}
           <PendingListColumn
             entries={visibleEntries}
             selectedId={selectedId}
             onSelect={handleSelectEntry}
             activeGroup={activeGroup}
             activeSegment={activeSegment}
-            showBatchSelection={showBatchSelection}
-            batchSelected={batchSelected}
-            onToggleBatchSelected={toggleBatchSelected}
-            batchBusy={batchBusy}
-            batchPickedCount={batchPicked.length}
-            hasBatchErrors={hasBatchErrors}
-            batchLicenseErrorId={batchLicenseErrorId}
-            onBatchSubmit={() => void handleBatchSubmit()}
           />
 
           {/* 右：Detail（draft 表单 / 后链路富卡：collected/submitted/archived 一律富卡） */}

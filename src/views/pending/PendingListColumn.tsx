@@ -1,14 +1,12 @@
 /**
- * 待收录页左列：Master 列表（含行内批量多选与底部批量提交工具行）。
+ * 待收录页左列：Master 列表。
  * 只渲染调用方已按 Tab/分段过滤后的条目。
  */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Inbox, Link2, Send } from 'lucide-react';
+import { Inbox, Link2 } from 'lucide-react';
 import { AppIcon } from '../../components/AppIcon';
 import {
-  isPendingCollectedStatus,
-  isSubmittedEntry,
   resolvePendingDraftDescription,
   type CustomDraftEntry,
   type PendingGroupId,
@@ -22,15 +20,6 @@ interface PendingListColumnProps {
   onSelect: (id: string) => void;
   activeGroup: PendingGroupId;
   activeSegment: PendingSegmentId;
-  /** 列表多选可用性（showBatchBar && library && 非 submitted 分段）。 */
-  showBatchSelection: boolean;
-  batchSelected: Set<string>;
-  onToggleBatchSelected: (id: string) => void;
-  batchBusy: boolean;
-  batchPickedCount: number;
-  hasBatchErrors: boolean;
-  batchLicenseErrorId: string | null;
-  onBatchSubmit: () => void;
 }
 
 export const PendingListColumn: React.FC<PendingListColumnProps> = ({
@@ -39,14 +28,6 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
   onSelect,
   activeGroup,
   activeSegment,
-  showBatchSelection,
-  batchSelected,
-  onToggleBatchSelected,
-  batchBusy,
-  batchPickedCount,
-  hasBatchErrors,
-  batchLicenseErrorId,
-  onBatchSubmit,
 }) => {
   const { t, i18n } = useTranslation();
 
@@ -69,9 +50,6 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
       ) : (
         entries.map((entry) => {
           const selected = entry.id === selectedId;
-          const isSubmitted = isSubmittedEntry(entry);
-          const isCollected = !entry.archived && !isSubmitted && isPendingCollectedStatus(entry.status);
-          const batchChecked = batchSelected.has(entry.id);
           return (
             <div
               key={entry.id}
@@ -87,18 +65,6 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
                 }
               }}
             >
-              {showBatchSelection && isCollected && (
-                <input
-                  type="checkbox"
-                  checked={batchChecked}
-                  onChange={() => onToggleBatchSelected(entry.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => e.stopPropagation()}
-                  aria-label={entry.id}
-                  title={t('pending.pr.batch_selected', { count: batchSelected.size })}
-                  style={{ flexShrink: 0 }}
-                />
-              )}
               <AppIcon
                 icon={entry.item.icon}
                 name={entry.item.name || entry.id}
@@ -143,36 +109,6 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
             </div>
           );
         })
-      )}
-      {/* 列表底部工具行：批量提交专属位置（随本地收录 · 非已提交分段显隐，多选汇总/禁用/title 逻辑不变，右对齐单色） */}
-      {showBatchSelection && (
-        <div
-          className="pending-list-toolbar"
-          data-testid="pending-batch-toolbar"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: '8px', minHeight: '28px' }}
-        >
-          <button
-            type="button"
-            className="btn-fluent btn-primary btn-sm"
-            data-testid="pending-batch-submit"
-            disabled={batchBusy || batchPickedCount === 0}
-            onClick={onBatchSubmit}
-            title={
-              hasBatchErrors
-                ? batchLicenseErrorId
-                  ? t('pending.pr.license_fix_hint', { id: batchLicenseErrorId })
-                  : t('pending.fix_errors')
-                : undefined
-            }
-          >
-            <Send size={13} strokeWidth={1.5} aria-hidden="true" />
-            <span>
-              {batchBusy
-                ? t('pending.pr.batch_submitting')
-                : t('pending.pr.batch_submit', { count: batchPickedCount })}
-            </span>
-          </button>
-        </div>
       )}
     </div>
   );

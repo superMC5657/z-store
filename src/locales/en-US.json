@@ -337,13 +337,7 @@
       "url_copied_open_hint": "Issue prefill link copied; paste it into the browser to open",
       "payload_copied": "Issue prefill link too long ({{length}} chars); submission payload copied, opening the Issue prefill page",
       "open_pr": "Open submission link",
-      "batch_submit": "Batch Submit ({{count}})",
-      "batch_submitting": "Submitting…",
-      "batch_submitted": "Issue prefill pages opened for {{count}} entries",
-      "batch_need_selection": "Select at least one draft first",
-      "batch_selected": "{{count}} selected",
       "license_fix_hint": "Please provide valid SPDX license: {{id}}",
-      "batch_blocked": "Drafts failed validation (check license): {{ids}}",
       "allowlist_load_failed": "Allowlist failed to load, please retry"
     },
     "id_preview": "canonical preview: {{id}}",

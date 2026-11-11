@@ -35,12 +35,9 @@ function stubFor(cmd: string): unknown {
     case 'get_license_allowlist':
       return { enabled: true, allowed: ['MIT'] };
     case 'get_custom_app_pr_url':
-    case 'get_custom_apps_batch_pr_url':
       return 'https://example.com/pr';
     case 'get_custom_app_pr_payload':
       return '{}';
-    case 'get_custom_apps_batch_pr_payload':
-      return '[]';
     case 'collect_local_app':
     case 'revert_collected_to_draft':
     case 'withdraw_submitted':
@@ -153,9 +150,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.retireOnSync(['o/r']));
     await swallow(catalog.retireOnSync(undefined));
     await swallow(catalog.getCustomAppPrUrl('o/r'));
-    await swallow(catalog.getCustomAppsBatchPrUrl(['o/r']));
     await swallow(catalog.getCustomAppPrPayload('o/r'));
-    await swallow(catalog.getCustomAppsBatchPrPayload(['o/r']));
     await swallow(catalog.getLicenseAllowlist());
     // 无参调用亦覆盖（空 args 无 key 即通过）
     await swallow(catalog.getCatalogCount());
