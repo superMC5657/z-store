@@ -1,4 +1,113 @@
 /* components-settings.css · Linear Design System Settings */
+
+/* 设置页面顶部轻量导航条 */
+.settings-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  margin-bottom: 22px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-base);
+  line-height: 1.2;
+}
+
+.settings-breadcrumb-root {
+  color: var(--text-tertiary);
+  font-weight: var(--font-weight-regular);
+}
+
+.settings-breadcrumb-sep {
+  color: var(--text-tertiary);
+  opacity: 0.5;
+}
+
+.settings-breadcrumb-current {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settings-header-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  width: 200px;
+  max-width: 100%;
+  color: var(--text-tertiary);
+  transition: border-color 0.1s var(--ease-smooth);
+}
+
+.settings-header-search:focus-within {
+  border-color: var(--brand-primary);
+}
+
+.settings-header-search input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  width: 100%;
+  font-family: inherit;
+}
+
+.settings-header-search input::placeholder {
+  color: var(--placeholder-search);
+}
+
+.settings-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  line-height: 1;
+}
+
+.settings-search-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-acrylic-hover);
+}
+
+/* 分组小标：低对比度、无多余图标、位于卡片外上方 */
+.settings-section {
+  margin-bottom: 24px;
+}
+
+.settings-section .settings-group {
+  margin-bottom: 0;
+}
+
+.settings-section-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-tertiary);
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+  padding-left: 2px;
+  user-select: none;
+}
+
 /* 设置面板分组 - 8px 圆角纯粹面板（Elevated #141516 / #FFFFFF） */
 .settings-group {
   background: var(--bg-acrylic-card);

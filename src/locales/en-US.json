@@ -56,6 +56,10 @@
   },
   "settings": {
     "title": "Settings",
+    "general_preferences": "General & Preferences",
+    "search_placeholder": "Search settings...",
+    "search_clear": "Clear",
+    "search_no_results": "No matching settings found",
     "appearance": "Appearance",
     "updates_rules": "Updates & Rules",
     "storage_paths": "Storage & Installation",

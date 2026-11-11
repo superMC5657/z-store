@@ -1,7 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Globe,
   RotateCcw,
   Zap,
   Check,
@@ -10,6 +9,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { OAuthAccountCard } from '../../../components/OAuthAccountCard';
+import { SettingsSection } from '../SettingsSection';
 
 export interface CatalogSyncFeedback {
   message: string;
@@ -71,11 +71,7 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div className="settings-group">
-      <div className="settings-group-title">
-        <Globe size={15} strokeWidth={1.5} />
-        <span>{t('settings.network_data')}</span>
-      </div>
+    <SettingsSection title={t('settings.network_data')}>
       <div id="settings-account">
         <OAuthAccountCard />
       </div>
@@ -244,6 +240,6 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
           </span>
         )}
       </div>
-    </div>
+    </SettingsSection>
   );
 };

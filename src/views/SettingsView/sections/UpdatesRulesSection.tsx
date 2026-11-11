@@ -1,8 +1,9 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Check, Shield } from 'lucide-react';
+import { Check, Shield } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 import { ClientUpdateRow } from '../../../components/ClientUpdateRow';
+import { SettingsSection } from '../SettingsSection';
 import type { AppSettings } from '../../../types';
 
 interface UpdatesRulesSectionProps {
@@ -29,11 +30,7 @@ export const UpdatesRulesSection: React.FC<UpdatesRulesSectionProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div className="settings-group">
-      <div className="settings-group-title">
-        <RefreshCw size={15} strokeWidth={1.5} />
-        <span>{t('settings.updates_rules')}</span>
-      </div>
+    <SettingsSection title={t('settings.updates_rules')}>
       <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -120,6 +117,6 @@ export const UpdatesRulesSection: React.FC<UpdatesRulesSectionProps> = ({
           )}
         </button>
       </div>
-    </div>
+    </SettingsSection>
   );
 };

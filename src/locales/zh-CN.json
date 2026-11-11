@@ -56,6 +56,10 @@
   },
   "settings": {
     "title": "系统设置",
+    "general_preferences": "通用与偏好",
+    "search_placeholder": "查找设置...",
+    "search_clear": "清空",
+    "search_no_results": "未找到相关设置",
     "appearance": "外观",
     "updates_rules": "更新与规则",
     "storage_paths": "存储与安装",

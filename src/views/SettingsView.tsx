@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppSettings } from '../types';
@@ -244,78 +244,167 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => setCatalogUrlSaved(false), 2500);
   };
 
+  const [settingsSearch, setSettingsSearch] = useState('');
+  const query = settingsSearch.trim().toLowerCase();
+  const matchGroup = (keywords: string[]) => {
+    if (!query) return true;
+    return keywords.some((k) => k.toLowerCase().includes(query));
+  };
+
+  const showAppearance = matchGroup([
+    t('settings.appearance'),
+    t('settings.theme_mode'),
+    t('settings.theme_light'),
+    t('settings.theme_dark'),
+    t('settings.theme_system'),
+    t('settings.language_title'),
+    t('settings.ui_scale'),
+    t('settings.font_size'),
+    '外观', '主题', '语言', '缩放', '字号', '明亮', '暗黑', '跟随系统',
+    'theme', 'light', 'dark', 'system', 'language', 'scale', 'font', 'appearance',
+  ]);
+
+  const showUpdates = matchGroup([
+    t('settings.updates_rules'),
+    t('settings.update_frequency'),
+    t('settings.watch_notify_frequency'),
+    t('settings.rules_title'),
+    '更新', '规则', '频率', '客户端', '检查更新', '提醒', '屏蔽', '隐藏', '忽略',
+    'update', 'rules', 'client', 'notify', 'frequency', 'ignore',
+  ]);
+
+  const showStorage = matchGroup([
+    t('settings.storage_paths'),
+    t('settings.download_dir'),
+    t('settings.portable_dir'),
+    '存储', '安装', '下载', '便携', '路径', '目录', '浏览',
+    'download', 'portable', 'storage', 'path', 'dir', 'browse',
+  ]);
+
+  const showNetwork = matchGroup([
+    t('settings.network_data'),
+    t('settings.proxy_title'),
+    t('settings.catalog_sync_title'),
+    '网络', '代理', '镜像', '加速', '源', '清单', '收录', '测试', '延迟', '直连', '账号', '登录', '配额',
+    'proxy', 'mirror', 'catalog', 'oauth', 'github', 'network', 'account', 'token', 'latency',
+  ]);
+
+  const showData = matchGroup([
+    t('settings.data_management'),
+    t('settings.export_apps'),
+    '数据', '管理', '备份', '恢复', '导出', '导入', '隐私', '日志', '清单',
+    'data', 'export', 'backup', 'privacy', 'logs', 'restore',
+  ]);
+
   return (
     <ViewShell viewClass="settings-view">
-      <div className="section-header">
-        <h3 className="section-title">
-          <Settings size={16} strokeWidth={1.5} />
-          <span>{t('settings.title')}</span>
-        </h3>
+      <div className="settings-header-bar">
+        <div className="settings-breadcrumb">
+          <span className="settings-breadcrumb-root">{t('nav.items.settings')}</span>
+          <span className="settings-breadcrumb-sep">/</span>
+          <span className="settings-breadcrumb-current">{t('settings.general_preferences')}</span>
+        </div>
+        <div className="settings-header-search">
+          <Search size={12} strokeWidth={1.5} />
+          <input
+            type="text"
+            value={settingsSearch}
+            onChange={(e) => setSettingsSearch(e.target.value)}
+            placeholder={t('settings.search_placeholder')}
+          />
+          {settingsSearch && (
+            <button
+              type="button"
+              className="settings-search-clear"
+              onClick={() => setSettingsSearch('')}
+              title={t('settings.search_clear')}
+              aria-label={t('settings.search_clear')}
+            >
+              <X size={12} strokeWidth={1.5} />
+            </button>
+          )}
+        </div>
       </div>
 
-      <AppearanceSection
-        currentTheme={currentTheme}
-        language={settings.language}
-        uiScale={settings.ui_scale}
-        fontSize={settings.font_size}
-        highlightRow={highlightRow}
-        activeNotice={activeNotice}
-        onSelectTheme={handleSelectTheme}
-        onSelectLanguage={handleSelectLanguage}
-        onSelectUiScale={handleSelectUiScale}
-        onSelectFontSize={handleSelectFontSize}
-      />
+      {showAppearance && (
+        <AppearanceSection
+          currentTheme={currentTheme}
+          language={settings.language}
+          uiScale={settings.ui_scale}
+          fontSize={settings.font_size}
+          highlightRow={highlightRow}
+          activeNotice={activeNotice}
+          onSelectTheme={handleSelectTheme}
+          onSelectLanguage={handleSelectLanguage}
+          onSelectUiScale={handleSelectUiScale}
+          onSelectFontSize={handleSelectFontSize}
+        />
+      )}
 
-      <UpdatesRulesSection
-        updateFrequency={settings.update_frequency}
-        watchNotifyFrequency={settings.watch_notify_frequency}
-        updateRulesCount={updateRulesCount}
-        highlightRow={highlightRow}
-        activeNotice={activeNotice}
-        onSelectUpdateFrequency={handleSelectUpdateFrequency}
-        onSelectWatchFrequency={handleSelectWatchFrequency}
-        onOpenRules={onOpenRules}
-      />
+      {showUpdates && (
+        <UpdatesRulesSection
+          updateFrequency={settings.update_frequency}
+          watchNotifyFrequency={settings.watch_notify_frequency}
+          updateRulesCount={updateRulesCount}
+          highlightRow={highlightRow}
+          activeNotice={activeNotice}
+          onSelectUpdateFrequency={handleSelectUpdateFrequency}
+          onSelectWatchFrequency={handleSelectWatchFrequency}
+          onOpenRules={onOpenRules}
+        />
+      )}
 
-      <StorageSection
-        downloadDir={settings.download_dir}
-        portableDir={settings.portable_dir}
-        highlightRow={highlightRow}
-        activeNotice={activeNotice}
-        onUpdateSetting={onUpdateSetting}
-        triggerChangeFeedback={triggerChangeFeedback}
-      />
+      {showStorage && (
+        <StorageSection
+          downloadDir={settings.download_dir}
+          portableDir={settings.portable_dir}
+          highlightRow={highlightRow}
+          activeNotice={activeNotice}
+          onUpdateSetting={onUpdateSetting}
+          triggerChangeFeedback={triggerChangeFeedback}
+        />
+      )}
 
-      <NetworkDataSection
-        proxyInput={proxyInput}
-        setProxyInput={setProxyInput}
-        isTestingProxy={isTestingProxy}
-        proxyTestResult={proxyTestResult}
-        proxyFeedback={proxyFeedback}
-        highlightRow={highlightRow}
-        activeNotice={activeNotice}
-        handleTestProxy={handleTestProxy}
-        handleSaveProxy={handleSaveProxy}
-        catalogSourceUrl={catalogSourceUrl}
-        setCatalogSourceUrl={setCatalogSourceUrl}
-        setCatalogUrlSaved={setCatalogUrlSaved}
-        isSyncingCatalog={isSyncingCatalog}
-        syncFeedback={syncFeedback}
-        showAdvancedSource={showAdvancedSource}
-        setShowAdvancedSource={setShowAdvancedSource}
-        isCatalogSourceConfirming={isCatalogSourceConfirming}
-        setIsCatalogSourceConfirming={setIsCatalogSourceConfirming}
-        handleSyncCatalog={handleSyncCatalog}
-        handleSaveCatalogSource={handleSaveCatalogSource}
-        catalogUrlSaved={catalogUrlSaved}
-      />
+      {showNetwork && (
+        <NetworkDataSection
+          proxyInput={proxyInput}
+          setProxyInput={setProxyInput}
+          isTestingProxy={isTestingProxy}
+          proxyTestResult={proxyTestResult}
+          proxyFeedback={proxyFeedback}
+          highlightRow={highlightRow}
+          activeNotice={activeNotice}
+          handleTestProxy={handleTestProxy}
+          handleSaveProxy={handleSaveProxy}
+          catalogSourceUrl={catalogSourceUrl}
+          setCatalogSourceUrl={setCatalogSourceUrl}
+          setCatalogUrlSaved={setCatalogUrlSaved}
+          isSyncingCatalog={isSyncingCatalog}
+          syncFeedback={syncFeedback}
+          showAdvancedSource={showAdvancedSource}
+          setShowAdvancedSource={setShowAdvancedSource}
+          isCatalogSourceConfirming={isCatalogSourceConfirming}
+          setIsCatalogSourceConfirming={setIsCatalogSourceConfirming}
+          handleSyncCatalog={handleSyncCatalog}
+          handleSaveCatalogSource={handleSaveCatalogSource}
+          catalogUrlSaved={catalogUrlSaved}
+        />
+      )}
 
-      <DataManagementSection
-        installedCount={installedCount}
-        highlightRow={highlightRow}
-        activeNotice={activeNotice}
-        handleExportJson={handleExportJson}
-      />
+      {showData && (
+        <DataManagementSection
+          installedCount={installedCount}
+          highlightRow={highlightRow}
+          activeNotice={activeNotice}
+          handleExportJson={handleExportJson}
+        />
+      )}
+
+      {!showAppearance && !showUpdates && !showStorage && !showNetwork && !showData && (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>
+          {t('settings.search_no_results')}
+        </div>
+      )}
     </ViewShell>
   );
 };

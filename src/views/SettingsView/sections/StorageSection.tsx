@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, Check } from 'lucide-react';
 import { tauriApi } from '../../../services/api';
+import { SettingsSection } from '../SettingsSection';
 import type { AppSettings } from '../../../types';
 
 interface StorageSectionProps {
@@ -24,11 +25,7 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div className="settings-group">
-      <div className="settings-group-title">
-        <FolderOpen size={15} strokeWidth={1.5} />
-        <span>{t('settings.storage_paths')}</span>
-      </div>
+    <SettingsSection title={t('settings.storage_paths')}>
       <div className={`settings-row ${highlightRow === 'download_dir' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -110,6 +107,6 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </SettingsSection>
   );
 };

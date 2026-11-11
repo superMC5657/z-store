@@ -1,7 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Sliders,
   Check,
   Sun,
   Moon,
@@ -10,6 +9,7 @@ import {
   Globe,
 } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
+import { SettingsSection } from '../SettingsSection';
 import type { AppSettings } from '../../../types';
 
 interface AppearanceSectionProps {
@@ -40,11 +40,7 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div className="settings-group">
-      <div className="settings-group-title">
-        <Sliders size={15} strokeWidth={1.5} />
-        <span>{t('settings.appearance')}</span>
-      </div>
+    <SettingsSection title={t('settings.appearance')}>
       <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -191,6 +187,6 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
           ]}
         />
       </div>
-    </div>
+    </SettingsSection>
   );
 };
