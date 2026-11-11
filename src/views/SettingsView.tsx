@@ -198,7 +198,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('language', lng);
   };
 
-  const handleSelectUiScale = (scale: '90' | '100' | '110' | '125') => {
+  const handleSelectUiScale = (scale: '100' | '110' | '125' | '150') => {
     triggerChangeFeedback('ui_scale', `${scale}%`);
     onUpdateSetting('ui_scale', scale);
   };

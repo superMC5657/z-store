@@ -33,6 +33,7 @@
 
 .settings-breadcrumb-current {
   color: var(--text-primary);
+  font-size: var(--font-md);
   font-weight: var(--font-weight-semibold);
 }
 
@@ -255,6 +256,10 @@
   font-size: var(--font-sm);
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.settings-row .btn-fluent {
+  font-size: var(--font-sm);
 }
 
 .settings-input {

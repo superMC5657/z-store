@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 import { SettingsSection } from '../SettingsSection';
+import { normalizeFontSizePreset } from '../../../utils/density';
 import type { AppSettings } from '../../../types';
 
 interface AppearanceSectionProps {
@@ -21,9 +22,17 @@ interface AppearanceSectionProps {
   activeNotice: { key: string; text: string } | null;
   onSelectTheme: (theme: 'light' | 'dark' | 'system') => void;
   onSelectLanguage: (lang: 'zh-CN' | 'en-US') => void;
-  onSelectUiScale: (scale: '90' | '100' | '110' | '125') => void;
+  onSelectUiScale: (scale: '100' | '110' | '125' | '150') => void;
   onSelectFontSize: (val: AppSettings['font_size'], label: string) => void;
 }
+
+const UI_SCALE_OPTIONS = ['100', '110', '125', '150'] as const;
+
+const FONT_SIZE_OPTIONS = [
+  { value: '12', labelKey: 'settings.font_size_compact' as const },
+  { value: '14', labelKey: 'settings.font_size_standard' as const },
+  { value: '16', labelKey: 'settings.font_size_comfortable' as const },
+] as const;
 
 export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   currentTheme,
@@ -38,6 +47,12 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   onSelectFontSize,
 }) => {
   const { t } = useTranslation();
+  const fontSizeOptions = FONT_SIZE_OPTIONS.map((item) => ({
+    value: item.value,
+    label: t(item.labelKey),
+  }));
+  const activeFontSize = normalizeFontSizePreset(fontSize);
+  const activeUiScale = UI_SCALE_OPTIONS.includes(uiScale as any) ? (uiScale as AppSettings['ui_scale']) : '100';
 
   return (
     <SettingsSection title={t('settings.appearance')}>
@@ -139,9 +154,9 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
           </div>
         </div>
         <SegmentedControl
-          value={uiScale}
-          onChange={(val) => onSelectUiScale(val as '90' | '100' | '110' | '125')}
-          options={(['90', '100', '110', '125'] as const).map((scale) => ({
+          value={activeUiScale}
+          onChange={(val) => onSelectUiScale(val as AppSettings['ui_scale'])}
+          options={UI_SCALE_OPTIONS.map((scale) => ({
             value: scale,
             label: `${scale}%`,
           }))}
@@ -161,30 +176,12 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
           </div>
         </div>
         <SegmentedControl
-          value={
-            fontSize === 'standard'
-              ? '14'
-              : fontSize === 'small'
-              ? '12'
-              : fontSize
-          }
+          value={activeFontSize}
           onChange={(val) => {
-            const opt = [
-              { id: '12', label: '12px' },
-              { id: '14', label: '14px' },
-              { id: '16', label: '16px' },
-              { id: '18', label: '18px' },
-              { id: '20', label: '20px' },
-            ].find((f) => f.id === val);
-            onSelectFontSize(val, opt?.label || `${val}px`);
+            const matched = fontSizeOptions.find((opt) => opt.value === val);
+            onSelectFontSize(val as AppSettings['font_size'], String(matched?.label || `${val}px`));
           }}
-          options={[
-            { value: '12', label: '12px' },
-            { value: '14', label: '14px' },
-            { value: '16', label: '16px' },
-            { value: '18', label: '18px' },
-            { value: '20', label: '20px' },
-          ]}
+          options={fontSizeOptions}
         />
       </div>
     </SettingsSection>

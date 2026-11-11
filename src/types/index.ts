@@ -166,7 +166,7 @@ export interface AppSettings {
   theme: 'light' | 'dark' | 'system';
   // 界面语言（支持中英文）
   language: 'zh-CN' | 'en-US';
-  ui_scale: '90' | '100' | '110' | '125';
+  ui_scale: '100' | '110' | '125' | '150';
   font_size: '12' | '14' | '16' | '18' | '20' | 'small' | 'standard' | 'medium' | 'large';
   portable_dir: string;
   download_dir: string;

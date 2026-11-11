@@ -108,16 +108,16 @@ import {
 // Demo 默认显示配置（仅限嵌入页）：UI 缩放 0.9 + 12px 字号。
 // ---------------------------------------------------------------------------
 
-const DEMO_UI_SCALE: AppSettings['ui_scale'] = '90';
+const DEMO_UI_SCALE: AppSettings['ui_scale'] = '100';
 const DEMO_FONT_SIZE: AppSettings['font_size'] = '12';
 
 // 可用于 grep 检查的构建标记：普通字符串字面量（固定硬编码数值），
 // 以便代码压缩后仍能原样保留——可通过 grep 搜索
-// `zstore:demo:display-defaults` / `ui_scale=90` / `font_size=12` 进行验证。
+// `zstore:demo:display-defaults` / `ui_scale=100` / `font_size=12` 进行验证。
 // 在 installDemoMock 中挂载到 window，避免被 tree-shaking 移除。
-const DEMO_DISPLAY_DEFAULTS_MARKER = 'zstore:demo:display-defaults:ui_scale=90:font_size=12';
+const DEMO_DISPLAY_DEFAULTS_MARKER = 'zstore:demo:display-defaults:ui_scale=100:font_size=12';
 
-const ALLOWED_UI_SCALES: ReadonlySet<string> = new Set(['90', '100', '110', '125']);
+const ALLOWED_UI_SCALES: ReadonlySet<string> = new Set(['100', '110', '125', '150']);
 const ALLOWED_FONT_SIZES: ReadonlySet<string> = new Set([
   '12',
   '14',
@@ -134,10 +134,11 @@ function normalizeDemoUiScale(raw: string | null | undefined): AppSettings['ui_s
   if (!raw) return null;
   const v = raw.trim().toLowerCase();
   if (ALLOWED_UI_SCALES.has(v)) return v as AppSettings['ui_scale'];
-  if (v === '0.9' || v === '0.90') return '90';
+  if (v === '0.9' || v === '0.90') return '100';
   if (v === '1' || v === '1.0' || v === '1.00') return '100';
   if (v === '1.1' || v === '1.10') return '110';
   if (v === '1.25') return '125';
+  if (v === '1.5' || v === '1.50') return '150';
   return null;
 }
 
