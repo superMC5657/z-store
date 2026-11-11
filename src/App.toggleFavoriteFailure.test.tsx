@@ -38,7 +38,6 @@ const SEED_APPS: AppSummary[] = [seedApp('test/hero-app', 'Hero App'), seedApp('
 vi.mock('./services/api', () => {
   const listMethods = new Set([
     'getInstalledApps',
-    'getMirrorStatus',
     'getFavorites',
     'getUpdateRules',
     'getRecentlyViewedApps',

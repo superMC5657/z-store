@@ -2,8 +2,6 @@ import { listen } from '@tauri-apps/api/event';
 import type {
   DeveloperProfile,
   FavoriteEntry,
-  HostRateLimitRefresh,
-  HostRateLimitStatus,
   OAuthDeviceStartResult,
   OAuthPollResult,
   OAuthUser,
@@ -37,22 +35,6 @@ export async function getDeveloperProfile(developer: string): Promise<DeveloperP
 
 export async function syncGithubStarred(username?: string): Promise<StarredSyncResult> {
   return tauriInvoke<StarredSyncResult>(CMD.syncGithubStarred, { username });
-}
-
-export async function setHostToken(host: string, token: string): Promise<void> {
-  return tauriInvoke<void>(CMD.setHostToken, { host, token });
-}
-
-export async function removeHostToken(host: string): Promise<void> {
-  return tauriInvoke<void>(CMD.removeHostToken, { host });
-}
-
-export async function refreshHostRateLimit(host?: string): Promise<HostRateLimitRefresh> {
-  return tauriInvoke<HostRateLimitRefresh>(CMD.refreshHostRateLimit, { host });
-}
-
-export async function testHostConnection(host: string, token?: string): Promise<HostRateLimitStatus> {
-  return tauriInvoke<HostRateLimitStatus>(CMD.testHostConnection, { host, token });
 }
 
 export async function getWatchedApps(): Promise<WatchedAppEntry[]> {

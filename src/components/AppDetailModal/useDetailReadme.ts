@@ -95,7 +95,7 @@ export function useDetailReadme(opts: {
   const [readmeLang, setReadmeLangState] = useState<ReadmeLang>(() =>
     defaultLangFromI18n(uiLang),
   );
-  // 用户手动切换后不再被自动归一化覆盖；appId / 界面语言变化时重置
+  // 用户手动切换后保持当前选择而不被自动归一化覆盖；appId / 界面语言变化时重置
   const hasUserSelectedRef = useRef(false);
 
   // appId 切换重置 + 界面语言切换默认跟随（局部 state，不动全局 i18n）
@@ -166,8 +166,8 @@ export function useDetailReadme(opts: {
     [variants],
   );
 
-  // 变体加载完成后归一化一次：当前选中无对应变体时回退到存在的那一侧，
-  // 高亮与内容保持一致；用户手动选过后不再自动覆盖
+  // 变体加载完成后按当前选中做一次对齐：无对应变体时回退到存在的那一侧，
+  // 保证高亮与内容一致；若用户已手动选过则保持当前选择。
   useEffect(() => {
     if (variantsLoading) return;
     if (hasUserSelectedRef.current) return;
@@ -303,7 +303,7 @@ export function useDetailReadme(opts: {
     }
   };
 
-  // 图片加载失败时降灰降透明度并挂 title 提示，不再重试。
+  // 图片加载失败时降灰降透明度并挂 title 提示，不自动重试。
   const handleReadmeImageErrorCapture = (e: React.SyntheticEvent<HTMLDivElement, Event>) => {
     const target = e.target as HTMLElement;
     if (target.tagName.toLowerCase() !== 'img') return;

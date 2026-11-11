@@ -1,16 +1,9 @@
 /**
- * 任务 5 — HomeView 基于全局平台过滤后的数据派生测试。
+ * HomeView 基于全局平台过滤后数据的派生逻辑测试。
  *
- * 契约规范：App.tsx 在相同的 `apps` 属性名下传入 `platformFilteredApps`，
- * 因此 HomeView 必须将传入的属性视为已完成平台预过滤：
- * 置顶/精选/收录分片均直接基于传入数组切分；当传入为空时，
- * HomeView 展示专属的筛选为空引导界面（绝非搜索 `owner/repo` 引导文案），
- * 并提供 `.filter-empty-reset` 按钮。HomeView.tsx 内不允许存在任何页面内平台过滤逻辑。
- *
- * 第一部分（基线特征化测试）：锁定当前派生行为——分片直接基于属性运行，
- * 当 rustdesk 不在集合中时置顶回退至 apps[0]。
- *
- * 第二部分（筛选为空新规范测试）：验证筛选为空状态与重置按钮行为。
+ * 契约规范：App.tsx 在 `apps` 属性名下传入已完成平台预过滤的列表，
+ * HomeView 直接基于传入数组切分置顶/精选/收录分片；传入为空时展示
+ * 筛选为空引导界面及 `.filter-empty-reset` 按钮，不在组件内重复过滤平台。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -316,7 +309,7 @@ describe('最近浏览本地收录黄标（仅搬标记，蓝优先）', () => {
     expect(recentGrid?.querySelector('.verified-badge-local')).toBeTruthy();
     expect(recentGrid?.textContent).toContain('200.0k');
     expect(recentGrid?.textContent).not.toContain('145.8k');
-    // 精选侧去重：同一 id 不再出现（保持相对顺序，不改排序语义）
+    // 精选侧去重：同一 id 不重复出现（保持相对顺序与排序语义）
     expect(featuredGrid?.textContent).not.toContain('DupApp');
   });
 

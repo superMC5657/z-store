@@ -1254,7 +1254,7 @@ export function useTrendLoadingLifecycle(
     return buildSwrFill(trendResult.repos).trustedConcrete;
   }, [trendResult]);
 
-  // 榜单切换即递增 lite 序列：旧榜在途 lite 落定不再写入，避免跨榜串扰。
+  // 榜单切换即递增 lite 序列：拦截旧榜在途 lite 落定写入，避免跨榜串扰。
   React.useEffect(() => {
     boardSeqRef.current += 1;
   }, [activeBoard, trendResult]);

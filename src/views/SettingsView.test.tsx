@@ -170,7 +170,7 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(screen.getByText('Auto Check Updates')).toBeTruthy();
     expect(screen.getByText('Version & Ignore Rules')).toBeTruthy();
 
-    // 图标缓存与通用缓存展示项已删除
+    // 不展示图标缓存与通用图片缓存项
     expect(screen.queryByText('Icon Cache')).toBeNull();
     expect(screen.queryByText('Asset Cache')).toBeNull();
     expect(screen.queryByText('图标缓存')).toBeNull();
@@ -188,7 +188,7 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(screen.getByText('网络')).toBeTruthy();
     expect(screen.getByText('数据与备份')).toBeTruthy();
 
-    // 图标缓存与通用缓存展示项已删除
+    // 不展示图标缓存与通用图片缓存项
     expect(screen.queryByText('图标缓存')).toBeNull();
     expect(screen.queryByText('通用图片缓存')).toBeNull();
   });

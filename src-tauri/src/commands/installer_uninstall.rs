@@ -52,7 +52,7 @@ pub(crate) fn is_owned_portable_dir(
 
 /// 安全清理：属于自有专属目录 -> 执行 `remove_dir_all`；共享目录（如“下载”或 D:\Tools）
 /// -> 仅删除清单记录的单一文件，或拒绝整目录删除。
-/// 删除失败以 Err 上浮：卸载结果不再吞错虚报成功（DB 记录保留，用户可重试）。
+/// 删除失败以 Err 上浮：保留 DB 记录以便用户重试卸载，避免吞错虚报成功。
 pub(crate) fn cleanup_portable_path(
     install_path: &std::path::Path,
     owned_dir: &std::path::Path,

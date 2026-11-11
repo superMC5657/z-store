@@ -553,7 +553,7 @@ pub async fn search_apps_online(
                 .filter(|a| !hidden_ids.contains(&a.core.id))
                 .collect()
         };
-        // 收录态盖章（未收录即 is_cataloged=false）：前端只读卡片字段，不再自行 join 目录。
+        // 收录态盖章（未收录即 is_cataloged=false），避免前端重复 join 目录。
         rows.into_iter()
             .map(|mut row| {
                 state.catalog.stamp_summary(&mut row);

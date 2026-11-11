@@ -106,7 +106,7 @@ pub fn shared_http_client() -> reqwest::Client {
 }
 
 pub static GLOBAL_QUOTA_TX: OnceLock<UnboundedSender<models::HostQuotaEvent>> = OnceLock::new();
-/// FR-6.2 关注更新通知事件通道（`zstore://watch-updated`）。
+/// 关注更新通知事件通道（`zstore://watch-updated`）。
 pub static GLOBAL_WATCH_TX: OnceLock<UnboundedSender<models::WatchUpdatedPayload>> =
     OnceLock::new();
 /// GitHub OAuth 登录凭证失效通知通道（`zstore://oauth-expired`）。
@@ -625,10 +625,6 @@ pub fn run() {
             commands::get_confirmed_icons_batch,
             commands::get_readme_variants,
             commands::fetch_or_cache_asset_url,
-            commands::get_asset_cache_stats,
-            commands::clear_asset_cache,
-            commands::get_icon_cache_stats,
-            commands::clear_icon_cache,
             commands::get_installed_apps,
             commands::install_app,
             commands::download_asset,
@@ -638,7 +634,6 @@ pub fn run() {
             commands::unmanage_app,
             commands::check_for_updates,
             commands::get_cached_updates,
-            commands::get_mirror_status,
             commands::switch_mirror,
             commands::get_settings,
             commands::save_setting,
@@ -649,7 +644,6 @@ pub fn run() {
             commands::fetch_trends_text,
             commands::get_trend_board_cache,
             commands::save_trend_board_cache,
-            commands::get_catalog_count,
             commands::scan_and_match_local_apps,
             commands::import_matched_apps,
             commands::launch_app,
@@ -667,14 +661,9 @@ pub fn run() {
             commands::record_app_view,
             commands::get_recently_viewed_apps,
             commands::clear_view_history,
-            commands::set_host_token,
-            commands::remove_host_token,
-            commands::refresh_host_rate_limit,
-            commands::test_host_connection,
             commands::register_deep_link_scheme,
             commands::handle_deep_link,
             commands::get_cli_deep_link,
-            commands::search_forge_repos,
             commands::sync_catalog,
             commands::list_custom_apps,
             commands::save_custom_app,
@@ -683,8 +672,6 @@ pub fn run() {
             commands::revert_collected_to_draft,
             commands::withdraw_submitted,
             commands::mark_submitted,
-            commands::retire_on_sync,
-            commands::get_merged_catalog_view,
             commands::get_custom_app_pr_url,
             commands::get_custom_app_pr_payload,
             commands::get_license_allowlist,

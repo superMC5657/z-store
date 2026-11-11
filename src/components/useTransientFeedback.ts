@@ -8,7 +8,7 @@ interface TransientFeedback {
 
 /**
  * 行内瞬时反馈：`show` 写入文案并在 `durationMs` 后清空。
- * 定时器在卸载与新 `show` 时清除，卸载后不再 `setState`。
+ * 定时器在卸载与新 `show` 时清除，卸载后不调用 `setState`。
  */
 export function useTransientFeedback(durationMs = 5000): TransientFeedback {
   const [text, setText] = useState<string | null>(null);

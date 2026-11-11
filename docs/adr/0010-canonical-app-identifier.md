@@ -6,62 +6,34 @@
 
 ## 背景
 
-应用标识（AppId）贯穿 Z-Store 全链路：清单条目、深链、收藏/关注/更新规则、已安装记录、
-详情缓存与便携版安装目录命名。`id` 统一为小写 `owner/repo`（非 GitHub 源为 `forge:owner/repo` 形态），即仓库坐标本身。
-
-为兼容多种形态，客户端散布着多层隐式兜底：目录双匹配（slug 或 owner/repo）、
-DB 查询统一 `LOWER(app_id)`、详情缓存 `app_id + repo_key` 双键镜像行。
-同一应用从不同入口进入时，可能在收藏、关注、更新规则等以 `app_id` 为主键的
-表中产生互不相认的重复记录（数据碎片化）；且 repo 改名后 slug 与仓库坐标静默脱节。
+应用标识（AppId）贯穿 Z-Store 全链路：清单条目、深链、收藏/关注/更新规则、已安装记录、详情缓存与便携版安装目录命名。如果允许同一应用在不同入口使用多种别名、大小写或外部网址形态而不先做归一化，会导致收藏、关注、更新规则与详情缓存出现重复键碎片化，因此全系统以单一 canonical 规范统一收敛。
 
 ## 决策
 
-1. **canonical id = 小写 `owner/repo`**（GitHub 应用）；非 GitHub 源沿用
-   `UniversalRepoCoord::to_app_id()` 既有格式：默认 host 的其它 Forge 为
-   `forge:owner/repo`，自建 host 为 `forge:host/owner/repo`。
-   该函数即全系统唯一标识规范。
+1. **canonical id 格式**：GitHub 应用采用小写 `owner/repo`；非 GitHub 源采用 `UniversalRepoCoord::to_app_id()` 定义：默认主机为 `forge:owner/repo`，自建主机为 `forge:host/owner/repo`。该函数为全系统唯一标识规范。
 
-2. **不使用显示名 `name` 参与标识**：显示名随品牌改名/本地化变化，不稳定；
-   `owner/repo` 由托管平台保证唯一，且 id 即坐标本身——单一事实来源，
-   消除 id ↔ 坐标映射漂移的可能。
+2. **不使用显示名 `name` 参与标识**：显示名可能随品牌或本地化变动；`owner/repo` 由托管平台保证唯一，且 id 即坐标本身，确保单一事实来源。
 
-3. **不采用 UUID/随机 hash**：可读性对深链（`zstore://app/localsend/localsend`）、
-   开放清单仓库的社区 PR review 均为硬需求；主流同类系统（winget 的
-   `Publisher.PackageName`、homebrew/scoop 的 formula/slug）亦均采用有意义稳定标识。
+3. **不采用 UUID/随机 hash**：可读性是深链（`zstore://app/localsend/localsend`）与开放清单仓库社区 PR 审阅的硬需求（类似 winget 的 `Publisher.PackageName`、homebrew/scoop 的 formula/slug）。
 
-4. **数据库只存 canonical id；目录检索仅按 id 匹配**。
+4. **数据库只存 canonical id；目录检索仅按 id 精确匹配**。
 
-5. **入站归一化（系统边界契约）**：所有来自前端的 `app_id` 在 Tauri 命令入口
-   统一调用 `crate::forge::canonical_app_id()`：完整仓库 URL / Forge 前缀短语法 /
-   裸 owner-repo 一律解析为 canonical 形态并统一小写；无法解析的标识由
-   `require_app_id` 直接拒绝，不静默兜底。
-   数据库只存 canonical id；目录检索（`get_catalog_item` 等）仅按 id
-   唯一匹配。
+5. **入站归一化（系统边界契约）**：所有来自前端的 `app_id` 在 Tauri 命令入口统一调用 `crate::forge::canonical_app_id()`：完整仓库 URL / Forge 前缀短语法 / 裸 owner-repo 均解析为 canonical 形态并统一小写；无法解析的标识由 `require_app_id` 直接拒绝，不静默兜底。
 
-6. **清单格式**：catalog.json 的 `id` 字段为小写 `owner/repo`；
-   `id === owner/repo` 与全库唯一由独立生态清单仓库侧的 `validate-catalog.mjs` 校验（该脚本在客户端仓库中不存在，不可当作可用命令）。
+6. **清单格式**：`catalog.json` 的 `id` 字段遵循小写 canonical 形态（由独立生态清单仓库 CI 负责入库唯一性与格式校验）。
 
-7. **深链入站强制归一化**：`DeepLinkParser::parse` 对 `app` / `install` / 裸 id 三路由
-   统一经 `forge::canonical_lookup_id()` 归一——可解析直取 canonical（大小写、完整 URL
-   形态收敛），不可解析回退小写，解析层不断路由；执行层 `require_app_id` 仍拒绝未知标识。
+7. **深链入站归一化**：`DeepLinkParser::parse` 对 `app` / `install` / 裸 id 三路由统一经 `forge::canonical_lookup_id()` 归一——可解析直取 canonical（大小写、完整 URL 形态收敛），不可解析回退小写，解析层不断路由；执行层 `require_app_id` 拒绝非法标识。
 
-8. **三键合一**：`canonical_app_id` 为唯一实现（`(owner, repo)` 经
-   `canonical_app_id_from_parts`；`icon_key` 为薄委托），`canonical_icon_key` 不存在；
-   DB 主键、事件 key 与前端归一键同值。
+8. **单一生成函数**：`canonical_app_id` 为唯一入口（`(owner, repo)` 经 `canonical_app_id_from_parts`，`icon_key` 薄委托到同源归一化），确保 DB 主键、事件 key 与前端归一键同值。
 
-## 配套调整
+## 配套结构
 
-- **便携版目录命名**：canonical id 含 `/`，目录名消毒规则将 `/` 折叠为 `-`
-  （`rustdesk/rustdesk` → `rustdesk-rustdesk`）。
+- **便携版目录命名**：canonical id 含 `/`，目录名消毒规则将 `/` 折叠为 `-`（`rustdesk/rustdesk` → `rustdesk-rustdesk`）。
 - **扫描器**：扫描器由 `repo`/`name` 字段派生候选。
 - **详情缓存**：`app_details_cache` 为 canonical id 单键精确匹配。
-- **深 join 模块**：未收录 join（`(favorite∪watched)∖精选收录库`）与 scanner
-  模糊评分收拢为深 join 模块（exact 规范查 vs heuristic fuzzy），是归一化链路的
-  收敛实现，不新增决策。
+- **深 join 模块**：未收录 join（`(favorite∪watched)∖精选收录库`）与 scanner 模糊评分均基于 canonical id 执行。
 
 ## 后果
 
-- 正面：全系统单一 id 形态，消除多格式碎片化与 id↔坐标漂移；清单条目
-  自校验（id 必须与坐标一致）；检索逻辑大幅简化（单一匹配路径）。
-- 中性：非 GitHub 源收录清单条目为未来扩展，届时 `id` 采用 `forge:owner/repo`
-  形态，归一化链路无需变更。
+- 正面：全系统统一 id 形态，避免多格式键分裂与坐标漂移，且清单条目可直接自校验。
+- 中性：非 GitHub 源收录条目采用 `forge:owner/repo` / `forge:host/owner/repo` 形态，归一化链路统一处理。

@@ -249,7 +249,7 @@ pub fn clear_view_history(state: State<'_, AppState>) -> crate::AppResult<()> {
     Ok(db.clear_view_history()?)
 }
 
-// ---------- FR-6.2 关注订阅 ----------
+// ---------- 关注订阅 ----------
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn watch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
@@ -272,7 +272,7 @@ pub fn get_watched_apps(state: State<'_, AppState>) -> crate::AppResult<Vec<Watc
     Ok(db.get_watched_apps()?)
 }
 
-// ---------- FR-6.3 手动跨设备同步（导入侧；导出由前端经现有 getters 组装） ----------
+// ---------- 手动跨设备同步（导入侧；导出由前端经 getters 组装） ----------
 
 /// 合并式导入用户数据：只增不删；
 /// 设置项仅接受白名单（主题/语言/缓存保鲜期/关注频率）。

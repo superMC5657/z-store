@@ -1113,7 +1113,6 @@ mod tests {
             language: None,
             license: Some(crate::github::models::GitHubLicense {
                 key: None,
-                name: None,
                 spdx_id: None,
             }),
             homepage: None,
@@ -1159,7 +1158,6 @@ mod tests {
         let repo_mit = super::GitHubRepoResponse {
             license: Some(crate::github::models::GitHubLicense {
                 key: Some("mit".to_string()),
-                name: Some("MIT License".to_string()),
                 spdx_id: Some("MIT".to_string()),
             }),
             ..repo_no_license.clone()
@@ -1171,7 +1169,6 @@ mod tests {
         let repo_key_fallback = super::GitHubRepoResponse {
             license: Some(crate::github::models::GitHubLicense {
                 key: Some("mit".to_string()),
-                name: Some("MIT License".to_string()),
                 spdx_id: Some("NOASSERTION".to_string()),
             }),
             ..repo_no_license

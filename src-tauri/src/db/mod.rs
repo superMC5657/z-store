@@ -12,8 +12,8 @@ pub mod update_results;
 pub mod watch;
 
 pub use affinity::{RawAffinitySignals, RepoRelation, UserRepoSignal};
-pub use cache::{AssetCacheRecord, AssetUsageStats};
-pub use custom_apps::{CustomAppEntry, GraduationNotice};
+pub use cache::AssetCacheRecord;
+pub use custom_apps::CustomAppEntry;
 pub use icon_cycle::AppIconCycle;
 pub use update_results::UpdateCheckRow;
 
@@ -81,9 +81,9 @@ pub fn normalize_strict_errors(value: &str) -> bool {
     parse_strict_errors(value).unwrap_or_else(default_strict_errors)
 }
 
-/// FR-6.2：关注通知频率默认值（每天至多通知一次）。
+/// 关注通知频率默认值（每天至多通知一次）。
 pub const WATCH_NOTIFY_FREQUENCY_DEFAULT: &str = "daily";
-/// FR-6.2：关注通知频率有效值：`startup`（每次启动检查即通知）/`daily`。
+/// 关注通知频率有效值：`startup`（每次启动检查即通知）/`daily`。
 pub const WATCH_NOTIFY_FREQUENCY_VALID: [&str; 2] = ["startup", "daily"];
 
 /// 将任意输入归一化到关注通知频率有效值；非法值回退默认 `daily`。
@@ -107,7 +107,7 @@ pub fn normalize_detail_cache_ttl(minutes: i64) -> i64 {
 }
 
 /// 设置项写入侧统一清洗：仅对存在有效值集的键归一化，其余原样透传。
-/// 持久化前必须经此函数（ADR-0007 TTL 挡位 / FR-6.2 通知频率）。
+/// 持久化前必须经此函数（ADR-0007 TTL 挡位 / 通知频率）。
 pub fn normalize_setting_value(key: &str, value: &str) -> String {
     if key == "detail_cache_ttl_minutes" {
         clean(value)
@@ -148,7 +148,7 @@ pub(crate) fn clean(s: &str) -> &str {
 /// - `normalize`：有效值清洗（如挡位钳制）；
 /// - `fallback`：config.toml 基线闭包。
 ///
-/// settings 三 getter、配额水位、详情 TTL 秒换算共用此形状，不再各自手写回退链。
+/// settings 三 getter、配额水位、详情 TTL 秒换算统一复用此抽象。
 pub(crate) fn get_or_config<T>(
     stored: Option<String>,
     parse: impl FnOnce(&str) -> Option<T>,

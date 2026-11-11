@@ -15,4 +15,4 @@
    - 建立 `api_etag_cache` 表，存储 GitHub 各 Release 接口返回的 ETag 标识与 Payload 快照。
    - 发起更新轮询时携带 `If-None-Match: <etag>` 请求头。若内容无更新，GitHub 返回 `304 Not Modified`，完全不扣减每小时 API 限额，实现无限制零配额更新检测。
 3. 建立 `installed_apps` 表维护已安装应用的安装途径（MSI/便携版）、路径、安装哈希与快捷方式信息。
-4. 建立 `user_settings` 表与 `user_favorites` 表维护外观主题、当前镜像节点、Token 与本地收藏夹。
+4. 建立 `user_settings` 表与 `user_favorites` 表维护外观主题、当前镜像节点、OAuth 登录凭据与本地收藏夹。

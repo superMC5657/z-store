@@ -15,8 +15,6 @@
 
   /* Linear 品牌基色 - 克制 Linear 紫 */
   --brand-primary: #5E6AD2;
-  --brand-hover: #525EC2;
-  --brand-pressed: #4750B2;
   --brand-subtle: rgba(94, 106, 210, 0.08);
   --brand-glow: rgba(94, 106, 210, 0.20);
 
@@ -37,7 +35,6 @@
   --bg-surface-flyout: #FFFFFF;
   --bg-acrylic-dialog: var(--bg-surface-flyout);
   --bg-input: rgba(0, 0, 0, 0.02);
-  --input-bg: var(--bg-input);
   --bg-card: var(--bg-acrylic-card);
 
   /* 去彩单色按钮系统（Light） */
@@ -59,7 +56,6 @@
   /* 浅色模式边框（Hairline subtle 0.06, default 0.10, active 0.18） */
   --border-subtle: rgba(0, 0, 0, 0.06);
   --border-color: rgba(0, 0, 0, 0.10);
-  --border-acrylic: var(--border-color);
   --border-highlight: rgba(0, 0, 0, 0.18);
   --card-bg-subtle: #F7F8F8;
 
@@ -74,14 +70,10 @@
 
   /* 搜索框（Linear Cmd+K 调色板入口样式） */
   --bg-search-box: #FFFFFF;
-  --border-search-box: rgba(0, 0, 0, 0.10);
-  --shadow-search-box: 0 1px 2px rgba(0, 0, 0, 0.04);
   --placeholder-search: #8A8F98;
 
   /* 置顶横幅（Hero Banner） */
   --bg-hero-banner: #FFFFFF;
-  --border-hero-banner: rgba(0, 0, 0, 0.10);
-  --shadow-hero-banner: 0 1px 3px rgba(0, 0, 0, 0.04);
   --badge-verified-bg: rgba(94, 106, 210, 0.08);
   --badge-verified-border: rgba(94, 106, 210, 0.20);
   --badge-verified-color: #5E6AD2;
@@ -134,7 +126,6 @@
   --font-md: calc(14px * var(--font-scale));
   --font-lg: calc(16px * var(--font-scale));
   --font-xl: calc(18px * var(--font-scale));
-  --font-2xl: calc(22px * var(--font-scale));
 }
 
 [data-font-size="12"],
@@ -160,8 +151,6 @@
 
   /* Linear 深黑灰骨架（Dark Mode） */
   --brand-primary: #5E6AD2;
-  --brand-hover: #7170FF;
-  --brand-pressed: #4C56B8;
   --brand-subtle: rgba(94, 106, 210, 0.15);
   --brand-glow: rgba(94, 106, 210, 0.25);
 
@@ -182,7 +171,6 @@
   --bg-surface-flyout: #141516;
   --bg-acrylic-dialog: var(--bg-surface-flyout);
   --bg-input: rgba(255, 255, 255, 0.03);
-  --input-bg: var(--bg-input);
   --bg-card: var(--bg-acrylic-card);
 
   /* 去彩单色按钮系统（Dark） */
@@ -204,7 +192,6 @@
   /* Linear 精确微边框（Border subtle 0.05, default 0.08, active 0.14） */
   --border-subtle: rgba(255, 255, 255, 0.05);
   --border-color: rgba(255, 255, 255, 0.08);
-  --border-acrylic: var(--border-color);
   --border-highlight: rgba(255, 255, 255, 0.14);
   --card-bg-subtle: rgba(255, 255, 255, 0.02);
 
@@ -219,14 +206,10 @@
 
   /* 搜索框 */
   --bg-search-box: rgba(255, 255, 255, 0.03);
-  --border-search-box: rgba(255, 255, 255, 0.08);
-  --shadow-search-box: none;
   --placeholder-search: #62666D;
 
   /* 置顶横幅 */
   --bg-hero-banner: #141516;
-  --border-hero-banner: rgba(255, 255, 255, 0.08);
-  --shadow-hero-banner: none;
   --badge-verified-bg: rgba(94, 106, 210, 0.14);
   --badge-verified-border: rgba(94, 106, 210, 0.30);
   --badge-verified-color: #7170FF;

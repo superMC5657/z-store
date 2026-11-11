@@ -210,15 +210,6 @@ pub struct InstalledApp {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MirrorNodeStatus {
-    pub id: String,
-    pub name: String,
-    pub base_url: String,
-    pub latency_ms: u32,
-    pub is_active: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateItem {
     pub app_id: String,
     pub app_name: String,
@@ -322,36 +313,6 @@ pub struct StarredSyncResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HostTokenEntry {
-    pub host: String,
-    pub token: String,
-    pub rate_limit_remaining: Option<u32>,
-    pub rate_limit_limit: Option<u32>,
-    pub rate_limit_reset: Option<i64>,
-    pub updated_at: i64,
-}
-
-/// `refresh_host_rate_limit` 的 IPC 响应：host + 配额三元组 + 时间戳。
-/// 令牌字段结构性缺席——凭据只经 oauth 专用命令读写，不随配额刷新面回传 webview。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HostRateLimitRefresh {
-    pub host: String,
-    pub rate_limit_remaining: Option<u32>,
-    pub rate_limit_limit: Option<u32>,
-    pub rate_limit_reset: Option<i64>,
-    pub updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HostRateLimitStatus {
-    pub host: String,
-    pub is_connected: bool,
-    pub rate_limit_remaining: Option<u32>,
-    pub rate_limit_limit: Option<u32>,
-    pub message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostQuotaEvent {
     pub host: String,
     pub rate_limit_remaining: Option<u32>,
@@ -359,14 +320,14 @@ pub struct HostQuotaEvent {
     pub rate_limit_reset: Option<i64>,
 }
 
-/// 关注的应用（FR-6.2）：应用内更新通知订阅。
+/// 关注的应用：应用内更新通知订阅。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WatchedApp {
     pub app_id: String,
     pub added_at: i64,
     pub last_notified_version: Option<String>,
-    /// 收录标记：写入时按内存目录判定一次并持久化，存量行由启动回填校准；
-    /// 前端据此决定走收录库还是 `app_details_cache` 读卡（`default` 兼容旧快照）。
+    /// 收录标记：写入时按内存目录判定并持久化，缺省按启动回填校准；
+    /// 前端据此决定走收录库还是 `app_details_cache` 读卡（`default` 兼容缺省该字段的快照）。
     #[serde(default)]
     pub is_cataloged: bool,
 }

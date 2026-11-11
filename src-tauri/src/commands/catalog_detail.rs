@@ -712,10 +712,9 @@ async fn fetch_detail_from_github(
             detail.cached_at = Some(now);
 
             // release ETag 副作用经 `release_fetch::apply_release_cache_effects` 单口执行
-            //（touch 侧 stale 守卫：stale 穿透永不 touch，避免把过期 stale 洗成 fresh）。
+            //（touch 侧 stale 守卫：stale 穿透不执行 touch，避免把过期 stale 误标为 fresh）。
             // 语义对照：to_cache=Some 为远端 200（落库 ETag 键）；to_cache=None + 非 stale
-            // 为远端 304（仅 touch 延保，零配额；fresh 真空经 304 恢复同样走此延保，
-            // 经 200 则走 save 并由下方落盘分支以 fresh 空行落盘，下次 TTL 内不再变黄）。
+            // 为远端 304（touch 延保，零配额；fresh 经 200 落盘刷新缓存并解除离线缓存态）。
             if let Ok(db) = state.db() {
                 let touch_on_304 = to_cache.is_none() && detail.is_stale != Some(true);
                 crate::github::release_fetch::apply_release_cache_effects(
@@ -748,9 +747,9 @@ async fn fetch_detail_from_github(
                 safe_ep,
                 crate::log_support::short_reason(&err)
             );
-            // 网络或限额异常时，优雅降级返回已存储的历史缓存。
-            // Ok(stale) 形状为 IPC 保留；is_stale=true 供前端视为 loading，
-            // stale-empty（双空）不得确认 Other，由 backfill 重试。
+            // 网络或限额异常时，降级返回本地已存储的详情缓存（`is_stale=true`）。
+            // 保持 Ok(stale) 形状，供前端识别为 loading；
+            // stale-empty（双空）不确认 Other，由 backfill 重试。
             if let Some(fallback_detail) = project_from_cache(
                 state,
                 clean_id,
@@ -914,10 +913,9 @@ fn persist_github_detail(
             } else {
                 // 探测无可用图标：pinned 行或已有非 L5 确认图标保持不变，不将已确认图标冲空为 ""
                 if let Ok(Some(existing_cycle)) = db.get_icon_cycle(clean_id) {
-                    if existing_cycle.pinned {
-                        detail.core.icon = existing_cycle.selected_url.clone();
-                    } else if existing_cycle.level != 5
-                        && !existing_cycle.selected_url.trim().is_empty()
+                    if existing_cycle.pinned
+                        || (existing_cycle.level != 5
+                            && !existing_cycle.selected_url.trim().is_empty())
                     {
                         detail.core.icon = existing_cycle.selected_url.clone();
                     }
@@ -1001,23 +999,6 @@ pub async fn fetch_or_cache_asset_url(
 ) -> crate::AppResult<String> {
     let app = app_id.unwrap_or_default();
     Ok(crate::github::asset_fetch::fetch_or_cache_asset_url_inner(&url, &app).await)
-}
-
-/// 查询通用图片磁盘缓存占用：返回条目数与总字节。
-#[tauri::command]
-pub fn get_asset_cache_stats(
-    state: State<'_, AppState>,
-) -> crate::AppResult<crate::db::AssetUsageStats> {
-    let db = state.db()?;
-    Ok(db.asset_usage_stats()?)
-}
-
-/// 清空通用图片磁盘缓存：仅删除配额目录文件与图片缓存两表。
-#[tauri::command]
-pub fn clear_asset_cache(state: State<'_, AppState>) -> crate::AppResult<usize> {
-    let db = state.db()?;
-    let assets_dir = crate::get_app_data_dir().join("cache").join("assets");
-    Ok(db.clear_asset_cache(&assets_dir)?)
 }
 
 #[tauri::command(rename_all = "camelCase")]

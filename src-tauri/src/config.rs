@@ -517,9 +517,8 @@ impl CatalogConfig {
         None
     }
 
-    /// 外部 `config.toml` 载入时把相对 `local_path` 锚定到该文件所在目录：
-    /// 配置发现已是绝对路径，`local_path` 随之不再依赖进程 CWD。
-    /// 嵌入/默认值不经此处，保持原有 CWD 相对语义。
+    /// 外部 `config.toml` 载入时把相对 `local_path` 锚定到该文件所在目录（绝对路径，不依赖进程 CWD）。
+    /// 编译期嵌入默认值按 CWD 相对语义解析。
     fn rebase_local_path(&mut self, config_dir: &std::path::Path) {
         let configured = std::path::Path::new(&self.local_path);
         if configured.is_relative() {

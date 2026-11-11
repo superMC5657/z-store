@@ -187,13 +187,11 @@ export const LIST_FALLBACK = new Set([
   'enrich_trend_repos',
   'get_installed_apps',
   'check_for_updates',
-  'get_mirror_status',
   'get_favorites',
   'get_category_apps',
   'scan_and_match_local_apps',
   'get_update_rules',
   'get_search_history',
   'get_recently_viewed_apps',
-  'search_forge_repos',
   'get_watched_apps',
 ]);

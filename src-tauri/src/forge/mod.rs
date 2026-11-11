@@ -19,9 +19,7 @@ pub use provider::{ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 
 use std::sync::OnceLock;
 
-/// Forge 分发唯一入口：持 `Box<dyn ForgeProvider>` 注册表按 `forge_type` 查找，
-/// 替代按 ForgeType 三段 match 复制分发（3 操作 × 4 分支的同形样板收敛于此）。
-/// 对外关联函数签名不变，调用方无感。
+/// Forge 分发唯一入口：持 `Box<dyn ForgeProvider>` 注册表按 `forge_type` 查找。
 pub struct ForgeRegistry;
 
 impl ForgeRegistry {
@@ -61,25 +59,6 @@ impl ForgeRegistry {
     ) -> Result<ForgeReleaseInfo, String> {
         Self::provider_for(coord.forge)
             .fetch_latest_release(&coord.host, &coord.owner, &coord.repo, token)
-            .await
-    }
-
-    pub async fn search_repos(
-        forge: ForgeType,
-        host: Option<&str>,
-        query: &str,
-        token: Option<&str>,
-        page: Option<u32>,
-        per_page: Option<u32>,
-    ) -> Result<Vec<ForgeRepoInfo>, String> {
-        Self::provider_for(forge)
-            .search_repos(
-                host.unwrap_or(forge.default_host()),
-                query,
-                token,
-                page,
-                per_page,
-            )
             .await
     }
 }

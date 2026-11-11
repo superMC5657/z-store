@@ -40,7 +40,7 @@ impl Database {
         )
     }
 
-    /// 收录标记回填写点（启动/迁移用）：仅更新标记，不碰 `favorited_at`。
+    /// 收录标记回填写点：仅更新标记，不修改 `favorited_at`。
     pub fn set_favorite_cataloged(&self, app_id: &str, is_cataloged: bool) -> Result<()> {
         self.exec_write(
             "UPDATE user_favorites SET is_cataloged = ?1 WHERE app_id = ?2",

@@ -16,11 +16,11 @@
    - 若上游官方未发布任何校验哈希，流式哈希仍会计算并持久化至本地数据库以备审计，但事件状态必须明确标识为未校验（`completed_unverified`），禁止向用户虚假声明“已通过官方校验”。
    - **hash-skip 不等于本次下载校验通过**：`should_skip_download` 仅当本地存在且大小>0、期望哈希非空、本地 SHA-256 与期望一致时命中；`SkipDone::finish` 零网络直接返回并补发终态事件（`verified` / `completed_unverified`）+ `download skipped`（info），不得把跳过读作“本次传输通过了校验”。
 2. **应用内仅下载模式（`download_asset`）**：
-   - 宿主原生不可安装的资产类型（如 Windows 下的 `msixbundle` / `other`，含 `.7z`/`.tar.bz2`/跨平台失配tarball）不再跳系统浏览器，复用同一镜像改写、流式下载、SHA-256 校验与 `zstore://download-progress` 进度通道，仅下载落盘至用户下载目录，不调用任何安装器；
+   - 宿主原生不可安装的资产类型（如 Windows 下的 `msixbundle` / `other`，含 `.7z`/`.tar.bz2`/跨平台失配tarball）经应用内同一镜像改写、流式下载、SHA-256 校验与 `zstore://download-progress` 进度通道落盘至用户下载目录，不调用安装器或外部浏览器；
    - 落盘后经 `show_file_in_folder` / `open_folder` 调起系统文件管理器定位文件（Windows `explorer /select`、macOS `open -R`、Linux 打开父目录）。
 3. **多平台安装引擎与系统提权规范**：
-   - **Windows MSI**: 执行 `msiexec.exe /i <file> /qn` 静默安装，失败降级唤起向导；静默与向导两次调起均带 `MSIFASTINSTALL=7` 环境变量，跳过系统还原点创建（高频安装场景下每个还原点动辄十几秒），仅作用于本次拉起的进程，不改系统全局策略。
-   - 安装成功后固定等待 800ms 让系统落盘（注册表/文件写入，仅安装侧；卸载侧等待不变），再嗅探安装路径；外部向导异步落盘导致的路径晚到，由既有的 5×500ms 重试循环兜底。
+   - **Windows MSI**: 执行 `msiexec.exe /i <file> /qn` 静默安装，失败降级唤起向导；静默与向导两次调起均带 `MSIFASTINSTALL=7` 环境变量，跳过系统还原点创建（仅作用于本次拉起进程，不改系统全局策略）。
+   - 安装成功后固定等待 800ms 让系统落盘（注册表/文件写入），再嗅探安装路径；外部向导异步落盘导致的路径晚到，由 5×500ms 重试循环兜底。
    - **Windows Setup EXE**: 交互式拉起——setup_exe 无 NSIS/Inno 引擎可调用（exe 本体即安装器），Nsis/Inno/Unknown 一律返回空参数、不带静默开关，由其自带向导控制流程（可见进度、可取消），调用方 `.wait()` 等待完成；退出码 1602/1/2 映射为用户取消。嗅探/分类逻辑与 App 层确认弹窗不受影响。
    - **便携版 ZIP / 二进制 Tarball**：ZIP 自动安全解包、Tarball（`.tar.gz`/`.tgz`/`.tar.xz`/`.tar`）剥顶层（strip首层）+ 防路径穿越 + Linux/macOS chmod兜底解包至 `%LOCALAPPDATA%\Programs\z-store-apps\<app_id>\`（tar权重+5垫底、仅本平台可装），利用 PowerShell COM 组件自动在桌面建立快捷方式，并写入数据库以便后续无残留清理；`.tar.bz2`/`.7z` 归 Other 仅下载不安装。
    - **macOS DMG**: 执行 `hdiutil attach -nobrowse -readonly` 挂载 -> 探测卷内 `.app` 目录 -> 拷贝至 `/Applications`（无写权限时降级为 `~/Applications`）-> 强制调用 `hdiutil detach -force` 卸载释放卷。

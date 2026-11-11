@@ -32,7 +32,6 @@ import {
   handleGetAppIconCycle,
   handleGetCategoryApps,
   handleGetLatestCatalogApps,
-  handleGetCatalogCount,
   handleGetHomeFeed,
   handleGetAffinityProfileSummary,
   handleResetAffinityProfile,
@@ -48,7 +47,6 @@ import {
   handleScanAndMatchLocalApps,
   handleSearchApps,
   handleSearchAppsOnline,
-  handleSearchForgeRepos,
   handleSyncCatalog,
 } from './handlers/catalog';
 import {
@@ -72,7 +70,6 @@ import {
 import {
   handleFetchTrendsText,
   handleGetCliDeepLink,
-  handleGetMirrorStatus,
   handleGetSettings,
   handleHandleDeepLink,
   handleImportUserData,
@@ -92,12 +89,8 @@ import {
   handleOAuthDevicePoll,
   handleOAuthDeviceStart,
   handleOAuthLogout,
-  handleRefreshHostRateLimit,
-  handleRemoveHostToken,
-  handleSetHostToken,
   handleStarApp,
   handleSyncGithubStarred,
-  handleTestHostConnection,
   handleToggleFavorite,
   handleUnstarApp,
   handleUnwatchApp,
@@ -105,7 +98,7 @@ import {
 } from './handlers/social';
 
 // ---------------------------------------------------------------------------
-// Demo 默认显示配置（仅限嵌入页）：UI 缩放 0.9 + 12px 字号。
+// Demo 默认显示配置（仅限嵌入页）：UI 缩放 100% + 12px 字号。
 // ---------------------------------------------------------------------------
 
 const DEMO_UI_SCALE: AppSettings['ui_scale'] = '100';
@@ -165,7 +158,7 @@ function normalizeDemoLanguage(raw: string | null | undefined): AppSettings['lan
   return null;
 }
 
-/** 生效的 Demo 显示默认值：硬编码 90/12 < 已保存滑块值 < URL 参数。 */
+/** 生效的 Demo 显示默认值：内置默认值 (100/12) < 已保存设置 < URL 参数。 */
 export function resolveDemoDisplayDefaults(): {
   ui_scale: AppSettings['ui_scale'];
   font_size: AppSettings['font_size'];
@@ -244,8 +237,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetCategoryApps(a);
     case 'get_latest_catalog_apps':
       return handleGetLatestCatalogApps(a);
-    case 'get_catalog_count':
-      return handleGetCatalogCount();
     case 'scan_and_match_local_apps':
       return handleScanAndMatchLocalApps();
     case 'import_matched_apps':
@@ -264,8 +255,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetRecentlyViewedApps();
     case 'clear_view_history':
       return handleClearViewHistory();
-    case 'search_forge_repos':
-      return handleSearchForgeRepos();
     case 'sync_catalog':
       return handleSyncCatalog();
     case 'get_or_fetch_icon':
@@ -311,8 +300,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleSelectFolder();
 
     // -- 设置 / 代理 / 系统 ---------------------------------------------
-    case 'get_mirror_status':
-      return handleGetMirrorStatus();
     case 'switch_mirror':
       return handleSwitchMirror();
     case 'test_proxy':
@@ -334,7 +321,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     case 'open_url':
       return handleOpenUrl(a);
 
-    // -- 社交 / 认证 / 关注 / 令牌 -------------------------------------
+    // -- 社交 / 认证 / 关注 ---------------------------------------------
     case 'get_favorites':
       return handleGetFavorites();
     case 'get_favorite_entries':
@@ -345,14 +332,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetDeveloperProfile(a);
     case 'sync_github_starred':
       return handleSyncGithubStarred();
-    case 'set_host_token':
-      return handleSetHostToken();
-    case 'remove_host_token':
-      return handleRemoveHostToken();
-    case 'refresh_host_rate_limit':
-      return handleRefreshHostRateLimit(a);
-    case 'test_host_connection':
-      return handleTestHostConnection(a);
     case 'get_watched_apps':
       return handleGetWatchedApps();
     case 'watch_app':
@@ -377,7 +356,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     default:
       warnOnce(cmd);
       if (LIST_FALLBACK.has(cmd)) return [];
-      if (cmd === 'get_catalog_count' || cmd === 'import_matched_apps') return 0;
+      if (cmd === 'import_matched_apps') return 0;
       return null;
   }
 }

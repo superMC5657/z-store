@@ -43,7 +43,7 @@ export function useUpdateActions({
     }
   };
 
-  // 忽略单项更新（FR-4.4）
+  // 忽略单项更新
   const handleIgnoreUpdate = async (id: string) => {
     const target = updates.find((u) => u.app_id === id);
     await tauriApi.setAppSkipVersion(id, target?.latest_version ?? null);
@@ -53,7 +53,7 @@ export function useUpdateActions({
     showToast(t('toast.skip_update', { id }), 'info');
   };
 
-  // 跳过指定版本（功能 C）
+  // 跳过指定版本
   const handleSkipVersion = async (id: string, version: string) => {
     await tauriApi.setAppSkipVersion(id, version);
     setUpdates((prev) => prev.filter((u) => u.app_id !== id));

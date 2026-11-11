@@ -115,7 +115,7 @@ export function useInstallState({
     }
   };
 
-  // 已装列表加载：进入「已安装」视图自动触发，失败保存错误态（不再与空列表混同静默）；
+  // 已装列表加载：进入「已安装」视图自动触发，失败保存错误态（避免与空列表混同静默）；
   // 同一函数兼作 InstalledView 错误卡的重试入口。
   const loadInstalledApps = useCallback(async () => {
     try {

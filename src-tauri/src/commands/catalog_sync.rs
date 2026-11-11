@@ -143,11 +143,6 @@ pub async fn sync_catalog(
     }
 }
 
-#[tauri::command]
-pub fn get_catalog_count(state: State<'_, AppState>) -> crate::AppResult<usize> {
-    Ok(state.catalog.get_catalog_count())
-}
-
 /// 远端失败是否允许本地降级：严格模式直接抛错。
 pub(crate) fn should_use_local_fallback(strict_errors: bool) -> bool {
     !strict_errors
@@ -164,10 +159,7 @@ fn retire_graduated_drafts(
         return Vec::new();
     };
     let ids: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
-    let graduated: Vec<String> = db
-        .retire_custom_apps_on_sync(&ids)
-        .map(|notices| notices.into_iter().map(|n| n.id).collect())
-        .unwrap_or_default();
+    let graduated: Vec<String> = db.retire_custom_apps_on_sync(&ids).unwrap_or_default();
     state.catalog.sync_collected_from_db(&db);
     graduated
 }

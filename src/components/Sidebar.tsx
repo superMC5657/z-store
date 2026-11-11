@@ -15,8 +15,6 @@ interface SidebarProps {
   updatesCount?: number;
   /** 收藏应用计数；>0 时以数字徽标渲染，缺席/0 时不渲染。 */
   favoritesCount?: number;
-  /** @deprecated 使用 updatesCount 替代。 */
-  hasUpdates?: boolean;
   onOpenAccount: () => void;
   isCollapsed?: boolean;
   /** 多选设备平台过滤器。空集合为有效状态（渲染空筛选提示界面）。 */
@@ -27,7 +25,7 @@ interface SidebarProps {
   onResetPlatforms?: () => void;
   /** 可选的各平台应用数量统计；由上层作为属性传入，本组件不自行计算。 */
   platformCounts?: Record<PlatformId, number>;
-  /** 自维护草稿角标预留位（Lane C 接线后透传待收录计数；缺席/0 时不渲染）。 */
+  /** 待收录草稿与待提交条目的计数徽标；缺席或为 0 时不渲染。 */
   pendingCount?: number;
 }
 
@@ -155,9 +153,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onSelectView,
   installedCount,
-  updatesCount: propUpdatesCount,
+  updatesCount = 0,
   favoritesCount = 0,
-  hasUpdates,
   onOpenAccount,
   isCollapsed = false,
   selectedPlatforms = new Set<PlatformId>(PLATFORM_IDS),
@@ -166,7 +163,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   platformCounts,
   pendingCount = 0,
 }) => {
-  const updatesCount = propUpdatesCount !== undefined ? propUpdatesCount : (hasUpdates ? 1 : 0);
   const [oauthUser, setOauthUser] = useState<OAuthUser | null>(null);
 
   useEffect(() => {

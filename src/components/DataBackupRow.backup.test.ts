@@ -6,8 +6,8 @@ import type { UserDataBackup } from '../types';
 // version 保持为 1，且导出 → JSON → 导入后字段无损往返。
 
 // 与 getSettings() 返回形态一致：值全为字符串。
-// 凭据键一并入样（github_token 为历史 PAT 键；github_oauth_token 为 OAuth 令牌，
-// get_settings 不回传两者，此处锁死导出排除保证）。
+// 凭据键一并入样（`github_token` / `github_oauth_token`；
+// `get_settings` 不回传凭据键，此处锁死导出排除保证）。
 const FULL_SETTINGS: Record<string, string> = {
   theme: 'dark',
   language: 'zh-CN',

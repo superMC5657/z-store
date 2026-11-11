@@ -106,7 +106,7 @@ describe('camel 直通（searchId/perPage/appId，snake 不再回退）', () => 
   });
 });
 
-describe('camel 直通（custom 草稿 includeArchived/prUrl/remoteIds，snake 忽略回默认/空）', () => {
+describe('camel 直通（custom 草稿 includeArchived/prUrl，snake 忽略回默认/空）', () => {
   it('includeArchived camel 读取、snake 忽略回默认 false', () => {
     const readIncludeArchived = (a: Record<string, unknown>) => a['includeArchived'] === true;
     expect(readIncludeArchived({ includeArchived: true })).toBe(true);
@@ -126,16 +126,6 @@ describe('camel 直通（custom 草稿 includeArchived/prUrl/remoteIds，snake �
       ),
     ).toBe('');
     expect(argStr({}, 'prUrl')).toBe('');
-  });
-
-  it('remoteIds camel 直通、snake 忽略回空', () => {
-    const readRemoteIds = (a: Record<string, unknown>) =>
-      Array.isArray(a['remoteIds']) ? (a['remoteIds'] as string[]) : [];
-    expect(readRemoteIds({ remoteIds: ['a/b'] })).toEqual(['a/b']);
-    expect(
-      readRemoteIds({ remote_ids: ['a/b'] } as unknown as Record<string, unknown>),
-    ).toEqual([]);
-    expect(readRemoteIds({})).toEqual([]);
   });
 });
 

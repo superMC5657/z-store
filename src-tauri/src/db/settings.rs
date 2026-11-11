@@ -39,7 +39,7 @@ impl Database {
     }
 
     /// 读取应用详情缓存保鲜期 TTL（分钟）。
-    /// 优先从数据库设置读取（若用户历史自定义）；
+    /// 优先从数据库读取用户自定义设置；
     /// 缺省回退 config.toml 项目基线配置（默认 60 分钟）。
     /// 返回 0 表示每次打开均需向远端条件校验（见 get_cached_app_detail 的 ttl == 0 分支）。
     pub fn get_detail_cache_ttl_minutes(&self) -> i64 {

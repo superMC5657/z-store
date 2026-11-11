@@ -329,7 +329,7 @@ async fn execute_uninstallation_inner(
                 }
 
                 if let Some(temp_exe) = temp_uninstaller {
-                    // 锁等待上限（60s）：临时卸载器被第三方进程长期占用时不再无限
+                    // 锁等待上限（60s）：临时卸载器被第三方进程长期占用时避免无限
                     // 轮询挂起安装任务，超时报错交用户手动处理。
                     const NSIS_LOCK_WAIT_TIMEOUT_MS: u64 = 60_000;
                     let mut waited_ms: u64 = 0;

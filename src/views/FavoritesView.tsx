@@ -54,7 +54,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const watchedSet = watchedIds || new Set<string>();
   // loading 徽标口径统一经选择器接口。
 
-  // FR-6.1: 收藏 / 关注搜索框（按名称 / 别名 / 仓库坐标过滤，见 useViewFilter.matchesAppText）
+  // 收藏 / 关注搜索过滤（按名称 / 别名 / 仓库坐标匹配，见 useViewFilter.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
   // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录行（缓存命中为富卡行、

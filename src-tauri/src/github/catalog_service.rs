@@ -25,8 +25,7 @@ pub(crate) fn is_default_catalog_source(url: &str) -> bool {
 }
 
 /// 远端优先去重合并（同一形状唯一实现）：`remote` 原样在前，`local` 按 id 补位
-/// （已存在即跳过）。`get_catalog_items`（远端 + 本地库 overlay）与
-/// `merged_items_with_overlay`（远端 + 调用方 custom）共用。
+/// （已存在即跳过）。
 fn merge_remote_first(remote: Vec<CatalogItem>, local: Vec<CatalogItem>) -> Vec<CatalogItem> {
     let mut seen: std::collections::HashSet<String> = remote.iter().map(|i| i.id.clone()).collect();
     let mut out = remote;
@@ -108,11 +107,6 @@ impl CatalogService {
             .and_then(|items| items.iter().find(|i| i.id == key).cloned())
     }
 
-    /// 本地库 overlay 全量（collected 系/`submitted` 且未归档）。
-    pub fn get_collected_items(&self) -> Vec<CatalogItem> {
-        self.collected.read().map(|c| c.clone()).unwrap_or_default()
-    }
-
     /// 按 canonical id 检索本地库项（collected 系/`submitted` 且未归档）。
     pub fn get_collected_item(&self, id: &str) -> Option<CatalogItem> {
         let key = crate::forge::canonical_app_id(id)?;
@@ -128,14 +122,6 @@ impl CatalogService {
             .ok()
             .map(|items| items.iter().any(|i| i.id == key))
             .unwrap_or(false)
-    }
-
-    /// 本地收录命中判定（canonical 归一，零网络，零克隆）。
-    pub fn is_collected_id(&self, id: &str) -> bool {
-        let Some(key) = crate::forge::canonical_app_id(id) else {
-            return false;
-        };
-        self.has_collected_key(&key)
     }
 
     /// 目录项检索唯一口：远端精确命中优先，其次本地收录补位。
@@ -423,9 +409,8 @@ impl CatalogService {
         url: &str,
         cached_etag: Option<&str>,
     ) -> Result<(Option<Vec<CatalogItem>>, Option<String>), String> {
-        // 信任冲突防范：任何非默认软件源都会静默替换受信任的软件目录，
-        // 因此在此处重点记录其来源（设置界面已在危险确认弹窗后方才放行变更）。
-        // 未来演进（暂未实现）：受信任源域名白名单 + 签名/清单校验（如已签名的目录数据包）；本阶段暂无签名基础设施。
+        // 非默认软件源会替换内置受信任软件目录，记录明确告警便于审计
+        // （设置界面已在二次确认弹窗后放行变更）。
         if is_default_catalog_source(url) {
             log::info!(
                 "sync catalog official default source url='{}'",
@@ -577,59 +562,9 @@ impl CatalogService {
         Ok((Some(items), new_etag))
     }
 
-    /// 本地库 overlay 合并（ADR-0017）：本地库条目叠加到内存目录视图。
-    /// - 输入 `custom` 调用方须已过滤为本地库（collected 系/`submitted` 且未归档）；
-    /// - 远端优先去重：远端 id 已存在时 custom 同 id 条目丢弃，不覆盖；
-    /// - `is_cataloged` 恒 true（视图内即视为已收录），来源经 `source` 区分
-    ///   （`remote` / `custom`），调用方按需展示“自维护”角标；
-    /// - 纯合并视图，不写回内存 `items`（吸入远端以上游同步为准，转正由退役标记处理）。
-    pub fn merge_catalog_overlay_view(
-        remote: &[CatalogItem],
-        custom: &[CatalogItem],
-    ) -> Vec<MergedCatalogEntry> {
-        let mut seen = std::collections::HashSet::new();
-        let mut out = Vec::with_capacity(remote.len() + custom.len());
-        for item in remote {
-            seen.insert(item.id.clone());
-            out.push(MergedCatalogEntry {
-                summary: item.to_summary(),
-                source: CatalogEntrySource::Remote.as_str().to_string(),
-                is_cataloged: true,
-            });
-        }
-        for item in custom {
-            if seen.insert(item.id.clone()) {
-                out.push(MergedCatalogEntry {
-                    summary: item.to_summary(),
-                    source: CatalogEntrySource::Custom.as_str().to_string(),
-                    is_cataloged: true,
-                });
-            }
-        }
-        out
-    }
-
-    /// 内存目录 + 本地库 custom 的合并条目（远端优先，custom 补位）。
-    /// 调用方传入的 `custom` 须已过滤为本地库（collected 系/`submitted` 且未归档）。
-    pub fn merged_items_with_overlay(&self, custom: Vec<CatalogItem>) -> Vec<CatalogItem> {
-        let remote = self.get_catalog_items();
-        merge_remote_first(remote, custom)
-    }
-
     pub fn search_local_catalog(&self, query: &str) -> Vec<AppSummary> {
         let items = self.get_catalog_items();
         self.search_in_slice(&items, query)
-    }
-
-    /// 本地库叠加搜索（与 `search_local_catalog` 同行为）：`extra` 须已过滤为
-    /// 本地库（collected 系/`submitted` 且未归档），远端优先去重后同分值同排序执行搜索。
-    pub fn search_local_catalog_with_overlay(
-        &self,
-        query: &str,
-        extra: &[CatalogItem],
-    ) -> Vec<AppSummary> {
-        let merged = self.merged_items_with_overlay(extra.to_vec());
-        self.search_in_slice(&merged, query)
     }
 
     fn search_in_slice(&self, items: &[CatalogItem], query: &str) -> Vec<AppSummary> {
@@ -756,33 +691,6 @@ impl CatalogService {
     }
 }
 
-/// 合并视图条目来源：远端精选收录 vs 本地自维护草稿（ADR-0017）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CatalogEntrySource {
-    Remote,
-    Custom,
-}
-
-impl CatalogEntrySource {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Remote => "remote",
-            Self::Custom => "custom",
-        }
-    }
-}
-
-/// 合并目录视图行：`AppSummary` 扁平展开 + 来源标记。
-/// `is_cataloged` 恒 true（视图内即视为已收录）；custom 行由 `source=custom` 区分，
-/// 前端按需展示“自维护”角标。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MergedCatalogEntry {
-    #[serde(flatten)]
-    pub summary: AppSummary,
-    pub source: String,
-    pub is_cataloged: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -903,7 +811,7 @@ mod tests {
         ));
     }
 
-    /// ADR-0017：overlay 合并远端优先去重（同 id 取远端行，custom 仅补位；来源标记可分）。
+    /// 合并函数遵循远端优先去重（同 id 取远端行，custom 仅补位）。
     #[test]
     fn test_merge_catalog_overlay_remote_first() {
         let remote = vec![item("o/dup", "o", "dup"), item("o/remote", "o", "remote")];
@@ -911,28 +819,10 @@ mod tests {
         dup_custom.name = "Custom Shadow".to_string();
         let custom = vec![dup_custom, item("o/local", "o", "local")];
 
-        let view = CatalogService::merge_catalog_overlay_view(&remote, &custom);
-        assert_eq!(view.len(), 3);
-        // 同 id 取远端行（custom 影子被丢弃）。
-        let dup = view.iter().find(|e| e.summary.core.id == "o/dup").unwrap();
-        assert_eq!(dup.summary.core.name, "Test App");
-        assert_eq!(dup.source, "remote");
-        assert!(dup.is_cataloged);
-        // custom 补位行标记来源。
-        let local = view
-            .iter()
-            .find(|e| e.summary.core.id == "o/local")
-            .unwrap();
-        assert_eq!(local.source, "custom");
-        assert!(local.is_cataloged);
-        // 顺序：远端在前，custom 补位在后。
-        assert_eq!(view[0].summary.core.id, "o/dup");
-        assert_eq!(view[2].summary.core.id, "o/local");
-
-        let svc = test_service(remote);
-        let merged = svc.merged_items_with_overlay(custom);
+        let merged = merge_remote_first(remote, custom);
         assert_eq!(merged.len(), 3);
         assert_eq!(merged[0].name, "Test App");
+        assert_eq!(merged[2].id, "o/local");
     }
 
     /// 本地库 overlay 口径（canonical 谓词 `db::custom_apps::is_local_library_entry`）：
@@ -970,10 +860,11 @@ mod tests {
         let svc = test_service(vec![item("o/remote", "o", "remote")]);
         let mut local = item("o/local", "o", "local");
         local.name = "Local Tool".to_string();
-        let hits = svc.search_local_catalog_with_overlay("local", &[local.clone()]);
+        svc.set_collected_items(vec![local]);
+        let hits = svc.search_local_catalog("local");
         assert!(hits.iter().any(|s| s.core.id == "o/local"));
         // 空查询含本地（stars 降序全量）。
-        let all = svc.search_local_catalog_with_overlay("", &[local]);
+        let all = svc.search_local_catalog("");
         assert_eq!(all.len(), 2);
     }
 
@@ -986,7 +877,7 @@ mod tests {
         svc.set_collected_items(vec![local]);
 
         assert!(svc.is_cataloged("o/local"));
-        assert!(svc.is_collected_id("O/LOCAL"));
+        assert!(svc.get_collected_item("O/LOCAL").is_some());
         assert_eq!(
             svc.get_catalog_item("o/local").map(|i| i.name),
             Some("Local Tool".to_string())
@@ -1067,7 +958,7 @@ mod tests {
         assert_eq!(favorites.len(), 1);
         assert!(favorites[0].is_cataloged);
 
-        // 归档行退出 overlay：同步后不再可搜可装。
+        // 归档行退出 overlay：同步后退出本地搜索与安装视图。
         db.retire_custom_apps_on_sync(&["o/pending".to_string()])
             .unwrap();
         svc.sync_collected_from_db(&db);

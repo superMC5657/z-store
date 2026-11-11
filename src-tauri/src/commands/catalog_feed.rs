@@ -214,7 +214,7 @@ pub fn get_category_apps(
 }
 
 /// 最新入库应用分页（与发现页/类别页 `FeedPage` 同形 `{items,total,has_more}`，含本地收录合并视图）：
-/// - `since_days`: 历史兼容入参（相对天数窗口，等价于 `max_days` 且 `min_days=0`）；
+/// - `since_days`: 相对天数窗口别名（等价于 `max_days` 且 `min_days=0`）；
 /// - `min_days` / `max_days`: 相对天数区间（如 0~7, 7~30, 30~90），支持分段排他防头部霸榜；
 /// - 排序规则：`added_at DESC`（无日期垫底）→ `stars DESC`（并列保质）→ `id ASC`（确定性破平）；
 /// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页、分类页对齐）；
@@ -487,7 +487,7 @@ mod tests {
         assert_eq!(filtered_30d.len(), 1);
         assert_eq!(filtered_30d[0].core.id, "o/20d");
 
-        // 兼容单入参/历史 since_days (None, Some(30))：包含全部 3 款
+        // 单入参窗口 `since_days` (None, Some(30))：包含全部 3 款
         let filtered_compat = rank_and_filter_latest_apps(list, None, Some(30));
         assert_eq!(filtered_compat.len(), 3);
     }

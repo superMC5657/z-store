@@ -36,7 +36,7 @@ export function isRemoteIcon(icon: string | undefined | null): boolean {
   ) {
     return true;
   }
-  // 裸路径按扩展名收尾判定（忽略 `?` 查询与 `#` 描点）；`foo.png-evil` 之类不再误判。
+  // 裸路径按扩展名收尾判定（忽略 `?` 查询与 `#` 描点），避免类似 `foo.png-evil` 误判。
   const path = value.split(/[?#]/, 1)[0];
   return IMAGE_EXTENSIONS.some((ext) => path.endsWith(ext));
 }

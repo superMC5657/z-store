@@ -1,16 +1,11 @@
 import type {
   DeepLinkAction,
   ImportUserDataCounts,
-  MirrorNodeStatus,
   ProxyTestResult,
 } from '../../types';
 import { CMD } from '../api';
 import { isTauri, tauriInvoke } from './client';
 import { resolveFallbackOpener } from '../../utils/fallbackOpener';
-
-export async function getMirrorStatus(): Promise<MirrorNodeStatus[]> {
-  return tauriInvoke<MirrorNodeStatus[]>(CMD.getMirrorStatus);
-}
 
 export async function switchMirror(mirrorId: string): Promise<boolean> {
   return tauriInvoke<boolean>(CMD.switchMirror, { mirrorId });

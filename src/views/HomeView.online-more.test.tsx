@@ -99,7 +99,7 @@ describe('HomeView online search armed boundary', () => {
     expect(getByTestId('online-armed-boundary').textContent).toContain('已到底 · 继续下拉加载更多');
     expect(getByTestId('online-armed-boundary').textContent).toContain('已加载 20 个 · 每次续拉 20 个');
     expect(getByTestId('feed-load-more')).toBeTruthy();
-    // 哨兵进入视口不再拉在线下一页…
+    // 哨兵进入视口不自动触发在线续拉……
     setVisibleForTestId('feed-sentinel', true);
     expect(onOnlineLoadMore).not.toHaveBeenCalled();
     // …armed 条可见本身也只亮边界，不触发。

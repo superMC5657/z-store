@@ -265,7 +265,7 @@ const NEW_FALLBACK_MAX_FORKS = 500;
  * new 榜客户端兜底视图（纯函数，显式调用，非隐式 fallback）：
  * `stars<2000 && forks<500` 启发式近似“新仓”，组内按 starsGained 降序
  *（undefined 恒沉底，tie 按 id 升序；缺失绝不回退总量）。
- * `fetchTrendsResult('new')` 远端失败时直接返回 error，不再隐式复用。
+ * `fetchTrendsResult('new')` 远端失败时直接返回 error，不做隐式复用。
  */
 export function filterNewReposFallback(repos: TrendRepo[]): TrendRepo[] {
   return repos
@@ -292,11 +292,9 @@ export function parseRetryAfterMs(raw: string | undefined): number | undefined {
 
 /**
  * 从错误串提取 Retry-After 值并换算等待毫秒。
- * Rust 侧当前仅回传状态码（`upstream status 429`），header 值不可见时返回
- * 默认等待；若未来后端把 header 值写入错误串（如 `retry-after: 30`），
- * 此处按秒数/HTTP-date 兑现，上限 60s（超限返回 undefined = 直接 error）。
- * BE 429 分支透传 `retry_after_ms={毫秒}`（见 commands/network.rs），
- * 此处优先按毫秒直值兑现（无需 ×1000），亦认 `retry-after-ms` 连字符形。
+ * 优先消费 BE 429 分支透传的 `retry_after_ms={毫秒}`（或 `retry-after-ms`），
+ * 其次解析 `retry-after` 秒数或 HTTP-date（上限 60s，超限返回 undefined 即直接返回错误）；
+ * 缺少头信息时使用默认等待。
  */
 export function doforceRetryDelayMs(err: unknown): number | undefined {
   const msg = String((err as { message?: unknown })?.message ?? err ?? '');

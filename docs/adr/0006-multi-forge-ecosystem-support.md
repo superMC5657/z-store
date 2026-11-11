@@ -6,27 +6,25 @@
 
 ## 上下文
 
-Z-Store 最初以 GitHub Releases 为唯一软件分发来源（ADR-0002 与基石决策 D1、D2）。然而随着开源生态演进，大量优秀知名开源项目（如 FreeTube、Penpot、OpenHub 等）出于开源自治与服务中立考量，已将官方主发布渠道迁移至 Codeberg、Forgejo 以及自建 Gitea 或 GitLab 实例。
-
-为了保持 Z-Store 作为跨平台开源应用商店的包容性与长远生命力，必须打破对单一代码托管平台的硬编码依赖，演进为支持多代码源（Multi-Forge）的通用架构。
+开源软件分发覆盖 GitHub Releases、Codeberg、Forgejo、自建 Gitea 与 GitLab 等多个代码托管平台。为了原生支持多源代码托管生态，客户端采用与具体平台解耦的 Multi-Forge 通用抽象架构。
 
 ## 决策
 
-1. **演进基石架构原则 D1 与 D2**：
-   - **D1 (Strictly FLOSS)**：收录和分发托管于 GitHub、Codeberg、Gitea、GitLab 等符合开源自治原则平台且拥有 OSI 认证开源协议的软件。
-   - **D2 (Serverless Direct Multi-Forge API)**：客户端直接与各代码托管平台的 REST API 进行零中介直连通信，依然不依赖任何中心化转接服务器。
+1. **基石架构原则 D1 与 D2 的多源语义**：
+   - **D1 (Strictly FLOSS)**：收录和分发托管于 GitHub、Codeberg、Gitea、GitLab 等开源托管平台且拥有 OSI 认证开源协议的软件。
+   - **D2 (Serverless Direct Multi-Forge API)**：客户端直接与各代码托管平台的 REST API 进行零中介直连通信，不依赖任何中心化转接服务器。
 
 2. **统一抽象层 `ForgeProvider` Trait**：
-   - 抽象 `ForgeProvider` 接口，规范 `fetch_repo`、`fetch_latest_release` 与 `search_repos` 三大核心方法。
-   - 原生实现 `GitHubProvider`、`GiteaProvider`（全面兼容 Codeberg 与 Forgejo REST API v1）与 `GitLabProvider`（支持 GitLab API v4）。
-   - 通过 `ForgeRegistry` 根据 URL 或仓库坐标的主机域名透明路由至对应的提供者实例。
+   - 抽象 `ForgeProvider` 接口，规范 `forge_type`、`fetch_repo` 与 `fetch_latest_release` 核心方法。
+   - 原生实现 `GitHubProvider`、`GiteaProvider`（兼容 Codeberg 与 Forgejo REST API v1）与 `GitLabProvider`（支持 GitLab API v4）。
+   - 通过 `ForgeRegistry` 根据 URL 或仓库坐标的平台类型与主机域名路由至对应的提供者实例。
 
 3. **通用坐标与 URL 智能解析 (`UniversalRepoCoord`)**：
-   - 规范通用坐标格式：`host:owner/repo`，默认缺省 host 时视为 `github.com` 以向下兼容已有数据库与精选收录库。
-   - 实现 `RepositoryUrlParser`，支持用户在全局搜索栏直接粘贴任意受支持源站的仓库链接实时解析与下载安装。
+   - 规范通用 canonical 坐标格式（见 ADR-0010 与 `forge/coord.rs`）：GitHub 使用小写 `owner/repo`；非 GitHub 默认主机使用 `forge:owner/repo`；自建实例使用 `forge:host/owner/repo`；`gh:` / `cb:` / `gl:` / `gt:` 作为入站短语法别名统一归一为 canonical 形态。
+   - 实现 `RepositoryUrlParser`，支持解析各受支持平台仓库 URL 并在全局搜索与详情页直接获取、安装与更新。
 
-4. **多主机访问令牌与速率限制感知 (`host_tokens`)**：
-   - 在本地 SQLite 中通过 `host_tokens` 表独立管理各托管主机（如 `codeberg.org`、自建域名等）的访问凭证与 Rate Limit 配额状态。
+4. **多主机速率记录与只读令牌读取 (`host_tokens`)**：
+   - 在本地 SQLite `host_tokens` 表中按主机持久化 Rate Limit 配额快照（`rate_limit_remaining`、`rate_limit_limit`、`rate_limit_reset`）供配额监控事件 `zstore://quota-updated` 使用；若表中存在对应主机的非空 `token` 记录，后端各平台 API 请求路径按只读方式携带（前端不暴露 PAT 读写或测试命令）。
 
 ## 后果与收益
 

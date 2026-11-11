@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AppSummary } from '../../types';
-import { buildCustomDraftItemFromSummary, buildCustomDraftItemFromTrendRepo, draftForgeGateError } from './catalog';
+import { buildCustomDraftItemFromSummary, draftForgeGateError } from './catalog';
 
 function summaryWithIcon(icon: unknown): AppSummary {
   return {
@@ -49,15 +49,6 @@ describe('移入收录预填图标只允许远程路径', () => {
     expect(buildCustomDraftItemFromSummary(summaryWithIcon('   ')).icon).toBe('');
     expect(buildCustomDraftItemFromSummary(summaryWithIcon('/icons/atlas.png')).icon).toBe('');
     expect(buildCustomDraftItemFromSummary(summaryWithIcon('icons/atlas.png')).icon).toBe('');
-  });
-
-  it('trend 草稿 icon 恒空（仅远程允许）', () => {
-    const draft = buildCustomDraftItemFromTrendRepo({
-      owner: 'acme',
-      repo: 'atlas',
-      name: 'Atlas',
-    });
-    expect(draft.icon).toBe('');
   });
 });
 

@@ -4,7 +4,7 @@ use super::{
 use rusqlite::{params, Result};
 
 impl Database {
-    // ---------- FR-6.2 关注订阅 ----------
+    // ---------- 关注订阅 ----------
 
     /// 读取关注通知频率（`startup`|`daily`），非法/缺失回退 `daily`。
     pub fn get_watch_notify_frequency(&self) -> String {
@@ -57,7 +57,7 @@ impl Database {
         )
     }
 
-    /// 收录标记回填写点（启动/迁移用）：仅更新标记，不碰通知基线字段。
+    /// 收录标记回填写点：仅更新标记，不修改通知基线字段。
     pub fn set_watched_cataloged(&self, app_id: &str, is_cataloged: bool) -> Result<()> {
         self.exec_write(
             "UPDATE watched_apps SET is_cataloged = ?1 WHERE app_id = ?2",

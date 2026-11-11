@@ -7,10 +7,7 @@ import {
 } from './pending/draftModel';
 import { PendingView } from './PendingView';
 import { PREFILL_URL_LENGTH_LIMIT } from './pending/submitPrefillFlow';
-import {
-  buildCustomDraftItemFromSummary,
-  buildCustomDraftItemFromTrendRepo,
-} from '../services/api/catalog';
+import { buildCustomDraftItemFromSummary } from '../services/api/catalog';
 import { tauriApi } from '../services/api';
 import type { AppSummary } from '../types';
 import type { LicenseAllowlistResult } from '../services/api/catalog';
@@ -67,7 +64,7 @@ function gateProvider(): Promise<LicenseAllowlistResult> {
   return Promise.resolve(TEST_GATE);
 }
 
-describe('PendingView one-click Issue submit (Lane D)', () => {
+describe('PendingView one-click Issue submit', () => {
   it('single card submit opens prefill URL without auto-marking (stays collected for manual confirm)', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
@@ -89,7 +86,7 @@ describe('PendingView one-click Issue submit (Lane D)', () => {
     fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(onGetPrUrl).toHaveBeenCalledWith('o/a'));
-    // 生产经 tauriApi.openUrl 打开（不再走被劫持的 window.open），可 await/检查失败
+    // 生产经 tauriApi.openUrl 打开，可 await 与检查失败
     expect(openSpy).toHaveBeenCalledWith(BATCH_URL);
     // 打开预填页不自动 mark：submitted 态只靠手动贴链接确认
     expect(onMarkSubmitted).not.toHaveBeenCalled();
@@ -241,7 +238,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('o/a'), 'info'),
     );
-    // 停留本地收录：选中清空回空态，列表不再含该行
+    // 停留本地收录：选中清空回空态，列表移除该行
     await waitFor(() => expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull());
     expect(screen.queryByText('o/a')).toBeNull();
     expect(screen.getByText('选择或新建草稿')).toBeTruthy();
@@ -315,7 +312,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
   });
 });
 
-describe('Lane C move-in placeholder license (draft-lenient, submit-strict)', () => {
+describe('move-in placeholder license (draft-lenient, submit-strict)', () => {
   function summaryWithLicense(license: string): AppSummary {
     return {
       id: 'o/a',
@@ -345,14 +342,11 @@ describe('Lane C move-in placeholder license (draft-lenient, submit-strict)', ()
       'OpenSource',
     );
     expect(buildCustomDraftItemFromSummary(summaryWithLicense('MIT')).license).toBe('MIT');
-    expect(
-      buildCustomDraftItemFromTrendRepo({ owner: 'o', repo: 'a' }).license,
-    ).toBe('OpenSource');
   });
 
   it('move-in builders heuristically prefill empty arrays/objects (editable, truth-preserving)', () => {
     const draft = buildCustomDraftItemFromSummary(summaryWithLicense('MIT'));
-    // 空数组/对象不再留空：有推断即预填（可编辑，提交前人工校对）。
+    // 有推断即预填（可编辑，提交前人工校对）。
     expect(draft.aliases.length).toBeGreaterThan(0);
     expect(draft.aliases).toContain('o/a');
     expect(draft.install_dirs).toEqual(['a']);
@@ -364,14 +358,20 @@ describe('Lane C move-in placeholder license (draft-lenient, submit-strict)', ()
     // 源 category 非空原样保留（dev 不强制改写）。
     expect(draft.category).toBe('dev');
 
-    const trend = buildCustomDraftItemFromTrendRepo({ owner: 'o', repo: 'RustDesk' });
-    expect(trend.install_dirs).toEqual(['RustDesk', 'rustdesk']);
-    expect(trend.search_subdirs).toEqual(['bin']);
-    expect(trend.publishers).toEqual(['O']);
-    expect(trend.aliases).toContain('o/rustdesk');
-    expect(trend.platforms).toEqual(['windows', 'macos', 'linux']);
-    expect(trend.identifiers.windows).toContain('RustDesk.exe');
-    expect(trend.identifiers.linux).toContain('rustdesk');
+    const desktopGuess = buildCustomDraftItemFromSummary({
+      ...summaryWithLicense(''),
+      id: 'o/rustdesk',
+      repo: 'RustDesk',
+      name: 'RustDesk',
+      platforms: [],
+    });
+    expect(desktopGuess.install_dirs).toEqual(['RustDesk', 'rustdesk']);
+    expect(desktopGuess.search_subdirs).toEqual(['bin']);
+    expect(desktopGuess.publishers).toEqual(['O']);
+    expect(desktopGuess.aliases).toContain('o/rustdesk');
+    expect(desktopGuess.platforms).toEqual(['windows', 'macos', 'linux']);
+    expect(desktopGuess.identifiers.windows).toContain('RustDesk.exe');
+    expect(desktopGuess.identifiers.linux).toContain('rustdesk');
   });
 
   it('platforms source non-empty wins; category empty falls back to keyword guess + name sync', () => {
@@ -490,7 +490,7 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
       />,
     );
     // 故意不传 onGetLicenseAllowlist：暂存档不查名单，身份对齐即放行。
-    // 页头不再设新建入口：空态提示是唯一新建入口。
+    // 空态提示为唯一新建入口（页头不含新建按钮）。
     fireEvent.click(screen.getByText('新建草稿'));
     const coordInputs = screen.getAllByPlaceholderText('rustdesk');
     fireEvent.change(coordInputs[0]!, { target: { value: 'n' } });

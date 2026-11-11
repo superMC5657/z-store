@@ -1,12 +1,7 @@
-; Custom NSIS installer template for ZStore.
-; Based on the stock Tauri v2 template shipped with tauri-cli v2.11.4
-; (crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi).
-; Local change: the default `currentUser` install directory now lives under
-; `$LOCALAPPDATA\Programs\${PRODUCTNAME}` instead of `$LOCALAPPDATA\${PRODUCTNAME}`
+; Custom NSIS installer template for ZStore (based on tauri-cli v2.11.4 stock template).
+; Default `currentUser` install directory lives under `$LOCALAPPDATA\Programs\${PRODUCTNAME}`
 ; (see the `INSTALLMODE == "currentUser"` branch inside `.onInit`).
-; When upgrading tauri-cli, re-diff this file against the new stock template and
-; re-apply the change above. Referenced from tauri.conf.json:
-; bundle.windows.nsis.template.
+; Referenced from tauri.conf.json: bundle.windows.nsis.template.
 Unicode true
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
@@ -921,8 +916,7 @@ Function un.SkipIfPassive
 FunctionEnd
 
 Function CreateOrUpdateStartMenuShortcut
-  ; We used to use product name as MAINBINARYNAME
-  ; migrate old shortcuts to target the new MAINBINARYNAME
+  ; Update existing shortcuts pointing to $OldMainBinaryName to ${MAINBINARYNAME}.exe
   StrCpy $R0 0
 
   !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
@@ -963,8 +957,7 @@ Function CreateOrUpdateStartMenuShortcut
 FunctionEnd
 
 Function CreateOrUpdateDesktopShortcut
-  ; We used to use product name as MAINBINARYNAME
-  ; migrate old shortcuts to target the new MAINBINARYNAME
+  ; Update existing shortcut pointing to $OldMainBinaryName to ${MAINBINARYNAME}.exe
   !insertmacro IsShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
   Pop $0
   ${If} $0 = 1

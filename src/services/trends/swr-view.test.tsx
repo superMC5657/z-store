@@ -290,7 +290,7 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     await waitFor(() => {
       expect(liteSpy).toHaveBeenCalledTimes(3);
     });
-    // 写透落稳：L2 存盘已替代 loading 为具平台（非空非 stale 才写透）
+    // 写透落稳：L2 存盘已将 loading 补齐为具平台（非空非 stale 才写透）
     await waitFor(() => {
       expect(l2Store.size).toBeGreaterThan(0);
       const hasConcrete = [...l2Store.values()].some((v) => {
@@ -539,7 +539,7 @@ describe('已确认Other落盘：重挂零lite直展Other卡、具平台可升�
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
     });
     await saveBoardCacheMerged(buildTrendsCacheKey('weekly', {}), 'weekly', l2Repos);
-    // 升级后确认应被移除（put 具平台自动移除），L2 不再含 atlas 确认
+    // 升级后确认记录自动清理，L2 中移除 atlas 确认标记
     expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
     await waitFor(() => {
       const payloads = [...l2Store.values()].map((v) => {

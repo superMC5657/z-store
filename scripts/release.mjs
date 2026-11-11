@@ -79,7 +79,7 @@ function parseCliArgs() {
       (a) => a === '--patch' || a === '--minor' || a === '--major' || /^\d+\.\d+\.\d+/.test(a),
     )
     if (hasBumpArg) {
-      console.error(`\n❌ pnpm release 不再支持递增版本号参数 (${unknownArgs.join(' ')})。`)
+      console.error(`\n❌ pnpm release 不支持递增版本号参数 (${unknownArgs.join(' ')})。`)
       console.error(`   发版脚本专职负责“CI 校验”与“打 Tag 发布”。`)
       console.error(`   如需修改版本号，请先运行: pnpm bump ${unknownArgs.join(' ')}`)
       console.error(

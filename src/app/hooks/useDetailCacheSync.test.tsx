@@ -263,7 +263,7 @@ describe('useDetailCacheSync：0ms 快照与后台探查', () => {
       await flushMicrotasks();
     });
 
-    // A 迟到：选中态不再被 A 触碰（B 的数据是最后一次选中态写入）。
+    // A 迟到：选中态不被 A 触碰（B 的数据保持最后一次选中态写入）。
     for (const call of params.setSelectedApp.mock.calls) {
       const arg = call[0] as AppDetailViewModel | ((p: AppDetailViewModel | null) => AppDetailViewModel | null);
       const value = typeof arg === 'function' ? arg(null) : arg;

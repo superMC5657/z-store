@@ -32,28 +32,28 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 ## 3. 级别与直透
 
 - 后端：`log::error!`（panic hook）、`log_session_start()`（会话横幅）等标准 `log` 级别直写。
-- 前端：直透刷盘模式。`info / warn / error` 均为纳秒级即时进 IPC 直写，杜绝 3 秒攒批导致的时序颠倒（因果倒置）与崩溃丢日志问题；前端只有这三个级别，无 `debug`。
-- Target 规范化：Webview 上送的调用栈 Target 统一被后端重写为精简的 `[ui]`，提升日志可读性。
+- 前端：直透刷盘模式。`info / warn / error` 即时经 IPC 写入日志文件，确保严格时序与崩溃不丢失；前端使用这 3 个级别（不含 `debug`）。
+- Target 规范化：Webview 上送的调用栈 Target 统一由后端重写为精简的 `[ui]`，提升日志可读性。
 - `window.onerror` / `unhandledrejection` 直透 `error()`。
 
 ## 4. 前端直透与脱敏（redact）
 
 入口 `main.tsx` 最早调用 `initZLog()`（见 `src/main.tsx`）。
-- 公开 API 只有 `zlogInfo / zlogWarn / zlogError` + `initZLog`（见 `src/lib/z-log.ts`，无 `zlogDebug`、无 `flush` 公开导出，幂等守卫为内部变量）；
+- 公开 API 为 `zlogInfo / zlogWarn / zlogError` 与 `initZLog`（见 `src/lib/z-log.ts`，幂等守卫为内部变量）；
 - 各级别即时异步落盘（`@tauri-apps/plugin-log` 的 `info / warn / error` 直写，失败吞错，不影响业务）；
 - 每行自动加 `[sid=…]` 前缀（未传取前端 sid）+ 可选 `[req=…]`，同一行 1s 内重复去重一行（仅影响送达、不影响业务）；
 - DEV 环境自动执行 `attachConsole()` 桥接；`window.onerror` / `unhandledrejection` 先脱敏后直透 `error()`。
-- 脱敏规则（后端 `z_log::redact` 无正则、按字符/字节边界安全切片）：邮箱掩码；`code` / `device_code` / `user_code` / `api_key` 系（含 JSON `"key": "值"` 形态）掩码；`Bearer` / `Token` 后紧跟原文打码为 `***`；后端另在写盘前 + 导出打包前各执行一次，panic hook 入参先脱敏再记 `error`。
-- 前端等价脱敏为 `src/lib/z-log.ts::redact` 的单处正则实现（同一组邮箱/键值/Bearer 规则），只处理前端上送的消息，不替代后端写盘前的脱敏。
+- 脱敏规则（后端 `z_log::redact` 无正则、按字符/字节边界安全切片）：邮箱掩码；`code` / `device_code` / `user_code` / `api_key` 系（含 JSON `"key": "值"` 形态）掩码；`Bearer` / `Token` 后紧跟原文打码为 `***`；后端在写盘前与导出打包前各执行一次，panic hook 入参先脱敏再记 `error`。
+- 前端等价脱敏为 `src/lib/z-log.ts::redact` 的单处正则实现（同一组邮箱/键值/Bearer 规则），处理前端上送消息并与后端写盘前脱敏共同生效。
 
-## 5. 保留与清理（prune 14d / 25MB，只碰 `*.log`（含 `*.log.bak`），实现以 `src-tauri/src/z_log.rs::prune` 为准，不记行号）
+## 5. 保留与清理（prune 14d / 25MB，仅清理 `*.log`（含 `*.log.bak`），实现以 `src-tauri/src/z_log.rs::prune` 为准）
 
-`z_log::prune` 在 `setup` 中对 `app_log_dir` 执行（`KEEP_DAYS = 14`，`MAX_TOTAL_BYTES = 25MB`；单文件 5MB + `KeepSome(5)` 轮转，常量名与实现对照 `z_log.rs`，定位用 `rg` 现查）：
+`z_log::prune` 在 `setup` 中对 `app_log_dir` 执行（`KEEP_DAYS = 14`，`MAX_TOTAL_BYTES = 25MB`；单文件 5MB + `KeepSome(5)` 轮转，常量名与实现对照 `z_log.rs`）：
 
 - `KEEP_DAYS = 14`：mtime 超 14 天删；
 - `MAX_TOTAL_BYTES = 25MB`：超量按 mtime 最旧先删；
-- **只碰日志文件**（判定逻辑见 `z_log::prune`，文件名小写以后缀 `.log` / `.log.bak` 判定，或扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
-  业务 SQLite（`z_store.db` 在 AppDataDir，与 LogDir 分离）一律不动。
+- **仅作用于日志文件**（判定逻辑见 `z_log::prune`，文件名小写以后缀 `.log` / `.log.bak` 判定，或扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
+  业务 SQLite（`z_store.db` 在 AppDataDir，与 LogDir 分离）均保留不清理。
 
 ## 6. 导出命令
 
@@ -62,7 +62,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
   `zstore-logs-<unix_secs>.zip`（deflate，附 `README.txt` 记 identifier / keep_days /
   max_total_bytes），返回 bundle 路径；跳过自身与一切 `.zip`。
 
-两命令均已在 `lib.rs` 的 `tauri::generate_handler!` 注册。
+两命令均在 `lib.rs` 的 `tauri::generate_handler!` 注册。
 
 ## 7. 禁 sqlite 声明
 
@@ -70,8 +70,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
 - 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
  （`src-tauri/src/lib.rs::run` 的库打开失败回退分支，
-  `db open failed fallback to in-memory`）：静态文案，不记任何路径值；
-  行为不变（仍回退内存库），静默丢数据是最坏一类故障故定为 error 级必记。
+  `db open failed fallback to in-memory`）：使用静态文案（不记录任何路径值），以 `error` 级别确保静默丢数据风险可见。
 
 ## 8. 接线位置速查
 
@@ -132,7 +131,7 @@ v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模�
 - 下载进度循环 / 字节回调：零 `log!`（进度只走 `zstore://download-progress` 事件）。
 - 完整 URL（含 release 资产签名 query）、token / user_code / device_code、
   响应 body、文件全路径、私钥、`tick`：一律不记。
-- `println!` / `eprint!` / `dbg!`：业务代码禁用（`scanner/tests.rs` 内既有测试 `println!` 保留不动）。
+- `println!` / `eprint!` / `dbg!`：业务代码禁用（`scanner/tests.rs` 内测试输出保留）。
 - 循环内打点：禁止 `info`，只许 `debug` 且须可聚合；单项未命中类 debug 禁止（仅允许可聚合的汇总计数）。
 
 ## 10. 网络透明化与 URL 脱敏（sanitize_url）

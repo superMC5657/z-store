@@ -1,14 +1,10 @@
 /**
- * 任务 4 — CategoriesView 汇聚至全局设备平台过滤器测试。
+ * CategoriesView 集成至全局设备平台过滤器测试。
  *
- * 第一部分：单维度分类行为：
- *   大厅渲染分类卡片；点击卡片列出该分类下的应用；
- *   返回按钮返回大厅。
+ * 第一部分：单维度分类浏览行为（分类卡片大厅、点击进入应用列表、返回大厅）。
  *
- * 第二部分：全局平台过滤下的分类契约：
- *   移除平台胶囊切换栏；大厅各分类计数仅来源于传入的预过滤 `apps` 属性；
- *   空状态使用多选连接文案 + 绑定了必选 `onResetPlatformFilter` 属性的
- *   `.filter-empty-reset` 按钮（通过 App 恢复全量设备集合并返回大厅）。
+ * 第二部分：全局平台过滤契约（分类计数由预过滤 `apps` 驱动，
+ * 空筛选渲染引导状态及 `.filter-empty-reset` 重置入口）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';

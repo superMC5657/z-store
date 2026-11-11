@@ -2,11 +2,11 @@
  * Pending 草稿表单折叠分节偏好模块（PendingView 从此读写 `supplemental` / `runtime` 展开状态）。
  *
  * - 存储键为点分形态：`zstore:pending.sectionPrefs`；
- * - 读时兼容旧下划线 key（`zstore:pending_section_prefs`）及旧字段名 `optional`，命中旧值即迁移写新 key。
+ * - 读取时兼容下划线别名键（`zstore:pending_section_prefs`）及字段别名 `optional`，命中即迁移写标准键。
  */
 
 export const PENDING_SECTION_PREFS_STORAGE_KEY = 'zstore:pending.sectionPrefs';
-/** 旧键：仅迁移读取用，新写入不再使用。 */
+/** 兼容读取用的存储键别名。 */
 export const PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY = 'zstore:pending_section_prefs';
 
 function readStored(key: string): string | null {
@@ -52,7 +52,7 @@ const DEFAULT_SECTION_PREFS: PendingSectionPrefs = { supplemental: true, runtime
 
 function normalizeSectionPrefs(parsed: unknown): PendingSectionPrefs {
   const obj = (parsed ?? {}) as Record<string, unknown>;
-  // 兼容旧字段名 `optional`（读到即按 supplemental 语义吸收）。
+  // 兼容别名字段 `optional`（按 supplemental 语义解析）。
   const supplemental =
     typeof obj.supplemental === 'boolean'
       ? obj.supplemental
@@ -72,7 +72,7 @@ function parseSectionPrefs(raw: string | null): PendingSectionPrefs | null {
   }
 }
 
-/** 读分节偏好：新 key 优先，旧 key 命中则迁移写新 key，缺省回退默认值。 */
+/** 读分节偏好：标准 key 优先，别名 key 命中则迁移写标准 key，缺省回退默认值。 */
 export function getPendingSectionPrefs(): PendingSectionPrefs {
   const fresh = parseSectionPrefs(readStored(PENDING_SECTION_PREFS_STORAGE_KEY));
   if (fresh) return fresh;
@@ -84,7 +84,7 @@ export function getPendingSectionPrefs(): PendingSectionPrefs {
   return { ...DEFAULT_SECTION_PREFS };
 }
 
-/** 写分节偏好到新 key（顺手清理旧 key）。 */
+/** 写分节偏好到标准 key（同步清理别名 key）。 */
 export function setPendingSectionPrefs(prefs: PendingSectionPrefs): void {
   writeStored(PENDING_SECTION_PREFS_STORAGE_KEY, JSON.stringify(prefs));
   removeStored(PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY);

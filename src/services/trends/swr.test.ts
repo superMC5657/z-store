@@ -221,7 +221,7 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     expect(res.status).toBe('ok');
     expect(res.repos).toHaveLength(1);
     expect(networkSpy).not.toHaveBeenCalled();
-    // 归一 key 单次直读命中，不再试旧 key
+    // 归一 key 单次直读命中，不尝试别名 key
     expect(seenKeys).toEqual([newKey]);
     // 读命中不触发回迁写
     expect(savedKeys).toEqual([]);

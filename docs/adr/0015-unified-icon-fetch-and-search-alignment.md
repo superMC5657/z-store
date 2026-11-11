@@ -41,8 +41,8 @@
 
 ## 6. 单一流式路径
 
-- 搜索与趋势的图标补齐只走统一核心 `github/icon_fetch.rs::fetch_icons_stream`：搜索后台无条件 `tokio::spawn` 该核心，趋势 enrich 同样逐张 emit；不存在 `buffered+collect` 等齐的兼容分支，也没有对应开关。
-- 趋势 enrich 的 summary 批量直查侧另走 `.buffered(5)` 保序等齐（`commands/catalog_search.rs`），只补 summary 不搬图标；前端 `useTrendEnrichment` 按 `(trendResult, activeBoard)` 周期记录已尝试 enrich 的坐标集合，单仓直查失败返回 `None` 时不重入触发二次 `enrich_trend_repos`，保证单次榜单加载只递增一次 `BOARD_GEN`。
+- 搜索与趋势的图标补齐统一使用 `github/icon_fetch.rs::fetch_icons_stream`：搜索后台 `tokio::spawn` 该核心，趋势 enrich 逐张 emit。
+- 趋势 enrich 的 summary 批量直查侧走 `.buffered(5)` 保序等齐（`commands/catalog_search.rs`），只补 summary 不搬图标；前端 `useTrendEnrichment` 按 `(trendResult, activeBoard)` 周期记录已尝试 enrich 的坐标集合，单仓直查失败返回 `None` 时不重入触发二次 `enrich_trend_repos`，保证单次榜单加载只递增一次 `BOARD_GEN`。
 - `config::IconFetchConfig` 仅含 `pool` / `total_timeout_secs`；快慢超时统一经 `config::api_timeout_or`（`network.api_timeout_seconds`），未设置时回退 1500ms/12s 默认值（`github/icon_probe.rs`）。
 - L4→None / 槽位保真：无有效缓存文件时 `level=4`（L4 README，需网络）返回 None，不作 M2 回填（见 `github/http.rs::resolve_confirmed_icon_from_db`）；`get_or_fetch_icon` 与详情 304 复用优先经 `AppIconCycle::level_for_known_url` 匹配已入槽级别，未知 URL 再由 `level_for_detail_icon` 启发式归类（`/blob/`、`/HEAD/`、`readme` 及 GitHub README 图床归 `4`，显式分支 `raw.githubusercontent.com` 归 `3`）。
 

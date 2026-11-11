@@ -71,7 +71,7 @@ export const PENDING_OFFICIAL_CATEGORIES = [
   'games',
 ] as const;
 
-export type PendingOfficialCategory = (typeof PENDING_OFFICIAL_CATEGORIES)[number];
+type PendingOfficialCategory = (typeof PENDING_OFFICIAL_CATEGORIES)[number];
 
 export const PENDING_EMPTY_DRAFT: PendingDraftItem = {
   id: '',
@@ -256,7 +256,7 @@ export function entrySegment(e: CustomDraftEntry): PendingSegmentId | null {
   return null;
 }
 
-/** submitted（已提交）判定：归档行优先只读，不再按 submitted 处理。 */
+/** submitted（已提交）判定：已归档行恒视为只读归档，不视为待合入 submitted。 */
 export function isSubmittedEntry(e: CustomDraftEntry): boolean {
   return !e.archived && e.status === 'submitted';
 }

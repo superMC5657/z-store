@@ -1,8 +1,6 @@
 import type {
   DeveloperProfile,
   FavoriteEntry,
-  HostRateLimitRefresh,
-  HostRateLimitStatus,
   StarAppResult,
   StarredSyncResult,
   WatchedAppEntry,
@@ -92,24 +90,6 @@ export function handleGetDeveloperProfile(a: InvokeArgs): DeveloperProfile {
 
 export function handleSyncGithubStarred(): StarredSyncResult {
   return { total_starred: 0, catalog_matches: [], other_repos: [] };
-}
-
-export function handleSetHostToken(): null {
-  return null;
-}
-
-export function handleRemoveHostToken(): null {
-  return null;
-}
-
-export function handleRefreshHostRateLimit(a: InvokeArgs): HostRateLimitRefresh {
-  const host = argStr(a, 'host') || 'github.com';
-  return { host, updated_at: Math.floor(Date.now() / 1000) };
-}
-
-export function handleTestHostConnection(a: InvokeArgs): HostRateLimitStatus {
-  const host = argStr(a, 'host') || 'github.com';
-  return { host, is_connected: false, message: 'demo' };
 }
 
 export function handleGetOAuthUser(): null {

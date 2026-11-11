@@ -6,9 +6,8 @@
 
 ## 1. 表结构
 
-- `trend_board_cache(cache_key TEXT PK, board TEXT NOT NULL, payload_json TEXT NOT NULL, payload_bytes INTEGER DEFAULT 0, cached_at INTEGER)` + `idx_trend_board_cache_board(board)`，见 `db/schema.rs`。
-- 表清单以 `db/schema.rs::init_schema` 为准；`search_result_cache` 不存在，不做承诺。
-- 后端命令 `get/save_trend_board_cache`（`commands/trends_cache.rs`）：薄透传，请求键经 `#[tauri::command(rename_all = "camelCase")]` 桥接（前端 `cacheKey`/`payloadJson` → 后端 `cache_key`/`payload_json`），仅 trim+空拒绝，不做大小写归一，不判 TTL；前端沿用同 key 直接命中。
+- `trend_board_cache(cache_key TEXT PK, board TEXT NOT NULL, payload_json TEXT NOT NULL, payload_bytes INTEGER DEFAULT 0, cached_at INTEGER)` + `idx_trend_board_cache_board(board)`，定义于 `db/schema.rs::init_schema`。
+- 后端命令 `get/save_trend_board_cache`（`commands/trends_cache.rs`）：薄透传，请求键经 `#[tauri::command(rename_all = "camelCase")]` 桥接（前端 `cacheKey`/`payloadJson` → 后端 `cache_key`/`payload_json`），仅 trim + 空串拒绝，不做大小写归一、不判 TTL；前端沿用同 key 直接命中。
 
 ## 2. Key 归一（小写，读写同源）
 
@@ -27,20 +26,20 @@
 
 ## 5. 两级字节上限 + dataURI 禁入
 
-- FE `TREND_DB_PAYLOAD_MAX_BYTES=256KB` 预检：信封超限逐级裁剪（丢 confirmed → 长文本截 500 字 → 丢 loading 空平台条），仍超限放弃写盘；BE `TREND_BOARD_CACHE_MAX_BYTES=512KiB` 硬拒绝（`trend_board_payload_too_large`，不落库）保持。
+- FE `TREND_DB_PAYLOAD_MAX_BYTES=256KB` 预检：信封超限逐级裁剪（丢 confirmed → 长文本截 500 字 → 丢 loading 空平台条），仍超限放弃写盘；BE 端超过 `TREND_BOARD_CACHE_MAX_BYTES=512KiB` 硬拒绝（`trend_board_payload_too_large`，不落库）。
 - `data:` 字符串与未确认空平台永不进 `payload_json`：当富卡携带 `data:` 图标时，写盘与 `putTrendEnrichCache` 自动将 `icon` 字段剥空为 `''` 后保留富卡本体落盘（`data:` 驻留 `iconStore` M1 内存与后端 `icons/` 磁盘，重挂时经 `getConfirmedIconsBatch` 回填）。
 
 ## 6. 批量 40
 
-- BE `enrich_trend_repos`：`take(40)` 兜底截断，`buffered(5)` 保序不变。
+- BE `enrich_trend_repos`：`take(40)` 兜底截断 + `buffered(5)` 保序。
 - FE `enrichTrendRepos`：单次批量 40 上限（`missing.slice(0, 40)` 一次取回，避免第二片顶掉第一片慢尾）；整批失败即整批缺席（不抛错，缺席留占位，榜单永不置空）。
 
 ## 7. 429 透传（单次重试）
 
-- BE 429 分支透传 `Retry-After`：纯秒数追加 `retry-after: {s} retry_after_ms={ms}`，日期串透传原串，无头保持旧串；限流日志不占单飞槽计数。
+- BE 429 分支透传 `Retry-After`：纯秒数追加 `retry-after: {s} retry_after_ms={ms}`，日期串透传原串，无该响应头时返回基础错误串；限流日志不占单飞槽计数。
 - FE `doforceRetryDelayMs` 优先兑现 `retry_after_ms` 毫秒直值，否则按 `retry-after` 秒数/HTTP-date，上限 60s（超限直接 error），缺省 5s；`fetchDoforceWithRetry` 恰好重试一次。
 
-## 8. 既有能力
+## 8. 关联能力与守卫
 
 - recents 治愈：`history.rs` `heal_recent_summary`/`cached_detail_summary` + `App.tsx` recents heal，富卡非占位简介治愈占位行。
 - 详情占位守卫：`detail_fetch.rs` `is_placeholder_description`/`repo_real_description_from_etag` + `App.tsx` 的 `snapshotTrendEnrichCache`/`handleOpenDetail`/`useDetailCacheSync`，占位不覆盖。

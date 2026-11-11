@@ -55,7 +55,6 @@
     "account_login_btn": "登录"
   },
   "settings": {
-    "title": "系统设置",
     "general_preferences": "通用与偏好",
     "search_placeholder": "查找设置...",
     "search_clear": "清空",
@@ -78,12 +77,6 @@
     "font_size_compact": "紧凑",
     "font_size_standard": "标准",
     "font_size_comfortable": "舒适",
-    "pending_coords_title": "草稿仓库与 ID",
-    "pending_coords_desc": "编辑草稿时显示仓库与 ID",
-    "pending_coords_show": "显示",
-    "pending_coords_hide": "隐藏",
-    "pending_coords_shown": "已开启坐标显示",
-    "pending_coords_hidden": "已隐藏坐标显示",
     "update_frequency": "自动检查更新",
     "freq_startup": "启动时",
     "freq_manual": "手动",
@@ -91,7 +84,6 @@
     "watch_startup": "每次启动",
     "watch_daily": "每日汇总",
     "rules_title": "版本与隐藏规则",
-    "rules_desc_active": "已生效 {{count}} 条",
     "rules_btn": "规则",
     "download_dir": "下载目录",
     "portable_dir": "便携版目录",
@@ -223,8 +215,6 @@
     "fav_inactive": "加入收藏",
     "supported_devices": "支持设备",
     "code_source": "代码源",
-    "cataloged_badge": "已收录",
-    "uncataloged_badge": "未收录",
     "custom_badge": "自维护",
     "loading": "加载中"
   },
@@ -330,7 +320,6 @@
       "submitting": "提交中…",
       "prefill_hint": "打开 GitHub Issue 预填页",
       "preview_only": "预览模式仅演示，提交 Issue 请在桌面版完成",
-      "copy_failed": "复制失败，请手动复制",
       "open_failed": "Issue 预填页打开失败：{{message}}",
       "open_failed_copied": "Issue 预填页打开失败：{{message}}；已复制链接，请手动打开",
       "url_too_long": "Issue 预填链接过长（{{length}} 字符），建议分批提交",
@@ -340,12 +329,7 @@
       "license_fix_hint": "请补齐 SPDX 协议：{{id}}",
       "allowlist_load_failed": "名单加载失败，请重试"
     },
-    "id_preview": "canonical 预览：{{id}}",
     "identifiers_hint": "每行 platform=标识1, 标识2 (如 windows=app.exe)",
-    "hide_coords": "隐藏标识",
-    "show_coords": "显示标识",
-    "hide_coords_btn": "隐藏标识",
-    "show_coords_btn": "显示标识",
     "groups": {
       "draft": "草稿",
       "library": "本地收录",
@@ -396,7 +380,6 @@
     "preview": {
       "title": "收录预览",
       "hint": "",
-      "badge": "自维护草稿",
       "collapse": "收起预览",
       "expand": "展开预览",
       "empty_name": "未填写名称",
@@ -436,11 +419,6 @@
       "supplemental": "补充信息",
       "runtime": "运行配置"
     },
-    "rename_hint": "修改请复制新草稿",
-    "copy_id_title": "复制应用标识 ID",
-    "copy_id_btn": "复制",
-    "archived_save_disabled": "已归档只读，不可保存",
-    "id_copied": "ID 已复制：{{id}}",
     "duplicated_hint": "已复制为新草稿模板",
     "duplicate_conflict_hint": "已存在相同 ID：{{id}}",
     "revert_failed": "退回草稿失败：{{id}}：{{error}}"
@@ -788,8 +766,7 @@
       "starred": "已在 GitHub 标星 {{name}}",
       "login_required": "请先登录 GitHub 账号",
       "failed": "GitHub 标星失败: {{error}}"
-    },
-    "unmanage_title": "取消管理（保留本地数据）"
+    }
   },
   "toast": {
     "watch_update_released": "你关注的 {{name}} 发布了 {{version}}",

@@ -297,7 +297,7 @@ function customItemToSummary(item: {
  * 判定应用是否匹配搜索词（用于搜索态 custom 本地库叠加过滤）：
  * 匹配 name / id / owner / repo / description / description_en / category / category_name / aliases。
  */
-export function appMatchesQuery(app: AppSummary, query: string): boolean {
+function appMatchesQuery(app: AppSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   const name = (app.name || '').toLowerCase();
@@ -333,7 +333,7 @@ export function appMatchesQuery(app: AppSummary, query: string): boolean {
  * - 仅合 status 为 collected 系且未归档的行（draft/submitted/已归档一律跳过），
  *   补位行经 markLocalSource 打标（source=local，is_cataloged 恒 true）；
  * - 支持 CustomAppEntry（{item,status,archived}）与扁平行（含 status/archived）两种形态；
- *   无 status 的旧行视为未收录直接跳过。
+ *   无 status 的行视为未收录直接跳过。
  * - 搜索态（传 searchQuery 且非空）按词过滤，避免误将不相关的收录行追加到搜索结果。
  * Home/分类/搜索三处共用同一口（调用方先合并再平台过滤）。
  */
@@ -452,7 +452,7 @@ function isCatalogedId(id: unknown, catalogIds: ReadonlySet<string>): boolean {
 
 /**
  * 兼容层说明：后端 `AppSummary`/`AppDetail` 投影是收录态的权威来源；
- * 以下客户端标注只为乐观本地行与旧载荷补齐字段，不是真值。
+ * 以下客户端标注只为乐观本地行与缺省字段载荷补齐字段，不是真值。
  *
  * 单行显式标注（不改原对象）：
  * - source=custom 草稿行与 source=local 收录行恒 true（不被 catalog 集覆盖，
@@ -493,8 +493,8 @@ export function annotateIsCataloged<T extends AppSummary>(
     } as T;
   }
   const expected = isCatalogedId(row.id, catalogIds);
-  // 陈旧本地标注（本地收录已退回/删除、或后端旧投影）：source/status 一并清掉，
-  // 否则仅纠 is_cataloged 会让黄标判定继续读到旧 source。
+  // 失效本地标注（本地收录已退回/删除等情形）：source/status 一并清掉，
+  // 否则仅纠 is_cataloged 会让黄标判定继续读到残留 source。
   const staleLocalMark =
     row.source === 'local' || isCollectedStatus(row.status);
   if (!staleLocalMark) {
@@ -698,7 +698,7 @@ export function annotateEnrichMirrorCataloged(
 
 /**
  * 兼容层：后端 `AppSummary`/`AppDetail` 投影是权威来源，本函数只为
- * 乐观本地行与旧载荷补齐字段，不是真值。
+ * 乐观本地行与缺省字段载荷补齐字段，不是真值。
  *
  * 本地收录标记搬运（不改收录判定）：
  * 命中本地收录即补 `source='local'` + `status` + `is_cataloged=true`，未命中原引用透传。
@@ -755,7 +755,7 @@ export function useAppSelectors({
     () => selectMergedCatalogApps(apps, customApps, showCustom, searchQuery),
     [apps, customApps, showCustom, searchQuery],
   );
-  // 任务 3：以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
+  // 以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
   // 加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
   const platformFilteredApps = useMemo(
     () => selectPlatformFilteredApps(mergedApps, selectedPlatforms, platformResolvedOtherIds),
@@ -781,8 +781,8 @@ export function useAppSelectors({
     [platformFilteredApps, uncatalogedExtraApps, selectedPlatforms, platformResolvedOtherIds]
   );
 
-  // 任务 4（设备平台全局过滤）：侧栏分组的各平台应用计数，
-  // 基于全量 `apps` 数组（而非已过滤数组）计算，以便准确呈现“有多少应用支持该设备”。
+  // 侧栏分组的各平台应用计数：
+  // 基于全量 `mergedApps` 计算，准确呈现各平台收录数量。
   // 一次扫完 6 项：已确认 other 才计入虚拟 other 桶，加载中行暂不计数（缺席沿用收录库口径，
   // 落定后单次更新），大小写归一，同应用去重后各桶 +1（与 6×filter 语义一致）。
   // 计数基于合并后全量（含 custom 补位行）。

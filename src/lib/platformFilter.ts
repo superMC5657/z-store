@@ -238,8 +238,7 @@ export function isEnrichedRowLoading(
 }
 
 /**
- * confirmed 并集（全局 ∪ 榜单内，跳过缺席集合；保序去重）。
- * 替代 `TrendsView` 内联 union memo 与各处手动合并。
+ * confirmed 并集（全局 ∪ 榜单内，跳过缺席集合；保序去重），供榜单与列表统一复用。
  */
 export function unionConfirmedSets(
   ...sets: readonly (ReadonlySet<string> | undefined)[]

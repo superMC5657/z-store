@@ -422,7 +422,7 @@ describe('rising/healthy：doforce 单飞共享（一次抓取，两榜各排）
     expect(repoIds(rising.repos)).toEqual(['acme/dune', 'acme/beacon', 'acme/atlas']);
     expect(repoIds(healthy.repos)).toEqual(['acme/atlas', 'acme/dune', 'acme/beacon']);
     expect(doforceUrls()).toHaveLength(1);
-    // 随后调用命中 12h 共享缓存，不再抓取
+    // 随后调用命中 12h 共享缓存，不重复抓取
     await fetchTrendsResult('rising');
     await fetchTrendsResult('healthy');
     expect(doforceUrls()).toHaveLength(1);

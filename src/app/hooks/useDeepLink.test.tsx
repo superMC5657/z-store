@@ -132,7 +132,7 @@ describe('useDeepLink：五类动作分发', () => {
     await act(async () => {
       await rendered.result.current.handleDispatchDeepLink('zstore://view/hax');
     });
-    // 非法视图在 useDeepLink 侧即被 isViewType 拒绝，不再下发给集中导航。
+    // 非法视图在 useDeepLink 侧即被 isViewType 拒绝，不下发给集中导航。
     expect(handlers.navigate).toHaveBeenCalledTimes(1);
     expect(handlers.navigate).toHaveBeenCalledWith('trends');
   });

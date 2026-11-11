@@ -9,19 +9,14 @@ import {
   AlignLeft,
   ChevronDown,
   ChevronRight,
-  Archive,
   FileText,
   Inbox,
-  Link2,
   PencilLine,
-  Send,
   ShieldCheck,
   Sliders,
   Trash2,
 } from 'lucide-react';
 import {
-  isPendingCollectedStatus,
-  isSubmittedEntry,
   PENDING_OFFICIAL_CATEGORIES,
   type CustomDraftEntry,
   type PendingDraftErrors,
@@ -43,7 +38,6 @@ interface PendingDraftFormProps {
   platformsText: string;
   identifiersText: string;
   isCreating: boolean;
-  isArchived: boolean;
   /** 选中行（非新建态可空）。 */
   editing: CustomDraftEntry | null;
   openSections: { supplemental: boolean; runtime: boolean };
@@ -55,14 +49,6 @@ interface PendingDraftFormProps {
   onCollectLocal: (id: string) => void;
   hasSubmitErrors: boolean;
   hasLicenseSubmitError: boolean;
-  revertingId: string | null;
-  confirmRevertId: string | null;
-  onRevertToDraft: (id: string) => void;
-  submittingId: string | null;
-  onSubmitPr: (id: string) => void;
-  prUrlInput: string;
-  onPrUrlInput: (value: string) => void;
-  onMarkSubmitted: (id: string) => void;
 }
 
 /** 各段只取自身用到的字段，拼错的字段名/漏传在编译期暴露。 */
@@ -73,7 +59,7 @@ type CoordsSectionProps = Pick<
 >;
 type CoreSectionProps = Pick<
   PendingDraftFormProps,
-  'form' | 'onField' | 'onFieldBlur' | 'formErrors' | 'isArchived'
+  'form' | 'onField' | 'onFieldBlur' | 'formErrors'
 >;
 type SupplementalSectionProps = Pick<
   PendingDraftFormProps,
@@ -84,7 +70,6 @@ type SupplementalSectionProps = Pick<
   | 'aliasesText'
   | 'openSections'
   | 'onToggleSection'
-  | 'isArchived'
 >;
 type RuntimeSectionProps = Pick<
   PendingDraftFormProps,
@@ -94,12 +79,10 @@ type RuntimeSectionProps = Pick<
   | 'identifiersText'
   | 'openSections'
   | 'onToggleSection'
-  | 'isArchived'
 >;
 type FormFooterProps = Pick<
   PendingDraftFormProps,
   | 'isCreating'
-  | 'isArchived'
   | 'editing'
   | 'confirmDeleteId'
   | 'onDelete'
@@ -107,14 +90,6 @@ type FormFooterProps = Pick<
   | 'onCollectLocal'
   | 'hasSubmitErrors'
   | 'hasLicenseSubmitError'
-  | 'revertingId'
-  | 'confirmRevertId'
-  | 'onRevertToDraft'
-  | 'submittingId'
-  | 'onSubmitPr'
-  | 'prUrlInput'
-  | 'onPrUrlInput'
-  | 'onMarkSubmitted'
   | 'onSave'
 >;
 
@@ -141,7 +116,6 @@ export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
         onField={props.onField}
         onFieldBlur={props.onFieldBlur}
         formErrors={props.formErrors}
-        isArchived={props.isArchived}
       />
       <SupplementalSection
         form={props.form}
@@ -151,7 +125,6 @@ export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
         aliasesText={props.aliasesText}
         openSections={props.openSections}
         onToggleSection={props.onToggleSection}
-        isArchived={props.isArchived}
       />
       <RuntimeSection
         onTextField={props.onTextField}
@@ -160,11 +133,9 @@ export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
         identifiersText={props.identifiersText}
         openSections={props.openSections}
         onToggleSection={props.onToggleSection}
-        isArchived={props.isArchived}
       />
       <FormFooter
         isCreating={props.isCreating}
-        isArchived={props.isArchived}
         editing={props.editing}
         confirmDeleteId={props.confirmDeleteId}
         onDelete={props.onDelete}
@@ -172,21 +143,13 @@ export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
         onCollectLocal={props.onCollectLocal}
         hasSubmitErrors={props.hasSubmitErrors}
         hasLicenseSubmitError={props.hasLicenseSubmitError}
-        revertingId={props.revertingId}
-        confirmRevertId={props.confirmRevertId}
-        onRevertToDraft={props.onRevertToDraft}
-        submittingId={props.submittingId}
-        onSubmitPr={props.onSubmitPr}
-        prUrlInput={props.prUrlInput}
-        onPrUrlInput={props.onPrUrlInput}
-        onMarkSubmitted={props.onMarkSubmitted}
         onSave={props.onSave}
       />
     </div>
   );
 };
 
-/** 顶部标题栏：新建/编辑标题 + 分组徽标（编辑态下提供坐标/ID 校验错误兜底槽位）。 */
+/** 顶部标题栏：新建/编辑标题（编辑态下提供坐标/ID 校验错误兜底槽位）。 */
 function FormHeader({ isCreating, editing, formErrors }: FormHeaderProps) {
   const { t } = useTranslation();
   return (
@@ -200,21 +163,6 @@ function FormHeader({ isCreating, editing, formErrors }: FormHeaderProps) {
           >
             {isCreating ? t('pending.new_draft') : editing?.id}
           </strong>
-          {editing?.archived && (
-            <span className="nav-badge" title={t('pending.archived_badge')}>
-              {t('pending.archived_badge')}
-            </span>
-          )}
-          {!isCreating && editing && isSubmittedEntry(editing) && (
-            <span className="nav-badge" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
-              {t('pending.segments.submitted')}
-            </span>
-          )}
-          {!isCreating && editing && !editing.archived && isPendingCollectedStatus(editing.status) && editing.status !== 'submitted' && (
-            <span className="nav-badge" title={t('pending.groups.library')}>
-              {t('pending.groups.library')}
-            </span>
-          )}
         </div>
       </div>
       {!isCreating && (formErrors.owner || formErrors.repo || formErrors.id) && (
@@ -306,7 +254,7 @@ function CoordsSection({
 
 /** 分节 A：核心信息（核心必填，恒定展开，不可隐藏）。 */
 function CoreSection({
-  form, onField, onFieldBlur, formErrors, isArchived,
+  form, onField, onFieldBlur, formErrors,
 }: CoreSectionProps) {
   const { t } = useTranslation();
   return (
@@ -328,7 +276,6 @@ function CoreSection({
           onBlur={onFieldBlur}
           placeholder={t('pending.placeholders.name')}
           aria-invalid={Boolean(formErrors.name) || undefined}
-          readOnly={isArchived}
         />
         {formErrors.name && (
           <em data-testid="pending-error-name" style={errorStyle}>
@@ -347,7 +294,6 @@ function CoreSection({
           rows={2}
           placeholder={t('pending.placeholders.description')}
           aria-invalid={Boolean(formErrors.description) || undefined}
-          readOnly={isArchived}
         />
         {formErrors.description && (
           <em data-testid="pending-error-description" style={errorStyle}>
@@ -365,7 +311,6 @@ function CoreSection({
           onChange={(e) => onField('category', e.target.value)}
           onBlur={onFieldBlur}
           aria-invalid={Boolean(formErrors.category) || undefined}
-          disabled={isArchived}
         >
           {!PENDING_OFFICIAL_CATEGORIES.includes(
             form.category as (typeof PENDING_OFFICIAL_CATEGORIES)[number],
@@ -400,7 +345,6 @@ function CoreSection({
           autoCapitalize="none"
           spellCheck={false}
           aria-invalid={Boolean(formErrors.license) || undefined}
-          readOnly={isArchived}
         />
         {formErrors.license && (
           <em data-testid="pending-error-license" style={errorStyle}>
@@ -422,7 +366,6 @@ function CoreSection({
           autoCapitalize="none"
           spellCheck={false}
           aria-invalid={Boolean(formErrors.homepage) || undefined}
-          readOnly={isArchived}
         />
         {formErrors.homepage && (
           <em data-testid="pending-error-homepage" style={errorStyle}>
@@ -443,7 +386,6 @@ function CoreSection({
           autoCorrect="off"
           autoCapitalize="none"
           spellCheck={false}
-          readOnly={isArchived}
         />
       </label>
     </>
@@ -452,7 +394,7 @@ function CoreSection({
 
 /** 分节 B：补充信息（可选补充，默认展开，允许折叠）。 */
 function SupplementalSection({
-  form, onField, onTextField, onFieldBlur, aliasesText, openSections, onToggleSection, isArchived,
+  form, onField, onTextField, onFieldBlur, aliasesText, openSections, onToggleSection,
 }: SupplementalSectionProps) {
   const { t } = useTranslation();
   return (
@@ -490,7 +432,6 @@ function SupplementalSection({
           onChange={(e) => onField('category_name', e.target.value)}
           onBlur={onFieldBlur}
           placeholder={t('pending.placeholders.category_name')}
-          readOnly={isArchived}
         />
       </label>
 
@@ -503,7 +444,6 @@ function SupplementalSection({
           onBlur={onFieldBlur}
           rows={2}
           placeholder={t('pending.placeholders.description_en')}
-          readOnly={isArchived}
         />
       </label>
 
@@ -519,7 +459,6 @@ function SupplementalSection({
           autoCorrect="off"
           autoCapitalize="none"
           spellCheck={false}
-          readOnly={isArchived}
         />
       </label>
 
@@ -531,7 +470,6 @@ function SupplementalSection({
           onChange={(e) => onTextField('aliases', e.target.value)}
           onBlur={onFieldBlur}
           placeholder={t('pending.placeholders.csv')}
-          readOnly={isArchived}
         />
       </label>
     </>
@@ -540,7 +478,7 @@ function SupplementalSection({
 
 /** 分节 C：高级运行时（默认折叠，允许展开）。 */
 function RuntimeSection({
-  onTextField, onFieldBlur, platformsText, identifiersText, openSections, onToggleSection, isArchived,
+  onTextField, onFieldBlur, platformsText, identifiersText, openSections, onToggleSection,
 }: RuntimeSectionProps) {
   const { t } = useTranslation();
   return (
@@ -582,7 +520,6 @@ function RuntimeSection({
           autoCorrect="off"
           autoCapitalize="none"
           spellCheck={false}
-          readOnly={isArchived}
         />
       </label>
 
@@ -598,7 +535,6 @@ function RuntimeSection({
           autoCorrect="off"
           autoCapitalize="none"
           spellCheck={false}
-          readOnly={isArchived}
         />
         <span style={hintStyle}>{t('pending.identifiers_hint')}</span>
       </label>
@@ -606,12 +542,10 @@ function RuntimeSection({
   );
 }
 
-/** 固定卡片底部 Footer：保存/删除/收录/提交 Issue/退回/手动标记行。 */
+/** 固定卡片底部 Footer：保存/删除/移入本地收录。 */
 function FormFooter({
-  isCreating, isArchived, editing, confirmDeleteId, onDelete, collectingId,
-  onCollectLocal, hasSubmitErrors, hasLicenseSubmitError, revertingId,
-  confirmRevertId, onRevertToDraft, submittingId, onSubmitPr, prUrlInput,
-  onPrUrlInput, onMarkSubmitted, onSave,
+  isCreating, editing, confirmDeleteId, onDelete, collectingId,
+  onCollectLocal, hasSubmitErrors, hasLicenseSubmitError, onSave,
 }: FormFooterProps) {
   const { t } = useTranslation();
   return (
@@ -621,12 +555,10 @@ function FormFooter({
           type="button"
           className={`btn-fluent ${isCreating ? 'btn-primary' : 'btn-secondary'} btn-sm`}
           onClick={onSave}
-          disabled={isArchived}
-          title={isArchived ? t('pending.archived_save_disabled') : undefined}
         >
           {t('pending.save')}
         </button>
-        {!isCreating && editing && !isArchived && (
+        {!isCreating && editing && (
           <button
             type="button"
             className="btn-fluent btn-secondary btn-sm"
@@ -639,12 +571,7 @@ function FormFooter({
             </span>
           </button>
         )}
-        {isArchived && (
-          <span className="pending-archived-hint">
-            {t('pending.archived_readonly_hint')}
-          </span>
-        )}
-        {!isCreating && editing && !isArchived && editing.status === 'draft' && (
+        {!isCreating && editing && editing.status === 'draft' && (
           <button
             type="button"
             className="btn-fluent btn-primary btn-sm"
@@ -668,88 +595,7 @@ function FormFooter({
             </span>
           </button>
         )}
-        {!isCreating && editing && !isArchived && isPendingCollectedStatus(editing.status) && (
-          <>
-            <button
-              type="button"
-              className="btn-fluent btn-secondary btn-sm"
-              data-testid="pending-revert-to-draft"
-              disabled={revertingId === editing.id}
-              onClick={() => void onRevertToDraft(editing.id)}
-              title={t('pending.revert_hint', { id: editing.id })}
-              style={{ marginLeft: 'auto' }}
-            >
-              <Archive size={13} strokeWidth={1.5} aria-hidden="true" />
-              <span>
-                {confirmRevertId === editing.id
-                  ? t('pending.confirm_revert')
-                  : t('pending.revert_to_draft')}
-              </span>
-            </button>
-            <button
-              type="button"
-              className="btn-fluent btn-primary btn-sm"
-              data-testid="pending-submit-pr"
-              disabled={submittingId === editing.id}
-              onClick={() => void onSubmitPr(editing.id)}
-              title={
-                hasSubmitErrors
-                  ? hasLicenseSubmitError
-                    ? t('pending.pr.license_fix_hint', { id: editing.id })
-                    : t('pending.fix_errors')
-                  : t('pending.pr.prefill_hint')
-              }
-            >
-              <Send size={13} strokeWidth={1.5} aria-hidden="true" />
-              <span>
-                {submittingId === editing.id
-                  ? t('pending.pr.submitting')
-                  : t('pending.pr.submit_pr')}
-              </span>
-            </button>
-          </>
-        )}
       </div>
-
-      {!isCreating && editing && !isArchived && isPendingCollectedStatus(editing.status) && (
-        <div className="pending-editor-footer-manual">
-          <div className="pending-manual-label">{t('pending.submit_title')}</div>
-          <div className="pending-manual-row">
-            <input
-              className="input-fluent"
-              style={{ flex: '1 1 200px' }}
-              value={prUrlInput}
-              onChange={(e) => onPrUrlInput(e.target.value)}
-              placeholder="https://github.com/…/pull/…"
-              inputMode="url"
-              spellCheck={false}
-              aria-label={t('pending.submit_title')}
-            />
-            <button
-              type="button"
-              className="btn-fluent btn-secondary btn-sm"
-              onClick={() => onMarkSubmitted(editing.id)}
-            >
-              <Send size={13} strokeWidth={1.5} aria-hidden="true" />
-              <span>{t('pending.mark_submitted')}</span>
-            </button>
-          </div>
-          {editing.pr_url && (
-            <div className="pending-editor-pr-link">
-              <Link2 size={12} strokeWidth={1.5} aria-hidden="true" style={{ verticalAlign: '-2px' }} />{' '}
-              <a
-                href={editing.pr_url}
-                target="_blank"
-                rel="noreferrer"
-                title={t('pending.pr.open_pr')}
-                aria-label={t('pending.pr.open_pr')}
-              >
-                {editing.pr_url}
-              </a>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

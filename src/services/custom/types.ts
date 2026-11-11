@@ -7,7 +7,7 @@
  * 两者之间的转换只在 `mappers.ts` 发生，视图与 API 客户端不各自转换。
  */
 
-/** 草稿状态：`local_collected` 为磁盘残留同义值（判定与 `collected` 等同）。 */
+/** 草稿状态：`local_collected` 为存储层兼容同义值（判定与 `collected` 等同）。 */
 export type DraftStatus = 'draft' | 'submitted' | 'collected' | 'local_collected';
 
 /** 草稿条目（领域形状）：表单、列表、卡片摘要共用。 */

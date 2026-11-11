@@ -3,11 +3,10 @@ import { ToastMessage } from './types';
 import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
 
 /**
- * 应用级 Toast 通知通道（供 FR-6.2 / FR-4.4 / FR-7 / FR-6.3 共用）：
- * Toast 状态、showToast、dismiss 及 `zstore:toast` 事件总线。
+ * 应用级 Toast 通知通道：
+ * Toast 状态、showToast、dismiss 及 `zstore:toast` 事件总线（供关注提醒 / 自更新 / OAuth / 导入导出共用）。
  */
 export function useToasts() {
-  // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const showToast = useCallback((text: string, type: ToastMessage['type'] = 'info') => {
     if (type === 'error') {

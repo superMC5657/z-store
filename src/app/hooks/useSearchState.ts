@@ -30,7 +30,7 @@ interface UseSearchStateParams {
  * - `adoptEchoInWindow`：窗内（期望空）首个搜索回声即立期望（与 `App.tsx` 同语义）；
  *   已立期望后异 sid 由店内门控判 stale，此处不覆盖（窗内只采首个）。
  */
-// C1(a): empty sid never settles the expectation — callers pass a valid sid (guarded at the call site).
+// Empty sid never settles the expectation — callers pass a valid sid (guarded at the call site).
 export function settlePageEcho(ref: { current: string }, sid: string): void {
   if (sid) ref.current = sid;
 }
@@ -118,7 +118,6 @@ export function useSearchState({
   // 上下分段：apps 永远是本地结果，在线结果单独存 onlineApps（HomeView 本地在上、在线在下两段展示）。
   const [isOnlineResultSet, setIsOnlineResultSet] = useState(false);
   const [onlineApps, setOnlineApps] = useState<AppSummary[]>([]);
-  const [, setOnlinePage] = useState(1);
   const [onlineHasMore, setOnlineHasMore] = useState(false);
   const [isLoadingOnlineMore, setIsLoadingOnlineMore] = useState(false);
   const onlinePageRef = useRef(1);
@@ -138,7 +137,6 @@ export function useSearchState({
     onlineHasMoreRef.current = false;
     setOnlineHasMore(false);
     onlinePageRef.current = 1;
-    setOnlinePage(1);
     onlineQueryRef.current = '';
   };
 
@@ -185,7 +183,7 @@ export function useSearchState({
     resetOnlineState(seq);
   };
 
-  // 第一阶段：本地搜索（输入防抖、回车、历史点击或深链触发，只搜索本地目录并清空旧在线残留）
+  // 第一阶段：本地搜索（输入防抖、回车、历史点击或深链触发，搜索本地目录并清空当前在线结果与在途状态）
   const handleSearchChange = async (q: string) => {
     const trimmed = q.trim();
     const prevTrimmed = searchQueryRef.current.trim();
@@ -296,7 +294,6 @@ export function useSearchState({
           setOnlineSearchPerformed(true);
           setIsOnlineResultSet(true);
           isOnlineResultSetRef.current = true;
-          setOnlinePage(1);
           onlinePageRef.current = 1;
           onlineQueryRef.current = q;
           // 满页即视为还有下一页（与网络分支同口径；单条直查只回 1 条，天然到底）。
@@ -327,7 +324,6 @@ export function useSearchState({
           lazyBackfillPlatforms(onlineResults, seq, true);
           setIsOnlineResultSet(true);
           isOnlineResultSetRef.current = true;
-          setOnlinePage(1);
           onlinePageRef.current = 1;
           onlineQueryRef.current = q;
           // 满页即视为还有下一页（后端仍回数组，无 has_more 字段）；单条直查只回 1 条，天然到底。
@@ -396,7 +392,6 @@ export function useSearchState({
       });
       lazyBackfillPlatforms(cachedMore, seq, true);
       const cachedHasMore = cachedMore.length >= ONLINE_SEARCH_PER_PAGE;
-      setOnlinePage(nextPage);
       onlinePageRef.current = nextPage;
       setOnlineHasMore(cachedHasMore);
       onlineHasMoreRef.current = cachedHasMore;
@@ -432,7 +427,6 @@ export function useSearchState({
         });
         lazyBackfillPlatforms(more, seq, true);
         const hasMore = more.length >= ONLINE_SEARCH_PER_PAGE;
-        setOnlinePage(nextPage);
         onlinePageRef.current = nextPage;
         setOnlineHasMore(hasMore);
         onlineHasMoreRef.current = hasMore;
@@ -457,25 +451,18 @@ export function useSearchState({
 
   return {
     searchQuery,
-    setSearchQuery,
     searchSeqRef,
     currentSearchIdRef,
     isSearchingLocal,
     isSearchingOnline,
     onlineSearchPerformed,
     isOnlineResultSet,
-    setIsOnlineResultSet,
     onlineApps,
     setOnlineApps,
     onlineHasMore,
     isLoadingOnlineMore,
-    onlinePageRef,
-    onlineHasMoreRef,
-    isOnlineResultSetRef,
     onlineQueryRef,
-    isLoadingOnlineMoreRef,
     onlineAppsRef,
-    guardFreshSearch,
     handleSearchDraft,
     handleSearchChange,
     handleSearchSubmit,

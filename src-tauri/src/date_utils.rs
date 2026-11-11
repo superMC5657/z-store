@@ -76,11 +76,6 @@ pub fn is_within_day_range(date_str: &str, min_days: u32, max_days: u32) -> bool
     }
 }
 
-/// 判定指定 "YYYY-MM-DD" 日期是否在最近 `since_days` 天之内（等价于 `is_within_day_range(date_str, 0, since_days)`）。
-pub fn is_within_days(date_str: &str, since_days: u32) -> bool {
-    is_within_day_range(date_str, 0, since_days)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

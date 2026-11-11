@@ -16,10 +16,10 @@ export interface AppSummary {
   is_verified: boolean;
   /**
    * 收录态（后端目录投影盖章）：`true` 表示远端精选或本地收录命中，`false` 明确未收录。
-   * 缺席时展示层按 `category !== 'external'` 兜底（旧载荷兼容）。
+   * 缺席时展示层按 `category !== 'external'` 兜底。
    */
   is_cataloged?: boolean;
-  /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录与旧载荷缺席。 */
+  /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录时缺席。 */
   source?: 'remote' | 'local' | 'custom';
   /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
   status?: string;
@@ -67,7 +67,7 @@ export interface AppDetail {
   platforms: string[];
   /**
    * 显式收录标记（详情经目录 id 集标注，未命中即 false fail-closed）：
-   * 展示层（Header）以此为准，不再按 category 兜底。
+   * 展示层（Header）以该标记为准。
    */
   is_cataloged?: boolean;
   /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录缺席。 */
@@ -99,14 +99,6 @@ export interface InstalledApp {
   icon_bg?: string;
 }
 
-export interface MirrorNodeStatus {
-  id: string;
-  name: string;
-  base_url: string;
-  latency_ms: number;
-  is_active: boolean;
-}
-
 export interface ProxyTestResult {
   success: boolean;
   latency_ms: number;
@@ -135,8 +127,7 @@ export interface DownloadProgressPayload {
   downloaded_bytes: number;
   total_bytes: number;
   speed_bytes_per_sec: number;
-  // 后端实际 emit 的终态只有 verified / completed_unverified；
-  // installing 预留给安装阶段进度（调起安装器前后emit），verifying/completed 已确认为死取值并移除。
+  // 后端实际 emit 的终态为 verified / completed_unverified；installing 预留给安装阶段进度
   state: 'downloading' | 'verified' | 'completed_unverified' | 'installing' | 'error' | 'tampered';
   message?: string;
 }
@@ -150,7 +141,7 @@ export interface DownloadAssetResult {
 }
 
 // 视图类型的唯一来源是 app/navigation 的 `VIEW_TYPES` 清单（`ViewType` 由该常量推导）；
-// 此处 re-export，使既有 `from '../types'` 的导入路径保持不变。
+// 此处 re-export，统一作为 `from '../types'` 类型导入出口。
 export type { ViewType } from '../app/navigation';
 
 export interface ToastMessage {
@@ -159,7 +150,6 @@ export interface ToastMessage {
   type?: 'info' | 'success' | 'warning' | 'error';
 }
 
-export type ToastType = NonNullable<ToastMessage['type']>;
 export type ShowToast = (message: string, type?: ToastMessage['type']) => void;
 
 export interface AppSettings {
@@ -175,13 +165,13 @@ export interface AppSettings {
   update_frequency: 'startup' | 'daily' | 'manual';
   detail_cache_ttl_minutes: number;
   catalog_source_url: string;
-  // FR-6.2: 关注更新的应用内提醒频率（每次启动检查 / 每天汇总）
+  // 关注更新的应用内提醒频率（每次启动检查 / 每天汇总）
   watch_notify_frequency: 'startup' | 'daily';
   // 本地亲和度个性化推荐开关（默认开启）
   enable_local_affinity?: boolean;
 }
 
-export interface AffinityCategoryStat {
+interface AffinityCategoryStat {
   category: string;
   weight: number;
 }
@@ -284,23 +274,6 @@ export interface StarredSyncResult {
   other_repos: DeveloperRepoItem[];
 }
 
-/** `refresh_host_rate_limit` 的响应：配额三元组 + host/时间戳；令牌字段不经此命令回传。 */
-export interface HostRateLimitRefresh {
-  host: string;
-  rate_limit_remaining?: number;
-  rate_limit_limit?: number;
-  rate_limit_reset?: number;
-  updated_at: number;
-}
-
-export interface HostRateLimitStatus {
-  host: string;
-  is_connected: boolean;
-  rate_limit_remaining?: number;
-  rate_limit_limit?: number;
-  message?: string;
-}
-
 export type DeepLinkAction =
   | { action: 'app_detail'; payload: { app_id: string } }
   | { action: 'install_app'; payload: { app_id: string } }
@@ -308,23 +281,14 @@ export type DeepLinkAction =
   | { action: 'developer_profile'; payload: { owner: string } }
   | { action: 'open_view'; payload: { view: string } };
 
-export interface ForgeRepoInfo {
-  name: string;
-  description?: string | null;
-  stars: number;
-  forks: number;
-  language?: string | null;
-  default_branch: string;
-}
-
-// FR-6.2: 关注（Watch）/ 订阅更新 —— 后端事件 `zstore://watch-updated` 载荷
+// 关注（Watch）/ 订阅更新 —— 后端事件 `zstore://watch-updated` 载荷
 export interface WatchUpdatedPayload {
   app_id: string;
   version: string;
   app_name?: string;
 }
 
-// 收藏/关注收录标记行（后端写时经 catalog index 落 `is_cataloged`，启动回填补齐旧行）：
+// 收藏/关注收录标记行（写入时按 catalog index 落 `is_cataloged`，启动与同步时回填校验）：
 // `get_favorite_entries` / `get_watched_apps` 逐行携带，展示层徽标以记录为准
 // （记录优先；`apps` 目录列表仅作结构去重/驱逐补充，永不覆盖记录标记）。
 export interface FavoriteEntry {
@@ -338,7 +302,7 @@ export interface WatchedAppEntry {
   is_cataloged: boolean;
 }
 
-// FR-7: GitHub OAuth Device Flow（IPCs 由 Rust 侧并发实现，前端防御性调用）
+// GitHub OAuth Device Flow（IPCs 由 Rust 侧并发实现，前端防御性调用）
 export interface OAuthDeviceStartResult {
   device_code: string;
   user_code: string;
@@ -370,16 +334,7 @@ export interface StarAppResult {
   warning?: string | null;
 }
 
-// 磁盘缓存占用统计（图标与通用图片共用形状）。
-export interface CacheUsageStats {
-  total_entries: number;
-  total_bytes: number;
-  total_hits: number;
-}
-
-// FR-6.3-manual: 用户数据手动导出 / 导入（纯文件同步，M2 服务端同步为远期规划）
-// 备份覆盖除 github_token 之外的全部设置项。github_token（PAT 凭据）
-// 出于安全考虑被刻意排除：永不写入备份文件，导入侧白名单同样拒绝该键。
+// 用户数据手动导出 / 导入（纯文件同步；备份覆盖除 github_token 之外的全部设置项）。
 export interface UserDataBackupSettings {
   theme?: string;
   language?: string;

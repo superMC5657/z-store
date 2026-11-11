@@ -232,7 +232,7 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
 }
 
 fn raw_url(owner: &str, repo: &str, branch: &str, file_path: &str) -> String {
-    // owner/repo/branch 整段编码（含 `/` 的分支名成 `%2F`，不再错切路径）；
+    // owner/repo/branch 整段编码（含 `/` 的分支名编码为 `%2F`，确保路径不截断）；
     // file_path 保留 `/` 分隔逐段编码（对齐 markdown.rs 相对路径编码写法）。
     let encoded_path = file_path
         .trim_start_matches('/')
@@ -456,7 +456,7 @@ async fn fetch_range_head(
     if !headers_hit(&ctype, total_len) {
         return RangeProbeOutcome::Verified(None);
     }
-    // 只取流首块：服务器忽略 Range 回全量时不再全量等待；超窗口截断到 32KB。
+    // 只取流首块：即使服务器忽略 Range 返回全量，也仅截取 32KB 窗口避免全量等待。
     let mut fused = resp.bytes_stream().fuse();
     let Some(Ok(mut first)) = fused.next().await else {
         return RangeProbeOutcome::NeedFallback;

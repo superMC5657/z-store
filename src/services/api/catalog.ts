@@ -7,8 +7,6 @@ import type {
   AppDetail,
   AppMatchResult,
   AppSummary,
-  CacheUsageStats,
-  ForgeRepoInfo,
   ImportAppRequest,
   SyncCatalogResult,
 } from '../../types';
@@ -207,34 +205,6 @@ export async function fetchOrCacheAssetUrl(url: string, appId: string): Promise<
   }
 }
 
-// 查询通用图片磁盘缓存占用。
-export async function getAssetCacheStats(): Promise<CacheUsageStats | null> {
-  try {
-    return await tauriInvoke<CacheUsageStats>(CMD.getAssetCacheStats);
-  } catch {
-    return null;
-  }
-}
-
-// 清空通用图片磁盘缓存，返回已删除文件数。
-export async function clearAssetCache(): Promise<number> {
-  return tauriInvoke<number>(CMD.clearAssetCache);
-}
-
-// 查询图标磁盘缓存占用。
-export async function getIconCacheStats(): Promise<CacheUsageStats | null> {
-  try {
-    return await tauriInvoke<CacheUsageStats>(CMD.getIconCacheStats);
-  } catch {
-    return null;
-  }
-}
-
-// 清空图标磁盘缓存，返回已删除文件数。
-export async function clearIconCache(): Promise<number> {
-  return tauriInvoke<number>(CMD.clearIconCache);
-}
-
 /**
  * 类别页默认页大小：与发现页 `HOME_FEED_PAGE`、在线搜索 `ONLINE_SEARCH_PER_PAGE` 对齐（20/页）。
  */
@@ -292,10 +262,6 @@ export async function getLatestCatalogApps(
   return { items, total, has_more: raw?.has_more === true };
 }
 
-export async function getCatalogCount(): Promise<number> {
-  return tauriInvoke<number>(CMD.getCatalogCount);
-}
-
 export async function scanAndMatchLocalApps(): Promise<AppMatchResult[]> {
   return tauriInvoke<AppMatchResult[]>(CMD.scanAndMatchLocalApps);
 }
@@ -332,14 +298,6 @@ export async function clearViewHistory(): Promise<void> {
   return tauriInvoke<void>(CMD.clearViewHistory);
 }
 
-export async function searchForgeRepos(
-  forge: string,
-  query: string,
-  host?: string,
-): Promise<ForgeRepoInfo[]> {
-  return tauriInvoke<ForgeRepoInfo[]>(CMD.searchForgeRepos, { forge, host, query });
-}
-
 export async function syncCatalog(force?: boolean): Promise<SyncCatalogResult> {
   return tauriInvoke<SyncCatalogResult>(CMD.syncCatalog, { force });
 }
@@ -371,20 +329,7 @@ export async function restoreOrFetchIconCycle(appId: string): Promise<AppIconCyc
  * `CustomCatalogItem` = payload，`CustomAppEntry` = 后端行。
  */
 export type CustomCatalogItem = DraftItemWire;
-export type CustomAppEntry = DraftEntryWire;
-
-
-/** 转正提示（与后端 GraduationNotice 同形）。 */
-interface GraduationNotice {
-  id: string;
-  message: string;
-}
-
-/** 合并目录视图行：AppSummary 扁平 + 来源标记（remote/custom，is_cataloged 恒 true）。 */
-type MergedCatalogEntry = AppSummary & {
-  source: string;
-  is_cataloged: boolean;
-};
+type CustomAppEntry = DraftEntryWire;
 
 /** 草稿列表（默认仅未归档；includeArchived=true 含转正归档行）。 */
 export async function listCustomApps(includeArchived = false): Promise<CustomAppEntry[]> {
@@ -395,7 +340,7 @@ export async function listCustomApps(includeArchived = false): Promise<CustomApp
 
 /**
  * 草稿暂存（新建行 status=draft；已存在行仅刷新 payload）。
- * 调用方须保证 id 为 canonical 小写且与 owner/repo 对齐（见 buildCustomDraftItem）。
+ * 调用方须保证 id 为 canonical 小写且与 owner/repo 对齐（见 buildCustomDraftItemFromSummary）。
  */
 export async function saveCustomApp(item: CustomCatalogItem): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.saveCustomApp, { item });
@@ -433,21 +378,6 @@ export async function revertCollectedApp(id: string): Promise<CustomAppEntry> {
  */
 export async function withdrawSubmitted(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.withdrawSubmitted, { id });
-}
-
-/**
- * 转正退役：远端 id 集合命中未归档草稿即 archived=1，返回转正提示。
- * remoteIds 缺席时后端以当前内存目录为准（sync_catalog 成功路径已自动调用）。
- */
-export async function retireOnSync(remoteIds?: string[]): Promise<GraduationNotice[]> {
-  const args: Record<string, unknown> =
-    remoteIds === undefined ? {} : { remoteIds };
-  return tauriInvoke<GraduationNotice[]>(CMD.retireOnSync, args);
-}
-
-/** 合并目录视图：内存远端目录 + 未归档草稿 overlay（远端优先去重）。 */
-export async function getMergedCatalogView(): Promise<MergedCatalogEntry[]> {
-  return tauriInvoke<MergedCatalogEntry[]>(CMD.getMergedCatalogView);
 }
 
 /** 收录申请预填链接：由草稿 payload 生成清单仓库 Issue 预填 URL。 */
@@ -877,67 +807,6 @@ export function buildCustomDraftItemFromSummary(app: AppSummary, iconRemote?: un
     is_verified: false,
     homepage: homepageOrGithub(owner, repo, typeof app.homepage === 'string' ? app.homepage : null),
     install_dirs: buildDraftInstallDirs(repo),
-    search_subdirs: [...DRAFT_SEARCH_SUBDIRS],
-    publishers: buildDraftPublishers(owner),
-    platforms,
-    identifiers: buildDraftIdentifiers(idBase, platforms),
-  };
-}
-
-/**
- * 由趋势未收录行（TrendRepo）合成草稿 payload：同上，stars/forks 取榜单值，
- * 描述缺失回退名称，homepage 回退 GitHub 坐标页；榜单无协议信息，license 恒
- * `OpenSource` 占位（暂存档放行，提交前须在编辑页补真实 SPDX）。
- * icon 恒置空（仅允许远程 http(s)，榜单无图标输入，后续详情 icon 链回填）。
- * 空字段按 repo/name 启发式预填（platforms 按名猜桌面最小集，category 按关键词猜），
- * 均为可编辑预填，提交前人工校对。
- */
-export function buildCustomDraftItemFromTrendRepo(repo: {
-  owner: string;
-  repo: string;
-  name?: string;
-  stars?: number;
-  forks?: number;
-  description?: string | null;
-  url?: string | null;
-}): CustomCatalogItem {
-  const owner = cleanCoord(repo.owner);
-  const repoName = cleanCoord(repo.repo) || cleanCoord(repo.name ?? '');
-  const id = canonicalDraftId(owner, repoName);
-  const stars = typeof repo.stars === 'number' && Number.isFinite(repo.stars) ? repo.stars : 0;
-  const forks = typeof repo.forks === 'number' && Number.isFinite(repo.forks) ? repo.forks : 0;
-  const homepage =
-    typeof repo.url === 'string' && repo.url.trim().startsWith('http')
-      ? repo.url.trim()
-      : `https://github.com/${owner}/${repoName}`;
-  const draftName = cleanCoord(repo.name) || repoName;
-  const description = cleanCoord(repo.description ?? '') || repoName;
-  const { category, category_name } = resolveDraftCategory(
-    '',
-    '',
-    `${draftName} ${repoName} ${description}`,
-  );
-  const platforms = guessDraftPlatformsFromName(repoName, draftName, description);
-  const idBase = repoName || draftName;
-  return {
-    id,
-    name: draftName,
-    owner,
-    repo: repoName,
-    icon: '',
-    icon_bg: DEFAULT_ICON_BG,
-    description,
-    description_en: null,
-    category,
-    category_name,
-    aliases: buildDraftAliases(draftName, repoName, owner),
-    default_version: 'v0.1.0',
-    license: 'OpenSource',
-    stars,
-    forks,
-    is_verified: false,
-    homepage,
-    install_dirs: buildDraftInstallDirs(repoName),
     search_subdirs: [...DRAFT_SEARCH_SUBDIRS],
     publishers: buildDraftPublishers(owner),
     platforms,

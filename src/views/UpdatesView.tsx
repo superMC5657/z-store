@@ -37,7 +37,7 @@ interface UpdatesViewProps {
   onHideApp?: (id: string) => Promise<void>;
   updateRulesCount?: number;
   onOpenRules?: () => void;
-  // FR-6.2: 关注应用的新版本应用内提醒（经 zstore://watch-updated 事件聚合）
+  // 关注应用的新版本应用内提醒（经 zstore://watch-updated 事件聚合）
   watchNotifications?: WatchUpdatedPayload[];
   onOpenWatchedApp?: (id: string) => void;
   onDismissWatch?: (appId: string) => void;
@@ -239,7 +239,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         </div>
       )}
 
-      {/* FR-6.2: 我关注的应用动态（与已安装更新相互独立，仅作提醒） */}
+      {/* 我关注的应用动态（与已安装更新相互独立，仅作提醒） */}
       {watchNotifications && watchNotifications.length > 0 && (
         <div
           style={{

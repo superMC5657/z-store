@@ -124,9 +124,8 @@ export function useAppSettings() {
     applyUiZoom(merged.ui_scale);
 
     if (merged.active_mirror) {
-      // 启动回放镜像档位：历史存量值若不满足新准入口径（https 强制 + 域名校验）
-      // 会被后端拒绝并保持直连（fail-closed，后端镜像初始态即 direct），
-      // 不打断启动；失败/拒绝后同步回滚 state 到 direct，并提示避免 UI 与后端分叉。
+      // 启动回放镜像档位：若持久化值不满足安全校验（https 强制 + 域名校验），
+      // 后端拒绝并保持直连（fail-closed），前端同步回滚 state 到 direct 并提示避免 UI 与后端分叉。
       tauriApi
         .switchMirror(merged.active_mirror)
         .then((ok) => {

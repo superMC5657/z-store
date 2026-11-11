@@ -152,7 +152,7 @@ describe('icon-ready backfill', () => {
     );
     expect(l2.accepted).toBe(true);
     expect(l2.next[0].icon).toBe('https://cdn.simpleicons.org/r');
-    // 低优后到不再顶掉高优。
+    // 低优后到不顶掉高优。
     const l3Late = applyNewIconReady(
       l2.next,
       {

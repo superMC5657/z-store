@@ -3,7 +3,6 @@
 //! - 安装资产下载经 [`MirrorManager::rewrite_installer_asset_url`] 改写 URL，
 //!   失败时经 `wrap_gh_proxy` 公共兜底重试。
 
-use crate::models::MirrorNodeStatus;
 use std::time::Instant;
 
 pub const DEFAULT_GH_PROXY: &str = "https://gh-proxy.com";
@@ -118,36 +117,6 @@ impl MirrorManager {
         }
     }
 
-    pub fn get_mirror_statuses(&self) -> Vec<MirrorNodeStatus> {
-        let is_custom = self.custom_proxy.is_some();
-        let proxy_url = self.custom_proxy.clone().unwrap_or_default();
-        vec![
-            MirrorNodeStatus {
-                id: "direct".to_string(),
-                name: "GitHub 官方直连".to_string(),
-                base_url: "https://github.com".to_string(),
-                latency_ms: 0,
-                is_active: !is_custom,
-            },
-            MirrorNodeStatus {
-                id: "custom".to_string(),
-                name: if is_custom {
-                    format!(
-                        "自定义代理 ({})",
-                        proxy_url
-                            .trim_start_matches("https://")
-                            .trim_start_matches("http://")
-                    )
-                } else {
-                    "自定义加速代理".to_string()
-                },
-                base_url: proxy_url,
-                latency_ms: 0,
-                is_active: is_custom,
-            },
-        ]
-    }
-
     pub fn set_active_mirror(&mut self, id_or_url: &str) -> bool {
         let trimmed = id_or_url.trim();
         let (new_proxy, id) = if trimmed.is_empty() || trimmed == "direct" {
@@ -156,7 +125,7 @@ impl MirrorManager {
             (Some(DEFAULT_GH_PROXY.to_string()), "custom")
         } else if let Err(reason) = validate_custom_proxy(trimmed) {
             // 自定义镜像准入失败（非 https / 非法域名）：拒绝切换保持现状（fail-closed），
-            // 含启动时回读历史存量值；拒绝理由由 switch_mirror 命令层前置透出。
+            // 拒绝理由由 switch_mirror 命令层前置透出。
             log::warn!(
                 "mirror rejected id_or_url reason={}",
                 crate::log_support::short_reason(&reason)
@@ -336,9 +305,7 @@ mod tests {
     fn test_switch_mirror() {
         let mut mm = MirrorManager::new();
         assert!(mm.set_active_mirror("https://gh-proxy.com"));
-        let nodes = mm.get_mirror_statuses();
-        let custom = nodes.iter().find(|n| n.id == "custom").unwrap();
-        assert!(custom.is_active);
+        assert_eq!(mm.custom_proxy.as_deref(), Some("https://gh-proxy.com"));
     }
 
     #[test]
@@ -357,7 +324,7 @@ mod tests {
         assert!(!is_github_domain("https://notgithub.com/a.zip"));
         assert!(!is_github_domain("https://github.com.evil.com/a.zip"));
         assert!(!is_github_domain("https://mygithubusercontent.com/a"));
-        // 无 scheme 不再盲配（调用方传入的均为完整 URL）
+        // 缺 scheme 的字符串按拒绝处理（调用方传入完整 URL）
         assert!(!is_github_domain("github.com/owner/repo"));
         assert!(!is_github_domain("https://codeberg.org/attachments/a.exe"));
     }
@@ -388,10 +355,7 @@ mod tests {
         // 明文 http 与非法 host 拒绝切换，保持上一状态
         assert!(!mm.set_active_mirror("http://gh-proxy.com"));
         assert!(!mm.set_active_mirror("https://127.0.0.1"));
-        let nodes = mm.get_mirror_statuses();
-        let custom = nodes.iter().find(|n| n.id == "custom").unwrap();
-        assert!(custom.is_active);
-        assert_eq!(custom.base_url, "https://gh-proxy.com");
+        assert_eq!(mm.custom_proxy.as_deref(), Some("https://gh-proxy.com"));
     }
 
     #[tokio::test]

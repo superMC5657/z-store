@@ -87,7 +87,7 @@ export function useDetailCacheSync({
       const catalogIds = buildCatalogIdSet(appsRef.current);
       const withLocal = recents.map((r) => annotateIsCataloged(r, catalogIds, localApps));
       // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
-      // （首刷新增行 + 旧占位行；后到的 load 不再覆盖 sync 的治愈值；无富卡保持原值走现有空渲染）。
+      // （对缺失简介行进行补齐；无富卡保持原值走默认空渲染）。
       try {
         const snap = snapshotTrendEnrichCache();
         if (Object.keys(snap).length === 0) {
@@ -139,8 +139,8 @@ export function useDetailCacheSync({
     // 详情显式收录标注经唯一入口（目录 id 集 canonical 比对，未命中即 false fail-closed），
     // 后续缓存/选中态/治愈载荷均携带显式 is_cataloged，Header 据此判定收录位。
     const detail = annotateEntry(rawDetail);
-    // F1：后端占位简介不污染内存快照——先算富卡兜底，内存即存治愈值，
-    // 后续 handleOpenDetail 命中缓存直接展现实简介，不再闪占位。
+    // 后端占位简介不污染内存快照——先算富卡兜底，内存即存治愈值，
+    // 后续 handleOpenDetail 命中缓存直接展现实简介，不闪烁占位文案。
     let enrichDesc: string | undefined;
     let enrichDescEn: string | undefined;
     try {

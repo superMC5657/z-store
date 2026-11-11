@@ -569,7 +569,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     } else {
       flipLocalSubmitted(id, url);
     }
-    // 手动标记后切到本地收录 · 已提交：富卡仅展 Issue 链接，不再重复提交。
+    // 手动标记后切到本地收录 · 已提交：富卡仅展 Issue 链接，禁止重复提交。
     setActiveGroup('library');
     setActiveSegment('submitted');
     onNotify?.(t('pending.marked_submitted', { id }), 'success');
@@ -789,8 +789,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   const showEditor = isCreating || editingEntry !== null;
-  const isArchived = Boolean(editingEntry?.archived);
-  // 富卡分支：后链路（collected/submitted/archived，非新建）一律富卡展示，不再出现新建式表单页；
+  // 富卡分支：collected/submitted/archived 非新建一律富卡展示，仅 draft（含新建）走表单。
   // 仅 draft（含新建）走表单。archived 富卡只读 + 复制为新草稿。
   const isRichCollectedView =
     !isCreating &&
@@ -812,7 +811,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   return (
     <ViewShell viewClass="pending-view">
-      {/* 1. 页头：仅标题 + 描述（无计数徽标；草稿/收录计数由 Tab 自带；页头不再设新建入口，新建走空态提示） */}
+      {/* 1. 页头：仅标题与描述（计数由各 Tab 自带，空态提示提供新建入口） */}
       <div className="pending-header">
         <div className="pending-header-info">
           <h3 className="pending-header-title">
@@ -948,7 +947,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   platformsText={platformsText}
                   identifiersText={identifiersText}
                   isCreating={isCreating}
-                  isArchived={isArchived}
                   editing={editingEntry}
                   openSections={openSections}
                   onToggleSection={toggleSection}
@@ -959,14 +957,6 @@ export const PendingView: React.FC<PendingViewProps> = ({
                   onCollectLocal={(id) => void handleCollectLocal(id)}
                   hasSubmitErrors={hasSubmitErrors}
                   hasLicenseSubmitError={hasLicenseSubmitError}
-                  revertingId={revertingId}
-                  confirmRevertId={confirmRevertId}
-                  onRevertToDraft={(id) => void handleRevertToDraft(id)}
-                  submittingId={submittingId}
-                  onSubmitPr={(id) => void handleSubmitPr(id)}
-                  prUrlInput={prUrlInput}
-                  onPrUrlInput={setPrUrlInput}
-                  onMarkSubmitted={handleMarkSubmitted}
                 />
               </>
             )}

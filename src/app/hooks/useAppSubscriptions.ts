@@ -306,7 +306,7 @@ export function useAppSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localApps]);
 
-  // FR-6.2: 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
+  // 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
   useEffect(() => {
     const ctx = newMountCtx();
     tauriApi.getWatchedApps().then((entries) => {
@@ -364,7 +364,7 @@ export function useAppSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // FR-7 / FR-6.3-manual: OAuth 登录态 + 备份导入刷新
+  // OAuth 登录态 + 备份导入刷新
   useEffect(() => {
     const ctx = newMountCtx();
     const loadOAuthUser = () => {

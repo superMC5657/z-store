@@ -208,7 +208,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
           )}
         </div>
 
-        {/* 已提交展 Issue 链接 + 删除（不再重复提交）；已收录才展手动标记行；已归档只读 */}
+        {/* 已提交展 Issue 链接与删除；已收录展手动标记行；已归档只读 */}
         {!entry.archived && isPendingCollectedStatus(entry.status) && (
           <div className="pending-editor-footer-manual">
             <div className="pending-manual-label">{t('pending.submit_title')}</div>

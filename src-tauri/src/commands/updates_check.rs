@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
-/// FR-6.2：按天限频关注通知的最小间隔时间（秒，24 小时）
+/// 按天限频关注通知的最小间隔时间（秒，24 小时）
 pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
@@ -440,7 +440,7 @@ pub async fn check_for_updates(
         }),
     );
 
-    // FR-6.2：关注订阅检查（最佳努力，失败不影响更新列表返回）
+    // 关注订阅检查（最佳努力，失败不影响更新列表返回）
     notify_watched_updates(&state, &rules_map, force_refresh).await;
 
     Ok(updates)
@@ -506,7 +506,7 @@ pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<Up
     Ok(out)
 }
 
-/// FR-6.2：遍历被关注应用，若出现较 `last_notified_version` 更新的
+/// 遍历被关注应用，若出现较 `last_notified_version` 更新的
 /// Release，按 `watch_notify_frequency`（`startup`|`daily`）决定是否经由
 /// `zstore://watch-updated` 事件应用内通知。`daily` 下每应用 24h 内至多
 /// 通知一次；首次建立基线时静默记录，不打扰用户。
@@ -532,7 +532,7 @@ async fn notify_watched_updates(
     // 每项经 GLOBAL_WATCH_TX 无序发送，前端按 app_id 去重，不依赖顺序；
     // frozen/hidden 过滤、baseline 静默、daily 24h 节流语义照常。
     // frequency 按引用复用（is_daily 预计算，Copy 无每项 String clone）；
-    // 终端用 for_each 替代 collect，零 Vec 分配。
+    // 终端用 for_each 驱动流，避免分配中间 Vec。
     let is_daily = frequency.as_str() == "daily";
     stream::iter(watched)
         .map(|w| {

@@ -3,7 +3,6 @@ import type {
   AppDetail,
   AppMatchResult,
   AppSummary,
-  ForgeRepoInfo,
   SyncCatalogResult,
 } from '../../types';
 import type { AppIconCycleResult, PlatformsLiteResult, ReadmeVariantsResult } from '../../services/api';
@@ -299,10 +298,6 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
   return { items, total: matched.length, has_more: start + items.length < matched.length };
 }
 
-export function handleGetCatalogCount(): number {
-  return summaries.length;
-}
-
 export function handleScanAndMatchLocalApps(): AppMatchResult[] {
   return [];
 }
@@ -362,10 +357,6 @@ export function handleClearViewHistory(): null {
   setRecentIds([]);
   lsSet(LS.recentViews, []);
   return null;
-}
-
-export function handleSearchForgeRepos(): ForgeRepoInfo[] {
-  return [];
 }
 
 export function handleSyncCatalog(): SyncCatalogResult {

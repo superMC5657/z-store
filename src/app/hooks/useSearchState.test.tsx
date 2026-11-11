@@ -152,7 +152,7 @@ describe('useSearchState：本地搜索路由', () => {
     expect(rendered.result.current.onlineApps).toHaveLength(2);
     expect(rendered.result.current.isOnlineResultSet).toBe(true);
 
-    // 搜索新词 codex：先搜本地，过去的在线搜索结果必须立即被清除，且不自动触发在线搜索
+    // 搜索新词 codex：先搜本地，上一词的在线搜索结果必须立即清除，且不自动触发在线搜索
     mocks.searchAppsOnline.mockClear();
     await act(async () => {
       await rendered.result.current.handleSearchChange('codex');

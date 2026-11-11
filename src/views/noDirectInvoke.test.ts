@@ -1,5 +1,5 @@
 /**
- * 视图/组件层直调 Tauri IPC 卡点测试（替代 eslint no-direct-invoke）：
+ * 视图/组件层直调 Tauri IPC 门禁测试（基于 AST/静态扫描执行约束）：
  *
  * - 递归扫描 `src/views` 与 `src/components` 下全部生产源码（`*.ts`/`*.tsx`，
  *   排除 `*.test.*`），子目录（TrendsView/SettingsView/HomeView 等）同样受检。

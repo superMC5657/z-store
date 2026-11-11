@@ -2,9 +2,7 @@ use super::Database;
 use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
-/// v0 = 机制引入前的现状形态（18 表 + ensure_column 幂等补列，未盖章）；
-/// v1 = 机制采用版（形态与 v0 一致）。后续破坏性迁移（改类型/删列/重建表）
-/// 在 `run_migrations` 的 match 续链迁移函数逐版推进，禁止改动既有版本语义。
+/// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
 const CURRENT_USER_VERSION: i64 = 1;
 
 impl Database {
@@ -81,7 +79,7 @@ impl Database {
             -- ADR-0007 默认挡位：应用详情缓存保鲜期 60 分钟（仅缺失时填充，不覆盖用户已存值）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('detail_cache_ttl_minutes', '60');
 
-            -- FR-6.2 关注订阅表：daily 频率下 last_notified_at 保证每应用每天至多通知一次
+            -- 关注订阅表：daily 频率下 last_notified_at 保证每应用每天至多通知一次
             CREATE TABLE IF NOT EXISTS watched_apps (
                 app_id TEXT PRIMARY KEY,
                 added_at INTEGER NOT NULL,
@@ -124,7 +122,7 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_icon_cycles_owner_repo ON app_icon_cycles(owner, repo);
 
-            -- FR-6.2 默认通知频率：daily（仅缺失时填充）
+            -- 默认关注通知频率：daily（仅缺失时填充）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('watch_notify_frequency', 'daily');
 
             -- 趋势榜缓存（纯透存，后端不判 TTL；board 列供双档清扫区分 daily/其余）
@@ -168,7 +166,7 @@ impl Database {
             -- id 为 canonical 小写形态（仅 GitHub `owner/repo`）；
             -- payload_json 存完整 CatalogItem；status=draft/submitted/collected
             --（已提交另存 pr_url；collected 为本地收录态，可搜可装）；
-            -- 旧数据的 local_collected 字面与 collected 同义，查询双匹配该残留值；
+            -- `local_collected` 与 `collected` 为存储同义值，查询统一兼容匹配；
             -- archived=1 为转正（远端已收录）自动归档标记。
             CREATE TABLE IF NOT EXISTS custom_apps (
                 id TEXT PRIMARY KEY,
@@ -216,8 +214,8 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_user_repo_signals_updated_at ON user_repo_signals(updated_at);
             "#,
         )?;
-        // 收录标记列迁移（幂等）：存量库缺列时 `ADD COLUMN` 补齐（默认 0 fail-closed，启动回填再按目录校准）。
-        // 版本机制之下保留在基底路径：列存在即跳过，任何版本启动都自愈。
+        // 幂等补列：缺列时执行 `ADD COLUMN` 补齐 `is_cataloged`（默认 0 fail-closed，启动回填按目录校准），
+        // 列存在即跳过，保证任意版本启动均可自愈。
         self.ensure_column(
             "user_favorites",
             "is_cataloged",
@@ -231,9 +229,8 @@ impl Database {
         self.run_migrations()
     }
 
-    /// user_version 迁移链：读当前版本 → 逐版执行迁移函数 → 盖章至 `CURRENT_USER_VERSION`。
-    /// 基底 DDL 与幂等补列先行执行；v0（存量库/新库的未盖章态）→ v1 仅机制采用。
-    /// 高版本库被旧构建打开时不降级盖章、不跑迁移链，但幂等基底 DDL 照常执行（缺表/缺列自愈）。
+    /// user_version 迁移链：读取当前版本并逐版执行迁移函数，完成后写入 `CURRENT_USER_VERSION`。
+    /// 基底 DDL 与幂等补列先行执行；高版本库被低版本打开时不降级版本号、不执行迁移链，仅执行幂等基底 DDL 自愈。
     fn run_migrations(&self) -> Result<()> {
         let version = self.user_version()?;
         if version > CURRENT_USER_VERSION {
@@ -264,8 +261,8 @@ impl Database {
         Ok(())
     }
 
-    /// v0 → v1：仅采用版本机制，无形态变更（18 表与收录标记列已由幂等基底补齐）。
-    /// 后续破坏性迁移按 `migrate_vN_to_vN+1` 命名续链于此。
+    /// v0 → v1 基线版本标记迁移（18 张表与 `is_cataloged` 列由基底 DDL 保证）。
+    /// 后续破坏性迁移按 `migrate_vN_to_vN+1` 命名续链。
     fn migrate_v0_to_v1(&self) -> Result<()> {
         Ok(())
     }
@@ -310,14 +307,14 @@ mod schema_migration_tests {
             CURRENT_USER_VERSION,
             "新库经 init_schema 应当盖章至当前版本"
         );
-        // 重复 init（升级重开/测试挂载）：版本不回退、不重跑迁移
+        // 重复 init：版本号保持不变，不重跑已完成迁移
         db.init_schema().unwrap();
         assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
     }
 
     #[test]
     fn legacy_v0_db_upgrades_column_and_stamps_version() {
-        // 模拟机制引入前的存量库：user_favorites 缺收录标记列、user_version 未盖章（=0）
+        // 构造缺收录标记列且 user_version = 0 的数据库形态
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch(
             r#"
@@ -335,7 +332,7 @@ mod schema_migration_tests {
         assert_eq!(
             db.user_version().unwrap(),
             CURRENT_USER_VERSION,
-            "存量库应当走 v0→v1 迁移并盖章"
+            "v0 数据库应当执行 v0→v1 迁移并写入当前版本号"
         );
         let has_col: bool = db
             .query_scalar_opt(
@@ -344,17 +341,17 @@ mod schema_migration_tests {
             )
             .unwrap()
             .unwrap_or(false);
-        assert!(has_col, "存量库缺列应当被幂等补齐");
-        // 存量行收录标记默认 0（fail-closed）
+        assert!(has_col, "缺列应当被幂等补齐");
+        // 未标注行默认收录标记为 0（fail-closed）
         let entries = db.get_favorite_entries().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].app_id, "rustdesk/rustdesk");
-        assert!(!entries[0].is_cataloged, "存量行收录标记应当默认 0");
+        assert!(!entries[0].is_cataloged, "未标注行收录标记应当默认 0");
     }
 
     #[test]
     fn higher_version_db_stays_readonly_without_downgrade_stamp() {
-        // 高版本库被旧构建打开：不降级盖章、不跑迁移链，幂等基底 DDL 照常执行（缺表/缺列自愈）。
+        // 高版本数据库不降级 user_version、不跑迁移链，幂等基底 DDL 仍执行（缺表/缺列自愈）。
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA user_version = 99;").unwrap();
         let db = Database { conn };

@@ -1,4 +1,3 @@
-use crate::models::MirrorNodeStatus;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -35,12 +34,6 @@ pub async fn test_proxy(proxy_url: Option<String>) -> crate::AppResult<ProxyTest
     })
 }
 
-#[tauri::command]
-pub fn get_mirror_status(state: State<'_, AppState>) -> crate::AppResult<Vec<MirrorNodeStatus>> {
-    let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-    Ok(mirror.get_mirror_statuses())
-}
-
 #[tauri::command(rename_all = "camelCase")]
 pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> crate::AppResult<bool> {
     // 自定义镜像准入校验前置（https 强制 + 域名校验）：拒绝理由直达前端；
@@ -55,8 +48,7 @@ pub fn switch_mirror(state: State<'_, AppState>, mirror_id: String) -> crate::Ap
     Ok(ok)
 }
 
-/// 趋势榜单 HTTP 直取白名单：仅 trends 三主源，防 SSRF。
-/// gittrend.io 已摘除（个人实例持续 429，对用户已死）；rising/healthy 改走 doforce。
+/// 趋势榜单 HTTP 直取白名单：仅允许受信任的 trends 三主源，防 SSRF。
 const TRENDS_TEXT_HOSTS: [&str; 3] = ["github.com", "trend.doforce.dpdns.org", "api.github.com"];
 
 fn check_trends_text_url(raw: &str) -> Result<reqwest::Url, String> {
@@ -228,8 +220,8 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
         );
         return Err(format!("trends: upstream status {}", status.as_u16()));
     }
-    // 流式读取并截断至 2MB（D9 截断语义）：不再先全量缓冲超大 body 再判限，
-    // 超限即停止读取并返回前 2MB（前端对截断 body 的解析失败已有既有兜底）。
+    // 流式读取并截断至 2MB（D9 截断语义）：避免全量缓冲超大响应体，
+    // 超限即停止读取并返回前 2MB（前端对截断 body 具备解析兜底）。
     use futures_util::StreamExt;
     const MAX_TRENDS_BYTES: usize = 2 * 1024 * 1024;
     let mut buf: Vec<u8> = Vec::with_capacity(64 * 1024);

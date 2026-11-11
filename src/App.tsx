@@ -89,13 +89,13 @@ export const App: React.FC = () => {
   } = useAppSettings();
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
-  // FR-6.2 关注（Watch）
+  // 关注订阅（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
-  // 任务 3（设备平台全局过滤）：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
+  // 设备平台全局过滤：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
-  // FR-7 OAuth 登录态（详情弹窗标星门控）
+  // OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   // 卡片 memo 稳定回调支撑：经 ref 读取最新列表/详情，避免 handleOpenDetail 依赖 apps 而每搜必变
   const appsRef = useRef<AppSummary[]>([]);
@@ -105,7 +105,7 @@ export const App: React.FC = () => {
   const watchedRef = useRef<Set<string>>(watchedIds);
   watchedRef.current = watchedIds;
 
-  // 应用内通知（FR-6.2 关注提醒 / FR-4.4 自更新 / FR-7 OAuth / FR-6.3 导入导出经此通道呈现）
+  // 应用内通知通道（关注提醒 / 自更新 / OAuth / 导入导出共用）
   const { toasts, showToast, handleDismissToast } = useToasts();
   const { t } = useTranslation();
 
@@ -366,7 +366,7 @@ export const App: React.FC = () => {
     t,
   });
 
-  // 任务 3：平台选择变更时将其回写至 localStorage。
+  // 平台选择变更时回写至 localStorage
   useEffect(() => {
     try {
       window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([...selectedPlatforms]));
@@ -408,7 +408,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Toggle Watch (FR-6.2: 关注 / 取消关注，后端未就绪时 Toast 提示且不崩溃)
+  // 关注 / 取消关注切换（后端未就绪时 Toast 提示且不崩溃）
   // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
   const handleToggleWatch = useCallback(async (id: string) => {
     // 读写归一：读态经 normalizeId 查 watchedIds，写入口同样归一后再 has/watch/unwatch，
@@ -470,15 +470,12 @@ export const App: React.FC = () => {
     });
   }, [showToast, t]);
 
-  // 任务 3：设备平台切换。空选择是有效状态（代表空列表；页面渲染筛选为空的引导状态），
-  // 因此对任何已知 ID 的切换均无条件提交。切换逻辑位于更新函数（函数式 updater）内部，
-  // 保证始终基于最新提交的选择进行计算，同一 tick 内的双击顺序生效。
-  // 未知 ID 会被静默忽略（侧栏仅发射已知 ID，无需 Toast 提示）。
+  // 设备平台切换：空选择为有效状态（页面渲染空筛选引导），在函数式 updater 内计算以保证连续点击顺序生效。
   const handleTogglePlatform = useCallback((id: PlatformId) => {
     setSelectedPlatforms((prev) => togglePlatformSet(prev, id));
   }, []);
 
-  // 扫描系统已安装的开源应用（FR-5.3）
+  // 扫描系统已安装的开源应用
   const handleScanSystemApps = () => {
     setIsImportModalOpen(true);
   };
@@ -861,7 +858,7 @@ export const App: React.FC = () => {
         managedIds={managedLoaded ? managedIds : null}
       />
 
-      {/* 系统已安装应用导入弹窗（FR-5.3） */}
+      {/* 系统已安装应用导入弹窗 */}
       <AppImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
@@ -882,7 +879,7 @@ export const App: React.FC = () => {
         onSkipVersion={handleSkipVersion}
       />
 
-      {/* 应用内通知 Toast（FR-6.2 / FR-4.4 / FR-7 / FR-6.3 共用通道） */}
+      {/* 应用内通知 Toast */}
       <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
     </div>
   );

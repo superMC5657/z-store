@@ -21,9 +21,9 @@ export const DOFORCE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 export const TREND_DB_TTL_MS = 12 * 60 * 60 * 1000;
 /** 榜缓存二级落盘 daily 榜 TTL：1h。 */
 const TREND_DB_DAILY_TTL_MS = 60 * 60 * 1000;
-/** 429 单次重试的最大等待：60s；超过即直接 error，不再等待。 */
+/** 429 单次重试的最大等待：60s；超过上限则直接返回错误。 */
 export const DOFORCE_RETRY_MAX_WAIT_MS = 60_000;
-/** 429 错误串无 Retry-After 可用时的默认等待（Rust 侧当前仅回传状态码）。 */
+/** 429 响应未携带可用 `Retry-After` / `retry_after_ms` 时的默认等待。 */
 export const DOFORCE_RETRY_DEFAULT_WAIT_MS = 5_000;
 export const TRENDING_TIMEOUT_MS = 10_000; // github.com/trending HTML 抓取 10s 熔断
 export const DOFORCE_TIMEOUT_MS = 10_000; // doforce API 10s 熔断（Rust 侧执行）

@@ -50,9 +50,6 @@ function stubFor(cmd: string): unknown {
         updated_at: 1,
         archived: false,
       };
-    case 'clear_asset_cache':
-    case 'clear_icon_cache':
-    case 'get_catalog_count':
     case 'import_matched_apps':
       return 0;
     case 'delete_custom_app':
@@ -74,8 +71,6 @@ function stubFor(cmd: string): unknown {
       return { status: 'pending' };
     case 'select_folder':
     case 'get_cli_deep_link':
-    case 'get_asset_cache_stats':
-    case 'get_icon_cache_stats':
     case 'get_oauth_user':
     case 'restore_or_fetch_icon_cycle':
       return null;
@@ -136,7 +131,6 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.recordSearchQuery('q'));
     await swallow(catalog.removeSearchQuery('q'));
     await swallow(catalog.recordAppView('o/r'));
-    await swallow(catalog.searchForgeRepos('github', 'q', 'https://github.com'));
     await swallow(catalog.syncCatalog(true));
     await swallow(catalog.getOrFetchIcon('o/r', 'https://example.com/x.png'));
     await swallow(catalog.cycleAppIcon('o/r'));
@@ -148,19 +142,15 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.collectLocalApp('o/r'));
     await swallow(catalog.revertCollectedApp('o/r'));
     await swallow(catalog.withdrawSubmitted('o/r'));
-    await swallow(catalog.retireOnSync(['o/r']));
-    await swallow(catalog.retireOnSync(undefined));
     await swallow(catalog.getCustomAppPrUrl('o/r'));
     await swallow(catalog.getCustomAppPrPayload('o/r'));
     await swallow(catalog.getLicenseAllowlist());
     // 无参调用亦覆盖（空 args 无 key 即通过）
-    await swallow(catalog.getCatalogCount());
     await swallow(catalog.getSearchHistory());
 
     expectAllCamel();
 
     const byCmd = new Map(captured.map((c) => [c.cmd, c.args]));
-    const retireCalls = captured.filter((c) => c.cmd === 'retire_on_sync').map((c) => c.args);
     const collectCalls = captured.filter((c) => c.cmd === 'collect_local_app').map((c) => c.args);
     expect(byCmd.get('search_apps_online')).toMatchObject({
       searchId: 'sid-1',
@@ -179,8 +169,6 @@ describe('ipc args naming (camelCase)', () => {
     for (const args of collectCalls) {
       expect(args).toEqual({ id: 'o/r' });
     }
-    expect(retireCalls).toContainEqual({ remoteIds: ['o/r'] });
-    expect(retireCalls).toContainEqual({});
   });
 
   it('installer/social/settings 包装器一律 camelCase', async () => {
@@ -207,10 +195,6 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(social.toggleFavorite('o/r'));
     await swallow(social.getDeveloperProfile('dev'));
     await swallow(social.syncGithubStarred('user'));
-    await swallow(social.setHostToken('h', 't'));
-    await swallow(social.removeHostToken('h'));
-    await swallow(social.refreshHostRateLimit('h'));
-    await swallow(social.testHostConnection('h', 't'));
     await swallow(social.watchApp('o/r'));
     await swallow(social.unwatchApp('o/r'));
     await swallow(social.oauthDevicePoll('code'));

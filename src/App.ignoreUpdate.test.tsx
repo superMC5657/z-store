@@ -47,7 +47,6 @@ vi.mock('./services/api', () => {
   const listMethods = new Set([
     'searchApps',
     'getInstalledApps',
-    'getMirrorStatus',
     'getFavorites',
     'getRecentlyViewedApps',
     'getWatchedApps',

@@ -1,4 +1,4 @@
-//! GitHub OAuth Device Flow 与 Star 操作（FR-7.1 / FR-7.2、FR-6.3 手动同步）。
+//! GitHub OAuth Device Flow 与 Star 操作及用户资料同步。
 //!
 //! 说明：
 //! - Device Flow 无需应用密钥（secret），客户端仅需 `client_id`；

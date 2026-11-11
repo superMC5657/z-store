@@ -6,12 +6,11 @@
 
 ## 上下文
 
-- `github.com` 直连不通时，登录与 API 轮询整体失败：
-  - Device Flow 端点（`DEVICE_CODE_URL`、`ACCESS_TOKEN_URL`）均落在 `github.com` 下，国内阻断即无法发起登录与轮询。
-- Client ID 曾硬编码在代码中，无法按环境与用户覆盖，打包与自建分发不灵活。
-- 轮询结果曾把 `Expired` 与 `Denied` 混为泛化 `Error`，用户分不清是码过期还是主动拒绝，提示具误导性。
-- 设置页分组臃肿，代理、令牌、登录态、清单源、缓存与备份挤在一起，查找成本高。
-- 生产 CSP 直接用于开发时，会拦截 Vite HMR（`http://localhost:1420` 与 `ws://localhost:1421`），开发热更新被拦。
+- `github.com` 直连受阻时，Device Flow 端点（`DEVICE_CODE_URL`、`ACCESS_TOKEN_URL`）与 API 轮询需要无缝继承操作系统代理或本地 TUN 通道。
+- OAuth Client ID 需要支持统一默认配置与用户级设置覆盖。
+- 轮询响应需要将 `Expired` 与 `Denied` 等状态拆分为明确状态机，给出可解释的用户引导。
+- 设置页需清晰分区呈现外观、更新、存储、网络与数据管理配置。
+- 开发模式与生产构建需要清晰隔离 Dev HMR 地址与生产收紧策略。
 
 ## 决策
 
@@ -69,11 +68,10 @@
    - 状态指示保留：账号卡片内展示登录态的配额说明文案与锚点跳转。
    - 详情缓存 TTL 由 `config.toml` 单一基线控制（基线 60 分钟，30 为非法挡位故按 60 生效），不在设置页暴露调节项（缓存策略详见 ADR-0007）。
 
-5. **开发配置说明（以当前代码为准，无独立开发配置文件）**：
-   - 无独立开发配置文件；开发与构建共用主配置 `src-tauri/tauri.conf.json`。
+5. **开发与构建配置（单一主配置 `src-tauri/tauri.conf.json`）**：
+   - 开发与生产构建共用主配置 `src-tauri/tauri.conf.json`，无独立开发配置文件。
    - 开发地址收敛于主配置：`devUrl` 为 `http://localhost:1420`，`beforeDevCommand` 为 `pnpm dev`。
-   - 启动命令为 `pnpm tauri dev`（经 `package.json` 的 `"tauri": "tauri"` 透传 Tauri CLI），无 `--config` 叠加文件。
-   - 生产构建为 `pnpm tauri build`，沿用同一主配置的收紧 CSP。
+   - 开发启动命令为 `pnpm tauri dev`（直接使用 `@tauri-apps/cli`），无 `--config` 叠加文件；生产构建为 `pnpm tauri build`。
 
 ## 后果与收益
 

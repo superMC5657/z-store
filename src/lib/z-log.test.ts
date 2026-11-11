@@ -218,7 +218,7 @@ describe('initZLog：全局错误钩子脱敏', () => {
     expect(rejLine).toContain('code=***');
     expect(rejLine).not.toContain('zzz888');
 
-    // 幂等：二次初始化不再 attachConsole / 不再重复打招呼。
+    // 幂等：二次初始化跳过 attachConsole 与重复启动横幅。
     await initZLog();
     expect(pluginLog.attachConsole).toHaveBeenCalledTimes(1);
   });

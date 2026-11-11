@@ -4,7 +4,7 @@ import { tauriApi } from '../../services/api';
 import { notifyToast } from '../../utils/notify';
 
 /**
- * AppDetailModal 标星关注点 Hook（FR-7）：维护详情弹窗 GitHub 标星态与切换处理器。
+ * AppDetailModal 标星关注点 Hook：维护详情弹窗 GitHub 标星态与切换处理器。
  * 已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge），不经此 Hook。
  */
 export function useDetailStarVerify(opts: {
@@ -19,7 +19,7 @@ export function useDetailStarVerify(opts: {
   const { appId, owner, repo, appName, isLoading } = opts;
   const { t } = useTranslation();
 
-  // FR-7: GitHub 标星态（仅登录可见；后端未就绪时一律按未标星降级）
+  // GitHub 标星态（仅登录可见；后端未就绪时一律按未标星降级）
   const [isStarred, setIsStarred] = useState(false);
   const [isStarring, setIsStarring] = useState(false);
 

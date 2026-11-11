@@ -71,7 +71,7 @@ export function boardGainKey(board: TrendBoardId): TrendGainKey {
   return BOARD_GAIN_KEY[board];
 }
 
-/** 时间榜判定（TRENDING_SINCE 单一映射的唯一出口，替代散写的 `in` 检查）。 */
+/** 时间榜判定（TRENDING_SINCE 单一映射出口）。 */
 function isTimeBoard(board: string): board is TimeBoardId {
   return board in TRENDING_SINCE;
 }

@@ -197,9 +197,6 @@ pub(crate) struct GitHubRepoResponse {
 pub(crate) struct GitHubLicense {
     #[serde(default)]
     pub key: Option<String>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub name: Option<String>,
     pub spdx_id: Option<String>,
 }
 

@@ -33,7 +33,7 @@ export function normalizeFontSizePreset(key: string): '12' | '14' | '16' {
 
 const VALID_UI_SCALES = new Set(['100', '110', '125', '150']);
 
-/** Parse a ui_scale string ("100" → 1). Non-standard/legacy values (e.g. "90") normalize to 1. */
+/** Parse a ui_scale string ("100" → 1). Non-standard values normalize to 1. */
 export function appZoomFactor(scaleStr: string): number | null {
   const normalized = VALID_UI_SCALES.has(scaleStr) ? scaleStr : '100';
   const factor = Number(normalized) / 100;

@@ -712,21 +712,6 @@ pub fn apply_detail_icon_resolution(
     was_pinned
 }
 
-/// 详情页图标层级决策：
-/// 官方 http(s) 图标保持 → 探测命中 → README logo → 空（前端降级首字母徽章）。
-pub fn pick_detail_icon(
-    official_icon: &str,
-    probed_url: Option<String>,
-    readme_logo: Option<String>,
-) -> String {
-    pick_detail_icon_with_level(
-        official_icon,
-        probed_url.map(|u| (ProbeIconLevel::L3Trees, u)),
-        readme_logo,
-    )
-    .icon
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

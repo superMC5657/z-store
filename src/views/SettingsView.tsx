@@ -47,7 +47,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     success: boolean;
     latency_ms: number;
     text: string;
-    badge: string;
   } | null>(null);
   // 代理保存的瞬时反馈（成功与失败共用，成功 3.5s 后清空、失败留至下次操作）。
   const [proxyFeedback, setProxyFeedback] = useState<string | null>(null);
@@ -133,14 +132,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           success: true,
           latency_ms: res.latency_ms,
           text: `${res.latency_ms} ms (${t('settings.test_latency_ok')})`,
-          badge: '',
         });
       } else {
         setProxyTestResult({
           success: false,
           latency_ms: res.latency_ms,
           text: res.message || t('settings.test_latency_timeout'),
-          badge: '',
         });
       }
     } catch (e) {
@@ -148,7 +145,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         success: false,
         latency_ms: 9999,
         text: t('settings.test_failed', { error: String(e) }),
-        badge: '',
       });
     } finally {
       setIsTestingProxy(false);
@@ -214,7 +210,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('update_frequency', id);
   };
 
-  // FR-6.2: 关注更新的应用内提醒频率（每次启动 / 每天），经 user_settings 持久化
+  // 关注更新的应用内提醒频率（每次启动 / 每天），经 user_settings 持久化
   const handleSelectWatchFrequency = (id: 'startup' | 'daily', label: string) => {
     triggerChangeFeedback('watch_notify_frequency', label);
     onUpdateSetting('watch_notify_frequency', id);

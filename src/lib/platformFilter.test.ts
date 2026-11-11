@@ -1,8 +1,7 @@
 /**
- * 任务 1 — 设备平台全局过滤器测试。
+ * 设备平台全局过滤器测试。
  *
- * 第一部分（基线特征化测试）：锁定完全复制自 selectors.matchPlatform 的单选 matchPlatform 现有语义。
- * 自包含测试：在不引入新模块的情况下即可通过。
+ * 第一部分：锁定单选 matchPlatform 语义，并在无外部依赖下完成断言。
  */
 import { describe, expect, it } from 'vitest';
 

@@ -1,6 +1,6 @@
 /**
  * useAppSettings 持久化健壮性回归：
- * - 持久化失败不再 unhandled rejection：回滚乐观值 + toast；
+ * - 持久化失败时不产生 unhandled rejection：回滚乐观值并触发 toast；
  * - 成功后按后端归一口径回写 state（save_setting 只回 bool，前端镜像钳制）；
  * - 快照合并显式判空：合法挡位 `'0'`（TTL 实时校验档）不被 truthy 兜底吞成默认 60；
  * - 启动镜像回放失败/被拒：state 回滚 direct + 提示（后端 fail-closed 保持直连）。

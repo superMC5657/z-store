@@ -20,19 +20,19 @@
 | **构建资产** | `ReleaseAsset` | Release 附带的编译产物二进制包（如 `.msi`、`.exe`、`.zip`、`.tar.gz`/`.tgz`/`.tar.xz`/`.tar`、`.deb`、`.dmg`、`.apk`，其中 `.7z`/`.tar.bz2`为Download-Only），带有平台架构分类。 | 附件、下载包、安装文件 |
 | **托管源提供者** | `ForgeProvider` | 统一源代码托管抽象层，原生支持 GitHub、Codeberg、Gitea、GitLab 等开源代码源。详见 ADR-0006。 | 仓库源、平台接口 |
 | **校验清单** | `Checksum Manifest` | Release 附带的 `checksums.txt` / `SHA256SUMS`，记录官方预期 SHA-256 哈希值。 | 哈希表、签名文件 |
-| **加速镜像节点** | `MirrorNode` | 代理文件下载与 API 的反代节点（如 `gh-proxy.com`），支持动态测速与透明重写。 | 代理源、加速线路、CDN |
+| **加速镜像节点** | `MirrorNode` | 代理文件下载的反代节点（如 `gh-proxy.com`），支持在设置页手动切换前缀、`test_proxy` 手动测速与透明重写安装包下载 URL。 | 代理源、加速线路、CDN |
 | **已安装应用** | `InstalledApp` | 由 ZStore 管理且持久化存储在本地 SQLite 中的应用实体，包含本地路径与卸载入口。 | 本地应用、已装软件 |
 | **条件请求缓存** | `ETag Cache` | 存储于本地 SQLite 中的 HTTP 304 缓存机制，通过 `If-None-Match` 实现零配额消耗更新检测。 | 本地缓存、HTTP缓存 |
 | **清单同步** | `Manifest Catalog Sync` | 客户端从独立开源收录仓库动态拉取或增量刷新应用元数据清单的机制，详见 ADR-0007 与 ADR-0009。 | 清单下载、列表更新 |
 | **缓存生存时效** | `Cache TTL` | 客户端本地持久化详情的有效周期（基线 60 分钟；设置页不暴露；后端对改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），过期后触发带 ETag 的条件重新验证；仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（已安装应用、更新中心、收藏）仅手动触发网络——更新中心列表为手动快照（仅显式刷新写 `update_results`，其余读库），收藏/关注凭记录自带收录标记就近读卡。 | 缓存过期时间、过期策略 |
 | **应用内仅下载** | `Download-Only` | 宿主不可安装的资产经应用内通道下载落盘、不调用安装器的模式，复用安装通道的镜像改写、SHA-256 校验与下载进度事件，落盘后可一键定位文件。 | 浏览器下载、直链下载 |
 | **便携版应用** | `Portable App` | 免安装 ZIP/二进制tarball，剥顶层解压至AppData、Linux/macOS chmod兜底，仅本平台可装，自动创建桌面快捷方式与提供卸载清理。 | 绿色软件、免安装版 |
-| **双模标识系统** | `Adaptive Icon System` | 包含明亮模式 (D-轻1 冰川浅蓝) 与暗黑模式 (D-轻4 晶透亚克力) 的三层图标分层架构，涵盖桌面打包与多端自适应，详见 ADR-0005。 | 软件LOGO、系统图标 |
+| **双模标识系统** | `Adaptive Icon System` | 包含明亮模式 (雪白超椭圆实底 + 晴空天蓝双环) 与暗黑模式 (暗夜实底 `#08090A` + 紫蓝极光双环) 的三层图标分层架构，涵盖桌面打包与多端自适应，详见 ADR-0005。 | 软件LOGO、系统图标 |
 | **协议深层链接** | `Deep Linking` | 注册系统级 `zstore://` URL Scheme，支持浏览器与外部链接一键呼起客户端直达详情、安装、搜索、开发者主页或指定视图路由。 | 外部协议、跳转链接 |
 | **版本控制规则** | `Update Rule` | 持久化于本地 SQLite 的应用更新策略，支持跳过指定破坏性版本、永久锁定版本与隐藏特定仓库。 | 忽略更新、锁定版本 |
 | **SHA-256 完整性校验** | `Checksum Verification` | 下载后强制 SHA-256 流式校验，与 `checksums.txt` / `SHA256SUMS` 比对（详见 ADR-0004）。 | Authenticode、证书校验、安全验签 |
 | **存量应用管理** | `External App Management` | 扫描操作系统已安装软件（Windows 注册表及程序目录），通过倒排索引与启发式打分智能匹配开源清单，一键添加至管理列表并接管更新。 | 软件扫描、外部导入、应用纳管 |
-| **Fluent 2 矢量图标体系** | `Fluent Vector Icon System` | 全站功能操作、导航菜单、设备平台标识及状态指示全面采用轻量线性矢量图标（`lucide-react` 与统一单色 SVG），严格遵循 Fluent 2.0 视觉规范与 `currentColor` 主题自适应，配合 CSS 微动效与状态指示原点。 | 功能Emoji、彩色贴图、图标库 |
+| **Fluent 2 矢量图标体系** | `Fluent Vector Icon System` | 全站功能操作、导航菜单、设备平台标识及状态指示全面采用轻量线性矢量图标（`lucide-react` 与统一单色 SVG），配合 `currentColor` 主题自适应、CSS 微动效与状态指示原点（整体界面仍遵循 D4 Linear 去彩单色规范）。 | 功能Emoji、彩色贴图、图标库 |
 | **主机配额指示器** | `Host Quota Indicator` | 各托管平台 API 调用配额的监听机制：后端解析限流头并经 `zstore://quota-updated` 广播；界面暂未消费该事件，账号卡片只展示需要登录的配额说明文案。 | 配额胶囊、限流状态 |
 | **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变下载 URL 前缀，API 与登录直接走系统网络通道。 | 出站代理、镜像节点 |
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏底部常驻账号入口：未登录显示 GitHub 快捷登录入口，已登录显示用户头像与用户名；点击直达设置中心账号卡片（`#settings-account`）。 | 侧边栏按钮、用户面板 |
@@ -44,12 +44,12 @@
 | **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`src-tauri/src/github/icon_fetch.rs:fetch_icons_stream`），搜索与趋势后台均已接入流式补齐；仅负责探测与调度，不触 DB；逐张经统一事件 `zstore://icon-ready` 发射（`id` 即小写 `owner/repo`，与 DB 主键同源），前端统一由 `iconStore.admitIconHit` 收口。 | 图标管道、补图核心 |
 | **搜索列表缓存** | `Search List Cache` | 搜索页纯前端内存搜缓存（搜缓存=搜索 L1，`services/search/searchListCache.ts`），key=`search\|归一query\|page\|perPage`，TTL 30min、空不存、上限 50 条 FIFO；不碰榜缓存二级落盘与趋势榜缓存。 | 搜索缓存、结果缓存 |
 | **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`），经暂存校验（canonical 身份对齐）后参与合并目录视图，提交时才强制全字段校验。 | 草稿箱、未提交应用 |
-| **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=custom` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
-| **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，不再参与合并视图。 | 毕业、上岸、合并完成 |
+| **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=local` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
+| **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，退出合并视图。 | 毕业、上岸、合并完成 |
 | **已收录/未收录** | `Cataloged/Uncataloged` | 卡片收录态徽标：id 命中精选收录库为已收录，否则为未收录（走详情缓存读富卡）；与自维护/转正正交（后者仅描述本地草稿生命周期）。 | 收录状态、有无收录 |
 | **收录标记** | `is_cataloged` | 收藏/关注记录自带的收录态字段（0/1 持久化于 `user_favorites` / `watched_apps`）：写入时按目录判定一次，存量行启动回填、清单同步与本地收录状态切换后即时回填；前端凭此决定走收录库还是详情缓存读卡。 | cataloged 字段、收录位 |
-| **本地收录来源** | `source=local` | 合并目录视图中本地库行的来源标记：仅库内成员（收录态或已提交 Issue（`submitted`））且未归档的 `custom_apps` 行进入合并（远端优先去重，补位行与远端同仓叠加行均标 `local`）；库存恒 `is_cataloged=true`、`is_verified=false`（永不冒充已验证蓝标，Issue 预填载荷翻 `true` 仅限复制体）。后端统一目录模块在 `AppSummary` / `AppDetail` 投影时直接盖章 `source` 与 `is_cataloged`（`remote`/`local`，未收录即显式 `false`），前端优先读卡片字段；仅乐观本地行与旧载荷由 `selectors` 兼容层（`annotateIsCataloged` / `annotateLocalSource`）补齐，不作为真值。同一 overlay 行存在双层表达：合并视图条目枚举（`MergedCatalogEntry.source`）为 `CatalogEntrySource::Custom`（序列化 `custom`，对应 `remote`），卡片盖章字段（`AppSummary.source`）为 `local`（对应 `remote`）——投影时 `Custom` 恒映射为 `local`，前者适用目录条目枚举/检索侧，后者适用卡片投影字段。 | 本地来源、收录来源 |
-| **本地收录态** | `collected` / `local_collected` | 本地收录状态：`collected` 为现行写入值，`local_collected` 为磁盘残留同义值（判定与列表均等同 `collected`）；收录态判定唯一口径为 `isCollectedStatus`（实现居 `src/services/custom/status.ts`，`src/app/selectors.ts` 单一重导出）。这是「可提交 Issue / 可退回草稿」的门禁口径，不等于库内成员（见本地库）。 | 已收录态、本地态 |
+| **本地收录来源** | `source=local` | 合并目录视图中本地库行的来源标记：仅库内成员（收录态或已提交 Issue（`submitted`））且未归档的 `custom_apps` 行进入合并（远端优先去重，补位行与远端同仓叠加行均标 `local`）；库存恒 `is_cataloged=true`、`is_verified=false`（永不冒充已验证蓝标，Issue 预填载荷翻 `true` 仅限复制体）。后端统一目录模块 `CatalogService` 在 `AppSummary` / `AppDetail` 投影时直接盖章 `source`（`CATALOG_SOURCE_REMOTE` `remote` / `CATALOG_SOURCE_LOCAL` `local`）与 `is_cataloged`（未收录即显式 `false`），前端优先读卡片字段；仅乐观本地行与缺省字段载荷由 `selectors` 兼容层（`annotateIsCataloged` / `annotateLocalSource`）补齐，不作为真值。 | 本地来源、收录来源 |
+| **本地收录态** | `collected` / `local_collected` | 本地收录状态：`collected` 为现行写入值，`local_collected` 为存储层同义值（判定与列表均等同 `collected`）；收录态判定唯一口径为 `isCollectedStatus`（实现居 `src/services/custom/status.ts`，`src/app/selectors.ts` 单一重导出）。这是「可提交 Issue / 可退回草稿」的门禁口径，不等于库内成员（见本地库）。 | 已收录态、本地态 |
 | **本地库** | `Local Library` | 用户本地可搜可装的自维护条目集合：`custom_apps` 中未归档且 `status` 为收录态（collected/local_collected）或已提交 Issue（submitted）的行。库内判定唯一口径为 `isLocalLibraryStatus`；`draft` 不在库，`archived` 退出库（权威交还远端）。 | 我的应用、本地列表 |
 | **已提交** | `Submitted` | 库内条目已提交 Issue、等待上游收录的阶段（`status=submitted` + `pr_url`）。仍是库内成员：可搜可装、带黄标；不可重复提交 Issue、不可退回草稿；可「标记为未提交」回到待提交（Issue 需自行关闭）。 | 待合入、PR 中 |
 | **本地收录徽标** | `verified-badge-local` | 本地收录行的橘黄徽标变体（浅色 `#F59E0B`、深色 `#D97706`，见 `components-app-card.css`）：已验证蓝标优先，本地收录仅在未验证时叠加；为 D4 去彩例外点缀（与星级金、榜单金/银/铜、告警/错误色同类）。 | 黄标、本地标 |
@@ -72,7 +72,7 @@
    - 后端统一目录模块 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）持有远端精选目录 + 本地收录 overlay（启动与 `custom_apps` 变更后同步，并在启动及打开应用详情后从 `app_details_cache` 水合最新统计、版本、平台、协议、主页与图标）；收录检索、坐标解析、搜索、首页/分类、详情投影统一经该模块，并在 `AppSummary` / `AppDetail` 上盖章 `source`（`remote`/`local`）与 `is_cataloged`；
    - 本地 SQLite (`z_store.db`) 维护 TTL 缓存（基线 60 分钟）配合 HTTP ETag 304 条件请求；分面策略与挡位归一化详见 ADR-0007。
    - 网络层自动继承操作系统代理；Release 大文件下载走下载加速代理（正交可叠加，详见 ADR-0002）。
-   - 所有已安装记录、用户设置、主机令牌（PAT）、更新规则、关注应用、仓库特征信号（`user_repo_signals`）与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字（令牌威胁模型与风险接受见 ADR-0020）。
+   - 所有已安装记录、用户设置、主机速率快照与只读令牌记录（`host_tokens`）、更新规则、关注应用、仓库特征信号（`user_repo_signals`）与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字（令牌威胁模型与风险接受见 ADR-0020）。
    - 后端 commands 注册表以 `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` 为准（含 zlog 命令）；前端唯一出口为 CMD 表 + `tauriInvoke` 派发，视图层禁直调 `invoke`，请求键命名规则以 AGENTS.md 为准；前端用 `useState` 视图机（`ViewType` 见 `src/types/index.ts`）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
     - 所有下载的二进制安装包强制流式计算 SHA-256 哈希值并与官方校验清单比对，哈希不符立即强行阻断并销毁临时文件（详见 ADR-0004）。

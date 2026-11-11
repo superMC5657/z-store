@@ -5,7 +5,7 @@
 //!   同为库内成员，可搜可装、与远端精选同行为；`collected` 是 Issue 提交前置门禁，
 //!   `submitted` 表示 已提交 Issue）；`archived=1` 为转正归档标记
 //!   （`sync_catalog` 命中 canonical id 即归档，权威交给远端）；
-//! - 旧数据的 `local_collected` 字面与 `collected` 同义，收录判定/列表查询双匹配该残留值；
+//! - 存储层同义值 `local_collected` 与 `collected` 等价，收录判定/列表查询统一兼容；
 //! - 二次确认由前端做，后端 `delete` 直接删。
 
 use super::{clean, now_secs, Database};
@@ -29,13 +29,6 @@ pub struct CustomAppEntry {
     pub created_at: i64,
     pub updated_at: i64,
     pub archived: bool,
-}
-
-/// 转正提示：远端清单已收录、本地自动归档的草稿。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct GraduationNotice {
-    pub id: String,
-    pub message: String,
 }
 
 /// D1 纯粹开源：默认仅接受 OSI 认证开源协议（SPDX，大写归一后比对）。
@@ -82,14 +75,14 @@ pub const OFFICIAL_CATEGORIES: &[&str] = &[
     "games",
 ];
 
-/// 校验档位（Q8 三态）：草稿允许不完整（暂存即存），提交 Issue 时才强制全校验（D1 不破）。
+/// 校验档位：草稿允许不完整（暂存即存），提交与收录时强制完整校验（D1 不破）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidateMode {
     /// 暂存档（`save_custom_app`）：仅校验 `id==canonical` 与 `owner/repo` 对齐；
     /// `license` 允许空 / `OpenSource` / `NOASSERTION` / 未知占位，`homepage` 允许空，
-    /// `name`/`description`/`category` 允许不完整（Q8 草稿三态）。
+    /// `name`/`description`/`category` 允许不完整。
     DraftLenient,
-    /// 提交档（`mark_submitted` / 预填 Issue 链接）：既有全量——必填 +
+    /// 提交档（`mark_submitted` / 预填 Issue 链接）：完整校验——必填 +
     /// `homepage` http(s) + OSI 白名单（D1）。
     SubmitStrict,
     /// 收录档（`collect_local_app`）：与 `SubmitStrict` 同口径——
@@ -541,13 +534,10 @@ impl Database {
             .filter(|e| is_local_library_status(&e.status) && !e.archived))
     }
 
-    /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回转正提示。
+    /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回归档的 canonical id 列表。
     /// `draft`/`collected`/`submitted` 未归档行均命中归档（`submitted` 转正同样归档，
     /// `status`/`pr_url` 保留可查）；远端 id 经 `canonical_app_id` 归一后比对（大小写漂移行治愈）。
-    pub fn retire_custom_apps_on_sync(
-        &self,
-        remote_ids: &[String],
-    ) -> Result<Vec<GraduationNotice>> {
+    pub fn retire_custom_apps_on_sync(&self, remote_ids: &[String]) -> Result<Vec<String>> {
         let mut remote_set = std::collections::HashSet::new();
         for raw in remote_ids {
             if let Some(canon) = crate::forge::canonical_app_id(raw) {
@@ -582,13 +572,7 @@ impl Database {
             }
             Ok(())
         })?;
-        Ok(staged_ids
-            .into_iter()
-            .map(|id| GraduationNotice {
-                message: format!("{} 已被远端精选收录库收录，本地草稿自动归档", id),
-                id,
-            })
-            .collect())
+        Ok(staged_ids)
     }
 }
 
@@ -931,7 +915,7 @@ mod tests {
 
     #[test]
     fn draft_lenient_tolerates_placeholders_but_keeps_identity() {
-        // Q8 草稿三态：占位 license / 空 homepage / 不完整字段暂存放行（D1 门禁后移到提交时）。
+        // 暂存档：占位 license / 空 homepage / 不完整字段均放行（D1 门禁置于提交/收录档）。
         for placeholder in [
             "",
             "OpenSource",
@@ -1131,13 +1115,12 @@ mod tests {
             .unwrap();
 
         // 大小写漂移的远端 id 同样命中（归一后比对）。
-        let notices = db
+        let retired = db
             .retire_custom_apps_on_sync(&["O/Hit".to_string(), "o/other".to_string()])
             .unwrap();
-        assert_eq!(notices.len(), 1);
-        assert_eq!(notices[0].id, "o/hit");
+        assert_eq!(retired, vec!["o/hit"]);
 
-        // 默认列表不再含转正行，加旗可见且 archived=true。
+        // 默认列表只含未归档行，带 include_archived=true 参数可见归档行且 archived=true。
         let visible: Vec<String> = db
             .list_custom_apps(false)
             .unwrap()
@@ -1150,11 +1133,10 @@ mod tests {
         assert_eq!(all.len(), 3);
         assert!(all.iter().find(|e| e.id == "o/hit").unwrap().archived);
         // submitted 未归档行命中远端即归档，status/pr_url 保留可查。
-        let sub_notices = db
+        let sub_retired = db
             .retire_custom_apps_on_sync(&["o/sub".to_string()])
             .unwrap();
-        assert_eq!(sub_notices.len(), 1);
-        assert_eq!(sub_notices[0].id, "o/sub");
+        assert_eq!(sub_retired, vec!["o/sub"]);
         let sub_archived = db.get_custom_app("o/sub").unwrap().unwrap();
         assert!(sub_archived.archived);
         assert_eq!(sub_archived.status, CUSTOM_APP_STATUS_SUBMITTED);
@@ -1303,7 +1285,7 @@ mod tests {
 
         let reverted = db.revert_collected_to_draft("o/r").unwrap();
         assert_eq!(reverted.status, CUSTOM_APP_STATUS_DRAFT);
-        // 落盘断言：重读仍为 draft，不再是收录态。
+        // 落盘断言：重读状态仍为 draft，不属于收录态。
         let stored = db.get_custom_app("o/r").unwrap().unwrap();
         assert_eq!(stored.status, CUSTOM_APP_STATUS_DRAFT);
         assert!(!is_local_library_entry(&stored));

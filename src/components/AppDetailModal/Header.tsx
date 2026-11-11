@@ -217,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  // FR-7: GitHub 标星（见 useDetailStarVerify）；已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge）
+  // GitHub 标星（见 useDetailStarVerify）；已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge）
   const {
     isStarred,
     isStarring,
@@ -260,7 +260,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  // FR-7.3: 问题反馈 → 预填标题与正文直达仓库 Issues 新建页（复用 openUrl 外链通道）
+  // 问题反馈 → 预填标题与正文直达仓库 Issues 新建页（复用 openUrl 外链通道）
   const handleOpenIssueFeedback = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();

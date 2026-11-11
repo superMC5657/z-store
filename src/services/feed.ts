@@ -14,10 +14,10 @@ import type { AppSummary } from '../types';
 export type FeedStrategy = 'balanced' | 'stars' | 'fresh';
 
 /** 打分器签名：入参为应用与该应用在当前 seed 下的确定性抖动（[0, 1)），返回分数（越大越靠前）。 */
-export type FeedScorer = (app: AppSummary, jitter01: number) => number;
+type FeedScorer = (app: AppSummary, jitter01: number) => number;
 
 /** 前端亲和度打分输入（消费应用内显式收藏与关注信号）。 */
-export interface FrontendAffinityInput {
+interface FrontendAffinityInput {
   catalog?: readonly AppSummary[];
   favoriteIds?: ReadonlySet<string> | readonly string[];
   watchedIds?: ReadonlySet<string> | readonly string[];

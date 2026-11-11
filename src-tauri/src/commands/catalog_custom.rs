@@ -1,10 +1,9 @@
-//! 本地自维护草稿 commands（ADR-0017）：CRUD + 转正 + 合并视图 + 预填 Issue 链路。
+//! 本地自维护草稿 commands（ADR-0017）：CRUD + 预填 Issue 链路。
 //!
 //! - `list_custom_apps` / `save_custom_app` / `delete_custom_app` /
 //!   `collect_local_app`（本地收录唯一命令面，草稿链路与视图共用） /
 //!   `revert_collected_to_draft`（规范名） / `withdraw_submitted` /
-//!   `mark_submitted` / `retire_on_sync` / `get_merged_catalog_view` /
-//!   `get_custom_app_pr_url`；
+//!   `mark_submitted` / `get_custom_app_pr_url` / `get_custom_app_pr_payload`；
 //! - 二次确认由前端做，后端 `delete_custom_app` 直接删；
 //! - `save_custom_app` 暂存档校验（`DraftLenient`，草稿允许不完整）+ `is_verified` 强制
 //!   false（草稿永不冒充已验证收录）；收录档（`CollectStrict`，与 `SubmitStrict` 同口径）
@@ -13,9 +12,8 @@
 
 use crate::config::LicenseGateConfig;
 use crate::db::custom_apps::{ValidateMode, CUSTOM_APP_STATUS_SUBMITTED};
-use crate::db::{CustomAppEntry, GraduationNotice};
+use crate::db::CustomAppEntry;
 use crate::github::models::CatalogItem;
-use crate::github::CatalogService;
 use crate::AppState;
 use tauri::State;
 
@@ -29,8 +27,7 @@ const PR_BODY_CHECK_NOTE: &str =
     "本地校验：已通过提交档 `validate_custom_item(strict)`（canonical id / 必填字段 / OSI 协议），payload 见下方 JSON。";
 
 /// 单条收录申请预填链接（纯函数，可单测）：标题带 canonical id，正文携带关键字段 +
-/// 完整 JSON + 校验说明，用户在浏览器中确认后提交 Issue → maintainer 转 PR（预填 Issue 链路）。
-/// 首版单条单 Issue（Q6=A/Q8=A/Q10=C 分期）；无需 token，纯 URL 打开。
+/// 完整 JSON + 校验说明，用户在浏览器中确认后提交 Issue → 维护者转 PR；无需 token，纯 URL 打开。
 pub fn build_single_pr_url(entry: &CustomAppEntry) -> String {
     let item = &entry.item;
     let title = format!("[收录申请] {}", entry.id);
@@ -305,8 +302,8 @@ pub fn ensure_collected_for_pr(entry: &CustomAppEntry) -> Result<(), String> {
     Ok(())
 }
 
-/// 本地库 overlay 输入过滤（纯函数，供单测验证）：未归档的 collected 系 + `submitted` 行进入
-/// 合并视图（远端优先去重由 `merge_catalog_overlay_view` 执行，on-disk residual `local_collected` 字面）。
+/// 本地库 overlay 输入过滤（纯函数，供单测验证）：未归档的 collected（含存储同义值 `local_collected`）
+/// 与 `submitted` 行进入合并视图（远端优先去重由 `CatalogService` 执行）。
 #[cfg(test)]
 pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem> {
     entries
@@ -371,7 +368,7 @@ pub fn list_custom_apps(
 }
 
 /// 草稿暂存（暂存档校验：仅 `id==canonical` 且与 `owner/repo` 对齐；
-/// `license` 占位（`OpenSource` 等）/ 空 `homepage` / 不完整字段均放行，Q8 草稿三态）。
+/// `license` 占位（`OpenSource` 等）/ 空 `homepage` / 不完整字段均放行）。
 /// 仅支持 GitHub `owner/repo`：由 `validate_custom_item` 统一收口校验。
 /// 新建行 `status=draft`；已存在行仅刷新 payload（`status`/`pr_url` 保持）。
 #[tauri::command]
@@ -481,41 +478,6 @@ pub fn mark_submitted(
     drop(db);
     sync_catalog_overlay(&state);
     Ok(entry)
-}
-
-/// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回转正提示。
-/// `draft`/`collected`/`submitted` 未归档行均命中归档（`submitted` 转正同样归档）；
-/// `remote_ids=None` 时以当前内存目录 id 为准（`sync_catalog` 成功路径会自动调用）。
-#[tauri::command(rename_all = "camelCase")]
-pub fn retire_on_sync(
-    state: State<'_, AppState>,
-    remote_ids: Option<Vec<String>>,
-) -> crate::AppResult<Vec<GraduationNotice>> {
-    let ids: Vec<String> = match remote_ids {
-        Some(v) => v,
-        None => state
-            .catalog
-            .get_remote_catalog_items()
-            .into_iter()
-            .map(|i| i.id)
-            .collect(),
-    };
-    let db = state.db().map_err(crate::AppError::from)?;
-    let notices = db.retire_custom_apps_on_sync(&ids)?;
-    drop(db);
-    sync_catalog_overlay(&state);
-    Ok(notices)
-}
-
-/// 合并目录视图：内存远端目录 + 本地库 overlay（未归档的 collected 系 + `submitted`，
-/// 远端优先去重，`is_cataloged` 恒 true，来源经 `source` 区分 `remote`/`custom`）。
-#[tauri::command]
-pub fn get_merged_catalog_view(
-    state: State<'_, AppState>,
-) -> crate::AppResult<Vec<crate::github::catalog_service::MergedCatalogEntry>> {
-    let remote = state.catalog.get_remote_catalog_items();
-    let custom = state.catalog.get_collected_items();
-    Ok(CatalogService::merge_catalog_overlay_view(&remote, &custom))
 }
 
 /// Issue 链路通用取件（单条）：canonical 归一 → 取行 → 收录门禁 → 提交档二次全校验。
@@ -717,7 +679,7 @@ mod tests {
 
     #[test]
     fn overlay_accepts_legacy_local_collected_literal_and_rejects_draft() {
-        // On-disk residual `local_collected` 字面：同样进入 overlay；退回 draft 后不再进入。
+        // 存储同义值 `local_collected`：进入 overlay；draft 态不进入 overlay。
         let mut legacy = entry("o/legacy");
         legacy.status = "local_collected".to_string();
         let mut reverted = entry("o/reverted");

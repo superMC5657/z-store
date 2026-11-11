@@ -1,9 +1,8 @@
 import type {
   ImportUserDataCounts,
-  MirrorNodeStatus,
   ProxyTestResult,
 } from '../../types';
-import { demoMirrors, demoTrendsTextForUrl } from '../fixtures';
+import { demoTrendsTextForUrl } from '../fixtures';
 import { getDemoSettingsSaved, LS, lsSet } from '../demoState';
 import { argStr, type InvokeArgs } from './common';
 
@@ -35,10 +34,6 @@ export function handleSaveSetting(a: InvokeArgs): boolean {
     lsSet(LS.settings, saved);
   }
   return true;
-}
-
-export function handleGetMirrorStatus(): MirrorNodeStatus[] {
-  return demoMirrors;
 }
 
 export function handleSwitchMirror(): boolean {

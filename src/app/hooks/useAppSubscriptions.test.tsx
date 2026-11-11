@@ -262,7 +262,7 @@ describe('useAppSubscriptions：初始加载扇出', () => {
 
   it('资产区门禁 MANUAL_ONLY_NETWORK=true：startup 频率也不自动检查', async () => {
     // 资产区网络仅经检查更新按钮手动触发（lib/manualOnly 单一来源）。
-    // 门禁未来翻 false 时本测试随契约翻转：startup 恢复自动检查。
+    // 若 MANUAL_ONLY_NETWORK 为 false，则 startup 频率恢复自动检查。
     mocks.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, update_frequency: 'startup' });
     mocks.checkForUpdates.mockResolvedValue([]);
     renderSubs();

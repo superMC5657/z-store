@@ -1,11 +1,10 @@
 /**
- * 任务 2 — 侧边栏设备平台多选分组测试。
+ * 侧边栏设备平台多选分组测试。
  *
- * 第一部分（基线特征化测试）：锁定 src/components/Sidebar.tsx 渲染的现有分组标题与顺序。
- *   发现与探索（首个）→ 应用资产 → 偏好与系统（末尾）。
- * 采用弹性顺序断言，确保在「偏好与系统」上方插入新的「设备平台」分组后依然通过。
+ * 第一部分：锁定 src/components/Sidebar.tsx 渲染的分组标题与顺序
+ * （发现与探索 → 应用资产 → 偏好与系统，并在「偏好与系统」上方支持「设备平台」分组）。
  *
- * 第二部分（多选新规范测试）：要求「设备平台」分组包含 6 个具备复选框语义的子项。
+ * 第二部分：验证「设备平台」分组包含 6 个具备复选框语义的子项。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -24,7 +23,6 @@ function renderSidebar(extraProps?: Partial<React.ComponentProps<typeof Sidebar>
       currentView="home"
       onSelectView={() => {}}
       installedCount={0}
-      hasUpdates={false}
       onOpenAccount={() => {}}
       {...extraProps}
     />,
@@ -232,16 +230,6 @@ describe('Sidebar: updates and favorites numerical badges', () => {
 
     expect(updatesItem?.querySelector('.nav-badge')).toBeNull();
     expect(favoritesItem?.querySelector('.nav-badge')).toBeNull();
-    expect(container.querySelector('.nav-badge-dot')).toBeNull();
-  });
-
-  it('hasUpdates=true 回退为计数值 1 且不渲染圆点指示器', () => {
-    const { container } = renderSidebar({
-      hasUpdates: true,
-    });
-
-    const updatesItem = container.querySelector('[data-view-id="updates"]');
-    expect(updatesItem?.querySelector('.nav-badge')?.textContent).toBe('1');
     expect(container.querySelector('.nav-badge-dot')).toBeNull();
   });
 });

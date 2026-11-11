@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-10-22
 - 关联：ADR-0007（开放清单与 TTL 缓存）、ADR-0009（清单仓库解耦）、ADR-0010（规范应用标识）、ADR-0013（Feed 契约）、ADR-0017（本地自维护草稿 overlay）
-- 范围：后端（`CatalogItem` / `AppCore` 扩展 `added_at`、`custom_apps` overlay 投影回填、`get_latest_catalog_apps` IPC 命令与内存倒排）+ 前端（`latest` 独立一级视图、侧栏导航、分段选项卡、触底加载与空态兜底）
+- 范围：后端（`CatalogItem` / `AppCore` 携带 `added_at`、`custom_apps` overlay 投影回填、`get_latest_catalog_apps` IPC 命令与内存倒排）+ 前端（`latest` 独立一级视图、侧栏导航、分段选项卡、触底加载与空态兜底）
 
 ## 1. 背景
 
@@ -40,17 +40,17 @@
 ### 2.3 倒排与并列保质规则 (Ties Breaking)
 1. **一级主序**：`added_at DESC`（严格由近及远）。
 2. **二级次序**：`stars DESC`（GitHub Star 数降序）。
-   - **决策权衡**：由于存量 `catalog.json` 中存在同一天批量导入百余款应用的情况（如 `2026-09-10` 与 `2026-09-13`），若同天仅按名称字典序排列容易使低质或冷门小工具占据头部；引入 Star 数次级降序可在保证时效倒排的前提下，确保列表呈现的高水准与实用性。
+   - **决策权衡**：`catalog.json` 中同一收录日期往往对应批量维护的多款应用（如批量入库批次），仅按名称字典序排列容易使低Star条目占据头部；引入 Star 数次级降序可在保证时效倒排的前提下，确保列表呈现高水准与实用性。
 3. **三级保底**：`id ASC`（确定性字母序，保证分页与触底加载不发生乱序或卡片重复）。
 
 ### 2.4 领域模型与本地收录兼顾 (Domain Modeling & Overlay Alignment)
-1. **契约扩展**：
-   - `CatalogItem` 与 `AppCore` 新增：
+1. **契约定义**：
+   - `CatalogItem` 与 `AppCore` 定义可选 `added_at` 字段：
      ```rust
      #[serde(default, skip_serializing_if = "Option::is_none")]
      pub added_at: Option<String>,
      ```
-   - 前端 `AppSummary` 扩展 `added_at?: string;`。
+   - 前端 `AppSummary` 包含 `added_at?: string;`。
 2. **本地自维护条目兼容与读写隔离**：
    - 本地 `custom_apps` 表存储的是 Unix 整数 `created_at`。
    - 在 `CatalogService::sync_collected_from_db` 与合并视图投影时，将 `created_at` 统一转换为 `YYYY-MM-DD` 格式回填入 `added_at`，确保用户自维护的本地应用无缝参与「最新入库」倒排，遵循 ADR-0017 库内成员同权原则。
@@ -73,7 +73,7 @@
    - 数据源为 `CatalogService::merged_summaries()`（已合并远端与本地库）；
    - 在内存中过滤用户设置的隐藏规则应用（`hidden_rule_ids`，与首页 Feed 一致）；
    - 执行日期比对截断（公历天数差，含 `diff >= -1` 跨时区容差）与 `added_at DESC, stars DESC, id ASC` 确定性排序；
-   - 复用既有 `paginate_feed` 窗口计算逻辑，返回 `FeedPage { items, total, has_more }`，首屏秒开，支持触底无限加载。
+   - 复用 `paginate_feed` 窗口计算逻辑，返回 `FeedPage { items, total, has_more }`，首屏秒开，支持触底无限加载。
 
 ### 2.6 前端卡片透出与国际化规范
 1. **卡片透出**：`LatestView` 渲染卡片时传入 `showAddedAtBadge={true}`，在 `AppCard` 底部标签区消费 `latest.added_at_badge`（如「收录于 2026-10-15」/「Added 2026-10-15」），使用户直观了解入库时效。

@@ -1392,7 +1392,7 @@ impl AppScanner {
         use std::collections::HashSet;
         let mut out: Vec<super::ScannedRawApp> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
-        // 单次扫描内复用同一目录列表（不再逐项重算；跨调用不缓存，桌面文件常变）。
+        // 单次扫描内复用同一目录列表（跨调用不缓存，桌面文件随用户操作变动）。
         let desktop_dirs = Self::linux_desktop_dirs();
         for dir in desktop_dirs {
             let Ok(entries) = std::fs::read_dir(&dir) else {

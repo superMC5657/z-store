@@ -1,8 +1,7 @@
 /**
- * 退回草稿回归：命令名对齐 + 落盘可见 + draft 不再进收录。
+ * 退回草稿回归：命令名对齐、落盘可见且 draft 退出本地收录。
  * 后端规范命令为 `revert_collected_to_draft`，
- * 前端 CMD 必须指向规范名，否则 invoke 走旧名在新后端缺席时静默本地翻态、
- * 重启因 DB 仍 collected 而重现。
+ * 前端 CMD 指向规范命令名，确保状态变更持久化。
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { CMD } from '../api';
@@ -43,7 +42,7 @@ describe('revertCollectedApp command alignment + persistence', () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ cmd: 'revert_collected_to_draft', args: { id: 'o/r' } });
     expect(entry.status).toBe('draft');
-    // draft 不再是收录态：collectedSummaries/overlay 同一口径过滤。
+    // draft 不属于收录态：collectedSummaries/overlay 同一口径过滤。
     expect(isCollectedStatus(entry.status)).toBe(false);
     expect(isCollectedStatus('collected')).toBe(true);
     expect(isCollectedStatus('local_collected')).toBe(true);

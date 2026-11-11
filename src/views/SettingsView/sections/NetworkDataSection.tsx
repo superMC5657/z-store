@@ -24,7 +24,6 @@ interface NetworkDataSectionProps {
     success: boolean;
     latency_ms: number;
     text: string;
-    badge: string;
   } | null;
   proxyFeedback: string | null;
   highlightRow: string | null;

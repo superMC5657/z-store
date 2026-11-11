@@ -25,8 +25,8 @@ const toOptionalBool = (v: unknown): boolean | undefined => {
   return undefined;
 };
 
-// 纯函数导出组装（version 保持为 1，便于单测覆盖导出 → JSON → 导入往返）。
-// showCustom 开关随备份往返（默认开；缺席即默认开，不污染旧备份）。
+// 纯函数导出组装（version 为 1，保证导出 → JSON → 导入无损往返）。
+// `showCustom`/`show_custom` 按存在性透传，缺席时保持默认开启。
 const buildBackupSettings = (
   settings: Record<string, unknown>,
 ): UserDataBackupSettings => {
@@ -44,7 +44,7 @@ const buildBackupSettings = (
     catalog_source_url: settings.catalog_source_url as string | undefined,
     watch_notify_frequency: settings.watch_notify_frequency as string | undefined,
   };
-  // showCustom/show_custom 仅在输入含键时透传（旧备份无键即默认开，不破坏既有单测）。
+  // showCustom/show_custom 仅在输入含键时透传。
   const showRaw =
     (settings as Record<string, unknown>).showCustom ??
     (settings as Record<string, unknown>).show_custom;
@@ -72,7 +72,7 @@ type UserDataBackupWithCustom = UserDataBackup & {
   custom_apps?: BackupCustomAppItem[];
 };
 
-/** 备份含草稿：customApps 缺席/空即不写键（旧调用零变化，旧单测透传）。 */
+/** 备份含草稿：customApps 缺席或为空时不写入该键。 */
 export const buildUserDataBackup = (
   favorites: string[],
   watched: string[],

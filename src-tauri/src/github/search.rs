@@ -48,9 +48,6 @@ struct OnlineRepoResponse {
 struct OnlineRepoLicense {
     #[serde(default)]
     key: Option<String>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    name: Option<String>,
     spdx_id: Option<String>,
 }
 

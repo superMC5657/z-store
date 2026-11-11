@@ -50,7 +50,7 @@ function draftEntry(partial: Partial<CustomDraftEntry> & { id: string }): Custom
 }
 
 describe('PendingView validation (backend validate_custom_item UI mirror)', () => {
-  // ADR-0018：名单唯一源头为后端；单测以前端快照形态显式传入，不依赖硬编码。
+  // ADR-0018：名单唯一源头为后端；单测以快照形态显式传入，不依赖硬编码。
   const gate: LicenseAllowlistResult = {
     enabled: true,
     allowed: ['MIT', 'ISC', 'Apache-2.0', 'GPL-3.0', 'GPL-3.0+', 'MPL-2.0', 'Unlicense'],
@@ -136,7 +136,7 @@ describe('PendingView grouping and empty states', () => {
     await i18n.changeLanguage('zh-CN');
     const { container } = render(<PendingView />);
     expect(screen.getByText('暂无待收录草稿')).toBeTruthy();
-    // 页头不再设新建入口，新建仅走空态提示
+    // 新建入口置于空态提示，页头不包含新建入口
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(screen.getByText('新建草稿')).toBeTruthy();
   });
@@ -225,7 +225,6 @@ describe('Sidebar pending nav (discovery group + badge slot)', () => {  it('rend
         currentView="pending"
         onSelectView={() => {}}
         installedCount={0}
-        hasUpdates={false}
         onOpenAccount={() => {}}
         pendingCount={2}
       />,
@@ -523,7 +522,7 @@ describe('PendingView 回归（自动派生 canonical id + duplicate 警告 + �
       PENDING_SECTION_PREFS_STORAGE_KEY_LEGACY,
       JSON.stringify({ optional: false, runtime: true }),
     );
-    // sectionPrefs 单元迁移：旧 optional 吸收为 supplemental，并写新 key
+    // sectionPrefs 兼容迁移：optional 别名字段吸收为 supplemental，并写标准 key
     expect(getPendingSectionPrefs()).toEqual({ supplemental: false, runtime: true });
     expect(window.localStorage.getItem(PENDING_SECTION_PREFS_STORAGE_KEY)).toContain('supplemental');
     window.localStorage.removeItem(PENDING_SECTION_PREFS_STORAGE_KEY);
@@ -591,7 +590,7 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
     );
     fireEvent.click(screen.getByText('本地收录'));
     fireEvent.click(screen.getByText('o/a'));
-    // 富卡分支：复用 AppCard（黄标 local），不再展 owner/repo 参数表单
+    // 富卡分支：复用 AppCard（黄标 local），不展示 owner/repo 参数表单
     expect(document.querySelector('.app-card .verified-badge-local')).toBeTruthy();
     expect(screen.queryByDisplayValue('MIT')).toBeNull();
     expect(screen.queryByDisplayValue('OpenSource')).toBeNull();
@@ -656,7 +655,7 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
   it('draft=表单+收录主按钮（页头无新建入口、无计数徽标）', async () => {
     await i18n.changeLanguage('zh-CN');
     const { container } = render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
-    // 页头不再设新建入口、无计数徽标
+    // 页头无新建入口、无计数徽标
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
     // Tab 自带草稿/收录计数保留

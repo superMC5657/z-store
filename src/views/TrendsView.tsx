@@ -280,7 +280,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   // enrich 命中且具真实平台按其判定；enrich 空（`fallback_summary` 恒 `[]`）一律视为 loading：
   // 未确认前恒可见、不计入分布，详情治愈/lite 回填/确认为 other 后一次落定。
   // 裸 TrendRepo（enrich 尚未落定）视为 loading，恒可见，绝不视同 other；
-  // settle 超时后降级为已确认 Other（可过滤、可计数、展示徽标），不再无限 shimmer。
+  // settle 超时后降级为已确认 Other（可过滤、可计数、展示徽标），避免无限 shimmer。
   // 未传入 selectedPlatforms 时不过滤。
   const displayItems = useMemo<DisplayTrendItem[]>(() => {
     if (!selectedPlatforms) return rawDisplayItems;

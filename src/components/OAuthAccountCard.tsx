@@ -26,7 +26,7 @@ export const OAuthAccountCard: React.FC = () => {
   // 连续轮询网络失败计数：抖动不断会话，攒够次数才停（用户码保留展示）
   const pollFailRef = useRef(0);
   // 轮询会话取消标志：unmount/手动取消置位。in-flight poll 无法 abort，
-  // 返回后凭此标志丢弃结果并不再重排，防止卸载后轮询泄漏到 deadline。
+  // 返回后凭此标志丢弃结果且不重排定时器，防止卸载后轮询泄漏到 deadline。
   const pollCancelledRef = useRef(false);
 
   const loadUser = async () => {

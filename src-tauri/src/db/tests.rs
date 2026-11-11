@@ -169,52 +169,39 @@ fn test_search_and_view_history_crud() {
 }
 
 #[test]
-fn test_host_tokens_crud() {
+fn test_host_rate_limit_and_token_read() {
     let db = fixtures::test_db();
 
-    // 1. 初始状态为空
-    let tokens = db.get_host_tokens().unwrap();
-    assert!(tokens.is_empty());
+    assert!(db.get_host_token("github.com").unwrap().is_none());
 
-    // 2. 设置令牌
-    db.set_host_token("codeberg.org", "cb_token_123").unwrap();
-    db.set_host_token("github.com", "gh_token_456").unwrap();
-
-    let tokens = db.get_host_tokens().unwrap();
-    assert_eq!(tokens.len(), 2);
-    assert_eq!(
-        db.get_host_token("codeberg.org").unwrap().as_deref(),
-        Some("cb_token_123")
-    );
+    db.conn
+        .execute(
+            "INSERT INTO host_tokens (host, token, updated_at) VALUES (?1, ?2, 1)",
+            rusqlite::params!["github.com", "gh_token_456"],
+        )
+        .unwrap();
     assert_eq!(
         db.get_host_token("github.com").unwrap().as_deref(),
         Some("gh_token_456")
     );
 
-    // 3. 更新速率限制
-    db.update_host_rate_limit("codeberg.org", Some(2990), Some(3000), Some(1700000000))
+    db.update_host_rate_limit("github.com", Some(4990), Some(5000), Some(1700000000))
         .unwrap();
-    let tokens_after = db.get_host_tokens().unwrap();
-    let cb = tokens_after
-        .iter()
-        .find(|t| t.host == "codeberg.org")
+    let (rem, lim, tok): (Option<u32>, Option<u32>, String) = db
+        .conn
+        .query_row(
+            "SELECT rate_limit_remaining, rate_limit_limit, token FROM host_tokens WHERE host = 'github.com'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
         .unwrap();
-    assert_eq!(cb.rate_limit_remaining, Some(2990));
+    assert_eq!(rem, Some(4990));
+    assert_eq!(lim, Some(5000));
+    assert_eq!(tok, "gh_token_456");
 
-    // 4. 移除令牌
-    let removed = db.remove_host_token("codeberg.org").unwrap();
-    assert!(removed);
-    assert!(db.get_host_token("codeberg.org").unwrap().is_none());
-    assert_eq!(db.get_host_tokens().unwrap().len(), 1);
-
-    // 5. 在未配置前置令牌的情况下更新速率限制（匿名/公开主机记录）
+    // 无前置令牌的匿名/公开主机仅写入速率记录
     db.update_host_rate_limit("gitea.com", Some(55), Some(60), Some(1700000100))
         .unwrap();
-    let tokens_new = db.get_host_tokens().unwrap();
-    assert_eq!(tokens_new.len(), 2);
-    let gitea = tokens_new.iter().find(|t| t.host == "gitea.com").unwrap();
-    assert_eq!(gitea.rate_limit_remaining, Some(55));
-    assert_eq!(gitea.rate_limit_limit, Some(60));
     assert!(db.get_host_token("gitea.com").unwrap().is_none());
 }
 

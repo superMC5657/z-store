@@ -2,7 +2,6 @@ import type {
   AppDetail,
   AppSummary,
   InstalledApp,
-  MirrorNodeStatus,
   UpdateItem,
 } from '../types';
 import catalogRaw from '../../catalog.json';
@@ -145,23 +144,6 @@ export function summaryToInstalled(s: AppSummary): InstalledApp {
     icon_bg: s.icon_bg,
   };
 }
-
-export const demoMirrors: MirrorNodeStatus[] = [
-  {
-    id: 'ghproxy',
-    name: 'GHProxy (demo)',
-    base_url: 'https://ghproxy.demo/',
-    latency_ms: 120,
-    is_active: true,
-  },
-  {
-    id: 'direct',
-    name: 'Direct (demo)',
-    base_url: 'https://github.com/',
-    latency_ms: 320,
-    is_active: false,
-  },
-];
 
 export function buildDemoUpdates(installed: InstalledApp[]): UpdateItem[] {
   const target = summaries[2] ?? summaries[0];

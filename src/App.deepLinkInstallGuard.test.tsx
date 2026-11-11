@@ -67,7 +67,6 @@ const hooks = vi.hoisted(() => ({
 vi.mock('./services/api', () => {
   const listMethods = new Set([
     'getInstalledApps',
-    'getMirrorStatus',
     'getFavorites',
     'getUpdateRules',
     'getRecentlyViewedApps',
