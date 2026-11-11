@@ -34,10 +34,9 @@ html, body {
 }
 
 body {
-  font-family: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-feature-settings: 'cv01' 1, 'ss03' 1, 'cv11' 1;
-  font-weight: 400;
-  letter-spacing: -0.011em;
+  font-family: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: var(--font-weight-regular, 400);
+  letter-spacing: var(--letter-spacing-tight, -0.011em);
   color: var(--text-primary);
   font-size: var(--font-base);
   line-height: 1.5;
@@ -48,14 +47,14 @@ body {
 
 /* Linear 标题字重与负字距收敛：禁用 700 粗体，严格采用 590 */
 h1, h2, h3, h4, h5, h6, strong, b {
-  font-weight: 590;
-  letter-spacing: -0.018em;
+  font-weight: var(--font-weight-semibold, 590);
+  letter-spacing: var(--letter-spacing-title, -0.018em);
   color: var(--text-primary);
 }
 
 p {
   max-width: 80ch;
-  letter-spacing: -0.011em;
+  letter-spacing: var(--letter-spacing-tight, -0.011em);
 }
 
 code, kbd, samp, pre {
