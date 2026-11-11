@@ -324,7 +324,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
           />
         )
       ) : (
-        <div className="fluent-list-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="fluent-list-container">
           {updates.map((item) => {
             const isExpanded = expandedId === item.app_id;
             const isThisUpdating = updatingId === item.app_id;

@@ -422,7 +422,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             padding: '16px 24px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '10px',
           }}
         >
           {filteredRules.length === 0 ? (
@@ -444,7 +443,8 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               }
             />
           ) : (
-            filteredRules.map((rule) => {
+            <div className="fluent-list-container">
+              {filteredRules.map((rule) => {
               const ruleIdNorm = rule.app_id.toLowerCase();
               const matchedApp = installedApps.find((a) => a.app_id.toLowerCase() === ruleIdNorm);
               const catalogApp = apps.find((a) => a.id.toLowerCase() === ruleIdNorm);
@@ -572,9 +572,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   </div>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
+      </div>
 
         {/* 底部状态与操作栏 */}
         <div
