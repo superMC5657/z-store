@@ -3,10 +3,9 @@
  * 「取 URL → https 门 → 超长复制后端载荷 → 打开预填页」单一实现。
  */
 import type { TFunction } from 'i18next';
-import { copyTextToClipboard } from '../../services/api/catalog';
+import { copyTextToClipboard } from '../../utils/appHelper';
 import { tauriApi } from '../../services/api';
-import { resolveFallbackOpener } from '../../utils/browserLockdown';
-import type { ShowToast } from './pendingText';
+import type { ShowToast } from '../../types';
 
 /**
  * 预填 URL 长度门限（判定口径为编码后预填链接全长，含 percent-encoding 膨胀；
@@ -18,33 +17,6 @@ export const PREFILL_URL_LENGTH_LIMIT = 8000;
 
 /** 轻提示通道（与 `PendingViewProps.onNotify` 同形）。 */
 type Notify = ShowToast;
-
-/**
- * 预填页打开（先直调 `tauriApi.openUrl` 成功即返，失败才原生 `window.open` 兜底）：
- * - 直调覆盖后端 `open_url`（rundll32 拉起默认浏览器），成功即返；
- * - 直调失败（非 Tauri / 后端 spawn 失败）才经 `resolveFallbackOpener()` 拿劫持前
- *   原生 opener 兜底（直接 `window.open` 会被劫持返回 null），返回 null（弹窗拦截/
- *   无原生）则抛错保留失败感知，杜绝全部打不开又不谎报成功。
- */
-async function openPrefillPage(url: string): Promise<void> {
-  const trimmed = (url ?? '').trim();
-  if (!trimmed) throw new Error('empty url');
-  try {
-    await tauriApi.openUrl(trimmed);
-    return;
-  } catch (directErr) {
-    const opener = resolveFallbackOpener();
-    if (opener) {
-      try {
-        const ret = opener(trimmed, '_blank', 'noopener,noreferrer');
-        if (ret) return;
-      } catch {
-        /* 原生调用抛错则落到下方抛出来源错 */
-      }
-    }
-    throw directErr;
-  }
-}
 
 /**
  * 后端载荷复制：取后端产出的载荷文本并原样写入剪贴板（不 trim、不重新格式化）。
@@ -164,7 +136,7 @@ export async function runSubmitPrefillFlow(
     }
   }
   try {
-    await openPrefillPage(url);
+    await tauriApi.openUrl(url);
   } catch (e) {
     await notifyPrefillOpenFailed(url, e, t, notify);
     return;

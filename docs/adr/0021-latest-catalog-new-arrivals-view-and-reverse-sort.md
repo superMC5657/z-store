@@ -14,7 +14,7 @@
 ## 2. 决策
 
 ### 2.1 独立一级视图与侧栏导航 (`latest`)
-1. **视图注册**：在 `src/app/navigation.ts` 中将 `latest` 纳入 `VIEW_TYPES` 契约，排在 `home` 与 `categories` 之间：
+1. **视图注册**：在 `src/types/index.ts` 中将 `latest` 纳入 `VIEW_TYPES` 契约，排在 `home` 与 `categories` 之间：
    ```ts
    export const VIEW_TYPES = [
      'home',

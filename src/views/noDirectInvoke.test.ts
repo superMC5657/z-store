@@ -5,8 +5,8 @@
  *   排除 `*.test.*`），子目录（TrendsView/SettingsView/HomeView 等）同样受检。
  * - 两层禁止直调 Tauri IPC：后端命令一律经 `src/services/api.ts` 的
  *   `tauriApi` 方法，命令名统一收敛于表驱动 `CMD`；窗口控制/进程控制等
- *   `@tauri-apps/api` 与插件命令直调收敛到 services 封装（services/window.ts、
- *   services/appProcess.ts，豁免理由见各封装头注释）。
+ *   `@tauri-apps/api` 与插件命令直调收敛到 services 封装（services/desktop.ts，
+ *   豁免理由见封装头注释）。
  * - 禁止导入 `@tauri-apps/api/*`（core/window 等 core API）与
  *   `services/api/client`（`tauriInvoke` 底层直调口）；官方插件 JS API
  *   （`@tauri-apps/plugin-*`，如 plugin-updater）视为合法高层封装不在此列。

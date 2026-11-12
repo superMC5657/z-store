@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { tauriApi } from '../../services/api';
-import { notifyToast } from '../../utils/notify';
+import { notifyToast } from '../../useToasts';
 
 /**
  * AppDetailModal 标星关注点 Hook：维护详情弹窗 GitHub 标星态与切换处理器。

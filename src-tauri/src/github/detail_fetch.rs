@@ -291,23 +291,36 @@ async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> String {
 /// icon 探测 seam：无 token 时仍跑免鉴权 L2 SimpleIcons（零 GitHub API 配额消耗）；
 /// 有 token 时进完整 SimpleIcons+Trees（命中原样回传，source 日志由调用方记）。
 async fn probe_repo_icon(
-    client: &reqwest::Client,
+    api_client: &reqwest::Client,
     base_headers: &HeaderMap,
     owner: &str,
     repo: &str,
     branch: &str,
     has_token: bool,
-) -> Option<crate::github::icon_probe::ProbedIcon> {
+) -> Option<crate::icons::ProbedIcon> {
+    let icon_client = crate::forge::http::new_icon_client(
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
+    )
+    .unwrap_or_default();
     if !has_token {
-        return crate::github::icon_fetch::probe_l2_simple(client, owner, repo)
+        return crate::icons::probe_l2_simple(&icon_client, owner, repo)
             .await
-            .map(|url| crate::github::icon_probe::ProbedIcon {
+            .map(|url| crate::icons::ProbedIcon {
                 url,
                 source: "simple-icons",
             });
     }
-    crate::github::icon_probe::probe_repo_logo(client, Some(base_headers), owner, repo, branch)
-        .await
+    crate::icons::probe_repo_logo(
+        &icon_client,
+        api_client,
+        Some(base_headers),
+        owner,
+        repo,
+        branch,
+    )
+    .await
 }
 
 /// 消极缓存判定 seam：版本未变 + 24h 内 fresh + 有资产但 sha256 全缺时，
@@ -507,7 +520,7 @@ impl CatalogService {
         (
             AppDetail,
             Option<(String, String)>,
-            Option<crate::db::icon_cycle::DetailIconResolution>,
+            Option<crate::icons::DetailIconResolution>,
         ),
         String,
     > {
@@ -756,7 +769,7 @@ impl CatalogService {
         }
         let probed_with_level = probed_hit.map(|p| {
             (
-                crate::db::icon_cycle::ProbeIconLevel::from_source(p.source),
+                crate::icons::ProbeIconLevel::from_source(p.source),
                 p.url,
             )
         });
@@ -819,13 +832,13 @@ impl CatalogService {
         // deduce + ios 并集 + 排序经内部平台 seam（与 304 快径共用）。
         let final_platforms = unioned_detail_platforms(&releases, catalog_item.as_ref());
 
-        // 图标层级决策经 db::icon_cycle::pick_detail_icon_with_level（收录官方 → 品牌库 → Trees → README → 空）：
+        // 图标层级决策经 icons::pick_detail_icon_with_level（收录官方 → 品牌库 → Trees → README → 空）：
         // 1. 已具备已知独立官方图标则保持，避免被误覆盖；
         // 2. 否则进入探测链（Simple Icons → Git Trees 全库评分，保留真实 L2/L3 级别）；
         // 3. 探测未命中则采用 README 提取并清洗出的 Logo（显式 L4 级别）；
         // 4. 若探测命中 L2/L3 的同时提取到了 README Logo，顺手保留在 extra_l4_url 供落库补齐 l4_url；
         // 5. 全未命中兜底返回空字符串（前端降级为首字母徽章）。
-        let icon_resolution = crate::db::icon_cycle::pick_detail_icon_with_level(
+        let icon_resolution = crate::icons::pick_detail_icon_with_level(
             &icon,
             probed_with_level,
             extracted_logo,
@@ -1210,7 +1223,7 @@ mod tests {
     #[test]
     fn test_pick_detail_icon_with_level_preserves_l4_and_dual_l3_l4() {
         // 1. L2/L3 未命中，仅提取到 README Logo（哪怕经 clean_image_url 改写为 /HEAD/ 或外部图床），level 恒为 4。
-        let res_l4 = crate::db::icon_cycle::pick_detail_icon_with_level(
+        let res_l4 = crate::icons::pick_detail_icon_with_level(
             "",
             None,
             Some("https://raw.githubusercontent.com/owner/repo/HEAD/assets/logo.png".to_string()),
@@ -1223,10 +1236,10 @@ mod tests {
         assert_eq!(res_l4.extra_l4_url, None);
 
         // 2. L3（Git Trees）与 L4（README）同时命中：主展示为 L3（level=3），同时保留 extra_l4_url 供补齐备选槽。
-        let res_dual = crate::db::icon_cycle::pick_detail_icon_with_level(
+        let res_dual = crate::icons::pick_detail_icon_with_level(
             "",
             Some((
-                crate::db::icon_cycle::ProbeIconLevel::L3Trees,
+                crate::icons::ProbeIconLevel::L3Trees,
                 "https://raw.githubusercontent.com/owner/repo/main/res/icon.png".to_string(),
             )),
             Some("https://media.example.com/readme-banner-logo.png".to_string()),

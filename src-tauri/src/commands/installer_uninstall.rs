@@ -1,6 +1,6 @@
 use super::resolve_uninstaller_command;
 use crate::models::InstalledApp;
-use crate::AppState;
+use crate::{AppResult, AppState};
 use tauri::State;
 
 /// ADR-0010 入口门禁（与 `launch_app` 保持同一模式）：将入站 id 归一化为规范形式；
@@ -107,7 +107,8 @@ fn cleanup_desktop_shortcut(app_name: &str) {
     }
 }
 
-pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+#[tauri::command(rename_all = "camelCase")]
+pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
     log::info!(
         "uninstall start sid={} id={}",
@@ -179,7 +180,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
             return Err(format!(
                 "未在系统中检测到 {} 的官方卸载程序。如需从 ZStore 中移除管理记录，请在卡片更多操作中选择「从列表移除」",
                 app.app_name
-            ));
+            ).into());
         }
     }
 
@@ -215,10 +216,11 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> Result
         ),
     }
 
-    res
+    Ok(res?)
 }
 
-pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+#[tauri::command(rename_all = "camelCase")]
+pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> AppResult<bool> {
     // ADR-0010：与 `launch_app` 相同的入口门禁 —— 归一化后全程使用规范化 canonical id。
     let app_id = resolve_managed_app_id(&app_id)?;
     let db = state.db()?;
@@ -227,7 +229,7 @@ pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> Result<bool, 
     if res.as_ref().is_ok_and(|v| *v) {
         let _ = db.remove_update_result(&app_id);
     }
-    res
+    Ok(res?)
 }
 
 #[cfg(test)]

@@ -4,35 +4,35 @@ use std::path::{Path, PathBuf};
 #[test]
 fn test_classify_asset() {
     assert_eq!(
-        InstallerEngine::classify_asset("vlc-3.0.21-win64.msi").0,
+        classify_asset("vlc-3.0.21-win64.msi").0,
         AssetKind::Msi
     );
     assert_eq!(
-        InstallerEngine::classify_asset("RustDesk-1.2.6-Setup.exe").0,
+        classify_asset("RustDesk-1.2.6-Setup.exe").0,
         AssetKind::SetupExe
     );
     assert_eq!(
-        InstallerEngine::classify_asset("app-portable.zip").0,
+        classify_asset("app-portable.zip").0,
         AssetKind::PortableZip
     );
     assert_eq!(
-        InstallerEngine::classify_asset("obs-studio_30.1.2_amd64.deb").0,
+        classify_asset("obs-studio_30.1.2_amd64.deb").0,
         AssetKind::Deb
     );
     assert_eq!(
-        InstallerEngine::classify_asset("LocalSend-1.15.2.AppImage").0,
+        classify_asset("LocalSend-1.15.2.AppImage").0,
         AssetKind::AppImage
     );
     assert_eq!(
-        InstallerEngine::classify_asset("KeePassXC-2.7.9.dmg").0,
+        classify_asset("KeePassXC-2.7.9.dmg").0,
         AssetKind::Dmg
     );
     assert_eq!(
-        InstallerEngine::classify_asset("Wireshark-4.2.4.pkg").0,
+        classify_asset("Wireshark-4.2.4.pkg").0,
         AssetKind::Pkg
     );
     assert_eq!(
-        InstallerEngine::classify_asset("rustdesk-1.2.6.rpm").0,
+        classify_asset("rustdesk-1.2.6.rpm").0,
         AssetKind::Rpm
     );
 }
@@ -40,21 +40,21 @@ fn test_classify_asset() {
 #[test]
 fn test_classify_tarball_binary() {
     // 二进制 tarball 统一归类为 PortableTarball（源码过滤由 detail 层负责）。
-    let (kind, os, arch) = InstallerEngine::classify_asset("pi-darwin-arm64.tar.gz");
+    let (kind, os, arch) = classify_asset("pi-darwin-arm64.tar.gz");
     assert_eq!(kind, AssetKind::PortableTarball);
     assert_eq!(os, "macos");
     assert_eq!(arch, "aarch64");
 
-    let (kind, os, arch) = InstallerEngine::classify_asset("pi-linux-x64.tar.gz");
+    let (kind, os, arch) = classify_asset("pi-linux-x64.tar.gz");
     assert_eq!(kind, AssetKind::PortableTarball);
     assert_eq!(os, "linux");
     assert_eq!(arch, "x86_64");
 
-    let (kind, os, _) = InstallerEngine::classify_asset("tool-windows-x64.tar.gz");
+    let (kind, os, _) = classify_asset("tool-windows-x64.tar.gz");
     assert_eq!(kind, AssetKind::PortableTarball);
     assert_eq!(os, "windows");
 
-    let (kind, os, _) = InstallerEngine::classify_asset("tool-win64.tar.gz");
+    let (kind, os, _) = classify_asset("tool-win64.tar.gz");
     assert_eq!(kind, AssetKind::PortableTarball);
     assert_eq!(os, "windows");
 
@@ -65,7 +65,7 @@ fn test_classify_tarball_binary() {
         "pi-linux-x64.tar",
         "pi-linux-x64.tar.xz",
     ] {
-        let (kind, os, _) = InstallerEngine::classify_asset(name);
+        let (kind, os, _) = classify_asset(name);
         assert_eq!(
             kind,
             AssetKind::PortableTarball,
@@ -75,14 +75,14 @@ fn test_classify_tarball_binary() {
         assert_eq!(os, "linux", "tar os must be linux: {}", name);
     }
     assert_eq!(
-        InstallerEngine::classify_asset("pi-linux-x64.tar.bz2").0,
+        classify_asset("pi-linux-x64.tar.bz2").0,
         AssetKind::Other,
         ".tar.bz2 must map to Other (bzip2 unsupported)"
     );
 
     // .7z 保持 Other，不受 tar 分支影响
     assert_eq!(
-        InstallerEngine::classify_asset("tool-linux-x64.7z").0,
+        classify_asset("tool-linux-x64.7z").0,
         AssetKind::Other
     );
 }
@@ -160,7 +160,7 @@ fn test_classify_7z_never_portable() {
         "APP-PORTABLE-WIN64.7Z",
     ];
     for name in cases {
-        let (kind, _, _) = InstallerEngine::classify_asset(name);
+        let (kind, _, _) = classify_asset(name);
         assert_ne!(
             kind,
             AssetKind::PortableZip,
@@ -171,11 +171,11 @@ fn test_classify_7z_never_portable() {
     }
     // 守卫测试：确保 `.zip` 的便携版声明保持完好。
     assert_eq!(
-        InstallerEngine::classify_asset("app-portable.zip").0,
+        classify_asset("app-portable.zip").0,
         AssetKind::PortableZip
     );
     assert_eq!(
-        InstallerEngine::classify_asset("tool-windows-x64.zip").0,
+        classify_asset("tool-windows-x64.zip").0,
         AssetKind::PortableZip
     );
 }

@@ -12,7 +12,7 @@
 ## 2. Key 归一（小写，读写同源）
 
 - 前端 `buildTrendsCacheKey(board, opts)=board|lang|cat`、`buildDoforceCacheKey(opts)=doforce|lang|cat`，三段统一 `trim().toLowerCase()`；`DOFORCE_SHARED_CACHE_KEY=doforce||`。
-- 后端 `clean()` 仅 trim；读写同 builder、同 opts（见 `boards.ts` 读路径与 `TrendsView` 写透路径），不分叉。
+- 后端 `clean()` 仅 trim；读写同 builder、同 opts（见 `board.ts` 读路径与 `TrendsView` 写透路径），不分叉。
 
 ## 3. TTL / 抖动 / 清扫双档
 

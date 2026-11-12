@@ -1,14 +1,13 @@
 import type { TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
 import { tauriApi } from '../../services/api';
-import type { Navigate } from '../navigation';
-import { isViewType } from '../navigation';
+import { isViewType, type Navigate } from '../../types';
 
 interface UseDeepLinkParams {
   handleOpenDetail: (id: string) => void;
   handleSearchChange: (q: string) => Promise<void> | void;
   setSelectedDeveloper: (dev: string | null) => void;
-  /** 集中导航入口（App.createNavigate 产物；合法 ViewType 校验收口于 navigation）。 */
+  /** 集中导航入口（App.createNavigate 产物；合法 ViewType 校验收口于 types）。 */
   navigate: Navigate;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;

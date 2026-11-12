@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { OAuthUser, ViewType } from '../types';
-import { VIEW_TYPES } from '../app/navigation';
+import { OAuthUser, VIEW_TYPES, ViewType } from '../types';
 import { tauriApi } from '../services/api';
 import { GitHubIcon, PlatformIcon } from './icons/PlatformIcons';
 import { PLATFORM_IDS, PLATFORM_META, type PlatformId } from '../lib/platformFilter';

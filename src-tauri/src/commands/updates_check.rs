@@ -277,7 +277,7 @@ pub async fn check_for_updates(
     // 默认 DB-only 臂不写库（读经 `fetch_app_latest_version_lightweight` 判定行快径）。
     let is_force = force_refresh.unwrap_or(false);
     let check_start = std::time::Instant::now();
-    let installed = crate::commands::installer::get_installed_apps(state.clone())?;
+    let installed = crate::commands::get_installed_apps(state.clone())?;
     let installed_ids: Vec<String> = installed.iter().map(|a| a.app_id.clone()).collect();
     let rules_map: HashMap<String, UpdateRule> = {
         let db = state.db()?;
@@ -455,7 +455,7 @@ pub async fn check_for_updates(
 #[tauri::command]
 pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<UpdateItem>> {
     let start = std::time::Instant::now();
-    let installed = crate::commands::installer::get_installed_apps(state.clone())?;
+    let installed = crate::commands::get_installed_apps(state.clone())?;
     let installed_map: HashMap<String, String> = installed
         .into_iter()
         .map(|a| (a.app_id.clone(), a.version.clone()))

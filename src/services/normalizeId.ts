@@ -145,7 +145,7 @@ function parseCanonical(input: string): string | null {
 /**
  * canonical 解析 Option 形态（后端 `canonical_app_id` 镜像）：可解析返回 canonical
  * id，不可解析返回 `null`。供门禁类调用方区分「不可解析需拒绝」与 `normalizeId`
- * 的「原样小写兜底」（草稿 forge 门见 `api/catalog.ts#draftForgeGateError`）。
+ * 的「原样小写兜底」（草稿 forge 门见 `custom.ts#draftForgeGateError`）。
  */
 export function canonicalAppId(id: unknown): string | null {
   if (typeof id !== 'string') return null;

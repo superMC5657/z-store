@@ -59,7 +59,7 @@ function compareIconPriority(a: number, b: number): number {
   return rank(a) - rank(b);
 }
 
-/** 图标事件上下文（后端 `icon_fetch::IconFetchCtx` 的前端镜像）。 */
+/** 图标事件上下文（后端 `icons::IconFetchCtx` 的前端镜像）。 */
 interface IconHitContext {
   kind: 'search' | 'trend' | string;
   search_id?: string;

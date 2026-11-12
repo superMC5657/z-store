@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppDetail, AppSummary } from '../types';
 import type { AppIconCycleResult } from '../services/api';
 import { tauriApi } from '../services/api';
-import { MANUAL_ONLY_NETWORK } from '../lib/manualOnly';
 import { admitIconHit, patchAppIconList } from '../services/iconStore';
-import { appSummaryFromDetail } from '../services/trends/enrich';
+import { appSummaryFromDetail } from '../services/trends';
 import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeId } from '../services/normalizeId';
 import { isCatalogedFailClosed } from '../utils/appHelper';
@@ -468,94 +467,9 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
         return changed ? next : prev;
       });
     }).catch(() => {});
-    // 资产区默认 DB-only：占位 + 缓存富卡自动呈现，详情/图标轮换仅行内按钮或详情打开手动触发。
-    if (MANUAL_ONLY_NETWORK) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    for (const id of missing) favoriteExtraInflightRef.current.add(normalizeId(id));
-    void (async () => {
-      try {
-        // 并发拉取、逐个落地：避免串行 6 倍等待；单个落盘经函数式去重，首个原值保留。
-        // 图标先占位后热替（不阻塞首屏）：落盘后经 `restoreOrFetchIconCycle`（前端侧
-        // `resolve_confirmed_icon_from_db` 同源读 `app_icon_cycles` + 后端回填）
-        // 查轮换，命中即 `setUncatalogedExtraApps` 逐个热替；已有合法远端仅文件预热。
-        await Promise.all(
-          missing.map(async (favId) => {
-            let summary: AppSummary;
-            try {
-              const detail = await tauriApi.getAppDetails(favId);
-              summary = favoriteSummaryFromDetail(detail);
-            } catch {
-              summary = makeFavoritePlaceholderSummary(favId);
-            }
-            if (cancelled) return;
-            const k = normalizeId(summary.id);
-            if (!k) return;
-            // 非 manual 兜底分支同样按记录打标（记录缺席即未收录），本地同 id 叠加黄标。
-            summary = withLocalMarkOuter(
-              markFavoriteRowByRecord(summary, isRecordCataloged(recordCatalogedRef.current, k)),
-            );
-            // 若期间收录到达则跳过（由驱逐逻辑收敛，不双显）
-            if (catalogLower.has(k)) return;
-            setUncatalogedExtraApps((prev) => {
-              const lower = k;
-              for (const e of prev) {
-                if (normalizeId(e.id) === lower) return prev;
-              }
-              return [...prev, summary];
-            });
-            void (async () => {
-              try {
-                const currentIcon = (summary.icon || '').trim();
-                if (!needsFavoriteIconWarm(currentIcon)) {
-                  // 详情已带合法远端：经店内唯一写口做 M1 缓冲 + 文件预热（与搜索同通道，不直调 IPC）。
-                  admitIconHit({ id: summary.id, icon: currentIcon });
-                  return;
-                }
-                // 无可用远端：查轮换（同步读库命中即返，无则后端补探回填），命中经店内写口热替占位行。
-                // L5 显式徽章（cycle.level===5）经唯一写口扇出占位行跟进；取不到轮换则保持占位。
-                const cycle = await tauriApi.restoreOrFetchIconCycle(favId);
-                const persistUrl = pickFavoritePersistIconUrl(cycle);
-                const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
-                if (!persistUrl) {
-                  if (cycleLevel === 5 && !cancelled) {
-                    admitIconHit({
-                      id: summary.id,
-                      icon: '',
-                      level: 5,
-                      patch: (tid, icon) => {
-                        setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
-                      },
-                    });
-                  }
-                  return;
-                }
-                if (cancelled) return;
-                admitIconHit({
-                  id: summary.id,
-                  icon: persistUrl,
-                  level: cycleLevel,
-                  patch: (tid, icon) => {
-                    setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
-                  },
-                });
-              } catch {
-                // 取不到轮换图标则保持占位，不阻塞
-              }
-            })();
-          }),
-        );
-      } finally {
-        // 取消/完成均注销 inflight，避免泄漏导致后续 missing=0 自锁
-        for (const id of missing) favoriteExtraInflightRef.current.delete(normalizeId(id));
-      }
-    })();
+    // 资产区默认 DB-only：占位 + 缓存富卡自动呈现，详情/图标轮换仅行内按钮或详情打开手动触发（见 loadUncatalogedDetail）。
     return () => {
       cancelled = true;
-      // 同步注销本轮 inflight，保证 apps 到达后的下一轮能重算 missing
-      for (const id of missing) favoriteExtraInflightRef.current.delete(normalizeId(id));
     };
   }, [favoriteIds, watchedIds, apps]);
 

@@ -2,7 +2,7 @@
 //!
 //! 可缓存图片的本地落盘查询与下载入口：命中返回本地路径，未命中下载后返回本地路径，失败回退原地址。
 
-use crate::github::image_sniff::is_valid_image;
+use crate::icons::is_valid_image;
 use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -30,12 +30,12 @@ pub fn normalize_asset_url(url: &str) -> String {
 
 /// 地址 path 末段扩展名薄委托（唯一实现见共享嗅探模块）。
 fn url_path_ext(url: &str) -> Option<String> {
-    crate::github::image_sniff::url_path_ext(url)
+    crate::icons::url_path_ext(url)
 }
 
 /// 扩展名白名单薄委托：无后缀放行到下载时验证，有后缀仅白名单通过。
 fn url_ext_allowed(url: &str) -> bool {
-    crate::github::image_sniff::url_ext_allowed(url)
+    crate::icons::url_ext_allowed(url)
 }
 
 /// 响应 content-type 是否为图片。
@@ -61,12 +61,12 @@ pub fn should_cache_asset(url: &str) -> bool {
 
 /// 字节魔数嗅探薄委托（唯一实现见共享模块，含 bmp）。
 fn sniff_asset_mime(bytes: &[u8]) -> Option<&'static str> {
-    crate::github::image_sniff::sniff_image_mime(bytes)
+    crate::icons::sniff_image_mime(bytes)
 }
 
 /// 落盘扩展名薄委托：魔数优先，缺失时从 content-type 推断。
 fn resolve_asset_ext(fresh: &DownloadedAsset) -> &'static str {
-    crate::github::image_sniff::resolve_ext(&fresh.bytes, &fresh.content_type)
+    crate::icons::resolve_ext(&fresh.bytes, &fresh.content_type)
 }
 
 /// 缓存键：规范地址的 sha256 前 16 位。
@@ -506,7 +506,7 @@ mod tests {
         assert!(should_cache_asset(
             "https://raw.githubusercontent.com/o/r/main/a.avif"
         ));
-        // bmp 纳入白名单（见 image_sniff）。
+        // bmp 纳入白名单（见 crate::icons::image_sniff）。
         assert!(should_cache_asset("https://example.com/a.bmp"));
         assert!(should_cache_asset("https://example.com/a.apng"));
         assert!(!should_cache_asset("https://example.com/a.mp4"));
@@ -522,7 +522,7 @@ mod tests {
         assert!(is_valid_image(b"\x89PNG\r\n\x1a\nxxxxxxxx"));
         assert!(is_valid_image(b"\xff\xd8\xff\x00\x11"));
         assert!(is_valid_image(b"<svg></svg>"));
-        // bmp 纳入支持（见 image_sniff::bmp_supported_everywhere）。
+        // bmp 纳入支持（见 crate::icons::image_sniff）。
         assert!(is_valid_image(b"BM12345678"));
         assert!(!is_valid_image(b"<!DOCTYPE html><html>404</html>"));
         assert!(!is_valid_image(b""));

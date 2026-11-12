@@ -20,7 +20,6 @@ import type {
   WatchUpdatedPayload,
 } from '../../types';
 import { DEFAULT_SETTINGS } from '../../services/api';
-import { MANUAL_ONLY_NETWORK } from '../../lib/manualOnly';
 
 // 订阅事件发射器：on 注册 / emit 触发 / size 观测解绑 / clear 跨测试复位。
 const subs = vi.hoisted(() => {
@@ -260,18 +259,13 @@ describe('useAppSubscriptions：初始加载扇出', () => {
     expect(deps.applyPersistedSettings).toHaveBeenCalled();
   });
 
-  it('资产区门禁 MANUAL_ONLY_NETWORK=true：startup 频率也不自动检查', async () => {
-    // 资产区网络仅经检查更新按钮手动触发（lib/manualOnly 单一来源）。
-    // 若 MANUAL_ONLY_NETWORK 为 false，则 startup 频率恢复自动检查。
+  it('资产区门禁：startup 频率也不自动检查', async () => {
+    // 资产区网络仅经检查更新按钮手动触发。
     mocks.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, update_frequency: 'startup' });
     mocks.checkForUpdates.mockResolvedValue([]);
     renderSubs();
     await flush();
-    if (MANUAL_ONLY_NETWORK) {
-      expect(mocks.checkForUpdates).not.toHaveBeenCalled();
-    } else {
-      expect(mocks.checkForUpdates).toHaveBeenCalledWith(false);
-    }
+    expect(mocks.checkForUpdates).not.toHaveBeenCalled();
   });
 });
 

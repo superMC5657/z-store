@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ScrollText, FolderOpen, RotateCcw, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { tauriApi } from '../services/api';
-import { notifyToast } from '../utils/notify';
+import { notifyToast } from '../useToasts';
 import { useTransientFeedback } from './useTransientFeedback';
 
 /**

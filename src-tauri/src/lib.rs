@@ -6,6 +6,7 @@ pub mod deeplink;
 pub mod error;
 pub mod forge;
 pub mod github;
+pub mod icons;
 pub mod installer;
 pub mod log_support;
 pub mod mirror;
@@ -68,6 +69,35 @@ impl AppState {
     /// `tauri::State<AppState>` 经 `Deref` 自动命中本方法，`&AppState` 直接调用。
     pub fn db(&self) -> Result<std::sync::MutexGuard<'_, Database>, String> {
         self.db.lock().map_err(|e| e.to_string())
+    }
+
+    /// 获取当前生效的 GitHub API 访问令牌（OAuth 登录令牌优先，其次主机令牌）。
+    pub(crate) fn active_github_token(&self) -> Option<String> {
+        if let Ok(t) = self.github_token.lock() {
+            if let Some(ref tok) = *t {
+                if !tok.trim().is_empty() {
+                    return Some(tok.trim().to_string());
+                }
+            }
+        }
+        if let Ok(db) = self.db() {
+            if let Ok(Some(t)) = db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN) {
+                let clean = t.trim().to_string();
+                if !clean.is_empty() {
+                    if let Ok(mut mem) = self.github_token.lock() {
+                        *mem = Some(clean.clone());
+                    }
+                    return Some(clean);
+                }
+            }
+            if let Ok(Some(t)) = db.get_host_token("github.com") {
+                let clean = t.trim().to_string();
+                if !clean.is_empty() {
+                    return Some(clean);
+                }
+            }
+        }
+        None
     }
 }
 

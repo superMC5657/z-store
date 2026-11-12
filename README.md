@@ -85,7 +85,7 @@
 ### 10. ⚙️ 设置中心 5 组架构
 - 设置中心规范分为 5 个业务分组：`外观与个性化`、`更新与规则`、`存储与安装`、`网络与数据`（GitHub 账号卡片位于该组，锚点 `#settings-account`）、`数据管理与备份`。
 - 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
-- **数据备份范围**：备份覆盖 13 个设置项（`components/DataBackupRow.tsx::buildBackupSettings` 的 12 个显式字段 + `showCustom` 自维护 overlay 开关；导入侧白名单 `userdata/import.rs::IMPORT_SETTINGS_ALLOWLIST` 同时支持 `show_custom` 与 `showCustom` 两种键名），`github_token` 凭据键刻意排除，永不经备份文件流转。
+- **数据备份范围**：备份覆盖 13 个设置项（`components/DataBackupRow.tsx::buildBackupSettings` 的 12 个显式字段 + `showCustom` 自维护 overlay 开关；导入侧白名单 `userdata/mod.rs::IMPORT_SETTINGS_ALLOWLIST` 同时支持 `show_custom` 与 `showCustom` 两种键名），`github_token` 凭据键刻意排除，永不经备份文件流转。
 - **更新频率选项**：设置页提供“启动时检测”与“仅手动检查”；更新中心属资产面（`MANUAL_ONLY_NETWORK`），启动时不自动触网，实际生效路径为手动检查。
 - **自定义清单源**：填写非官方同步源属于破坏性替换，需经过显式二次确认；留空即恢复官方默认流程。
 

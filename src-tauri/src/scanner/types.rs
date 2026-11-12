@@ -42,6 +42,12 @@ pub struct ImportAppRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct ScanOutcome {
+    pub scanned_count: usize,
+    pub unmanaged: Vec<AppMatchResult>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ScanConfig {
     pub target_executables: Vec<String>,
     pub install_dirs: Vec<String>,

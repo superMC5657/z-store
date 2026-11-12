@@ -1,15 +1,11 @@
 import type { Window } from '@tauri-apps/api/window';
-import { isTauri } from './api';
+import { isTauri, tauriInvokePlugin } from './api/client';
 
 /**
- * 窗口控制唯一出口（TitleBar 三键 + ResizeHandles 边缘拖拽共用）：
- * `@tauri-apps/api/window` 禁在视图/组件层直用（noDirectInvoke 卡点），一律经此封装。
- * 失败原样抛出，浏览器/演示模式的降级语义由调用方 try/catch 自持。
+ * 桌面原生窗口与进程控制唯一出口（TitleBar / ResizeHandles / ClientUpdateRow 共用）：
+ * `@tauri-apps/api/window` 与原生进程插件禁在视图/组件层直用（`noDirectInvoke` 卡点）。
  */
 
-/** 单一数据源派生自上游 `startResizeDragging` 函数签名
- * （`@tauri-apps/api/window@2.11.1` 未导出 `ResizeDirection`，
- * 直接 `import type { ResizeDirection }` 会导致 tsc 编译失败 —— 通过参数类型自动推导）。 */
 export type WindowResizeDirection = Parameters<Window['startResizeDragging']>[0];
 
 async function currentWindow(): Promise<Window> {
@@ -33,10 +29,7 @@ export function closeWindow(): Promise<void> {
   return currentWindow().then((w) => w.close());
 }
 
-/**
- * 边缘拖拽调窗（ResizeHandles 专用语义）：非 Tauri 一律 no-op；
- * 最大化状态下忽略拖拽（还原后才能 resize），失败吞错保证永不回退。
- */
+/** 边缘拖拽调窗：非 Tauri 或最大化状态一律 no-op，失败吞错确保演示模式稳定。 */
 export async function startWindowResizeDragging(direction: WindowResizeDirection): Promise<void> {
   if (!isTauri) return;
   try {
@@ -44,6 +37,11 @@ export async function startWindowResizeDragging(direction: WindowResizeDirection
     if (await w.isMaximized()) return;
     await w.startResizeDragging(direction);
   } catch {
-    // 非 Tauri 演示模式 / WebView2 降级：空操作，确保永不回退。
+    // 非 Tauri 演示模式 / WebView2 降级：空操作。
   }
+}
+
+/** 客户端自更新完成后的进程重启（官方 `plugin:process|restart`，未启用时由调用方提示手动重启）。 */
+export async function restartApp(): Promise<void> {
+  await tauriInvokePlugin('plugin:process|restart');
 }

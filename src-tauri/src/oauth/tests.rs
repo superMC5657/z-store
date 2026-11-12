@@ -86,3 +86,51 @@ fn test_oauth_user_requires_all_fields() {
     assert!(user.has_list_scope);
     assert!(user.is_expired);
 }
+
+#[test]
+fn test_should_refetch_oauth_user_predicate() {
+    fn user(has_list_scope: bool, is_expired: bool) -> OAuthUser {
+        OAuthUser {
+            login: "u".to_string(),
+            avatar_url: "https://github.com/u.png".to_string(),
+            has_list_scope,
+            is_expired,
+        }
+    }
+    // 快照缺失 → 有令牌时补拉
+    assert!(should_refetch_oauth_user(None));
+    // 未标记 scope 的快照 → 补拉
+    assert!(should_refetch_oauth_user(Some(&user(false, false))));
+    // 过期快照原样返回 → 不补拉
+    assert!(!should_refetch_oauth_user(Some(&user(true, true))));
+    assert!(!should_refetch_oauth_user(Some(&user(false, true))));
+    // 已标记 scope 的有效快照 → 不补拉
+    assert!(!should_refetch_oauth_user(Some(&user(true, false))));
+}
+
+#[test]
+fn test_split_github_repo_id_and_session_roundtrip() {
+    assert_eq!(
+        split_github_repo_id("https://github.com/RustDesk/RustDesk").unwrap(),
+        ("rustdesk".to_string(), "rustdesk".to_string())
+    );
+    assert!(split_github_repo_id("codeberg:owner/repo").is_err());
+
+    let db = crate::db::Database::open_in_memory().expect("in-memory db");
+    let user = OAuthUser {
+        login: "alice".to_string(),
+        avatar_url: "https://github.com/alice.png".to_string(),
+        has_list_scope: true,
+        is_expired: false,
+    };
+    save_oauth_session(&db, "gho_test_token", Some(&user));
+    let (loaded, has_token) = load_oauth_user_snapshot(&db);
+    assert_eq!(loaded, Some(user));
+    assert!(has_token);
+
+    let fallback = clear_oauth_session(&db).expect("clear session");
+    assert!(fallback.is_none());
+    let (loaded_after, has_token_after) = load_oauth_user_snapshot(&db);
+    assert!(loaded_after.is_none());
+    assert!(!has_token_after);
+}

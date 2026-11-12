@@ -21,7 +21,7 @@ import {
   snapshotTrendEnrichCache,
 } from './enrich';
 import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
-import { fetchTrendsResult } from './boards';
+import { fetchTrendsResult } from '../trends';
 import type { TrendRepo } from '../../types';
 import { tauriApi } from '../api';
 

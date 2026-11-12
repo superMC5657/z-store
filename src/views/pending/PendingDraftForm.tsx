@@ -18,12 +18,11 @@ import {
 } from 'lucide-react';
 import {
   PENDING_OFFICIAL_CATEGORIES,
+  errorText,
   type CustomDraftEntry,
   type PendingDraftErrors,
   type PendingDraftItem,
 } from './draftModel';
-import { errorStyle, hintStyle, labelStyle } from './pendingStyles';
-import { errorText } from './pendingText';
 
 interface PendingDraftFormProps {
   form: PendingDraftItem;
@@ -168,17 +167,17 @@ function FormHeader({ isCreating, editing, formErrors }: FormHeaderProps) {
       {!isCreating && (formErrors.owner || formErrors.repo || formErrors.id) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
           {formErrors.owner && (
-            <em data-testid="pending-error-owner" style={errorStyle}>
+            <em data-testid="pending-error-owner" className="pending-field-error">
               {errorText(t, formErrors.owner)}
             </em>
           )}
           {formErrors.repo && (
-            <em data-testid="pending-error-repo" style={errorStyle}>
+            <em data-testid="pending-error-repo" className="pending-field-error">
               {errorText(t, formErrors.repo)}
             </em>
           )}
           {formErrors.id && (
-            <em data-testid="pending-error-id" style={errorStyle}>
+            <em data-testid="pending-error-id" className="pending-field-error">
               {errorText(t, formErrors.id)}
             </em>
           )}
@@ -202,7 +201,7 @@ function CoordsSection({
         </div>
       </div>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.owner')}</span>
         <input
           className="input-fluent input-mono"
@@ -217,13 +216,13 @@ function CoordsSection({
           aria-invalid={Boolean(formErrors.owner) || undefined}
         />
         {formErrors.owner && (
-          <em data-testid="pending-error-owner" style={errorStyle}>
+          <em data-testid="pending-error-owner" className="pending-field-error">
             {errorText(t, formErrors.owner)}
           </em>
         )}
       </label>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.repo')}</span>
         <input
           className="input-fluent input-mono"
@@ -238,12 +237,12 @@ function CoordsSection({
           aria-invalid={Boolean(formErrors.repo) || undefined}
         />
         {formErrors.repo && (
-          <em data-testid="pending-error-repo" style={errorStyle}>
+          <em data-testid="pending-error-repo" className="pending-field-error">
             {errorText(t, formErrors.repo)}
           </em>
         )}
         {formErrors.id && (
-          <em data-testid="pending-error-id" style={errorStyle}>
+          <em data-testid="pending-error-id" className="pending-field-error">
             {errorText(t, formErrors.id)}
           </em>
         )}
@@ -267,7 +266,7 @@ function CoreSection({
         </div>
       </div>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.name')}</span>
         <input
           className="input-fluent"
@@ -278,13 +277,13 @@ function CoreSection({
           aria-invalid={Boolean(formErrors.name) || undefined}
         />
         {formErrors.name && (
-          <em data-testid="pending-error-name" style={errorStyle}>
+          <em data-testid="pending-error-name" className="pending-field-error">
             {errorText(t, formErrors.name)}
           </em>
         )}
       </label>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.description')}</span>
         <textarea
           className="input-fluent"
@@ -296,13 +295,13 @@ function CoreSection({
           aria-invalid={Boolean(formErrors.description) || undefined}
         />
         {formErrors.description && (
-          <em data-testid="pending-error-description" style={errorStyle}>
+          <em data-testid="pending-error-description" className="pending-field-error">
             {errorText(t, formErrors.description)}
           </em>
         )}
       </label>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.category')}</span>
         <select
           className="select-fluent"
@@ -326,13 +325,13 @@ function CoreSection({
           ))}
         </select>
         {formErrors.category && (
-          <em data-testid="pending-error-category" style={errorStyle}>
+          <em data-testid="pending-error-category" className="pending-field-error">
             {errorText(t, formErrors.category)}
           </em>
         )}
       </label>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.license')}</span>
         <input
           className="input-fluent input-mono"
@@ -347,13 +346,13 @@ function CoreSection({
           aria-invalid={Boolean(formErrors.license) || undefined}
         />
         {formErrors.license && (
-          <em data-testid="pending-error-license" style={errorStyle}>
+          <em data-testid="pending-error-license" className="pending-field-error">
             {errorText(t, formErrors.license)}
           </em>
         )}
       </label>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.homepage')}</span>
         <input
           className="input-fluent"
@@ -368,13 +367,13 @@ function CoreSection({
           aria-invalid={Boolean(formErrors.homepage) || undefined}
         />
         {formErrors.homepage && (
-          <em data-testid="pending-error-homepage" style={errorStyle}>
+          <em data-testid="pending-error-homepage" className="pending-field-error">
             {errorText(t, formErrors.homepage)}
           </em>
         )}
       </label>
 
-      <label style={labelStyle}>
+      <label className="pending-field-label">
         <span>{t('pending.fields.default_version')}</span>
         <input
           className="input-fluent input-mono"
@@ -424,7 +423,7 @@ function SupplementalSection({
         )}
       </div>
 
-      <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
+      <label className={openSections.supplemental ? 'pending-field-label' : 'pending-field-label is-hidden'}>
         <span>{t('pending.fields.category_name')}</span>
         <input
           className="input-fluent"
@@ -435,7 +434,7 @@ function SupplementalSection({
         />
       </label>
 
-      <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
+      <label className={openSections.supplemental ? 'pending-field-label' : 'pending-field-label is-hidden'}>
         <span>{t('pending.fields.description_en')}</span>
         <textarea
           className="input-fluent"
@@ -447,7 +446,7 @@ function SupplementalSection({
         />
       </label>
 
-      <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
+      <label className={openSections.supplemental ? 'pending-field-label' : 'pending-field-label is-hidden'}>
         <span>{t('pending.fields.icon')}</span>
         <input
           className="input-fluent"
@@ -462,7 +461,7 @@ function SupplementalSection({
         />
       </label>
 
-      <label style={{ ...labelStyle, display: openSections.supplemental ? 'flex' : 'none' }}>
+      <label className={openSections.supplemental ? 'pending-field-label' : 'pending-field-label is-hidden'}>
         <span>{t('pending.fields.aliases')}</span>
         <input
           className="input-fluent"
@@ -508,7 +507,7 @@ function RuntimeSection({
         )}
       </div>
 
-      <label style={{ ...labelStyle, display: openSections.runtime ? 'flex' : 'none' }}>
+      <label className={openSections.runtime ? 'pending-field-label' : 'pending-field-label is-hidden'}>
         <span>{t('pending.fields.platforms')}</span>
         <input
           className="input-fluent input-mono"
@@ -523,7 +522,7 @@ function RuntimeSection({
         />
       </label>
 
-      <label style={{ ...labelStyle, display: openSections.runtime ? 'flex' : 'none' }}>
+      <label className={openSections.runtime ? 'pending-field-label' : 'pending-field-label is-hidden'}>
         <span>{t('pending.fields.identifiers')}</span>
         <textarea
           className="input-fluent input-mono"
@@ -536,7 +535,7 @@ function RuntimeSection({
           autoCapitalize="none"
           spellCheck={false}
         />
-        <span style={hintStyle}>{t('pending.identifiers_hint')}</span>
+        <span className="pending-field-hint">{t('pending.identifiers_hint')}</span>
       </label>
     </>
   );

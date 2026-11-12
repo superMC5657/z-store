@@ -8,12 +8,11 @@ import { SegmentedControl } from '../components/SegmentedControl';
 import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
 import { tauriApi } from '../services/api';
 import { ViewAppActions, ViewShell } from './ViewShell';
-import { matchesAppText } from './useViewFilter';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
+import { isInstalled as selectIsInstalled, matchesAppText, selectManagedState } from '../app/selectors';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -54,7 +53,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const watchedSet = watchedIds || new Set<string>();
   // loading 徽标口径统一经选择器接口。
 
-  // 收藏 / 关注搜索过滤（按名称 / 别名 / 仓库坐标匹配，见 useViewFilter.matchesAppText）
+  // 收藏 / 关注搜索过滤（按名称 / 别名 / 仓库坐标匹配，见 app/selectors.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
   // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录行（缓存命中为富卡行、

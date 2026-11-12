@@ -3,8 +3,8 @@ import {
   getNativeWindowOpen,
   isBlockedShortcut,
   initBrowserLockdown,
+  resolveFallbackOpener,
 } from './browserLockdown';
-import { resolveFallbackOpener } from './fallbackOpener';
 import { tauriApi } from '../services/api';
 
 vi.mock('../services/api', () => ({
@@ -94,7 +94,7 @@ describe('browserLockdown', () => {
     });
 
     it('attaches listeners and enforces lockdown handlers', () => {
-      initBrowserLockdown();
+      initBrowserLockdown((url) => tauriApi.openUrl(url));
 
       // 1. window.print 是空操作
       expect(typeof window.print).toBe('function');
@@ -120,7 +120,7 @@ describe('browserLockdown', () => {
     });
 
     it('handles side mouse buttons and wheel zooming correctly', () => {
-      initBrowserLockdown();
+      initBrowserLockdown((url) => tauriApi.openUrl(url));
 
       // 鼠标侧键 button 3 和 4 被拦截
       const auxEvt = new MouseEvent('auxclick', { button: 3, cancelable: true, bubbles: true });
@@ -148,7 +148,7 @@ describe('browserLockdown', () => {
     });
 
     it('concurrent window.open calls both reach tauriApi (no production lock)', async () => {
-      initBrowserLockdown();
+      initBrowserLockdown((url) => tauriApi.openUrl(url));
       const mocked = vi.mocked(tauriApi.openUrl);
       mocked.mockClear();
       mocked.mockResolvedValue(undefined);
@@ -167,7 +167,7 @@ describe('browserLockdown', () => {
     });
 
     it('fallback opener bypasses the hijack via the captured native open', () => {
-      initBrowserLockdown();
+      initBrowserLockdown((url) => tauriApi.openUrl(url));
       // 劫持版同步返回 null
       expect(window.open('https://example.com/hijacked')).toBeNull();
       const native = getNativeWindowOpen();

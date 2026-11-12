@@ -3,7 +3,6 @@ import * as catalogApi from './api/catalog';
 import * as installerApi from './api/installer';
 import * as settingsApi from './api/settings';
 import * as socialApi from './api/social';
-import * as zlogApi from './api/zlog';
 import { isTauri, tauriInvoke } from './api/client';
 
 export { isTauri, tauriInvoke };
@@ -264,6 +263,6 @@ export const tauriApi = {
   fetchStarredStatus: socialApi.fetchStarredStatus,
 
   // Diagnostics / Logs
-  getLogDir: zlogApi.getLogDir,
-  exportLogBundle: zlogApi.exportLogBundle,
+  getLogDir: settingsApi.getLogDir,
+  exportLogBundle: settingsApi.exportLogBundle,
 };

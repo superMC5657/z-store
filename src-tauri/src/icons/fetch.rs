@@ -12,22 +12,21 @@
 //!   世代防串由调用方 `emit` 回调（`catalog_search::save_and_emit`：合并时按新鲜度取全量/补槽 +
 //!   emit 前查 gen，`should_stop` 开探前协作取消）负责，core 只做探测与调度，不触 DB。
 //! - 单仓深核 `probe_single_live`（L2→L3）为流式与详情 cycle 共用的唯一探核：
-//!   `fetch_icons_stream` 逐 job 调它；`commands::icons_cycle_probe::ensure_cycle_levels` 的
+//!   `fetch_icons_stream` 逐 job 调它；`icons::ensure_cycle_levels` 的
 //!   L2/L3 与 `fetch_anon_probe_bytes` 的匿名兜底亦经它（或其子探测函数）。
 //!   L4=README 与 L1=官方填充分居详情/cycle 适配器，不进本核。
 //! - M2=DB落盘命中零网络，由调用方在进 core 前短锁预解析，不经本 core 探测。
 //!   L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
 //!   level纯L(2=L2品牌库,3=L3仓库)；缓存正交用via(live|m2)表M2，pool=5/total伸缩。
 //! - 缝：probe-vs-persist——core 永不触 DB/fs（无 `Database`/`std::fs` 引用，
-//!   纯探 + 调度）；持久化单一写入路径收为内部缝
-//!   `commands::icons_cycle_probe::write_icon_file`（`catalog vs cycle` 分流 +
-//!   `icons/` 落盘 + meta 同步），下载经 `download_icon_bytes_direct`，
-//!   L5 空选经 `seal_empty_selection + empty_cycle_result`。
+//!   纯探 + 调度）；持久化单一写入路径收为 `icons::write_icon_file`
+//!   （`catalog vs cycle` 分流 + `icons/` 落盘 + meta 同步），下载经
+//!   `download_icon_bytes`，L5 空选经 `seal_empty_selection + empty_cycle_result`。
 //!   趋势 enrich 走流式直路（首屏快返 + 后台 `fetch_icons_stream(Trend)` 逐张 emit，
 //!   见 `commands::catalog_search`）；本核为流式探测与调度的唯一深核
 //!   （搜索与趋势共用，见 ADR-0015 §6）。
 //! - D5/D6/D8：双池复用（icon client 隔离，CDN 恒丢 token）+ 有界池 5 +
-//!   首包验图与跳过（HEAD→Range 首 32KB→magic→300B，见 `icon_probe::verify_image`）。
+//!   首包验图与跳过（HEAD→Range 首 32KB→magic→300B，见 `probe::verify_image`）。
 //!   Curated Catalog 永不分支：仅 L1 填充为例外（见 cycle 适配器）。
 //! - ADR-0010：`id` 一律小写 `owner/repo`（与 DB 主键同源，唯一实现见 `icon_key`）；
 //!   ADR-0015：只发 `zstore://icon-ready{id,icon,level,via,context}`，level 纯L，via=live|m2。
@@ -40,7 +39,7 @@
 use futures_util::StreamExt;
 use tauri::{AppHandle, Emitter};
 
-// 慢路径 Trees 探测分支见 [`crate::github::icon_probe::resolve_probe_branches`]：
+// 慢路径 Trees 探测分支见 [`super::probe::resolve_probe_branches`]：
 // 取仓库 `default_branch`（解析失败即空，调用方跳过 L3）。
 // 新代码一律用该动态解析，勿硬编码分支。
 
@@ -104,7 +103,7 @@ pub struct IconReadyPayload {
 ///   `readme` 关键字及 GitHub README 图床 `user-images` / `camo` / `user-attachments`），
 ///   `3=仓库树`（带显式分支的 `raw.githubusercontent.com/{owner}/{repo}/{branch}/...`）；
 /// - `is_body_image_url`: 正文大图判别薄委托，唯一实现见
-///   [`crate::github::icon_probe::is_readme_body_image`]（ADR-0015 §3 单一探源，
+///   [`super::probe::is_readme_body_image`]（ADR-0015 §3 单一探源，
 ///   README-body 上下文 path-segment 精确匹配；`preview-logo.png` 等合法 Logo 不判为正文），
 ///   命中即视为正文图，调用方跳过落库（不存、不计、不预热）。
 pub(crate) fn level_for_detail_icon(icon_trimmed: &str) -> i32 {
@@ -126,7 +125,7 @@ pub(crate) fn level_for_detail_icon(icon_trimmed: &str) -> i32 {
 }
 
 pub(crate) fn is_body_image_url(url: &str) -> bool {
-    crate::github::icon_probe::is_readme_body_image(url)
+    super::probe::is_readme_body_image(url)
 }
 
 /// 事件 `id` 归一：小写 `owner/repo`（唯一实现见
@@ -158,7 +157,7 @@ pub fn emit_icon_ready(handle: &AppHandle, payload: &IconReadyPayload) {
     let _ = handle.emit("zstore://icon-ready", payload);
 }
 
-/// L2 单探深核（品牌库 SimpleIcons，免鉴权）：`icon_probe::probe_simple_icons`
+/// L2 单探深核（品牌库 SimpleIcons，免鉴权）：`icons::probe::probe_simple_icons`
 /// 的超时外层薄包（外层兜底 8000ms 经 `api_timeout_seconds`，内层每 slug 1500ms
 /// 经同配置）。命中返 URL，未命中返 `None`。cycle 适配器 L2 直调此件，不另写串行 naive 探。
 pub(crate) async fn probe_l2_simple(
@@ -168,7 +167,7 @@ pub(crate) async fn probe_l2_simple(
 ) -> Option<String> {
     tokio::time::timeout(
         crate::config::api_timeout_or(std::time::Duration::from_millis(8000)),
-        crate::github::icon_probe::probe_simple_icons(client, owner, repo),
+        super::probe::probe_simple_icons(client, owner, repo),
     )
     .await
     .ok()
@@ -190,10 +189,10 @@ pub(crate) async fn probe_l3_trees(
 ) -> Option<String> {
     let hdrs = slow_headers?;
     let branches =
-        crate::github::icon_probe::resolve_probe_branches(client, hdrs, owner, repo).await;
+        super::probe::resolve_probe_branches(client, hdrs, owner, repo).await;
     for branch in &branches {
         if let Some(h) =
-            crate::github::icon_probe::probe_trees(client, hdrs, owner, repo, branch).await
+            super::probe::probe_trees(client, hdrs, owner, repo, branch).await
         {
             if !h.url.trim().is_empty() {
                 return Some(h.url);
@@ -215,20 +214,20 @@ pub(crate) async fn probe_anon_simple(
 }
 
 /// 单仓 live 探测深核（L2→L3，快命中即返不等慢）：
-/// 流式 `fetch_icons_stream` 逐 job 调此件；cycle 适配器需一次性拿 (url, level)
-/// 时亦调此件。`slow_headers=None`（匿名/无 token）只探 L2。
-/// 返回 `(url, level)`（level 纯L 2/3，via 一律 live 由调用方填）；未命中 `None`。
-/// core 只探测不触 DB/fs。
+/// `icon_client` 专走免鉴权 SimpleIcons CDN，`api_client` 专走 GitHub Trees API；
+/// 流式 `fetch_icons_stream` 与 cycle 适配器共用此核，`slow_headers=None` 时仅探 L2。
+/// 返回 `(url, level)`（level 纯L 2/3）；未命中 `None`。core 只探测不触 DB/fs。
 pub(crate) async fn probe_single_live(
-    client: &reqwest::Client,
+    icon_client: &reqwest::Client,
+    api_client: &reqwest::Client,
     slow_headers: Option<&reqwest::header::HeaderMap>,
     owner: &str,
     repo: &str,
 ) -> Option<(String, i32)> {
-    if let Some(url) = probe_l2_simple(client, owner, repo).await {
+    if let Some(url) = probe_l2_simple(icon_client, owner, repo).await {
         return Some((url, 2));
     }
-    if let Some(url) = probe_l3_trees(client, slow_headers, owner, repo).await {
+    if let Some(url) = probe_l3_trees(api_client, slow_headers, owner, repo).await {
         return Some((url, 3));
     }
     None
@@ -281,23 +280,27 @@ pub async fn fetch_icons_stream<F, Fut>(
         cfg.total_timeout_secs,
     );
     // L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
-    let client = crate::forge::http::new_icon_client(
-        crate::config::get_project_config()
-            .network
-            .api_timeout_seconds,
-    )
-    .unwrap_or_default();
+    // D5 双池隔离：L2 SimpleIcons 走 icon_client（无鉴权），L3 Trees 走 api_client。
+    let timeout_secs = crate::config::get_project_config().network.api_timeout_seconds;
+    let icon_client = crate::forge::http::new_icon_client(timeout_secs).unwrap_or_default();
+    let api_client = crate::forge::http::new_api_client(timeout_secs).unwrap_or_default();
     // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径。
     let slow_headers = token
         .as_deref()
         .filter(|t| !t.trim().is_empty())
-        .map(|t| crate::github::http::token_headers(Some(t)));
+        .map(|t| {
+            crate::forge::http::preset_headers(
+                crate::forge::http::ApiPreset::GithubApi,
+                Some(t),
+                crate::forge::http::AuthScheme::Token,
+            )
+        });
     // 有界并发：单层 buffer_unordered(pool)（默认 5，与趋势 buffered(5) 对齐），
     // 快慢各一次 emit（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
     let pool = cfg.pool.max(1);
     // 整批总量按 jobs 伸缩（纯决策收敛在缝内，pool 保持 5）：
     let jobs_len = jobs.len();
-    // 截断观测：记 lane/scope/量级（只加日志，不改截断语义）。
+    // 记录批处理的 lane/scope 与数量级。
     let scope_desc = jobs.first().map(|j| match &j.ctx {
         IconFetchCtx::Search { search_id, gen } => format!("search sid={search_id} gen={gen}"),
         IconFetchCtx::Trend { board, gen } => format!("trend board={board} gen={gen}"),
@@ -305,7 +308,8 @@ pub async fn fetch_icons_stream<F, Fut>(
     let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
     let batch = futures_util::stream::iter(jobs.into_iter().map(|job| {
         let handle = handle.clone();
-        let client = client.clone();
+        let icon_client = icon_client.clone();
+        let api_client = api_client.clone();
         let slow_headers = slow_headers.clone();
         let emit = emit.clone();
         let should_stop = should_stop.clone();
@@ -317,8 +321,14 @@ pub async fn fetch_icons_stream<F, Fut>(
             }
             // 快慢分离深核单调：经 `probe_single_live`（L2→L3，快命中即返不等慢，
             // 慢仅快未命中且有 token 时跑）。超时/分支语义见该函数。
-            if let Some((url, level)) =
-                probe_single_live(&client, slow_headers.as_ref(), &job.owner, &job.repo).await
+            if let Some((url, level)) = probe_single_live(
+                &icon_client,
+                &api_client,
+                slow_headers.as_ref(),
+                &job.owner,
+                &job.repo,
+            )
+            .await
             {
                 emit(handle, job, url, level, "live".to_string()).await;
             }
@@ -403,7 +413,7 @@ mod tests {
 
     #[test]
     fn body_image_url_delegates_to_single_probe_source() {
-        // ADR-0015 §3 单一探源：`is_body_image_url` 为 `icon_probe::is_readme_body_image` 薄委托，
+        // ADR-0015 §3 单一探源：`is_body_image_url` 为 `icons::probe::is_readme_body_image` 薄委托，
         // path-segment 精确匹配；含关键词的合法 Logo 不得判为正文（detail.icon 不丢 logo）。
         let body = [
             "https://raw.githubusercontent.com/o/r/main/docs/screenshot.png",
@@ -415,7 +425,7 @@ mod tests {
         for u in body {
             assert!(is_body_image_url(u), "expected body: {u}");
             assert!(
-                crate::github::icon_probe::is_readme_body_image(u),
+                crate::icons::probe::is_readme_body_image(u),
                 "single source must agree: {u}"
             );
         }
@@ -430,7 +440,7 @@ mod tests {
         for u in logos {
             assert!(!is_body_image_url(u), "expected legit logo kept: {u}");
             assert!(
-                !crate::github::icon_probe::is_readme_body_image(u),
+                !crate::icons::probe::is_readme_body_image(u),
                 "single source must agree: {u}"
             );
         }

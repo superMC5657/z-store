@@ -8,13 +8,12 @@ import { Archive, Link2, PackageCheck, Send, Trash2, Undo2 } from 'lucide-react'
 import { AppCard } from '../../components/AppCard';
 import type { AppSummary } from '../../types';
 import {
+  errorText,
   isPendingCollectedStatus,
   isSubmittedEntry,
   type CustomDraftEntry,
   type PendingDraftErrors,
 } from './draftModel';
-import { errorStyle } from './pendingStyles';
-import { errorText } from './pendingText';
 
 const NOOP = () => {};
 
@@ -120,7 +119,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
           {(Object.entries(inlineErrors) as Array<[string, string | undefined]>).map(([key, code]) =>
             code ? (
-              <em key={key} data-testid={`pending-error-${key}`} style={errorStyle}>
+              <em key={key} data-testid={`pending-error-${key}`} className="pending-field-error">
                 {errorText(t, code)}
               </em>
             ) : null,

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { GitHubIcon } from './icons/PlatformIcons';
 import { OAuthUser } from '../types';
 import { tauriApi } from '../services/api';
-import { notifyToast } from '../utils/notify';
+import { notifyToast } from '../useToasts';
 
 interface DeviceSession {
   deviceCode: string;

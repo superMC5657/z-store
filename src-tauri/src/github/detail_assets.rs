@@ -1,4 +1,4 @@
-use crate::installer::InstallerEngine;
+use crate::installer::classify_asset;
 use crate::models::ReleaseAsset;
 
 /// 1MB 门禁阈值（对齐 catalog 仓 checkBinary）
@@ -115,7 +115,7 @@ pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
     if is_source_package(&lower) {
         return false;
     }
-    let (kind, _, _) = InstallerEngine::classify_asset(name);
+    let (kind, _, _) = classify_asset(name);
     match kind {
         crate::installer::AssetKind::Msi
         | crate::installer::AssetKind::SetupExe
@@ -143,7 +143,7 @@ pub fn platforms_from_assets(assets: &[ReleaseAsset]) -> Vec<String> {
         if !is_valid_installer_asset(&a.name, a.size_bytes) {
             continue;
         }
-        let (_, os, _) = InstallerEngine::classify_asset(&a.name);
+        let (_, os, _) = classify_asset(&a.name);
         if os != "all" {
             set.insert(os.to_string());
         } else if a.name.to_lowercase().ends_with(".msix") {

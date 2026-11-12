@@ -54,7 +54,7 @@ pub(crate) async fn download_asset_with_fallback(
         is_mirror
     );
 
-    let download_res = super::InstallerEngine::download_with_progress(
+    let download_res = crate::installer::download_with_progress(
         app_handle,
         app_id,
         &rewritten_url,
@@ -85,7 +85,7 @@ pub(crate) async fn download_asset_with_fallback(
                     "downloading",
                     Some("直连通道不稳定，正在切换公共加速镜像自动重试...".to_string()),
                 );
-                super::InstallerEngine::download_with_progress(
+                crate::installer::download_with_progress(
                     app_handle,
                     app_id,
                     &fallback_url,
@@ -119,7 +119,8 @@ pub(crate) async fn select_download_asset(
     asset_name: Option<&str>,
     missing_asset_err: &str,
 ) -> Result<(crate::models::AppDetail, ReleaseAsset), String> {
-    let detail = super::catalog::get_app_details(state.clone(), app_id.to_string(), None).await?;
+    let detail =
+        super::catalog_detail::get_app_details(state.clone(), app_id.to_string(), None).await?;
 
     let selected_asset = if let Some(target_name) = asset_name {
         detail

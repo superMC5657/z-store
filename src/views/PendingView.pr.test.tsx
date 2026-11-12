@@ -7,8 +7,9 @@ import {
 } from './pending/draftModel';
 import { PendingView } from './PendingView';
 import { PREFILL_URL_LENGTH_LIMIT } from './pending/submitPrefillFlow';
-import { buildCustomDraftItemFromSummary } from '../services/api/catalog';
+import { buildCustomDraftItemFromSummary } from '../services/custom';
 import { tauriApi } from '../services/api';
+import * as clientModule from '../services/api/client';
 import type { AppSummary } from '../types';
 import type { LicenseAllowlistResult } from '../services/api/catalog';
 
@@ -622,7 +623,8 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
 
   it('single open failure copies the prefill URL and toasts the copied hint', async () => {
     await i18n.changeLanguage('zh-CN');
-    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockRejectedValue(new Error('shell open denied'));
+    const openSpy = vi.spyOn(tauriApi, 'openUrl');
+    vi.spyOn(clientModule, 'tauriInvoke').mockRejectedValue(new Error('shell open denied'));
     // 真失败：原生兜底同样被拦截返回 null，保留失败感知
     const windowOpenSpy = vi.spyOn(window, 'open').mockReturnValue(null);
     const writeSpy = stubClipboard();
@@ -660,7 +662,8 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
 
   it('single fallback opens via native window.open when direct openUrl fails', async () => {
     await i18n.changeLanguage('zh-CN');
-    const openSpy = vi.spyOn(tauriApi, 'openUrl').mockRejectedValue(new Error('Not in Tauri environment'));
+    const openSpy = vi.spyOn(tauriApi, 'openUrl');
+    vi.spyOn(clientModule, 'tauriInvoke').mockRejectedValue(new Error('Not in Tauri environment'));
     const windowOpenSpy = vi
       .spyOn(window, 'open')
       .mockReturnValue({} as unknown as Window);

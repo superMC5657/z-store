@@ -2,9 +2,9 @@ import React, { useRef, useState } from 'react';
 import { Search, Download, RotateCcw, CheckCircle2, Sparkles, AlertTriangle } from 'lucide-react';
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater';
 import { useTranslation } from 'react-i18next';
-import { notifyToast } from '../utils/notify';
+import { notifyToast } from '../useToasts';
 import { isTauri } from '../services/api';
-import { restartApp } from '../services/appProcess';
+import { restartApp } from '../services/desktop';
 import { resolveUpdateFeed, ZSTORE_REPO } from '../utils/updateManifest';
 
 type UpdatePhase =

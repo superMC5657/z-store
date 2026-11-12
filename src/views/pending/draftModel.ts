@@ -2,19 +2,24 @@
  * 待收录草稿领域模型（纯函数与类型，无 React）：
  * 校验/归一/分组判定的单一实现，供 PendingView 与 pending/ 子组件共用。
  */
+import type { TFunction } from 'i18next';
 import type { AppSummary } from '../../types';
-import type { DraftEntry, DraftItem, DraftStatus } from '../../services/custom/types';
-import { itemToSummary } from '../../services/custom/mappers';
+import {
+  itemToSummary,
+  type DraftEntry,
+  type DraftItem,
+  type DraftStatus,
+} from '../../services/custom';
 import { isCollectedStatus, isLocalLibraryStatus } from '../../app/selectors';
 import type { LicenseAllowlistResult } from '../../services/api/catalog';
 
-/** 草稿领域形状（唯一定义见 `services/custom/types.ts`）。 */
+/** 草稿领域形状（唯一定义见 `services/custom.ts`）。 */
 export type PendingDraftItem = DraftItem;
 
 /** 草稿状态（`local_collected` 与 `collected` 同义）。 */
 type PendingDraftStatus = DraftStatus;
 
-/** 视图条目 = 草稿领域形状（唯一定义见 `services/custom/types.ts`）。 */
+/** 视图条目 = 草稿领域形状（唯一定义见 `services/custom.ts`）。 */
 export type CustomDraftEntry = DraftEntry;
 
 export type PendingGroupId = 'draft' | 'library' | 'archived';
@@ -30,8 +35,8 @@ export const isPendingCollectedStatus = isCollectedStatus;
 
 /**
  * 待收录草稿转富卡展示态（collected/submitted/archived 右侧富卡化复用 AppCard）：
- * 黄标只属于收录及其后链路（由 mappers 投影决定，草稿无 source）；
- * 投影唯一口径在 `services/custom/mappers`。
+ * 黄标只属于收录及其后链路（由映射投影决定，草稿无 source）；
+ * 投影唯一口径在 `services/custom`。
  */
 export function pendingDraftToAppSummary(
   item: PendingDraftItem,
@@ -259,4 +264,9 @@ export function entrySegment(e: CustomDraftEntry): PendingSegmentId | null {
 /** submitted（已提交）判定：已归档行恒视为只读归档，不视为待合入 submitted。 */
 export function isSubmittedEntry(e: CustomDraftEntry): boolean {
   return !e.archived && e.status === 'submitted';
+}
+
+/** 校验错误码 → 当前语言文案（缺键回退错误码本身）。 */
+export function errorText(t: TFunction, code: string): string {
+  return t(`pending.errors.${code}`, code);
 }

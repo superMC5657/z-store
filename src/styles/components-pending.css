@@ -902,3 +902,34 @@
   color: var(--text-primary);
   text-decoration: underline;
 }
+
+/* 草稿表单字段标签 / 提示 / 校验错误 */
+.pending-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: var(--font-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.pending-field-label.is-hidden {
+  display: none;
+}
+
+.pending-field-hint {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pending-field-error {
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  font-style: normal;
+  border-left: 2px solid var(--text-primary);
+  padding-left: 6px;
+}

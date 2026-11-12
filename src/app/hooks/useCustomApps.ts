@@ -9,8 +9,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
-import { entryFromWire, entryToCollectedSummary, itemToWire } from '../../services/custom/mappers';
-import type { DraftEntry, DraftItem } from '../../services/custom/types';
+import {
+  entryFromWire,
+  entryToCollectedSummary,
+  itemToWire,
+  type DraftEntry,
+  type DraftItem,
+} from '../../services/custom';
 import { isLocalLibraryStatus } from '../selectors';
 
 export function useCustomApps() {

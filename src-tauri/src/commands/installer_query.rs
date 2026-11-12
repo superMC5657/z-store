@@ -1,9 +1,10 @@
 use super::resolve_uninstaller_command;
 use crate::models::InstalledApp;
-use crate::AppState;
+use crate::{AppResult, AppState};
 use tauri::State;
 
-pub fn get_installed_apps(state: State<'_, AppState>) -> Result<Vec<InstalledApp>, String> {
+#[tauri::command]
+pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<InstalledApp>> {
     let db = state.db()?;
     let mut apps = db.get_installed_apps().map_err(|e| e.to_string())?;
 
@@ -115,7 +116,8 @@ fn spawn_and_backfill(
     Ok(true)
 }
 
-pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, String> {
+#[tauri::command(rename_all = "camelCase")]
+pub fn launch_app(state: State<'_, AppState>, app_id: String) -> AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
     let installed_app_opt = {
         let db = state.db()?;
@@ -142,7 +144,7 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             .unwrap_or_default();
             (c.name, p, Some(c.repo))
         } else {
-            return Err(format!("未找到已安装或管理的应用: {}", app_id));
+            return Err(format!("未找到已安装或管理的应用: {}", app_id).into());
         }
     };
 
@@ -370,12 +372,12 @@ pub fn launch_app(state: State<'_, AppState>, app_id: String) -> Result<bool, St
             return Err(format!(
                 "未能定位到该软件的可执行程序。\n记录路径: 无 {}\n应用: {} ({})\n建议检查软件是否已被重命名或移动位置，或重新扫描添加。",
                 hint_text, app_name, app_id
-            ));
+            ).into());
         }
     }
 
     Err(format!(
         "未能定位到该软件的可执行程序。\n记录路径: {}\n建议检查软件是否已被重命名或移动位置，或重新扫描添加。",
         if target_path.is_empty() { "无" } else { &target_path }
-    ))
+    ).into())
 }

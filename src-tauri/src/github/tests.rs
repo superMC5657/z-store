@@ -274,3 +274,24 @@ fn test_catalog_identifiers_and_fallback() {
         );
     }
 }
+
+#[test]
+fn test_release_endpoint_key_matches_updates_ep_format() {
+    let key = CatalogService::starred_release_endpoint("SomeOne/R1");
+    assert_eq!(
+        key,
+        "https://api.github.com/repos/someone/r1/releases/latest"
+    );
+}
+
+#[test]
+fn test_parse_release_tag_from_cached_payload() {
+    let payload =
+        serde_json::json!({"tag_name": "v3.1.4", "body": "", "assets": []}).to_string();
+    assert_eq!(
+        CatalogService::parse_release_tag(&payload).as_deref(),
+        Some("v3.1.4")
+    );
+    assert!(CatalogService::parse_release_tag("{}").is_none());
+    assert!(CatalogService::parse_release_tag("not-json").is_none());
+}

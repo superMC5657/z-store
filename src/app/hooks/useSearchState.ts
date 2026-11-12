@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
-import type { AppSummary, ViewType } from '../../types';
+import type { AppSummary, Navigate, ViewType } from '../../types';
 import { tauriApi, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
 import { getBufferedIcon, isEmptyIcon, preferNonEmptyIcon, queueAssembledRowIcons } from '../../services/iconStore';
 import {
@@ -9,11 +9,10 @@ import {
   writeSearchListCache,
 } from '../../services/search/searchListCache';
 import { zlogWarn } from '../../lib/z-log';
-import type { Navigate } from '../navigation';
 
 interface UseSearchStateParams {
   currentView: ViewType;
-  /** 集中导航入口（App.createNavigate 产物；合法性校验收口于 navigation）。 */
+  /** 集中导航入口（App.createNavigate 产物；合法性校验收口于 types）。 */
   navigate: Navigate;
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   lazyBackfillPlatforms: (summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void;

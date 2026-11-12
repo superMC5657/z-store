@@ -11,6 +11,20 @@ import { StorageSection } from './SettingsView/sections/StorageSection';
 import { CatalogSyncFeedback, NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
 import { DataManagementSection } from './SettingsView/sections/DataManagementSection';
 
+interface SettingsSectionProps {
+  title: string;
+  children: React.ReactNode;
+}
+
+const SettingsSection: React.FC<SettingsSectionProps> = ({ title, children }) => (
+  <div className="settings-section">
+    <div className="settings-section-eyebrow">
+      <span>{title}</span>
+    </div>
+    <div className="settings-group">{children}</div>
+  </div>
+);
+
 interface SettingsViewProps {
   onSelectMirror: (id: string) => Promise<void>;
   theme: 'light' | 'dark' | 'system';
@@ -323,77 +337,87 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {showAppearance && (
-        <AppearanceSection
-          currentTheme={currentTheme}
-          language={settings.language}
-          uiScale={settings.ui_scale}
-          fontSize={settings.font_size}
-          highlightRow={highlightRow}
-          activeNotice={activeNotice}
-          onSelectTheme={handleSelectTheme}
-          onSelectLanguage={handleSelectLanguage}
-          onSelectUiScale={handleSelectUiScale}
-          onSelectFontSize={handleSelectFontSize}
-        />
+        <SettingsSection title={t('settings.appearance')}>
+          <AppearanceSection
+            currentTheme={currentTheme}
+            language={settings.language}
+            uiScale={settings.ui_scale}
+            fontSize={settings.font_size}
+            highlightRow={highlightRow}
+            activeNotice={activeNotice}
+            onSelectTheme={handleSelectTheme}
+            onSelectLanguage={handleSelectLanguage}
+            onSelectUiScale={handleSelectUiScale}
+            onSelectFontSize={handleSelectFontSize}
+          />
+        </SettingsSection>
       )}
 
       {showUpdates && (
-        <UpdatesRulesSection
-          updateFrequency={settings.update_frequency}
-          watchNotifyFrequency={settings.watch_notify_frequency}
-          updateRulesCount={updateRulesCount}
-          highlightRow={highlightRow}
-          activeNotice={activeNotice}
-          onSelectUpdateFrequency={handleSelectUpdateFrequency}
-          onSelectWatchFrequency={handleSelectWatchFrequency}
-          onOpenRules={onOpenRules}
-        />
+        <SettingsSection title={t('settings.updates_rules')}>
+          <UpdatesRulesSection
+            updateFrequency={settings.update_frequency}
+            watchNotifyFrequency={settings.watch_notify_frequency}
+            updateRulesCount={updateRulesCount}
+            highlightRow={highlightRow}
+            activeNotice={activeNotice}
+            onSelectUpdateFrequency={handleSelectUpdateFrequency}
+            onSelectWatchFrequency={handleSelectWatchFrequency}
+            onOpenRules={onOpenRules}
+          />
+        </SettingsSection>
       )}
 
       {showStorage && (
-        <StorageSection
-          downloadDir={settings.download_dir}
-          portableDir={settings.portable_dir}
-          highlightRow={highlightRow}
-          activeNotice={activeNotice}
-          onUpdateSetting={onUpdateSetting}
-          triggerChangeFeedback={triggerChangeFeedback}
-        />
+        <SettingsSection title={t('settings.storage_paths')}>
+          <StorageSection
+            downloadDir={settings.download_dir}
+            portableDir={settings.portable_dir}
+            highlightRow={highlightRow}
+            activeNotice={activeNotice}
+            onUpdateSetting={onUpdateSetting}
+            triggerChangeFeedback={triggerChangeFeedback}
+          />
+        </SettingsSection>
       )}
 
       {showNetwork && (
-        <NetworkDataSection
-          proxyInput={proxyInput}
-          setProxyInput={setProxyInput}
-          isTestingProxy={isTestingProxy}
-          proxyTestResult={proxyTestResult}
-          proxyFeedback={proxyFeedback}
-          highlightRow={highlightRow}
-          activeNotice={activeNotice}
-          handleTestProxy={handleTestProxy}
-          handleSaveProxy={handleSaveProxy}
-          catalogSourceUrl={catalogSourceUrl}
-          setCatalogSourceUrl={setCatalogSourceUrl}
-          setCatalogUrlSaved={setCatalogUrlSaved}
-          isSyncingCatalog={isSyncingCatalog}
-          syncFeedback={syncFeedback}
-          showAdvancedSource={showAdvancedSource}
-          setShowAdvancedSource={setShowAdvancedSource}
-          isCatalogSourceConfirming={isCatalogSourceConfirming}
-          setIsCatalogSourceConfirming={setIsCatalogSourceConfirming}
-          handleSyncCatalog={handleSyncCatalog}
-          handleSaveCatalogSource={handleSaveCatalogSource}
-          catalogUrlSaved={catalogUrlSaved}
-        />
+        <SettingsSection title={t('settings.network_data')}>
+          <NetworkDataSection
+            proxyInput={proxyInput}
+            setProxyInput={setProxyInput}
+            isTestingProxy={isTestingProxy}
+            proxyTestResult={proxyTestResult}
+            proxyFeedback={proxyFeedback}
+            highlightRow={highlightRow}
+            activeNotice={activeNotice}
+            handleTestProxy={handleTestProxy}
+            handleSaveProxy={handleSaveProxy}
+            catalogSourceUrl={catalogSourceUrl}
+            setCatalogSourceUrl={setCatalogSourceUrl}
+            setCatalogUrlSaved={setCatalogUrlSaved}
+            isSyncingCatalog={isSyncingCatalog}
+            syncFeedback={syncFeedback}
+            showAdvancedSource={showAdvancedSource}
+            setShowAdvancedSource={setShowAdvancedSource}
+            isCatalogSourceConfirming={isCatalogSourceConfirming}
+            setIsCatalogSourceConfirming={setIsCatalogSourceConfirming}
+            handleSyncCatalog={handleSyncCatalog}
+            handleSaveCatalogSource={handleSaveCatalogSource}
+            catalogUrlSaved={catalogUrlSaved}
+          />
+        </SettingsSection>
       )}
 
       {showData && (
-        <DataManagementSection
-          installedCount={installedCount}
-          highlightRow={highlightRow}
-          activeNotice={activeNotice}
-          handleExportJson={handleExportJson}
-        />
+        <SettingsSection title={t('settings.data_management')}>
+          <DataManagementSection
+            installedCount={installedCount}
+            highlightRow={highlightRow}
+            activeNotice={activeNotice}
+            handleExportJson={handleExportJson}
+          />
+        </SettingsSection>
       )}
 
       {!showAppearance && !showUpdates && !showStorage && !showNetwork && !showData && (

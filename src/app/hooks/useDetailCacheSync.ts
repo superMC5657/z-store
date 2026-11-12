@@ -4,9 +4,8 @@ import { tauriApi } from '../../services/api';
 import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
 import { annotateIsCataloged, buildCatalogIdSet } from '../selectors';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
-import { resolveRemoteIconUrl } from '../../services/custom/iconUrl';
+import { resolveRemoteIconUrl } from '../../services/custom';
 import { patchSearchListCacheRows } from '../../services/search/searchListCache';
-import { persistBoardCacheFromDetailIfPresent } from '../../services/trends/board';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -14,12 +13,13 @@ import {
   detailHealKeysFor,
   evictTrendEnrichCachesForDetail,
   isPlaceholderDescription,
+  persistBoardCacheFromDetailIfPresent,
   snapshotTrendEnrichCache,
   upsertTrendEnrichFromDetail,
   upsertTrendEnrichRichcard,
   type DetailPlatformsHealPayload,
   type DetailRichcardHealPayload,
-} from '../../services/trends/enrich';
+} from '../../services/trends';
 
 interface UseDetailCacheSyncParams {
   selectedApp: AppDetailViewModel | null;

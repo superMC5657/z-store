@@ -7,9 +7,12 @@
  */
 import { describe, expect, it, afterEach } from 'vitest';
 import {
+  PLATFORM_FILTER_STORAGE_KEY,
   PLATFORM_IDS,
+  loadSelectedPlatforms,
   matchPlatformSet,
   parseSelectedPlatformArray as parsePersistedSelection,
+  parseSelectedPlatforms,
 } from './lib/platformFilter';
 
 interface BaselineApp {
@@ -43,12 +46,6 @@ describe('baseline: full platform selection is equivalent to unfiltered', () => 
     expect(FIXTURE.filter((a) => matchPlatformSet(a, empty))).toEqual([]);
   });
 });
-
-import {
-  PLATFORM_FILTER_STORAGE_KEY,
-  loadSelectedPlatforms,
-  parseSelectedPlatforms,
-} from './app/platformStorage';
 
 afterEach(() => {
   window.localStorage.clear();

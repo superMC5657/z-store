@@ -1,5 +1,4 @@
 use super::{clean, now_secs, Database};
-use crate::forge::coord::RepoRef;
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
 
@@ -17,9 +16,7 @@ pub struct AppIconCycle {
     pub selected_url: String,
     pub cache_file: String,
     pub updated_at: i64,
-    /// 用户手动选择标记（手动轮换保护）：应用详情手动切换档位后置 true；
-    /// 详情刷新（缓存生存时效到期/强制刷新）对 pinned 行只补备选槽位，
-    /// 不改 level/selected_url；未 pinned 行仍按最强探测更新选中图。
+    /// 用户手动选择标记（手动轮换保护）：详情刷新只补备选槽，不改 level/selected_url。
     pub pinned: bool,
 }
 
@@ -57,7 +54,7 @@ impl AppIconCycle {
         }
     }
 
-    /// 获取特定级别对应的 URL (1..=4)
+    /// 获取特定级别对应的 URL (1..=4)。
     pub fn url_for_level(&self, level: i32) -> Option<&str> {
         match level {
             1 => Some(&self.l1_url),
@@ -86,7 +83,7 @@ impl AppIconCycle {
 }
 
 impl Database {
-    /// 查询指定 app_id 的图标轮换记录
+    /// 查询指定 `app_id` 的图标轮换记录。
     pub fn get_icon_cycle(&self, app_id: &str) -> Result<Option<AppIconCycle>> {
         let cleaned = clean(app_id);
         if cleaned.is_empty() {
@@ -128,7 +125,7 @@ impl Database {
         }
     }
 
-    /// 根据 owner 与 repo 索引快速查找图标轮换记录
+    /// 根据 `owner` 与 `repo` 索引查找图标轮换记录。
     pub fn get_icon_cycle_by_repo(&self, owner: &str, repo: &str) -> Result<Option<AppIconCycle>> {
         let o = clean(owner);
         let r = clean(repo);
@@ -171,7 +168,7 @@ impl Database {
         }
     }
 
-    /// 插入或更新图标轮换记录，主键冲突走 ON CONFLICT(app_id) DO UPDATE SET
+    /// 插入或更新图标轮换记录，主键冲突走 `ON CONFLICT(app_id) DO UPDATE SET`。
     pub fn upsert_icon_cycle(&self, cycle: &AppIconCycle) -> Result<()> {
         let clean_id = clean(&cycle.app_id);
         if clean_id.is_empty() {
@@ -225,9 +222,7 @@ impl Database {
         Ok(())
     }
 
-    /// 批量 upsert（Top1+2：12 条逐条提交 → 1 提交）：
-    /// 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`，失败整体 `ROLLBACK` 返回 Err。
-    /// 调用方保持 `let _ =` 吞错语义，下次搜索重试；失败时调用方可回退逐条（见 commands::catalog_search 调用处）。
+    /// 单事务批量 upsert 图标轮换记录。
     pub fn upsert_icon_cycles_batch(&self, cycles: &[AppIconCycle]) -> Result<()> {
         if cycles.is_empty() {
             return Ok(());
@@ -240,8 +235,7 @@ impl Database {
         })
     }
 
-    /// 更新当前图标轮换级别，并在对应级别 URL 非空时自动同步切换 selected_url。
-    /// pinned 标记保持不动（恢复路径不改变用户手动选择状态）。
+    /// 更新当前图标轮换级别，并在对应级别 URL 非空时同步切换 `selected_url`（保留 `pinned`）。
     pub fn set_icon_cycle_level(&self, app_id: &str, level: i32) -> Result<()> {
         let cleaned = clean(app_id);
         if cleaned.is_empty() {
@@ -267,8 +261,7 @@ impl Database {
         Ok(())
     }
 
-    /// 更新当前图标轮换级别及选中的 URL 和本地缓存文件路径。
-    /// pinned 标记保持不动（恢复路径不改变用户手动选择状态）。
+    /// 更新当前图标轮换级别及选中的 URL 和本地缓存文件路径（保留 `pinned`）。
     pub fn set_icon_cycle_selected(
         &self,
         app_id: &str,
@@ -295,7 +288,7 @@ impl Database {
         Ok(())
     }
 
-    /// 删除指定 app_id 的图标轮换记录
+    /// 删除指定 `app_id` 的图标轮换记录。
     pub fn delete_icon_cycle(&self, app_id: &str) -> Result<bool> {
         let cleaned = clean(app_id);
         if cleaned.is_empty() {
@@ -307,465 +300,23 @@ impl Database {
         )?;
         Ok(rows > 0)
     }
-}
 
-// --- 图标轮换决策 SSOT（Shotgun Surgery 收敛落点，C1 持久化唯一深口） ---
-// cataloged vs 非 cataloged 分流、owner/repo 解析（RepoRef）、文件名方案、
-// l2/l3/l4 槽位认领、级别推进、详情页图标层级决策 —— 各调用方只做薄委托；
-// 纯决策，无 fs/网络/AppState 依赖。
-// 缝：probe-vs-persist——本文件永不做网络探测（无 client/token/probe 调用）；
-// 探测一律在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` 纯探，
-// 永不触 DB/fs）；持久化单一写入路径在 `commands::icons_cycle_probe::write_icon_file`
-//（`icons/` 落盘 + meta 同步；下载经 `download_icon_bytes_direct`，
-// L5 空选经 `seal_empty_selection`）。
-// Curated Catalog 永不分支，例外仅 L1 填充（`ensure_cycle_levels`）。
-// ADR-0010：key 一律小写 `owner/repo`（唯一实现见
-// `forge::canonical_app_id_from_parts`，`icon_key` 为其薄委托）。
-
-/// 级别→来源映射。
-/// L4=README现场扒
-pub fn source_for_level(level: i32) -> &'static str {
-    match level {
-        1 => "official",
-        2 => "simple-icons",
-        3 => "trees",
-        4 => "readme",
-        _ => "none",
-    }
-}
-
-/// 级别→是否兜底映射（图标L1=官方直出非兜底，其余皆兜底）。
-pub fn is_fallback_for_level(level: i32) -> bool {
-    level > 1
-}
-
-/// 入站应用标识解析唯一出口：薄委托 `RepositoryUrlParser::parse`（即
-/// `forge::canonical_app_id` 的同一解析体），无本地兜底分支。
-/// 返回 `(canonical 小写 id, 原大小写 owner/repo)`。
-/// ADR-0010：`canonical` 即 `forge::canonical_app_id` 的同值形态
-/// （小写 `owner/repo` 或 `forge[:host]:owner/repo`），与事件 id（见
-/// `forge::canonical_app_id_from_parts`）同值；
-/// 事件 `id`、DB 主键、前端归一键一律用此值，不透传脏 id。
-/// 未知 forge 前缀等不可解析标识与 `require_app_id` 同拒绝语义（不另设
-/// `split_once` 回退放行脏前缀）。
-pub fn resolve_icon_coord(app_id: &str) -> Result<(String, RepoRef), String> {
-    let trimmed = app_id.trim();
-    if trimmed.is_empty() {
-        return Err("应用标识不能为空".into());
-    }
-
-    let coord = crate::forge::RepositoryUrlParser::parse(trimmed)
-        .ok_or_else(|| format!("无法识别的应用标识: {}", trimmed))?;
-    let canon = coord.to_app_id().to_lowercase();
-    Ok((canon, RepoRef::new(&coord.owner, &coord.repo)))
-}
-
-/// 获取周期记录中首个有效 URL 对应的级别（收录 1..=4，非收录 2..=4 跳 L1）。
-/// FINAL 锁死：收录恒 L1 禁切（调用方 cycle 直接返回）；非收录 `level==1` 视为脏数据跳过不动。
-pub fn first_available_level(cycle: &AppIconCycle) -> Option<i32> {
-    let start = if cycle.is_cataloged { 1 } else { 2 };
-    for lvl in start..=4 {
-        if let Some(u) = cycle.url_for_level(lvl) {
-            if !u.trim().is_empty() {
-                return Some(lvl);
-            }
+    /// 查询 `icon_cache_meta` TTL 记录 `(remote_url, cached_at)`。
+    pub fn get_icon_cache_record(&self, cache_key: &str) -> Result<Option<(String, i64)>> {
+        let cleaned = clean(cache_key);
+        if cleaned.is_empty() {
+            return Ok(None);
         }
-    }
-    None
-}
-
-/// 计算下一个轮换级别：空档顺延，5→1/2 回绕。
-/// Level 5 为"空"，始终有效；Level 1..=4 当对应 URL 为空时视为"空档"，顺延至下一级别。
-/// 非收录应用绝不轮换到 Level 1（官方）。
-pub fn next_cycle_level(curr_level: i32, cycle: &AppIconCycle) -> i32 {
-    let mut cand = if !(1..=5).contains(&curr_level) {
-        if cycle.is_cataloged {
-            1
+        let mut stmt = self.conn.prepare(
+            "SELECT remote_url, cached_at FROM icon_cache_meta WHERE cache_key = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![cleaned])?;
+        if let Some(row) = rows.next()? {
+            let url: String = row.get(0)?;
+            let at: i64 = row.get(1)?;
+            Ok(Some((url, at)))
         } else {
-            2
+            Ok(None)
         }
-    } else {
-        (curr_level % 5) + 1
-    };
-
-    while cand != 5
-        && ((!cycle.is_cataloged && cand == 1)
-            || cycle.url_for_level(cand).unwrap_or("").trim().is_empty())
-    {
-        cand = (cand % 5) + 1;
-    }
-    cand
-}
-
-/// 新建 cycle 行的 owner/repo 推导：parse 优先，否则原始 split_once（不过滤多段斜杠），全失败则空串。
-pub fn owner_repo_for_new_cycle(lookup_id: &str) -> (String, String) {
-    match crate::forge::RepositoryUrlParser::parse(lookup_id) {
-        Some(c) => (c.owner, c.repo),
-        None => lookup_id
-            .split_once('/')
-            .map(|(o, r)| (o.to_string(), r.to_string()))
-            .unwrap_or_default(),
-    }
-}
-
-/// FINAL Logo 口径：图标 TTL 7 天（文件存在+DB有效即命中0请求，过期后台重下1次，前台不闪）。
-/// 详情 TTL 60min 见 `commands::catalog_detail::detail_ttl_secs`；图标 ETag 禁用（仅详情用）。
-pub const ICON_TTL_SECS: i64 = 7 * 24 * 60 * 60;
-
-/// hash 文件名 SSOT（唯一文件名方案）：`sha256(url_trimmed)[0:16].{ext}`。
-/// - `url` 为 cycle/详情命中的备选 Logo 真地址（L1–L4；README 正文图永不进此）；
-/// - `ext` 为 sniff 纠正后的 `real_ext`（`mime_to_ext(detect(...))`），调用方保证小写无点；
-/// - 空 url 返回空串（调用方跳过落盘）。
-///
-/// 读侧用 `KNOWN_ICON_EXTS` 全后缀兜底（见 probe 的 hash 候选构造）。
-pub fn hash_icon_filename(url_trimmed: &str, ext: &str) -> String {
-    let u = url_trimmed.trim();
-    if u.is_empty() {
-        return String::new();
-    }
-    let full = crate::sha256_digest_hex(u.as_bytes());
-    let stem = &full[..16.min(full.len())];
-    let clean_ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
-    let clean_ext = if clean_ext.is_empty() {
-        "png".to_string()
-    } else {
-        clean_ext
-    };
-    format!("{}.{}", stem, clean_ext)
-}
-
-/// 图标 DB 有效性：`cached_at/updated_at` 在 7 天内即有效（含未来时钟漂移宽容）。
-pub fn is_icon_fresh(cached_at: i64, now: i64) -> bool {
-    cached_at > 0 && now.saturating_sub(cached_at) < ICON_TTL_SECS
-}
-
-/// 恢复路径判鲜（过期刷新，SSOT）：与请求路径同口径，行 7 天有效 + 文件 7 天新鲜双检。
-/// `file_fresh` 由调用方经 `is_icon_file_fresh` 传入（文件 mtime 口径）；
-/// 任一过期即 false，调用方走下载分支重下，不直接返回旧图。
-/// `pinned` 选择不受此判定影响（过期刷新落库经 `set_icon_cycle_selected`，pinned 保持不动）。
-pub fn is_cycle_restore_fresh(cycle: &AppIconCycle, file_fresh: bool, now: i64) -> bool {
-    !cycle.cache_file.trim().is_empty() && file_fresh && is_icon_fresh(cycle.updated_at, now)
-}
-
-/// 固化一次轮换选中态：level/selected_url/cache_file/updated_at 同步推进。
-pub fn seal_cycle_selection(
-    cycle: &mut AppIconCycle,
-    level: i32,
-    selected_url: &str,
-    cache_file: String,
-) {
-    cycle.level = level;
-    cycle.selected_url = selected_url.to_string();
-    cycle.cache_file = cache_file;
-    cycle.updated_at = crate::now_secs();
-}
-
-/// L5 空选固化（首字母徽章，level 纯L=5）：level=5 + selected/cache 双空 + updated_at 推进。
-/// cycle 命令层 L5 一律经此，不手写 `""` 散赋值（L5 `""` 泄漏收敛在缝内）；
-/// 写侧 `detail_json.icon` 显式清空（`""`）由调用方内联直写，不经薄 helper。
-/// FINAL：L5 清对应选中态（selected/cache 双空），`l1..l4` 备选 URL 保留供重选，
-/// 同 hash 同 ext 的非选中文件保留不删（配额 LRU 按 mtime 淘汰）；`sync_detail_icon("")` 由调用方保证（见 cycle 命令层）。
-pub fn seal_empty_selection(cycle: &mut AppIconCycle) {
-    seal_cycle_selection(cycle, 5, "", String::new());
-}
-
-/// pinned 行备选槽补齐（详情刷新只补槽）：仅当探测 level 对应的 lN 槽为空时写入；
-/// level/selected_url/cache_file/updated_at/pinned 一律不动。槽映射与详情落库一致
-///（2=L2品牌库，3=L3仓库，4=L4 README；L1官方槽不由探测回填）。
-pub fn fill_probe_slot(cycle: &mut AppIconCycle, level: i32, url_trimmed: &str) {
-    let u = url_trimmed.trim();
-    if u.is_empty() {
-        return;
-    }
-    match level {
-        2 => {
-            if cycle.l2_url.trim().is_empty() {
-                cycle.l2_url = u.to_string();
-            }
-        }
-        3 => {
-            if cycle.l3_url.trim().is_empty() {
-                cycle.l3_url = u.to_string();
-            }
-        }
-        4 if cycle.l4_url.trim().is_empty() => {
-            cycle.l4_url = u.to_string();
-        }
-        _ => {}
-    }
-}
-
-/// 详情刷新图标合并（pinned 保护，SSOT，调用方为详情落库）：
-/// - pinned 行（用户已手动选择档位）：保持 level/selected_url/cache_file/updated_at，
-///   仅把本次最强探测命中的备选 Logo 补进对应 lN 空槽；返回 true，调用方须把应用详情
-///   `icon` 对齐 `selected_url`（L5 pinned 对齐为 `""`，保持徽章态）。
-/// - 未 pinned 行：按最强探测收编（level/selected_url/对应槽/updated_at 推进，
-///   pinned 保持 false）；返回 false，调用方保持探测 icon。
-///
-/// level 纯 L（2=L2品牌库，3=L3仓库，4=L4 README）；空 URL 直接返回 false，不建行语义由调用方保持。
-pub fn merge_detail_icon(
-    cycle: &mut AppIconCycle,
-    level: i32,
-    url_trimmed: &str,
-    is_cataloged: bool,
-    now: i64,
-) -> bool {
-    let prev_selected = cycle.selected_url.trim().to_string();
-    cycle.is_cataloged = is_cataloged;
-    if is_cataloged {
-        cycle.pinned = false;
-        if level == 1 {
-            let u = url_trimmed.trim();
-            if !u.is_empty() {
-                cycle.level = 1;
-                cycle.l1_url = u.to_string();
-                cycle.selected_url = u.to_string();
-                if prev_selected != u {
-                    cycle.cache_file.clear();
-                }
-                cycle.updated_at = now;
-            }
-            return false;
-        } else if !cycle.l1_url.trim().is_empty() || cycle.level == 1 {
-            // 收录应用已锁定 L1 官方图：探测仅补相应槽位，绝不降级/改动 L1 选中
-            fill_probe_slot(cycle, level, url_trimmed);
-            return false;
-        }
-    } else if cycle.pinned {
-        fill_probe_slot(cycle, level, url_trimmed);
-        return true;
-    }
-    let u = url_trimmed.trim();
-    if u.is_empty() {
-        return false;
-    }
-    // 未 pinned：level/selected_url/updated_at 推进，
-    // 对应槽位无条件采用本次最强探测（pinned 保持 false）。
-    cycle.level = level;
-    if level == 1 {
-        cycle.l1_url = u.to_string();
-    } else if level == 3 {
-        cycle.l3_url = u.to_string();
-    } else if level == 4 {
-        cycle.l4_url = u.to_string();
-    } else if level == 2 {
-        cycle.l2_url = u.to_string();
-    }
-    cycle.selected_url = u.to_string();
-    if prev_selected != u {
-        cycle.cache_file.clear();
-    }
-    cycle.updated_at = now;
-    false
-}
-
-/// 探测命中合并后缓存文件认领（槽满不误配选中图）：仅当行选中图即本次命中真地址时
-/// 才认领新文件名，否则保持原 `(selected_url, cache_file)` 配对，避免选中图与槽位/文件分叉。
-/// 空文件名永不认领。返回 true=已认领，false=保持原配对。
-pub fn adopt_probe_cache_file(
-    cycle: &mut AppIconCycle,
-    key_url_trimmed: &str,
-    filename: String,
-) -> bool {
-    if filename.trim().is_empty() {
-        return false;
-    }
-    if cycle.selected_url.trim() == key_url_trimmed.trim() {
-        cycle.cache_file = filename;
-        return true;
-    }
-    false
-}
-
-/// icon_cache_meta 读侧 TTL 感知记录（图标通道 ETag 禁用后的 DB 有效性唯一依据）：
-/// 返回 `(remote_url, cached_at)`；无行即 `None`（调用方视为未命中，后台重下1次）。
-/// 配额 LRU 只清文件不删 DB URL，故此键 bedding 永不因 LRU 消失（文件缺失可经 URL 重下恢复）。
-pub fn get_icon_cache_record(db: &Database, cache_key: &str) -> Result<Option<(String, i64)>> {
-    let cleaned = clean(cache_key);
-    if cleaned.is_empty() {
-        return Ok(None);
-    }
-    let mut stmt = db.conn.prepare(
-        "SELECT remote_url, cached_at FROM icon_cache_meta WHERE cache_key = ?1 LIMIT 1",
-    )?;
-    let mut rows = stmt.query(params![cleaned])?;
-    if let Some(row) = rows.next()? {
-        let url: String = row.get(0)?;
-        let at: i64 = row.get(1)?;
-        Ok(Some((url, at)))
-    } else {
-        Ok(None)
-    }
-}
-
-/// 远端探测命中档位（仅 L2 品牌库 / L3 仓库文件树，L1 官方与 L5 空选不可表示）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProbeIconLevel {
-    L2SimpleIcons,
-    L3Trees,
-}
-
-impl ProbeIconLevel {
-    pub fn from_source(source: &str) -> Self {
-        if source.trim() == "simple-icons" {
-            Self::L2SimpleIcons
-        } else {
-            Self::L3Trees
-        }
-    }
-
-    pub fn as_i32(self) -> i32 {
-        match self {
-            Self::L2SimpleIcons => 2,
-            Self::L3Trees => 3,
-        }
-    }
-}
-
-/// 详情页图标来源与备选槽决策结果：
-/// - `icon`：详情页最终采用的图标 URL（空串表示降级首字母徽章）；
-/// - `level`：`icon` 对应的真实来源级别（1=官方，2=SimpleIcons，3=Git Trees，4=README）；无图标时为 `None`；
-/// - `extra_l4_url`：当主图标命中 L1/L2/L3 且同时从 README 提取到了 L4 Logo 时，携带该 L4 URL 供落库顺手补齐 `l4_url` 备选槽。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DetailIconResolution {
-    pub icon: String,
-    pub level: Option<i32>,
-    pub extra_l4_url: Option<String>,
-}
-
-/// 详情页图标带级别决策（SSOT）：
-/// 1. 官方 `http(s)` 图标保持（level = 1）；
-/// 2. 探测命中 `probed`（[`ProbeIconLevel::L2SimpleIcons`] → level = 2，[`ProbeIconLevel::L3Trees`] → level = 3）；
-/// 3. README 头部提取 Logo `readme_logo`（level = 4）；
-/// 4. 全未命中返回空串（`level = None`）。
-///
-/// 若主选中为 L1/L2/L3 且 `readme_logo` 非空，同时保留在 `extra_l4_url` 供 `fill_probe_slot(&mut cycle, 4, ...)` 写入备选槽。
-pub fn pick_detail_icon_with_level(
-    official_icon: &str,
-    probed: Option<(ProbeIconLevel, String)>,
-    readme_logo: Option<String>,
-) -> DetailIconResolution {
-    let clean_l4 = readme_logo
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let official_trimmed = official_icon.trim();
-    if official_trimmed.starts_with("http://") || official_trimmed.starts_with("https://") {
-        return DetailIconResolution {
-            icon: official_trimmed.to_string(),
-            level: Some(1),
-            extra_l4_url: clean_l4,
-        };
-    }
-    if let Some((lvl, url)) = probed {
-        let u = url.trim().to_string();
-        if !u.is_empty() {
-            return DetailIconResolution {
-                icon: u,
-                level: Some(lvl.as_i32()),
-                extra_l4_url: clean_l4,
-            };
-        }
-    }
-    if let Some(logo) = clean_l4 {
-        return DetailIconResolution {
-            icon: logo,
-            level: Some(4),
-            extra_l4_url: None,
-        };
-    }
-    DetailIconResolution {
-        icon: String::new(),
-        level: None,
-        extra_l4_url: None,
-    }
-}
-
-/// 将详情页图标决策结果（`DetailIconResolution`）合并入 `AppIconCycle`（SSOT）：
-/// - 主图标级别优先取 `resolution.level`（2..=4），缺失时（如 304 缓存复用或官方 L1）
-///   先查当前行已知槽位 `cycle.level_for_known_url`，最后回退 `fallback_level`；
-/// - 调用 `merge_detail_icon` 更新选中态（或 pinned 行仅补槽）；
-/// - 若存在 `resolution.extra_l4_url`（主命中 L1/L2/L3 的同时提取到了 README L4 Logo），
-///   顺手通过 `fill_probe_slot(cycle, 4, extra_l4)` 写入 `l4_url` 备选槽，保证详情轮换完整覆盖 L4。
-///
-/// 返回 `true` 表示当前行为 `pinned`（调用方需将 `detail.core.icon` 对齐 `cycle.selected_url`）。
-pub fn apply_detail_icon_resolution(
-    cycle: &mut AppIconCycle,
-    icon_trimmed: &str,
-    resolution: Option<&DetailIconResolution>,
-    fallback_level: i32,
-    is_cataloged: bool,
-    now: i64,
-) -> bool {
-    let level = resolution
-        .and_then(|r| r.level)
-        .filter(|&lvl| (1..=4).contains(&lvl))
-        .or_else(|| cycle.level_for_known_url(icon_trimmed))
-        .unwrap_or(fallback_level);
-    let was_pinned = merge_detail_icon(cycle, level, icon_trimmed, is_cataloged, now);
-    if let Some(extra_l4) = resolution
-        .and_then(|r| r.extra_l4_url.as_deref())
-        .map(str::trim)
-        .filter(|u| !u.is_empty())
-    {
-        fill_probe_slot(cycle, 4, extra_l4);
-    }
-    was_pinned
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_resolve_icon_coord_rejects_unknown_forge_prefix() {
-        // 未知 forge 前缀必须拒绝（与 require_app_id 同解析体）。
-        assert!(resolve_icon_coord("xyz:owner/repo").is_err());
-        assert!(resolve_icon_coord("foo:owner/repo.git").is_err());
-        assert!(resolve_icon_coord("").is_err());
-        assert!(resolve_icon_coord("   ").is_err());
-    }
-
-    #[test]
-    fn test_resolve_icon_coord_matches_require_app_id_acceptance() {
-        // 与执行层守卫同口径：任一输入接受性一致（拒绝路径同一解析体）。
-        let cases = [
-            "owner/repo",
-            "Owner/Repo",
-            "gh:owner/repo",
-            "codeberg:FreeTubeApp/FreeTube",
-            "gitea:git.example.com/owner/repo",
-            "https://github.com/owner/repo",
-            "xyz:owner/repo",
-            "no-slash-id",
-            "owner/repo/extra",
-        ];
-        for c in cases {
-            assert_eq!(
-                resolve_icon_coord(c).is_ok(),
-                crate::commands::require_app_id(c).is_ok(),
-                "acceptance diverged for {c}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_resolve_icon_coord_canonical_matches_canonical_app_id() {
-        // 三键同值（ADR-0010）：DB 主键 canonical 与 canonical_app_id 全同。
-        for c in [
-            "Owner/Repo",
-            "gh:Owner/Repo",
-            "codeberg:FreeTubeApp/FreeTube",
-            "gitea:git.example.com/Owner/Repo",
-            "https://github.com/Owner/Repo",
-        ] {
-            let (canon, repo) = resolve_icon_coord(c).unwrap();
-            assert_eq!(canon, crate::forge::canonical_app_id(c).unwrap(), "{c}");
-            assert!(!repo.is_empty());
-        }
-        // 裸 owner/repo 与 GitHub 前缀形态归一同键。
-        let (canon, _) = resolve_icon_coord("Owner/Repo").unwrap();
-        assert_eq!(canon, "owner/repo");
-        let (canon, _) = resolve_icon_coord("gh:Owner/Repo").unwrap();
-        assert_eq!(canon, "owner/repo");
     }
 }

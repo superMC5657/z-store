@@ -15,7 +15,7 @@ pub(crate) fn should_skip_persist(is_stale: Option<bool>) -> bool {
 /// 此处仅做单位换算。
 /// - `0`（每次实时校验）原样透传 0；
 /// - 其余一律 `m * 60`（挡位合法性由 DB 层保证，不做二次钳制）。
-///   图标 TTL 另见 `db::icon_cycle::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
+///   图标 TTL 另见 `icons::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
 pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
     let m = db.get_detail_cache_ttl_minutes();
     if m <= 0 {
@@ -337,7 +337,7 @@ fn cached_detail_summary(db: &crate::db::Database, raw_id: &str) -> Option<AppSu
             ..detail.core.clone()
         },
     };
-    if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
         db,
         &summary.core.id,
         &summary.core.owner,
@@ -371,7 +371,7 @@ pub fn get_confirmed_icons_batch(
                 return None;
             }
             if let Some(hit) =
-                crate::github::http::resolve_confirmed_icon_from_db(&db, &clean_id, owner, repo)
+                crate::icons::resolve_confirmed_icon_from_db(&db, &clean_id, owner, repo)
             {
                 return Some(hit);
             }
@@ -379,11 +379,9 @@ pub fn get_confirmed_icons_batch(
                 let icon_url = cat_item.icon.trim();
                 if !icon_url.is_empty() {
                     if let Some((bytes, _)) =
-                        crate::commands::icons_cycle_probe::find_cached_icon_by_url(
-                            &icons_dir, icon_url,
-                        )
+                        crate::icons::find_cached_icon_by_url(&icons_dir, icon_url)
                     {
-                        return Some(crate::commands::bytes_to_data_uri(&bytes));
+                        return Some(crate::icons::bytes_to_data_uri(&bytes));
                     }
                     return Some(icon_url.to_string());
                 }
@@ -789,7 +787,7 @@ fn persist_github_detail(
     state: &AppState,
     clean_id: &str,
     detail: &mut AppDetail,
-    icon_resolution: Option<&crate::db::icon_cycle::DetailIconResolution>,
+    icon_resolution: Option<&crate::icons::DetailIconResolution>,
     now: i64,
     sid: &str,
     req_id: &str,
@@ -862,7 +860,7 @@ fn persist_github_detail(
             // （L5 pinned 对齐 `""` 保持徽章态）；未 pinned 行仍按最强探测更新选中图。
             let icon_trimmed = detail.core.icon.trim().to_owned();
             let staged_cycle: Option<crate::db::AppIconCycle> = if !icon_trimmed.trim().is_empty()
-                && !crate::github::icon_fetch::is_body_image_url(&icon_trimmed)
+                && !crate::icons::is_body_image_url(&icon_trimmed)
             {
                 let mut cycle = db
                     .get_icon_cycle(clean_id)
@@ -879,15 +877,14 @@ fn persist_github_detail(
                 let sanitized_res = icon_resolution.cloned().map(|mut r| {
                     if r.extra_l4_url
                         .as_deref()
-                        .is_some_and(crate::github::icon_fetch::is_body_image_url)
+                        .is_some_and(crate::icons::is_body_image_url)
                     {
                         r.extra_l4_url = None;
                     }
                     r
                 });
-                let fallback_level =
-                    crate::github::icon_fetch::level_for_detail_icon(&icon_trimmed);
-                if crate::db::icon_cycle::apply_detail_icon_resolution(
+                let fallback_level = crate::icons::level_for_detail_icon(&icon_trimmed);
+                if crate::icons::apply_detail_icon_resolution(
                     &mut cycle,
                     icon_trimmed.trim(),
                     sanitized_res.as_ref(),
@@ -901,10 +898,7 @@ fn persist_github_detail(
                 let sel = cycle.selected_url.trim().to_string();
                 if !sel.is_empty() && cycle.cache_file.trim().is_empty() {
                     let icons_dir = crate::get_app_data_dir().join("icons");
-                    if let Some((_, fname)) =
-                        crate::commands::icons_cycle_probe::find_cached_icon_by_url(
-                            &icons_dir, &sel,
-                        )
+                    if let Some((_, fname)) = crate::icons::find_cached_icon_by_url(&icons_dir, &sel)
                     {
                         cycle.cache_file = fname;
                     }
@@ -938,46 +932,12 @@ fn persist_github_detail(
                 if c.cache_file.trim().is_empty()
                     && (sel.starts_with("http://") || sel.starts_with("https://"))
                 {
-                    let app_id_owned = clean_id.to_string();
-                    let lvl = c.level;
-                    let is_cat = c.is_cataloged;
-                    tokio::spawn(async move {
-                        let client = crate::forge::http::new_icon_client(
-                            crate::config::get_project_config()
-                                .network
-                                .api_timeout_seconds,
-                        )
-                        .unwrap_or_default();
-                        if let Ok(bytes) =
-                            crate::commands::icons_cycle_probe::download_icon_bytes_direct(
-                                &client, &sel,
-                            )
-                            .await
-                        {
-                            let icons_dir = crate::get_app_data_dir().join("icons");
-                            let _ = std::fs::create_dir_all(&icons_dir);
-                            let ext = crate::commands::icons::infer_icon_ext_from_url(&sel)
-                                .unwrap_or("png");
-                            let db_opt = crate::github::http::open_db_opt();
-                            let fname = crate::commands::icons_cycle_probe::write_icon_file(
-                                &icons_dir,
-                                db_opt.as_ref(),
-                                &crate::commands::icons_cycle_probe::IconRef::new(&sel, ext),
-                                is_cat,
-                                &bytes,
-                            );
-                            if !fname.is_empty() {
-                                if let Some(db) = db_opt {
-                                    let _ = db.set_icon_cycle_selected(
-                                        &app_id_owned,
-                                        lvl,
-                                        &sel,
-                                        &fname,
-                                    );
-                                }
-                            }
-                        }
-                    });
+                    crate::icons::spawn_cache_selected_icon(
+                        clean_id.to_string(),
+                        c.level,
+                        sel,
+                        c.is_cataloged,
+                    );
                 }
             }
         } // end non-stale non-empty save branch (stale/empty-empty skip above)
@@ -1124,7 +1084,7 @@ mod catalog_platform_tests {
             },
         };
 
-        if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+        if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
             &db,
             &summary.core.id,
             &summary.core.owner,

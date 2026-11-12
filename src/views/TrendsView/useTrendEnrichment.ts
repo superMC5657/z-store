@@ -1,450 +1,123 @@
-import { useEffect, useRef } from 'react';
-import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo, TrendsResult } from '../../types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendsResult } from '../../types';
 import { tauriApi } from '../../services/api';
-import { enrichTrendRepos, type DetailPlatformsHealPayload, type DetailRichcardHealPayload } from '../../services/trends/enrich';
-import {
-  applyPlatformsHealToMirror,
-  applyRichcardHealToMirror,
-  boardRepoKeys,
-  buildSwrFill,
-  cleanupPlatformsHealConfirmed,
-  collectEmptyIconKeys,
-  collectMissingEnrichRepos,
-  flushBoardPersistWithMirror,
-  getBoardPersistKey,
-  isPersistableIcon,
-  maybePersistBoardNow,
-  maybePersistRichcardHeal,
-  maybeScheduleBoardPersist,
-  mergeDbIconsIntoMirror,
-  mergeEnrichFoundMirror,
-  mergeSwrConfirmedMirror,
-  mergeSwrEnrichedMirror,
-  noteBoardReposForPersist,
-  putBoardEnrichMemory,
-  removeConfirmedForConcrete,
-  resolveBoardCacheKey,
-  subscribeBoardPersistOnConfirmedChange,
-  subscribeTrendHealBus,
-  unmarkConcreteKeys,
-  unmarkPlatformsHealKeys,
-} from '../../services/trends/board';
-import {
-  admitIconHit,
-  patchIconMirror,
-  queueAssembledRowIcons,
-  subscribeIconWrites,
-} from '../../services/iconStore';
+import { createTrendBoardSession, type DisplayTrendItem } from '../../services/trends';
+import { unionConfirmedSets } from '../../lib/platformFilter';
 
-/** 趋势榜富卡镜像（React 持有 + 同步 ref），由 View 创建、编排 hook 独占读写。 */
-interface TrendMirror {
-  enrichedApps: Record<string, AppSummary>;
-  setEnrichedApps: React.Dispatch<React.SetStateAction<Record<string, AppSummary>>>;
-  enrichedAppsRef: React.MutableRefObject<Record<string, AppSummary>>;
-  trendConfirmedOtherIds: Set<string>;
-  setTrendConfirmedOtherIds: React.Dispatch<React.SetStateAction<Set<string>>>;
-}
+export type { DisplayTrendItem };
 
-/** 趋势可见行（catalog 富卡 / 未收录裸行）：enrich 编排与过滤共用形状。 */
-export type DisplayTrendItem =
-  | { type: 'catalog'; app: AppSummary; gain?: number }
-  | { type: 'uncataloged'; repo: TrendRepo; gain?: number };
-
-/** `useTrendEnrichment` 入参：榜单快照 + 可见行 + 榜标识 + 首绘门。 */
 interface UseTrendEnrichmentParams {
-  mirror: TrendMirror;
   trendResult: TrendsResult | null;
-  displayItems: ReadonlyArray<DisplayTrendItem>;
+  rawItems: ReadonlyArray<DisplayTrendItem>;
+  getDisplayItems: () => ReadonlyArray<DisplayTrendItem>;
   activeBoard: TrendBoardId;
   trendFetchOpts: FetchTrendsOptions;
   boardReady: boolean;
   refreshEnrichForceRef: React.MutableRefObject<boolean>;
-}
-
-/** SWR 快照与当前镜像合并预演（SWR 首展与 enrich 缺席判定共用）。 */
-function computeSwrMergedPreview(
-  currentMirror: Record<string, AppSummary>,
-  repos: TrendRepo[],
-): {
-  snap: Record<string, AppSummary>;
-  l2Confirmed: string[];
-  merged: Record<string, AppSummary>;
-} {
-  const { snap, l2Confirmed } = buildSwrFill(repos);
-  const merged = mergeSwrEnrichedMirror(currentMirror, snap);
-  return { snap, l2Confirmed, merged };
+  globalConfirmed?: ReadonlySet<string>;
 }
 
 /**
- * 趋势榜富卡编排（唯一深模块）：SWR 旧富卡直展、缺席仓 enrich、图标流式补齐、
- * 详情治愈总线、图标写扇出、L2 写透与卸载 flush 全部收口于此。
- *
- * View 只持有 `TrendMirror` 与渲染派生，effect 顺序与写透时机由本 hook 统一编排；
- * 内部一律经 `board.ts` seam（读写同源 key / 世代门控 / debounce 写透）。
+ * 趋势榜富卡 React 生命周期适配器：
+ * 业务编排（SWR 直展、DB 图标回填、enrich 批处理、lite 补验、15s settle、
+ * 详情治愈、流式图标与 L2 写透）由 `services/trends::createTrendBoardSession` 承担，
+ * 本 hook 负责将会话生命周期绑定到 React 组件树并同步快照状态。
  */
 export function useTrendEnrichment({
-  mirror,
   trendResult,
-  displayItems,
+  rawItems,
+  getDisplayItems,
   activeBoard,
   trendFetchOpts,
   boardReady,
   refreshEnrichForceRef,
-}: UseTrendEnrichmentParams): void {
-  const {
-    setEnrichedApps,
-    enrichedAppsRef,
-    setTrendConfirmedOtherIds,
-  } = mirror;
-  const displayItemsRef = useRef(displayItems);
-  displayItemsRef.current = displayItems;
+  globalConfirmed,
+}: UseTrendEnrichmentParams): {
+  enrichedApps: Record<string, AppSummary>;
+  combinedConfirmed: Set<string>;
+} {
+  const [session] = useState(() => createTrendBoardSession());
+  const [mirror, setMirror] = useState(() => session.getSnapshot());
 
-  // DB-only 确认图标批量回填（SWR 重挂与 enrich 命中无图标缓存条目共用）：
-  // 零网络/零 ETag；图标经店内唯一写口合流（via=m2，不占 level），已有实图永不覆写。
-  const backfillDbIconsForEmptyKeys = (
-    emptyKeys: string[],
-    isCancelled: () => boolean,
-  ): void => {
-    if (emptyKeys.length === 0) return;
-    void (async () => {
-      let icons: (string | null)[];
-      try {
-        icons = await tauriApi.getConfirmedIconsBatch(emptyKeys);
-      } catch {
-        return;
-      }
-      if (isCancelled() || !Array.isArray(icons)) return;
-      const iconMap = new Map<string, string>();
-      emptyKeys.forEach((k, i) => {
-        const icon = icons[i];
-        if (typeof icon === 'string' && icon.trim() !== '') iconMap.set(k, icon);
-      });
-      if (iconMap.size === 0) return;
-      // 单一写口合流：镜像更新经 `mergeDbIconsIntoMirror`（内调 `admitIconHit`），
-      // 返回补齐键供内存 hydrate；`data:` 只进 React 呈现，hydrate 前按可落盘过滤。
-      const merged = mergeDbIconsIntoMirror(enrichedAppsRef.current, iconMap);
-      if (merged.patchedKeys.length === 0) return;
-      if (isCancelled()) return;
-      setEnrichedApps(merged.next);
-      // 内存 hydrate 供下次快照直展：已确认/具平台门控由 `put` 侧执行，
-      // 未确认 loading 不进内存；写透经统一 debounce，不直写。
-      try {
-        const toHydrate: Record<string, AppSummary> = {};
-        for (const k of merged.patchedKeys) {
-          const row = merged.next[k];
-          if (!row) continue;
-          if (!isPersistableIcon(row.icon)) continue;
-          toHydrate[k] = row;
-        }
-        if (Object.keys(toHydrate).length > 0) {
-          putBoardEnrichMemory(toHydrate);
-          const cacheKey = getBoardPersistKey();
-          if (cacheKey) maybeScheduleBoardPersist(cacheKey);
-        }
-      } catch {
-        // 内存同步失败不影响已呈现
-      }
-    })();
-  };
+  const getDisplayItemsRef = useRef(getDisplayItems);
+  getDisplayItemsRef.current = getDisplayItems;
 
-  // SWR 旧富卡直展：榜缓存二级富信封命中后 boards 已 hydrate 进内存，
-  // 此处经 board seam 同步合并进镜像先展旧富卡（含 loading 的 Other 加载中语义），不闪裸行；
-  // 后台 enrich effect 再 revalidate 缺席项，找到具平台再覆盖写透；永不用空值覆盖已具平台值。
-  // 合并逻辑收口 board（buildSwrFill + merge*Mirror），View 只做 load/refresh + 镜像持有。
   useEffect(() => {
-    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
-      return;
-    }
-    const { snap, l2Confirmed, merged: preview } = computeSwrMergedPreview(
-      enrichedAppsRef.current,
-      trendResult.repos,
-    );
-    if (l2Confirmed.length > 0) {
-      setTrendConfirmedOtherIds((prev) => mergeSwrConfirmedMirror(prev, l2Confirmed, snap));
-    }
-    setEnrichedApps((prev) => mergeSwrEnrichedMirror(prev, snap));
-    // 组装落盘补齐：SWR 富卡 http 远端图标入队进盘（前 30 上限，内联/`data:` 与空跳过由店内裁决）。
-    queueAssembledRowIcons(Object.values(snap));
-    const emptyKeys = collectEmptyIconKeys(preview);
-    if (emptyKeys.length === 0) return;
-    let cancelled = false;
-    backfillDbIconsForEmptyKeys(emptyKeys, () => cancelled);
+    setMirror(session.getSnapshot());
+    const unsub = session.subscribe(setMirror);
+    session.start();
     return () => {
-      cancelled = true;
+      unsub();
+      session.dispose();
     };
-  }, [trendResult]);
+  }, [session]);
 
-  // Enter-intent：进 tab（挂载，含默认榜）即抓取，enrich 作为 board 落定后的跟随链运行。
-  // 未收录行 enrichment：逐仓复用搜索 enrichment（Rust 侧并发 5、单次批量 40 上限、单仓 10s），
-  // 成功合并为完整卡片；失败/无命中保持旧小行（enrichTrendRepos 缺席即不写，缺席即展裸行/旧缓存，不等齐）。
-  // 合并 + 写透收口 board（collectMissing + mergeEnrichFoundMirror + maybePersistBoardNow）；
-  // 裸行先展不拦榜，仅富卡升级受 boardReady 门控。
-  // 世代保护：按 (trendResult, activeBoard) 周期记录已尝试 enrich 的坐标集合，
-  // 且 effect 仅依赖 [trendResult, activeBoard, trendFetchOpts, boardReady]（不依赖随图标/平台高频变动的 displayItems），
-  // 防止同榜某仓后端返回 null 或 enrichedApps 更新触发二次 enrich_trend_repos
-  // 递增后端 BOARD_GEN 并杀死在途 fetch_icons_stream。
-  const attemptedEnrichKeysRef = useRef<Set<string>>(new Set());
-  const enrichCycleRef = useRef<{
-    trendResult: TrendsResult | null;
-    activeBoard: TrendBoardId;
-    seq: number;
-  }>({
-    trendResult: null,
+  useEffect(() => {
+    session.syncBoard({ trendResult, activeBoard, trendFetchOpts });
+  }, [session, trendResult, activeBoard, trendFetchOpts]);
+
+  useEffect(() => {
+    session.resetLoadingBoard(activeBoard, trendResult);
+  }, [session, activeBoard, trendResult]);
+
+  useEffect(() => {
+    session.syncEnrichment({
+      trendResult,
+      activeBoard,
+      trendFetchOpts,
+      displayItems: getDisplayItemsRef.current(),
+      boardReady,
+      consumeForceEnrich: () => {
+        const force = refreshEnrichForceRef.current;
+        refreshEnrichForceRef.current = false;
+        return force;
+      },
+    });
+  }, [session, trendResult, activeBoard, trendFetchOpts, boardReady, refreshEnrichForceRef]);
+
+  const combinedConfirmed = useMemo(
+    () => unionConfirmedSets(globalConfirmed, mirror.confirmedOtherIds),
+    [globalConfirmed, mirror.confirmedOtherIds],
+  );
+
+  useEffect(() => {
+    session.syncLiteVerify({
+      trendResult,
+      rawItems,
+      activeBoard,
+      globalConfirmed,
+      fetchLite: (liteId) => tauriApi.getPlatformsLite(liteId),
+    });
+  }, [
+    session,
+    trendResult,
+    rawItems,
+    mirror.enrichedApps,
+    globalConfirmed,
+    combinedConfirmed,
     activeBoard,
-    seq: 0,
-  });
+    trendFetchOpts,
+  ]);
 
   useEffect(() => {
-    return () => {
-      enrichCycleRef.current.seq += 1;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (trendResult?.status !== 'ok') return;
-    if (!boardReady) return;
-    // 刷新链跟随强制：手动 Refresh 落定后的本轮 enrich 消费一次标记，透传后端
-    // force_refresh 做网络重拉；其余进 tab/切榜场景均为缓存允许路径。
-    // 标记在本轮早消费（即使本轮无缺席项），避免泄漏到后续无关轮次造成误强制。
-    const enrichForce = refreshEnrichForceRef.current;
-    refreshEnrichForceRef.current = false;
-    if (
-      enrichCycleRef.current.trendResult !== trendResult ||
-      enrichCycleRef.current.activeBoard !== activeBoard ||
-      enrichForce
-    ) {
-      enrichCycleRef.current = {
-        trendResult,
-        activeBoard,
-        seq: enrichCycleRef.current.seq + 1,
-      };
-      attemptedEnrichKeysRef.current.clear();
-    }
-    const { merged: effectiveEnriched } = computeSwrMergedPreview(
-      enrichedAppsRef.current,
-      trendResult.repos,
-    );
-    const missing = collectMissingEnrichRepos(displayItemsRef.current, effectiveEnriched);
-    if (missing.size === 0) return;
-    const toEnrich: TrendRepo[] = [];
-    for (const [key, repo] of missing) {
-      if (attemptedEnrichKeysRef.current.has(key)) continue;
-      attemptedEnrichKeysRef.current.add(key);
-      toEnrich.push(repo);
-    }
-    if (toEnrich.length === 0) return;
-    const seqAtStart = enrichCycleRef.current.seq;
-    // 写透时机：enrich 完成即同步 await 写透一次（关闭前 fire-and-forget 易丢，flush 兜底见下）。
-    void enrichTrendRepos(toEnrich, enrichForce ? { forceRefresh: true } : undefined).then(async (found) => {
-      if (enrichCycleRef.current.seq !== seqAtStart || found.size === 0) return;
-      const { next, hasNewEnrich, concreteKeys } = mergeEnrichFoundMirror(
-        enrichedAppsRef.current,
-        found,
-      );
-      if (next !== enrichedAppsRef.current) setEnrichedApps(next);
-      // 组装落盘补齐：本批 enrich 行 http 远端图标入队进盘（前 30 上限）。
-      if (found.size > 0) queueAssembledRowIcons([...found.values()]);
-      // enrich 落定合并后若仍有空图标项（如命中 L1/L2 缓存中 icon:'' 的条目），补充触发一次 DB-only 确认图标回填。
-      const remainingEmptyKeys = collectEmptyIconKeys(next);
-      if (remainingEmptyKeys.length > 0) {
-        backfillDbIconsForEmptyKeys(
-          remainingEmptyKeys,
-          () => enrichCycleRef.current.seq !== seqAtStart,
-        );
-      }
-      // 具平台到达可覆盖升级：enrich 具平台即移出已确认（本地 + board 内存标记）。
-      if (concreteKeys.length > 0) {
-        unmarkConcreteKeys(concreteKeys);
-        setTrendConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, concreteKeys));
-      }
-      // enrich 落定后经 board seam 写透同榜 key（await 落稳再返回，刷新 cached_at 即刷新 12h 窗口）。
-      if (hasNewEnrich && trendResult.repos.length > 0) {
-        const { cacheKey, cacheBoard } = resolveBoardCacheKey(activeBoard, trendFetchOpts);
-        await maybePersistBoardNow(cacheKey, cacheBoard, trendResult.repos);
-      }
+    return session.scheduleSettle({
+      trendResult,
+      rawItems,
+      globalConfirmed,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trendResult, activeBoard, trendFetchOpts, boardReady]);
+  }, [
+    session,
+    trendResult,
+    rawItems,
+    mirror.enrichedApps,
+    globalConfirmed,
+    combinedConfirmed,
+    activeBoard,
+    trendFetchOpts,
+  ]);
 
-  // 当前榜快照同步（供 board debounce/pagehide/confirm 链读取）。
-  // 读写同源：key 与 boards 读路径同源（同 board + 同 trendFetchOpts），杜绝读写分叉。
-  useEffect(() => {
-    if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) return;
-    const { cacheKey, cacheBoard } = resolveBoardCacheKey(activeBoard, trendFetchOpts);
-    noteBoardReposForPersist({ cacheKey, cacheBoard, repos: trendResult.repos });
-  }, [trendResult, activeBoard, trendFetchOpts]);
-
-  useEffect(() => {
-    const flush = (): void => {
-      try {
-        flushBoardPersistWithMirror(enrichedAppsRef.current);
-      } catch {
-        // 卸载兜底不抛错
-      }
-    };
-    window.addEventListener('pagehide', flush);
-    return () => {
-      flush();
-      window.removeEventListener('pagehide', flush);
-    };
-  }, []);
-
-  // 已确认变更写透联动：经 board 统一订阅（mark/unmark 触发节流写透；读路径不触发）。
-  useEffect(() => {
-    return subscribeBoardPersistOnConfirmedChange();
-  }, []);
-
-  // 趋势流式图标订阅。
-  // 后台 `icon-ready` 经 `admitIconHit` 接上 `board` 门控逐个补齐富卡图标。
-  // 此处只 patch 图标（空值规则由店内保证），
-  // 平台逻辑不动；`data:` 只进 M1 内存，`remote`（含 m2 回退远端）才 hydrate + 节流写透榜缓存二级。
-  // 双门控正交（勿删其一）：`kind` 门控做榜/搜隔离（本订阅只收 `trend`，search 交 App 处理）；
-  // `admitIconHit` 内 `search_id/board+gen` 门控做同榜新鲜度判定（双非空不等即 stale，任一为空即放行）。
-  // 前者防跨榜串写（空 board/gen 在店内一律放行，无 kind 硬过滤即串榜），后者防同榜过期回放；两者不可互相替代。
-  // hydrate/写透经 board seam（putBoardEnrichMemory + maybeScheduleBoardPersist）。
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    void tauriApi
-      .onIconReady((payload) => {
-        if (cancelled) return;
-        const raw = (payload ?? {}) as unknown as Record<string, unknown>;
-        const ctx = (raw['context'] ?? null) as {
-          kind: string;
-          search_id?: string;
-          board?: string;
-          gen?: number;
-        } | null;
-        const kind =
-          ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
-        // 榜隔离：趋势只消费 `trend` 上下文；搜索（`search`）交 App 处理。
-        // 空 kind 亦拒绝——店内世代门控任一为空即放行，此处必须严格，否则空 search_id/board/gen 的搜索命中会串写榜单行。
-        if (kind !== 'trend') return;
-        const asStr = (v: unknown): string | undefined =>
-          typeof v === 'string' ? v : undefined;
-        const res = admitIconHit({
-          id: asStr(raw['id']),
-          icon: asStr(raw['icon']),
-          level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
-          via: asStr(raw['via']),
-          context: ctx,
-          board: activeBoard,
-          getCurrentIcon: (tid) => {
-            const lk = tid.toLowerCase();
-            return enrichedAppsRef.current[lk]?.icon;
-          },
-          patch: (tid, icon) => {
-            setEnrichedApps((prev) => {
-              let changed = false;
-              const next = { ...prev };
-              for (const k of Object.keys(prev)) {
-                const cur = prev[k];
-                const alias = String(cur?.id ?? '').trim().toLowerCase();
-                if (k.toLowerCase() === tid || (alias !== '' && alias === tid)) {
-                  if (cur.icon !== icon) {
-                    next[k] = { ...cur, icon };
-                    changed = true;
-                  }
-                }
-              }
-              return changed ? next : prev;
-            });
-          },
-        });
-        if (!res.accepted || !res.icon) return;
-        // 图标落盘：已 patch 条目经 board seam hydrate 快照 + 节流写透同榜 key。
-        try {
-          const targets = res.targets ?? [];
-          if (targets.length === 0) return;
-          const latest = enrichedAppsRef.current;
-          const toHydrate: Record<string, AppSummary> = {};
-          for (const t of targets) {
-            for (const k of Object.keys(latest)) {
-              const cur = latest[k];
-              if (!cur) continue;
-              const alias = String(cur.id ?? '').trim().toLowerCase();
-              if (k.toLowerCase() === t || (alias !== '' && alias === t)) {
-                toHydrate[k] = { ...cur, icon: res.icon };
-              }
-            }
-          }
-          if (Object.keys(toHydrate).length === 0) return;
-          putBoardEnrichMemory(toHydrate);
-          const cacheKey = getBoardPersistKey();
-          if (!cacheKey) return;
-          maybeScheduleBoardPersist(cacheKey);
-        } catch {
-          // 落盘失败不影响内存即时补齐
-        }
-      })
-      .then((u) => {
-        if (cancelled) {
-          u();
-          return;
-        }
-        unlisten = u;
-      })
-      .catch(() => {
-        // 非 Tauri 环境（单测/浏览器预览）无事件总线：静默跳过，enrich 等齐路照旧
-      });
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }, [activeBoard]);
-
-  // 治愈总线统一订阅：2 路 window 事件（detail-platforms / detail-richcard）
-  // 经 board 同一归一 upsert 路径进镜像（normalizeHealKeys + boardRepoKeys 过滤跨榜）。
-  // 图标经 `icon-ready → admitIconHit` 唯一写口逐个补齐（见上流式订阅），不走窗口总线。
-  // key 归一 lower-trim 同源。
-  useEffect(() => {
-    return subscribeTrendHealBus({
-      onPlatformsHeal: (payload: DetailPlatformsHealPayload, keys: string[]) => {
-        const repoKeys = boardRepoKeys(trendResult?.repos);
-        const next = applyPlatformsHealToMirror(
-          enrichedAppsRef.current,
-          keys,
-          payload.summary,
-          payload.platforms,
-          repoKeys,
-        );
-        enrichedAppsRef.current = next;
-        setEnrichedApps(next);
-        setTrendConfirmedOtherIds((prev) => cleanupPlatformsHealConfirmed(prev, keys));
-        // 具平台升级同步清 board 内存确认标记（App 侧 upsert 已清同键，此处补清别名）。
-        unmarkPlatformsHealKeys(keys);
-        putBoardEnrichMemory(next);
-        const cacheKey = getBoardPersistKey();
-        if (cacheKey) maybeScheduleBoardPersist(cacheKey);
-      },
-      onRichcardHeal: (payload: DetailRichcardHealPayload) => {
-        const repoKeys = boardRepoKeys(trendResult?.repos);
-        const next = applyRichcardHealToMirror(enrichedAppsRef.current, payload, repoKeys);
-        enrichedAppsRef.current = next;
-        setEnrichedApps(next);
-        maybePersistRichcardHeal(next, payload, repoKeys);
-      },
-    });
-  }, [trendResult]);
-
-  // 图标写扇出订阅（读侧）：店内唯一写口受理后镜像跟进——覆盖无 patch 的本地写
-  // （如详情轮转切 L5 只调 `admitIconHit` 不带 patch，榜单行经此清徽章）。
-  // 卸载即退订。
-  useEffect(() => {
-    return subscribeIconWrites(({ targets, icon }) => {
-      let next = enrichedAppsRef.current;
-      for (const t of targets) {
-        next = patchIconMirror(next, t, icon);
-      }
-      if (next !== enrichedAppsRef.current) {
-        enrichedAppsRef.current = next;
-        setEnrichedApps(next);
-        if (typeof icon === 'string' && !icon.startsWith('data:')) {
-          putBoardEnrichMemory(next);
-          const cacheKey = getBoardPersistKey();
-          if (cacheKey) maybeScheduleBoardPersist(cacheKey);
-        }
-      }
-    });
-  }, []);
+  return {
+    enrichedApps: mirror.enrichedApps,
+    combinedConfirmed,
+  };
 }

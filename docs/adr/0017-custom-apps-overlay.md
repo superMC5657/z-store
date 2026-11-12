@@ -28,7 +28,7 @@
    来源标记以 `AppSummary.source` 表达（`remote`/`local`）：`local` 为未归档库内行（`status` 满足 `isLocalLibraryStatus`），库存恒 `is_cataloged=true`、`is_verified=false`（Issue 预填复制体翻 `true` 仅限外发载荷）；去重远端优先（同 id 取远端行，本地仅补位；远端已存在同仓未验证行可叠加 `local` 标记供黄标判定，已验证蓝标优先不叠加）。前端 `selectors` 执行全局合并与 `showCustom` 开关（默认开，关闭回退 remote 本体，见 §2.6）。
 4. **转正闭环**：`sync_catalog` 成功路径（含本地降级）自动调用 `db.retire_custom_apps_on_sync` 将命中远端 id 集合的未归档草稿置为 `archived=1`，并在同步消息尾部追加转正提示（`with_graduation_hint`）。
 5. **预填 Issue 链路**：`build_single_pr_url` 由草稿 payload 生成清单仓库 Issue 预填 URL（标题带 canonical id，正文含关键字段 + 完整 JSON），用户在浏览器确认后提交，maintainer 转 PR 收录。入口为 `get_custom_app_pr_url` / `get_custom_app_pr_payload`（提交档校验后生成，门禁口径见 ADR-0018）；payload 命令返回 Rust 序列化的单对象 JSON 文本，供预填链接超长时原样复制，前端不拼接模板。（内部命令与字段沿用 `pr_url` 命名，界面文案呈现为 Issue。）
-6. **前端接线**：待收录页 `PendingView.tsx`（及 `views/pending/*` 子组件、`styles/components-pending.css`，Linear 去彩单色）；`App.tsx` 透传 `pendingCount`/`customIds`/`movedInIds`（保存/删除/标记提交回调 + `zstore:custom-apps-changed` 刷新）；`Sidebar` 待收录导航（`nav.items.pending` + `pendingCount` 角标）；`selectors` 全局合并（`selectMergedCatalogApps` + `showCustom` 开关默认开 + `annotateIsCataloged` 系列兼容标注：后端投影为权威，客户端补齐乐观本地行）；`AppCard` 移入入口 + custom 角标；`HomeView`/`TrendsView` 移入入口；设置 `show_custom` 开关（默认开）+ 备份 allowlist 往返（`userdata/import.rs::IMPORT_SETTINGS_ALLOWLIST`）；`ViewType` 包含 `pending`；中英双语 pending/custom 文案。
+6. **前端接线**：待收录页 `PendingView.tsx`（及 `views/pending/*` 子组件、`styles/components-pending.css`，Linear 去彩单色）；`App.tsx` 透传 `pendingCount`/`customIds`/`movedInIds`（保存/删除/标记提交回调 + `zstore:custom-apps-changed` 刷新）；`Sidebar` 待收录导航（`nav.items.pending` + `pendingCount` 角标）；`selectors` 全局合并（`selectMergedCatalogApps` + `showCustom` 开关默认开 + `annotateIsCataloged` 系列兼容标注：后端投影为权威，客户端补齐乐观本地行）；`AppCard` 移入入口 + custom 角标；`HomeView`/`TrendsView` 移入入口；设置 `show_custom` 开关（默认开）+ 备份 allowlist 往返（`userdata/mod.rs::IMPORT_SETTINGS_ALLOWLIST`）；`ViewType` 包含 `pending`；中英双语 pending/custom 文案。
 7. **库内归属 × 上游进度（两轴）**：`status` 对应两个正交维度：
    - 库内归属：`draft`（不在库）→ `collected` 系 / `submitted`（在库）→ `archived`（退出库，权威交还远端）。
    - 上游进度：无 → 已提交 Issue（`submitted`，待收录）→ 已收录（`archived`，转正）。
@@ -52,7 +52,7 @@
 
 - 正面：空窗期本地立即可见与可用；远端收录后自动归档；校验前置保证视图干净；单条 Issue 预填降低投稿门槛。
 - 中性：合并视图由前端消费（`selectors` 全局合并 + `showCustom` 默认开，关闭回退 remote 本体；`AppSummary` / `AppDetail` 包含可选 `source` / `status` / `is_cataloged` 字段，后端投影直接盖章，前端优先读取字段并在乐观本地行缺席时按兜底规则补齐）。
-- 前端草稿形状唯一来源：领域形状 `DraftItem` / `DraftEntry` 与线格式 `DraftItemWire` / `DraftEntryWire` 定义于 `src/services/custom/types.ts`，两者转换集中在 `src/services/custom/mappers.ts`（`entryFromWire` / `itemToWire` / `itemToSummary`）；`PendingDraftItem` / `CustomDraftEntry` 均指向上述类型别名。
+- 前端草稿形状唯一来源：领域形状 `DraftItem` / `DraftEntry` 与线格式 `DraftItemWire` / `DraftEntryWire` 定义于 `src/services/custom.ts`，两者转换同样集中在 `src/services/custom.ts`（`entryFromWire` / `itemToWire` / `itemToSummary`）；`PendingDraftItem` / `CustomDraftEntry` 均指向上述类型别名。
 - 风险：草稿详情依赖 `get_repo_coordinates` 的 `external_synth` 回退；若远端仓库改名导致旧草稿 id 命中失败，该草稿留在「待收录」面板且不污染合并视图。
 
 ## 6. 展示与统计边界

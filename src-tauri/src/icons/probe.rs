@@ -1,15 +1,11 @@
 //! 图标探测原语 SSOT（与 z-store-catalog 同源逻辑）：
 //! 品牌库 Simple Icons → 翻全家 Git Trees 全库评分。
-//! 调用方找不到缓存时按此逻辑派生替代图标 URL；本模块只负责“找 URL 并验字节”，
-//! 缓存读写仍由调用方（`commands::icons` / `commands::icons_cycle_probe`）负责。
+//! 本模块只负责“找 URL 并验字节”，缓存读写与持久化统一由 `crate::icons` 负责。
 //!
-//! C1 深核分工：本文件为探针原语层（`derive_slugs`/`score_candidate`/
-//! `verify_image`+`fetch_range_head`/`probe_simple_icons`/`probe_trees`/
-//! `resolve_probe_branches`，`buffered(3)`+首包验图+caps），调度与 L2→L3 编排
-//! 在 `github::icon_fetch` 深核（`probe_single_live`/`fetch_icons_stream` +
-//! `scaled_total_timeout` 纯决策）。所有探测一律经深核直调本原语（无串行 naive 探路径），
-//! 本模块永不触 DB/fs（无 `Database`/`std::fs` 引用，
-//! probe-vs-persist 缝纯侧），持久化单一路径在 `commands::icons_cycle_probe::write_icon_file`。
+//! 探针原语层（`derive_slugs`/`score_candidate`/`verify_image`+`fetch_range_head`/
+//! `probe_simple_icons`/`probe_trees`/`resolve_probe_branches`，`buffered(3)`+首包验图+caps），
+//! 调度与 L2→L3 编排在 `icons::fetch`（`probe_single_live`/`fetch_icons_stream` +
+//! `scaled_total_timeout` 纯决策）。本模块永不触 DB/fs，持久化单一路径在 `icons::write_icon_file`。
 //! D5/D6/D8：双池复用（调用方给 client，CDN 恒丢 token）+ `buffered(3)` 有界 +
 //! 首包验图与跳过（HEAD→Range 首 32KB→magic→300B）。
 //! level 纯L（2=L2品牌库，3=L3仓库），via=live|m2 正交（本层只产 live URL，
@@ -47,7 +43,7 @@ pub(crate) fn derive_slugs(repo: &str) -> Vec<String> {
 }
 
 /// README 正文图判别 SSOT（ADR-0015 §3 单一探源，供 `score_candidate` 负分 +
-/// `icon_fetch::is_body_image_url` 共用）：
+/// `icons::fetch::is_body_image_url` 共用）：
 /// - 关键词见 [`BODY_IMAGE_KEYWORDS`] + `shields.io` 域名（badge CDN，trees 路径永不出现但 URL 侧需判）；
 /// - 口径为 path-segment 精确匹配：取 URL/path 最后一段文件名，去扩展名 + 剥 query/fragment 后小写全等
 ///   （或复数 `+s` 全等），非 substring。`preview-logo.png` / `demo-icon.svg` /
@@ -550,7 +546,7 @@ pub(crate) fn normalize_probe_branches(default_branch: Option<&str>) -> Vec<Stri
     }
 }
 
-/// 动态分支解析共用（搜索/趋势 `icon_fetch` + 详情 cycle L3）：
+/// 动态分支解析共用（搜索/趋势 `icons::fetch` + 详情 cycle L3）：
 /// 优先复用近期 API 响应已记录的 `default_branch`（零额外请求）；
 /// 未命中时 GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时），
 /// 成功返回 `vec![default_branch]`，失败/超时/空值回退 `vec!["HEAD"]`。
@@ -767,24 +763,23 @@ pub(crate) async fn probe_trees(
 }
 
 /// 图标探测主入口（Simple Icons 品牌库 → Git Trees 全库评分）。
-/// `headers` 传 `Some` 带 token 鉴权头则含 Trees 级；传 `None`（无 token 的图标命令回退路径）
-/// 只做免鉴权级。`branch` 由调用方经 [`resolve_probe_branches`] 动态解析
-///（接口失败/超时返回空，调用方跳过 L3）。
-/// 命中返回权威 URL，未命中返回 `None`。
+/// `icon_client` 专用于 Simple Icons CDN 通道，`api_client` 专用于带鉴权头的 GitHub API Trees 通道；
+/// `headers` 传 `Some` 带 token 鉴权头则含 Trees 级；传 `None` 只做免鉴权级。
 pub(crate) async fn probe_repo_logo(
-    client: &reqwest::Client,
+    icon_client: &reqwest::Client,
+    api_client: &reqwest::Client,
     headers: Option<&HeaderMap>,
     owner: &str,
     repo: &str,
     branch: &str,
 ) -> Option<ProbedIcon> {
     // 先快后慢：快命中即返，不阻塞慢路径；无 token 只走快路径。
-    if let Some(hit) = probe_simple_icons(client, owner, repo).await {
+    if let Some(hit) = probe_simple_icons(icon_client, owner, repo).await {
         return Some(hit);
     }
     // 2. Git Trees 全库评分（需鉴权头；无 token 时跳过以保护匿名配额）。
     if let Some(hdrs) = headers {
-        if let Some(hit) = probe_trees(client, hdrs, owner, repo, branch).await {
+        if let Some(hit) = probe_trees(api_client, hdrs, owner, repo, branch).await {
             return Some(hit);
         }
     }

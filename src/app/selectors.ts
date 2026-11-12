@@ -14,7 +14,7 @@ import {
   type PlatformId,
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
-import { isCollectedStatus } from '../services/custom/status';
+import { isCollectedStatus } from '../services/custom';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
 // loading 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
 // 对外仅保留 LOADING_SETTLE_MS/isEnrichedRowLoading 两件重导出。
@@ -220,7 +220,7 @@ function isLocalAppRow(app: { source?: string }): boolean {
   return app.source === 'local';
 }
 
-/** 本地收录态判定唯一口径：实现居 `services/custom/status`（services 层同消费），此处单一重导出（CONTEXT.md 承诺）。 */
+/** 本地收录态判定唯一口径：实现居 `services/custom`（services 层同消费），此处单一重导出（CONTEXT.md 承诺）。 */
 export { isCollectedStatus };
 
 /**
@@ -878,4 +878,16 @@ export function useAppSelectors({
     stagedDeepLinkSummary,
     stagedDeepLinkSha256,
   };
+}
+
+/** 列表项是否命中查询（名称 / owner / repo / 分类）。 */
+export function matchesAppText(app: AppSummary, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    app.name.toLowerCase().includes(q) ||
+    app.owner.toLowerCase().includes(q) ||
+    app.repo.toLowerCase().includes(q) ||
+    app.category_name.toLowerCase().includes(q)
+  );
 }

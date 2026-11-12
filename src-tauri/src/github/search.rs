@@ -195,7 +195,7 @@ impl CatalogService {
                     let owner = it.owner.login;
                     let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
                     if let Some(ref b) = it.default_branch {
-                        crate::github::icon_probe::remember_repo_default_branch(&owner, &repo, b);
+                        crate::icons::remember_repo_default_branch(&owner, &repo, b);
                     }
                     let description_en = it.description.clone();
                     let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
@@ -255,7 +255,7 @@ impl CatalogService {
         let repo_data: OnlineRepoResponse =
             serde_json::from_str(payload_json).map_err(|e| e.to_string())?;
         if let Some(ref b) = repo_data.default_branch {
-            crate::github::icon_probe::remember_repo_default_branch(owner, repo, b);
+            crate::icons::remember_repo_default_branch(owner, repo, b);
         }
         let repo_desc = repo_data.description.clone();
         let description = repo_desc.clone().unwrap_or_default();
@@ -305,7 +305,7 @@ impl CatalogService {
         let repo_data: OnlineRepoResponse =
             serde_json::from_str(payload_json).map_err(|e| e.to_string())?;
         if let Some(ref b) = repo_data.default_branch {
-            crate::github::icon_probe::remember_repo_default_branch(owner, repo, b);
+            crate::icons::remember_repo_default_branch(owner, repo, b);
         }
         let repo_desc = repo_data.description.clone();
         let license = resolve_online_license(repo_data.license.as_ref())

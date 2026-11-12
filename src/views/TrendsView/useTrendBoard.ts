@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { tauriApi } from '../../services/api';
-import { normalizeProxyPrefix } from '../../services/trends/parse';
 import {
   boardGainKey,
+  fetchTrendsResult,
+  normalizeProxyPrefix,
   resolveTrendBoard,
-} from '../../services/trends/boards';
-import { fetchTrendsResultSeam as fetchTrendsResult } from '../../services/trends/board';
-import { subscribeBoardHydrated } from '../../services/trends/boards';
+  subscribeBoardHydrated,
+} from '../../services/trends';
 import type {
   FetchTrendsOptions,
   TrendBoardId,

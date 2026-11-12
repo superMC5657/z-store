@@ -15,38 +15,29 @@ pub async fn scan_and_match_local_apps(
             let sid = crate::z_log::new_session_id();
             let scan_start = std::time::Instant::now();
             log::info!("scanner start sid={}", sid);
-            let scanned = crate::scanner::AppScanner::scan_system_apps();
             let catalog_items = state.catalog.get_catalog_items();
-
-            let installed_ids: std::collections::HashSet<String> = {
+            let installed_ids: Vec<String> = {
                 let db = state.db()?;
-                // 深 join 模块 exact 侧：建集时一次归一（canonical 数据零行为变更，
-                // 存量大小写漂移行被治愈，见 ADR-0010）。
-                crate::scanner::join::canonical_id_set(
-                    db.get_installed_apps()
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|a| a.app_id),
-                )
+                db.get_installed_apps()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|a| a.app_id)
+                    .collect()
             };
 
-            // 深 join 模块 fuzzy 侧：启发式评分唯一入口（与 `match_apps` 同语义）。
-            let matches = crate::scanner::join::join_fuzzy(&scanned, &catalog_items);
-            let unmanaged: Vec<crate::scanner::AppMatchResult> = matches
-                .into_iter()
-                .filter(|m| !crate::scanner::join::is_managed_id(&m.catalog_id, &installed_ids))
-                .collect();
+            let outcome =
+                crate::scanner::AppScanner::scan_unmanaged(&catalog_items, installed_ids);
 
             // 汇总一行 info：只记数量，不记路径/名称原文。
             log::info!(
                 "scanner done sid={} scanned={} unmanaged={} elapsed_ms={}",
                 sid,
-                scanned.len(),
-                unmanaged.len(),
+                outcome.scanned_count,
+                outcome.unmanaged.len(),
                 scan_start.elapsed().as_millis()
             );
 
-            Ok(unmanaged)
+            Ok(outcome.unmanaged)
         },
     )
     .await

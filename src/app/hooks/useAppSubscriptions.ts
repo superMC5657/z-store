@@ -10,8 +10,7 @@ import type {
   ViewType,
   WatchUpdatedPayload,
 } from '../../types';
-import { tauriApi, DEFAULT_SETTINGS } from '../../services/api';
-import { MANUAL_ONLY_NETWORK } from '../../lib/manualOnly';
+import { tauriApi } from '../../services/api';
 import {
   admitIconHit,
   patchAppIconList,
@@ -186,12 +185,6 @@ export function useAppSubscriptions({
       applyPersistedSettingsRef.current(persisted);
       // 更新中心属资产区：启动时不自动检查（忽略 update_frequency startup 自动项）；
       // 用户经更新中心检查更新按钮手动触发。
-      if (MANUAL_ONLY_NETWORK) return;
-      // 仅启动时自动检查更新——`daily`（每日）更新频率选项目前在“设置”中刻意禁用（未开发功能，暂无调度器），
-      // 因此此处仅对 `startup`（启动时）触发自动检查；`daily`/`manual` 用户可通过“更新中心”标签页手动检查。
-      if ((persisted.update_frequency || DEFAULT_SETTINGS.update_frequency) === 'startup') {
-        tauriApi.checkForUpdates(false).then(setUpdates).catch(() => {});
-      }
     });
 
     const handleCatalogSynced = () => {

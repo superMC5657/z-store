@@ -3,7 +3,7 @@ import { AppSettings } from './types';
 import { tauriApi, DEFAULT_SETTINGS } from './services/api';
 import i18n, { getSystemLanguage } from './i18n';
 import { appZoomFactor, fontScaleFor } from './utils/density';
-import { notifyToast } from './utils/notify';
+import { notifyToast } from './useToasts';
 
 /** ADR-0007：TTL 有效挡位（分钟），与后端 `DETAIL_CACHE_TTL_VALID_MINUTES` 同口径；0=每次实时校验。 */
 const DETAIL_CACHE_TTL_VALID_MINUTES = [0, 10, 60, 360, 1440];

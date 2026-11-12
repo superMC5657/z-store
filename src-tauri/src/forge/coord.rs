@@ -392,11 +392,11 @@ mod tests {
             Some(joined.as_str())
         );
         assert_eq!(
-            crate::github::icon_fetch::icon_key("SuperMC5657", "Z-Store"),
+            crate::icons::icon_key("SuperMC5657", "Z-Store"),
             joined
         );
         assert_eq!(
-            crate::db::icon_cycle::resolve_icon_coord("SuperMC5657/Z-Store")
+            crate::icons::resolve_icon_coord("SuperMC5657/Z-Store")
                 .unwrap()
                 .0,
             joined

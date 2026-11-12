@@ -140,9 +140,40 @@ export interface DownloadAssetResult {
   verified: boolean;
 }
 
-// 视图类型的唯一来源是 app/navigation 的 `VIEW_TYPES` 清单（`ViewType` 由该常量推导）；
-// 此处 re-export，统一作为 `from '../types'` 类型导入出口。
-export type { ViewType } from '../app/navigation';
+/**
+ * 全部合法视图，顺序即侧栏渲染顺序。
+ * 与 `ViewType` / `isViewType` / `createNavigate` 同源收口于此，供 App/Sidebar/深链共享。
+ */
+export const VIEW_TYPES = [
+  'home',
+  'latest',
+  'categories',
+  'trends',
+  'pending',
+  'installed',
+  'updates',
+  'favorites',
+  'settings',
+] as const;
+
+export type ViewType = (typeof VIEW_TYPES)[number];
+
+/** 运行时守卫：未知值（深链载荷/URL 参数等）判定为非法视图。 */
+export function isViewType(value: unknown): value is ViewType {
+  return typeof value === 'string' && (VIEW_TYPES as readonly string[]).includes(value);
+}
+
+/** 集中导航函数签名：编译期仅接受合法视图。 */
+export type Navigate = (view: ViewType) => void;
+
+/** 以 App 持有的 setCurrentView 构造集中导航入口。 */
+export function createNavigate(setCurrentView: (view: ViewType) => void): Navigate {
+  return (view) => {
+    // 类型已收窄，运行时仍守一道：绕过类型系统的调用方不得写入非法视图。
+    if (!isViewType(view)) return;
+    setCurrentView(view);
+  };
+}
 
 export interface ToastMessage {
   id: string;

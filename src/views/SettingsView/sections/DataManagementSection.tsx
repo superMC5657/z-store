@@ -4,7 +4,6 @@ import { Download, Check } from 'lucide-react';
 import { DataBackupRow } from '../../../components/DataBackupRow';
 import { LogExportRow } from '../../../components/LogExportRow';
 import { AffinityPrivacyRow } from '../../../components/AffinityPrivacyRow';
-import { SettingsSection } from '../SettingsSection';
 
 interface DataManagementSectionProps {
   installedCount: number;
@@ -22,7 +21,7 @@ export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
   const { t } = useTranslation();
 
   return (
-    <SettingsSection title={t('settings.data_management')}>
+    <>
       <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -51,6 +50,6 @@ export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
       <AffinityPrivacyRow />
       <DataBackupRow />
       <LogExportRow />
-    </SettingsSection>
+    </>
   );
 };

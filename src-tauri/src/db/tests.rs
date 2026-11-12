@@ -981,7 +981,7 @@ fn test_detail_refresh_keeps_pinned_selection_and_fills_slot() {
     db.upsert_icon_cycle(&before).unwrap();
 
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
-    let was_pinned = icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
+    let was_pinned = crate::icons::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
     assert!(was_pinned, "pinned row must report pinned");
     assert_eq!(loaded.level, 2);
     assert_eq!(loaded.selected_url, l2);
@@ -999,7 +999,7 @@ fn test_detail_refresh_keeps_pinned_selection_and_fills_slot() {
 
     // pinned 补槽不覆盖已有备选值。
     let mut loaded2 = db.get_icon_cycle(app_id).unwrap().unwrap();
-    assert!(icon_cycle::merge_detail_icon(
+    assert!(crate::icons::merge_detail_icon(
         &mut loaded2,
         2,
         "https://cdn.simpleicons.org/other",
@@ -1035,7 +1035,7 @@ fn test_detail_refresh_updates_unpinned_selection() {
     db.upsert_icon_cycle(&before).unwrap();
 
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
-    let was_pinned = icon_cycle::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
+    let was_pinned = crate::icons::merge_detail_icon(&mut loaded, 4, l4, false, 2000);
     assert!(!was_pinned);
     assert_eq!(loaded.level, 4);
     assert_eq!(loaded.selected_url, l4);
@@ -1067,13 +1067,13 @@ fn test_detail_refresh_keeps_pinned_l5_badge() {
         updated_at: 1000,
         pinned: true,
     };
-    icon_cycle::seal_empty_selection(&mut before);
+    crate::icons::seal_empty_selection(&mut before);
     before.pinned = true;
     db.upsert_icon_cycle(&before).unwrap();
 
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
     assert_eq!(loaded.level, 5);
-    assert!(icon_cycle::merge_detail_icon(
+    assert!(crate::icons::merge_detail_icon(
         &mut loaded,
         4,
         l4,
@@ -1139,21 +1139,21 @@ fn test_cycle_restore_fresh_requires_row_and_file() {
         pinned: true,
     };
     // 双新鲜即命中（pinned 行同样命中直接返回，刷新只走下载分支，不丢选择）。
-    assert!(icon_cycle::is_cycle_restore_fresh(&fresh_row, true, now));
+    assert!(crate::icons::is_cycle_restore_fresh(&fresh_row, true, now));
     // 行过期（缓存生存时效外）即走下载分支。
     let mut stale_row = fresh_row.clone();
-    stale_row.updated_at = now - icon_cycle::ICON_TTL_SECS - 1;
-    assert!(!icon_cycle::is_cycle_restore_fresh(&stale_row, true, now));
+    stale_row.updated_at = now - crate::icons::ICON_TTL_SECS - 1;
+    assert!(!crate::icons::is_cycle_restore_fresh(&stale_row, true, now));
     // 文件过期即走下载分支。
-    assert!(!icon_cycle::is_cycle_restore_fresh(&fresh_row, false, now));
+    assert!(!crate::icons::is_cycle_restore_fresh(&fresh_row, false, now));
     // 空 cache_file 永不命中。
     let mut empty_file = fresh_row.clone();
     empty_file.cache_file = String::new();
-    assert!(!icon_cycle::is_cycle_restore_fresh(&empty_file, true, now));
+    assert!(!crate::icons::is_cycle_restore_fresh(&empty_file, true, now));
     // 行零时间戳视为过期。
     let mut zero_row = fresh_row.clone();
     zero_row.updated_at = 0;
-    assert!(!icon_cycle::is_cycle_restore_fresh(&zero_row, true, now));
+    assert!(!crate::icons::is_cycle_restore_fresh(&zero_row, true, now));
 }
 
 #[test]
@@ -1185,7 +1185,7 @@ fn test_stream_merge_keeps_existing_slots_for_unpinned() {
     // 与 `save_and_emit` 同口径：读旧行 → `merge_detail_icon` → 落库。
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
     let keep_cataloged = loaded.is_cataloged;
-    let was_pinned = icon_cycle::merge_detail_icon(&mut loaded, 2, l2, keep_cataloged, 2000);
+    let was_pinned = crate::icons::merge_detail_icon(&mut loaded, 2, l2, keep_cataloged, 2000);
     assert!(!was_pinned);
     db.upsert_icon_cycle(&loaded).unwrap();
 
@@ -1226,7 +1226,7 @@ fn test_stream_merge_on_pinned_row_only_fills_slot() {
 
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
     let keep_cataloged = loaded.is_cataloged;
-    assert!(icon_cycle::merge_detail_icon(
+    assert!(crate::icons::merge_detail_icon(
         &mut loaded,
         2,
         l2,
@@ -1252,7 +1252,7 @@ fn test_probe_cache_file_adopt_only_when_selected_matches() {
         cache_file: "old.png".to_string(),
         ..Default::default()
     };
-    assert!(icon_cycle::adopt_probe_cache_file(
+    assert!(crate::icons::adopt_probe_cache_file(
         &mut adopted,
         "https://cdn.simpleicons.org/a",
         "new.png".to_string()
@@ -1266,7 +1266,7 @@ fn test_probe_cache_file_adopt_only_when_selected_matches() {
         cache_file: "old.png".to_string(),
         ..Default::default()
     };
-    assert!(!icon_cycle::adopt_probe_cache_file(
+    assert!(!crate::icons::adopt_probe_cache_file(
         &mut kept,
         "https://cdn.simpleicons.org/new",
         "new.png".to_string()
@@ -1281,7 +1281,7 @@ fn test_probe_cache_file_adopt_only_when_selected_matches() {
         cache_file: "old.png".to_string(),
         ..Default::default()
     };
-    assert!(!icon_cycle::adopt_probe_cache_file(
+    assert!(!crate::icons::adopt_probe_cache_file(
         &mut empty,
         "https://cdn.simpleicons.org/a",
         String::new()
@@ -1323,10 +1323,10 @@ fn test_level_for_known_url_and_detail_icon_resolution_slots() {
     let app_id = "owner/readme-only";
     // 1. 仅命中 README L4（外部 CDN 或 /HEAD/）：必须写入 l4_url 且 level=4，绝不误入 l3_url。
     let l4_cdn = "https://media.example.com/brand-logo.png";
-    let res_l4 = icon_cycle::pick_detail_icon_with_level("", None, Some(l4_cdn.to_string()));
+    let res_l4 = crate::icons::pick_detail_icon_with_level("", None, Some(l4_cdn.to_string()));
     let mut cycle = AppIconCycle::new(app_id, "owner", "readme-only");
     let was_pinned =
-        icon_cycle::apply_detail_icon_resolution(&mut cycle, &res_l4.icon, Some(&res_l4), 3, false, 1000);
+        crate::icons::apply_detail_icon_resolution(&mut cycle, &res_l4.icon, Some(&res_l4), 3, false, 1000);
     assert!(!was_pinned);
     assert_eq!(cycle.level, 4);
     assert_eq!(cycle.l4_url, l4_cdn);
@@ -1337,7 +1337,7 @@ fn test_level_for_known_url_and_detail_icon_resolution_slots() {
 
     // 2. 后续 304 缓存复用或 get_or_fetch_icon 下载同一已知 L4 URL 时，level_for_known_url 保持 level=4。
     let was_pinned_304 =
-        icon_cycle::apply_detail_icon_resolution(&mut cycle, l4_cdn, None, 3, false, 2000);
+        crate::icons::apply_detail_icon_resolution(&mut cycle, l4_cdn, None, 3, false, 2000);
     assert!(!was_pinned_304);
     assert_eq!(cycle.level, 4);
     assert_eq!(cycle.l4_url, l4_cdn);
@@ -1346,13 +1346,13 @@ fn test_level_for_known_url_and_detail_icon_resolution_slots() {
     // 3. L3（Git Trees）与 L4（README）双命中：主选中为 L3（level=3，l3_url），且 l4_url 同步补齐。
     let l3_tree = "https://raw.githubusercontent.com/owner/dual/main/assets/icon.png";
     let l4_readme = "https://raw.githubusercontent.com/owner/dual/HEAD/docs/logo.png";
-    let res_dual = icon_cycle::pick_detail_icon_with_level(
+    let res_dual = crate::icons::pick_detail_icon_with_level(
         "",
-        Some((icon_cycle::ProbeIconLevel::L3Trees, l3_tree.to_string())),
+        Some((crate::icons::ProbeIconLevel::L3Trees, l3_tree.to_string())),
         Some(l4_readme.to_string()),
     );
     let mut dual_cycle = AppIconCycle::new("owner/dual", "owner", "dual");
-    icon_cycle::apply_detail_icon_resolution(
+    crate::icons::apply_detail_icon_resolution(
         &mut dual_cycle,
         &res_dual.icon,
         Some(&res_dual),
@@ -1365,16 +1365,16 @@ fn test_level_for_known_url_and_detail_icon_resolution_slots() {
     assert_eq!(dual_cycle.l4_url, l4_readme);
     assert_eq!(dual_cycle.selected_url, l3_tree);
     // 验证轮换完整性：3 -> 4 -> 5 -> 3
-    assert_eq!(icon_cycle::next_cycle_level(3, &dual_cycle), 4);
-    assert_eq!(icon_cycle::next_cycle_level(4, &dual_cycle), 5);
-    assert_eq!(icon_cycle::next_cycle_level(5, &dual_cycle), 3);
+    assert_eq!(crate::icons::next_cycle_level(3, &dual_cycle), 4);
+    assert_eq!(crate::icons::next_cycle_level(4, &dual_cycle), 5);
+    assert_eq!(crate::icons::next_cycle_level(5, &dual_cycle), 3);
 
     // 4. load_or_new_cycle 对大小写混合 app_id 统一归一为小写主键，不产生大小写重复行。
     db.upsert_icon_cycle(&dual_cycle).unwrap();
-    let loaded_mixed = crate::commands::icons_cycle_probe::load_or_new_cycle(&db, "Owner/Dual");
+    let loaded_mixed = crate::icons::load_or_new_cycle(&db, "Owner/Dual");
     assert_eq!(loaded_mixed.app_id, "owner/dual");
     assert_eq!(loaded_mixed.l3_url, l3_tree);
-    let created_mixed = crate::commands::icons_cycle_probe::load_or_new_cycle(&db, "NewOwner/NewRepo");
+    let created_mixed = crate::icons::load_or_new_cycle(&db, "NewOwner/NewRepo");
     assert_eq!(created_mixed.app_id, "newowner/newrepo");
     assert_eq!(created_mixed.owner, "NewOwner");
     assert_eq!(created_mixed.repo, "NewRepo");
@@ -1470,7 +1470,7 @@ fn test_cataloged_app_icon_cycle_pinned_reset_and_l1_priority() {
 
     // 1. 收录且添加官方图标时：pinned 必须重置为 false，level 切换为 1，selected_url 与 l1_url 更新为官方图
     let l1_icon = "https://example.com/t3.png";
-    let was_pinned = icon_cycle::merge_detail_icon(&mut cycle, 1, l1_icon, true, 2000);
+    let was_pinned = crate::icons::merge_detail_icon(&mut cycle, 1, l1_icon, true, 2000);
     assert!(!was_pinned);
     assert!(!cycle.pinned);
     assert!(cycle.is_cataloged);
@@ -1480,7 +1480,7 @@ fn test_cataloged_app_icon_cycle_pinned_reset_and_l1_priority() {
 
     // 2. 收录应用后续探测命中（如 L2 SimpleIcons）：仅填充槽位，绝不覆盖 L1 选中
     let l2_icon = "https://cdn.simpleicons.org/t3";
-    let probe_pinned = icon_cycle::merge_detail_icon(&mut cycle, 2, l2_icon, true, 3000);
+    let probe_pinned = crate::icons::merge_detail_icon(&mut cycle, 2, l2_icon, true, 3000);
     assert!(!probe_pinned);
     assert_eq!(cycle.level, 1);
     assert_eq!(cycle.selected_url, l1_icon);

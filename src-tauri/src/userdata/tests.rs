@@ -107,3 +107,93 @@ fn test_backup_settings_full_round_trip() {
     assert!(!got.contains_key("github_token"));
     assert!(!plan.settings.iter().any(|(_, v)| v.contains("gho_")));
 }
+
+#[test]
+fn test_import_backup_merges_favorites_watch_and_settings_against_in_memory_db() {
+    use crate::db::Database;
+    use crate::models::InstalledApp;
+
+    let db = Database::open_in_memory().expect("内存数据库应当可用");
+    db.save_installed_app(&InstalledApp {
+        app_id: "rustdesk/rustdesk".to_string(),
+        app_name: "RustDesk".to_string(),
+        version: "1.0.0".to_string(),
+        installed_at: 1700000000,
+        install_method: "test".to_string(),
+        install_path: "C:\\test".to_string(),
+        asset_name: "test.exe".to_string(),
+        asset_sha256: "abc".to_string(),
+        uninstall_command: None,
+        icon: None,
+        icon_bg: None,
+    })
+    .expect("预置已安装应用应当成功");
+
+    let json = r#"{
+        "version": 1,
+        "favorites": ["RustDesk/RustDesk", "https://github.com/videolan/vlc"],
+        "watched": ["rustdesk/rustdesk"],
+        "settings": {
+            "theme": "light",
+            "detail_cache_ttl_minutes": 999,
+            "show_custom": "false",
+            "github_token": "gho_secret_must_be_ignored"
+        }
+    }"#;
+
+    let result = import_backup(&db, |id| id == "rustdesk/rustdesk", json).expect("导入应当成功");
+    assert_eq!(result.favorites_added, 2);
+    assert_eq!(result.watched_added, 1);
+    assert_eq!(result.settings_applied, 3);
+
+    let favs = db.get_favorites().unwrap();
+    assert!(favs.contains(&"rustdesk/rustdesk".to_string()));
+    assert!(favs.contains(&"videolan/vlc".to_string()));
+    assert!(db
+        .get_watched_apps()
+        .unwrap()
+        .iter()
+        .any(|w| w.app_id == "rustdesk/rustdesk"));
+    assert_eq!(db.get_setting("theme").unwrap().as_deref(), Some("light"));
+    // 非法 TTL 挡位经 normalize_setting_value 归一为 60
+    assert_eq!(
+        db.get_setting("detail_cache_ttl_minutes")
+            .unwrap()
+            .as_deref(),
+        Some("60")
+    );
+    assert_eq!(
+        db.get_setting("show_custom").unwrap().as_deref(),
+        Some("false")
+    );
+    assert!(db.get_setting("github_token").unwrap().is_none());
+}
+
+#[test]
+fn test_import_backup_rejects_invalid_canonical_id_and_rolls_back_partial_writes() {
+    use crate::db::Database;
+
+    let db = Database::open_in_memory().expect("内存数据库应当可用");
+    // fail-fast：单条非 canonical 标识直接拒绝，零写入
+    let bad_json = r#"{
+        "version": 1,
+        "favorites": ["rustdesk/rustdesk", "bareword"],
+        "settings": { "theme": "light" }
+    }"#;
+    assert!(import_backup(&db, |_| false, bad_json).is_err());
+    assert!(db.get_favorites().unwrap().is_empty());
+    assert!(db.get_setting("theme").unwrap().is_none());
+
+    // 事务性锁值：合入中途失败整体回滚
+    let err = db
+        .with_immediate_transaction(|| -> rusqlite::Result<()> {
+            db.add_favorite("rustdesk/rustdesk", true)?;
+            Err(rusqlite::Error::InvalidParameterName(
+                "注入的写入失败".to_string(),
+            ))
+        })
+        .expect_err("注入的写入失败应当上浮");
+    assert!(err.to_string().contains("注入的写入失败"));
+    assert!(db.get_favorites().unwrap().is_empty());
+    assert!(db.get_watched_apps().unwrap().is_empty());
+}

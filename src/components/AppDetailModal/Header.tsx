@@ -11,17 +11,23 @@ import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi, type AppIconCycleResult } from '../../services/api';
 import { AppIcon } from '../AppIcon';
 import { admitIconHit } from '../../services/iconStore';
-import { notifyToast } from '../../utils/notify';
+import { notifyToast } from '../../useToasts';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
 import { formatBytes, isCatalogedFailClosed } from '../../utils/appHelper';
 import { PlatformIcon, ForgeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
-import { resolveRemoteIconUrl } from '../../services/custom/iconUrl';
-import { handleOpenExternal } from './openExternal';
+import { resolveRemoteIconUrl } from '../../services/custom';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+/** 外链经系统浏览器打开：阻止默认跳转与事件冒泡，避免触发外层卡片/弹层点击。 */
+export function handleOpenExternal(e: React.MouseEvent, url: string): void {
+  e.preventDefault();
+  e.stopPropagation();
+  tauriApi.openUrl(url);
+}
 
 interface HeaderProps {
   app: AppDetailViewModel;
@@ -424,7 +430,14 @@ export const Header: React.FC<HeaderProps> = ({
           <span>/</span>
           <a
             href={app.forge_host ? `https://${app.forge_host}/${app.owner}/${app.repo}` : `https://github.com/${app.owner}/${app.repo}`}
-            onClick={(e) => handleOpenExternal(e, app.forge_host ? `https://${app.forge_host}/${app.owner}/${app.repo}` : `https://github.com/${app.owner}/${app.repo}`)}
+            onClick={(e) =>
+              handleOpenExternal(
+                e,
+                app.forge_host
+                  ? `https://${app.forge_host}/${app.owner}/${app.repo}`
+                  : `https://github.com/${app.owner}/${app.repo}`,
+              )
+            }
             target="_blank"
             rel="noopener noreferrer"
             style={{ fontWeight: 510, color: 'inherit', textDecoration: 'none' }}

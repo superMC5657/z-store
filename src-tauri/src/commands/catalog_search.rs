@@ -30,10 +30,10 @@ pub struct OnlineSearchResult {
 
 /// emit 世代通道选择（纯选择器，可单测）：`ctx` 决定查哪一个全局世代计数器 + 期望 gen。
 /// 搜索与趋势共用同一套落库/emit，仅世代计数器不同。
-fn select_gen_lane(ctx: &crate::github::icon_fetch::IconFetchCtx) -> (&'static AtomicU64, u64) {
+fn select_gen_lane(ctx: &crate::icons::IconFetchCtx) -> (&'static AtomicU64, u64) {
     match ctx {
-        crate::github::icon_fetch::IconFetchCtx::Search { gen, .. } => (&SEARCH_GEN, *gen),
-        crate::github::icon_fetch::IconFetchCtx::Trend { gen, .. } => (&BOARD_GEN, *gen),
+        crate::icons::IconFetchCtx::Search { gen, .. } => (&SEARCH_GEN, *gen),
+        crate::icons::IconFetchCtx::Trend { gen, .. } => (&BOARD_GEN, *gen),
     }
 }
 
@@ -41,14 +41,14 @@ fn select_gen_lane(ctx: &crate::github::icon_fetch::IconFetchCtx) -> (&'static A
 /// level纯L：经 `merge_stream_hit` 按来源入槽（`level=2`进 `l2_url`，`level=3`进 `l3_url`），
 /// 新鲜命中全量合并，过期命中仅补空槽不降级；02 pinned 行只补槽不改选中；via=live|m2，远端探测走live，DB落盘回填走m2。
 /// - 只发统一 `zstore://icon-ready{id,icon,level,via,context}`（`context` 原样透传 `job.ctx`，
-///   载荷经 core `icon_fetch::icon_ready_payload` 构建）；
+///   载荷经 core `icons::icon_ready_payload` 构建）；
 /// - 世代防串：合并时按新鲜度取全量/补槽 + emit 前查 `select_gen_lane(ctx)`（搜索查 SEARCH_GEN，
 ///   趋势查 BOARD_GEN；过期写库攒槽，过期 return 只拦发送；切榜/重搜抛弃过时在途结果，同语义）；
 /// - 单条显式事务边界（单语句隐式事务显式化，仍 1 提交，emit 不延迟）；
 ///   失败 `ROLLBACK` 返回 Err，内部吞错下次补探重试。
 async fn save_and_emit(
     handle: &AppHandle,
-    job: &crate::github::icon_fetch::IconFetchJob,
+    job: &crate::icons::IconFetchJob,
     url: &str,
     level: i32,
     via: &str,
@@ -110,9 +110,9 @@ async fn save_and_emit(
         );
         return;
     }
-    // 单发：新统一事件（载荷 schema 归 core 所有，见 `github::icon_fetch`）。
-    let ready = crate::github::icon_fetch::icon_ready_payload(job, url, level, via);
-    crate::github::icon_fetch::emit_icon_ready(handle, &ready);
+    // 单发：新统一事件（载荷 schema 归 core 所有，见 `icons`）。
+    let ready = crate::icons::icon_ready_payload(job, url, level, via);
+    crate::icons::emit_icon_ready(handle, &ready);
 }
 
 /// 流式命中合并（不降级守卫，纯函数可单测）：新鲜 gen 沿用 `merge_detail_icon` 全量合并；
@@ -127,20 +127,20 @@ fn merge_stream_hit(
     fresh: bool,
 ) -> bool {
     if fresh {
-        crate::db::icon_cycle::merge_detail_icon(cycle, level, url, keep_cataloged, now)
+        crate::icons::merge_detail_icon(cycle, level, url, keep_cataloged, now)
     } else {
         // 过期分支只补空槽：`keep_cataloged` 即行内原值（调用方传入 `cycle.is_cataloged`），无需回写。
-        crate::db::icon_cycle::fill_probe_slot(cycle, level, url);
+        crate::icons::fill_probe_slot(cycle, level, url);
         cycle.pinned
     }
 }
 
-/// `github::icon_fetch::fetch_icons_stream` 的命中回调（搜索/趋势同一口）。
+/// `icons::fetch_icons_stream` 的命中回调（搜索/趋势同一口）。
 /// 世代防串由 `save_and_emit` 内合并新鲜度 + emit 前检查执行（计数器经 `ctx` 选择）。
 /// `via`=live|m2 透传（core探测一律live，M2回填走m2不占level）。
 async fn emit_icon_job(
     handle: AppHandle,
-    job: crate::github::icon_fetch::IconFetchJob,
+    job: crate::icons::IconFetchJob,
     url: String,
     level: i32,
     via: String,
@@ -171,7 +171,7 @@ fn backfill_uncataloged_card(
     db: &crate::db::Database,
     item: &mut AppSummary,
 ) -> Option<crate::db::AppIconCycle> {
-    let staged = if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+    let staged = if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
         db,
         &item.core.id,
         &item.core.owner,
@@ -183,7 +183,7 @@ fn backfill_uncataloged_card(
         // 05 首屏回填收敛到 merge（与流式 save_and_emit 同口径）：先读旧行再合并，
         // 保留流式已攒槽位与 pinned 选择；level 经 level_for_detail_icon 判定入槽。
         let icon = item.core.icon.trim().to_string();
-        let level = crate::github::icon_fetch::level_for_detail_icon(&icon);
+        let level = crate::icons::level_for_detail_icon(&icon);
         let mut cycle = db
             .get_icon_cycle(&item.core.id)
             .ok()
@@ -191,7 +191,7 @@ fn backfill_uncataloged_card(
             .unwrap_or_else(|| {
                 crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo)
             });
-        crate::db::icon_cycle::merge_detail_icon(
+        crate::icons::merge_detail_icon(
             &mut cycle,
             level,
             &icon,
@@ -323,7 +323,7 @@ pub async fn search_apps_online(
                 );
                 let app_id = coord.to_app_id();
                 let icon = if let Ok(db) = state.db() {
-                    crate::github::http::resolve_confirmed_icon_from_db(
+                    crate::icons::resolve_confirmed_icon_from_db(
                         &db,
                         &app_id,
                         &coord.owner,
@@ -384,7 +384,7 @@ pub async fn search_apps_online(
             // Top1（`Send` 安全）：短锁预解析 owned 确认图标（同步无 `await`，锁即取即放），
             // 传 owned `String` 跨 `await`（`Send`），`fetch` 内零查询零直连；传不进（锁失败）则 `None` 回退兜底不 panic。
             let pre_confirmed: Option<String> = state.db().ok().and_then(|db| {
-                crate::github::http::resolve_confirmed_icon_from_db(
+                crate::icons::resolve_confirmed_icon_from_db(
                     &db,
                     &coord.to_app_id(),
                     &coord.owner,
@@ -397,7 +397,7 @@ pub async fn search_apps_online(
                 .await
             {
                 if let Ok(db) = state.db() {
-                    if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+                    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
                         &db,
                         &item.core.id,
                         &item.core.owner,
@@ -408,7 +408,7 @@ pub async fn search_apps_online(
                         // 05 直查回填收敛到 merge（与 backfill_uncataloged_card 同口径）：
                         // 先读旧行再合并，保留流式已攒槽位；pinned 行仅补槽不改选中。
                         let icon = item.core.icon.trim().to_string();
-                        let level = crate::github::icon_fetch::level_for_detail_icon(&icon);
+                        let level = crate::icons::level_for_detail_icon(&icon);
                         let mut cycle = db
                             .get_icon_cycle(&item.core.id)
                             .ok()
@@ -420,7 +420,7 @@ pub async fn search_apps_online(
                                     &item.core.repo,
                                 )
                             });
-                        crate::db::icon_cycle::merge_detail_icon(
+                        crate::icons::merge_detail_icon(
                             &mut cycle,
                             level,
                             &icon,
@@ -462,7 +462,7 @@ pub async fn search_apps_online(
                 if !owner.is_empty() && !repo.is_empty() {
                     let app_id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
                     state.db().ok().and_then(|db| {
-                        crate::github::http::resolve_confirmed_icon_from_db(
+                        crate::icons::resolve_confirmed_icon_from_db(
                             &db, &app_id, owner, repo,
                         )
                     })
@@ -499,15 +499,15 @@ pub async fn search_apps_online(
         .limits
         .clamp_online_search_per_page(per_page);
     // 搜索对齐趋势：已确认（`selected_url` 非空）不进 jobs，
-    // 复用 `http::resolve_confirmed_icon_from_db` + `icon_fetch::icon_key`，
+    // 复用 `icons::resolve_confirmed_icon_from_db` + `icons::icon_key`，
     // 抄趋势 `filter pre.is_none()` 语义，省重复探。
     let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {
         results
             .iter()
             .map(|item| {
-                crate::github::http::resolve_confirmed_icon_from_db(
+                crate::icons::resolve_confirmed_icon_from_db(
                     &db,
-                    &crate::github::icon_fetch::icon_key(&item.core.owner, &item.core.repo),
+                    &crate::icons::icon_key(&item.core.owner, &item.core.repo),
                     &item.core.owner,
                     &item.core.repo,
                 )
@@ -516,7 +516,7 @@ pub async fn search_apps_online(
     } else {
         results.iter().map(|_| None).collect()
     };
-    let candidates: Vec<crate::github::icon_fetch::RepoCoord> = {
+    let candidates: Vec<crate::icons::RepoCoord> = {
         // 本地收录同样视为已收录（目录模块统一判定）：跳过图标补探。
         results
             .iter()
@@ -527,7 +527,7 @@ pub async fn search_apps_online(
                     && pre.is_none()
             })
             .take(probe_cap)
-            .map(|(item, _)| crate::github::icon_fetch::RepoCoord {
+            .map(|(item, _)| crate::icons::RepoCoord {
                 id: item.core.id.to_lowercase(),
                 owner: item.core.owner.clone(),
                 repo: item.core.repo.clone(),
@@ -569,10 +569,10 @@ pub async fn search_apps_online(
         // 搜索与趋势统一走流式路（见 ADR-0015 §7）：
         // pool=5 buffer_unordered、快命中即返不等慢、慢仅快未命中且有 token 时跑、
         // 整批总量按页伸缩、逐张到达 emit。
-        let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = candidates
+        let jobs: Vec<crate::icons::IconFetchJob> = candidates
             .into_iter()
             .map(|coord| {
-                coord.into_job(crate::github::icon_fetch::IconFetchCtx::Search {
+                coord.into_job(crate::icons::IconFetchCtx::Search {
                     search_id: sid.clone(),
                     gen: current_gen,
                 })
@@ -583,7 +583,7 @@ pub async fn search_apps_online(
         let stop_gen = current_gen;
         let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
             std::sync::Arc::new(move || SEARCH_GEN.load(Ordering::SeqCst) != stop_gen);
-        tokio::spawn(crate::github::icon_fetch::fetch_icons_stream(
+        tokio::spawn(crate::icons::fetch_icons_stream(
             handle,
             jobs,
             bg_token,
@@ -608,7 +608,7 @@ pub struct TrendEnrichRequest {
 
 /// 趋势 enrich 目标整形：take(40) 兜底截断 + trim + 小写 id。
 /// FE 单次批量 40 上限，此处截断不静默吃超量。
-fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<crate::github::icon_fetch::RepoCoord> {
+fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<crate::icons::RepoCoord> {
     repos
         .into_iter()
         .take(40)
@@ -616,7 +616,7 @@ fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<crate::github::icon_fet
             let owner = r.owner.trim().to_string();
             let repo = r.repo.trim().to_string();
             let id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
-            crate::github::icon_fetch::RepoCoord { id, owner, repo }
+            crate::icons::RepoCoord { id, owner, repo }
         })
         .collect()
 }
@@ -625,13 +625,13 @@ fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<crate::github::icon_fet
 /// fetch 内零查询零直连。`db=None`（锁失败）时全 `None`，回退兜底不 panic。
 fn enrich_pre_confirmed(
     db: Option<&crate::db::Database>,
-    targets: &[crate::github::icon_fetch::RepoCoord],
+    targets: &[crate::icons::RepoCoord],
 ) -> Vec<Option<String>> {
     match db {
         Some(db) => targets
             .iter()
             .map(|t| {
-                crate::github::http::resolve_confirmed_icon_from_db(db, &t.id, &t.owner, &t.repo)
+                crate::icons::resolve_confirmed_icon_from_db(db, &t.id, &t.owner, &t.repo)
             })
             .collect(),
         None => targets.iter().map(|_| None).collect(),
@@ -639,7 +639,7 @@ fn enrich_pre_confirmed(
 }
 
 struct EnrichBatchJob {
-    coord: crate::github::icon_fetch::RepoCoord,
+    coord: crate::icons::RepoCoord,
     pre: Option<String>,
     cached_etag: Option<String>,
     cached_payload: Option<String>,
@@ -651,7 +651,7 @@ struct EnrichBatchJob {
 pub(crate) fn resolve_local_enrich_hit(
     db: &crate::db::Database,
     catalog: &crate::github::CatalogService,
-    coord: &crate::github::icon_fetch::RepoCoord,
+    coord: &crate::icons::RepoCoord,
     pre_icon: Option<&str>,
     cached_payload: Option<&str>,
 ) -> Option<AppSummary> {
@@ -888,12 +888,12 @@ pub async fn enrich_trend_repos(
     // 后台流式：无确认图标的仓全部入 `fetch_icons_stream(Trend)`，
     // 快命中即返不等慢、逐张到达 `emit_icon_ready`（含 GitHub 失败的裸行仓，
     // 前端缓冲等 enrich 重试/详情治愈时合并，空永不覆盖实）。
-    let jobs: Vec<crate::github::icon_fetch::IconFetchJob> = targets
+    let jobs: Vec<crate::icons::IconFetchJob> = targets
         .into_iter()
         .zip(pre_confirmed)
         .filter(|(_, pre)| pre.is_none())
         .map(|(coord, _)| {
-            coord.into_job(crate::github::icon_fetch::IconFetchCtx::Trend {
+            coord.into_job(crate::icons::IconFetchCtx::Trend {
                 board: board_name.clone(),
                 gen: current_gen,
             })
@@ -906,7 +906,7 @@ pub async fn enrich_trend_repos(
         let stop_gen = current_gen;
         let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
             std::sync::Arc::new(move || BOARD_GEN.load(Ordering::SeqCst) != stop_gen);
-        tokio::spawn(crate::github::icon_fetch::fetch_icons_stream(
+        tokio::spawn(crate::icons::fetch_icons_stream(
             handle,
             jobs,
             bg_token,
@@ -1028,14 +1028,14 @@ mod tests {
     fn select_gen_lane_selects_counter_by_ctx() {
         // 同一 emit 口：Search 查 SEARCH_GEN，Trend 查 BOARD_GEN；期望 gen 原样回显。
         // 趋势落库/emit 世代收敛仍查 BOARD_GEN（合并新鲜度 + emit 前查 gen，行为一致）。
-        let search = crate::github::icon_fetch::IconFetchCtx::Search {
+        let search = crate::icons::IconFetchCtx::Search {
             search_id: "s1".to_string(),
             gen: 7,
         };
         let (counter, gen) = super::select_gen_lane(&search);
         assert_eq!(gen, 7);
         assert!(std::ptr::eq(counter, &super::SEARCH_GEN));
-        let trend = crate::github::icon_fetch::IconFetchCtx::Trend {
+        let trend = crate::icons::IconFetchCtx::Trend {
             board: "weekly".to_string(),
             gen: 3,
         };
@@ -1048,16 +1048,16 @@ mod tests {
     #[test]
     fn emit_payload_carries_ctx_through_single_interface() {
         // 同一载荷构建口，Trend 上下文原样透传（id 小写归一，level/via 透传）。
-        let job = crate::github::icon_fetch::IconFetchJob {
+        let job = crate::icons::IconFetchJob {
             id: "o/r".to_string(),
             owner: "O".to_string(),
             repo: "R".to_string(),
-            ctx: crate::github::icon_fetch::IconFetchCtx::Trend {
+            ctx: crate::icons::IconFetchCtx::Trend {
                 board: "weekly".to_string(),
                 gen: 3,
             },
         };
-        let p = crate::github::icon_fetch::icon_ready_payload(
+        let p = crate::icons::icon_ready_payload(
             &job,
             "https://cdn.simpleicons.org/r",
             2,
@@ -1133,7 +1133,7 @@ mod tests {
         // pinned L5（用户手动选空徽章）：过期命中只补槽，level=5 与双空选中态保持（锁徽章态）。
         let l4 = "https://raw.githubusercontent.com/o/r/main/logo.png";
         let mut c = crate::db::AppIconCycle::new("o/r", "o", "r");
-        crate::db::icon_cycle::seal_empty_selection(&mut c);
+        crate::icons::seal_empty_selection(&mut c);
         c.pinned = true;
         let was_pinned = super::merge_stream_hit(&mut c, 4, l4, false, 2000, false);
         assert!(was_pinned);
@@ -1246,7 +1246,7 @@ mod tests {
         };
         db.save_cached_app_detail("acme/from-detail", &detail)
             .unwrap();
-        let coord1 = crate::github::icon_fetch::RepoCoord {
+        let coord1 = crate::icons::RepoCoord {
             id: "acme/from-detail".to_string(),
             owner: "acme".to_string(),
             repo: "from-detail".to_string(),
@@ -1280,7 +1280,7 @@ mod tests {
             "license": { "spdx_id": "BSD-3-Clause" },
             "topics": ["developer", "terminal"]
         }"#;
-        let coord2 = crate::github::icon_fetch::RepoCoord {
+        let coord2 = crate::icons::RepoCoord {
             id: "acme/from-etag".to_string(),
             owner: "acme".to_string(),
             repo: "from-etag".to_string(),

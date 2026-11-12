@@ -4,7 +4,7 @@ import '../i18n';
 import '../styles/components-pending.css';
 import { Archive, FilePlus2, Inbox, PackageCheck, PencilLine } from 'lucide-react';
 import { FilterEmptyState, ViewShell } from './ViewShell';
-import type { DraftItem } from '../services/custom/types';
+import type { DraftItem } from '../services/custom';
 import {
   getLicenseAllowlist,
   type LicenseAllowlistResult,
@@ -31,7 +31,7 @@ import {
   type PendingSegmentId,
 } from './pending/draftModel';
 import { runSubmitPrefillFlow } from './pending/submitPrefillFlow';
-import type { ShowToast } from './pending/pendingText';
+import type { ShowToast } from '../types';
 import { PendingListColumn } from './pending/PendingListColumn';
 import { PendingRichCard } from './pending/PendingRichCard';
 import { PendingPreviewLane } from './pending/PendingPreviewLane';
@@ -408,7 +408,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const collectFormItem = (): DraftItem =>
     buildNormalizedFormItem(form, aliasesText, platformsText, identifiersText);
 
-  // 首错定位：按表单顺序找首个错误 key，滚动到复用的 errorStyle 内联槽位并聚焦输入。
+  // 首错定位：按表单顺序找首个错误 key，滚动到复用的 .pending-field-error 内联槽位并聚焦输入。
   const focusFirstError = (errors: PendingDraftErrors) => {
     const order: Array<keyof PendingDraftErrors> = [
       'owner',

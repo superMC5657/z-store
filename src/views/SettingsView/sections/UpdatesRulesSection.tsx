@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Check, Shield } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
 import { ClientUpdateRow } from '../../../components/ClientUpdateRow';
-import { SettingsSection } from '../SettingsSection';
 import type { AppSettings } from '../../../types';
 
 interface UpdatesRulesSectionProps {
@@ -30,7 +29,7 @@ export const UpdatesRulesSection: React.FC<UpdatesRulesSectionProps> = ({
   const { t } = useTranslation();
 
   return (
-    <SettingsSection title={t('settings.updates_rules')}>
+    <>
       <div className={`settings-row ${highlightRow === 'update_frequency' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -117,6 +116,6 @@ export const UpdatesRulesSection: React.FC<UpdatesRulesSectionProps> = ({
           )}
         </button>
       </div>
-    </SettingsSection>
+    </>
   );
 };

@@ -136,7 +136,7 @@ export function togglePlatformSet(prev: ReadonlySet<PlatformId>, id: string): Se
  * 空数组 / 仅未知项 / null / undefined 均解析为空 Set（绝不回退至全选），
  * 确保 `[]` 能完整往返持久化。
  *
- * 注意：此函数与 `src/App.tsx` 中的 `parseSelectedPlatforms` 有所区别——
+ * 注意：此函数与本模块中的 `parseSelectedPlatforms` 有所区别——
  * 后者接收原始 localStorage 字符串（string | null | undefined），并在缺失或损坏时回退至全选集合；
  * 而本数组版本从不回退，null 即表示空选择。
  */
@@ -418,4 +418,59 @@ export function scheduleSettleConfirm(schedule: SettleSchedule): () => void {
   return () => {
     clearTimeout(timer);
   };
+}
+
+export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v2';
+const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
+
+/**
+ * 将原始 localStorage 字符串解析为经过验证的平台选择集合。
+ * 未知 ID 会被白名单过滤剔除，有效空数组按 `[]` 原样返回；
+ * 仅在键缺失或 JSON 损坏/非数组时回退至全选集合（等效于“无过滤”）。
+ */
+export function parseSelectedPlatforms(raw: string | null | undefined): Set<PlatformId> {
+  const full = new Set<PlatformId>(PLATFORM_IDS);
+  if (!raw) return full;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return full;
+  }
+  if (!Array.isArray(parsed)) return full;
+  const known = new Set<PlatformId>();
+  for (const id of parsed) {
+    if (typeof id !== 'string') continue;
+    const n = normalizePlatform(id);
+    if ((PLATFORM_IDS as readonly string[]).includes(n)) known.add(n as PlatformId);
+  }
+  return known;
+}
+
+/**
+ * 首次渲染时读取持久化的平台选择（保证不抛错：缺失/损坏/存储异常回退至全选集合，有效空数组保持为空）。
+ */
+export function loadSelectedPlatforms(): Set<PlatformId> {
+  const full = new Set<PlatformId>(PLATFORM_IDS);
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return full;
+    const current = window.localStorage.getItem(PLATFORM_FILTER_STORAGE_KEY);
+    if (current !== null) return parseSelectedPlatforms(current);
+    return full;
+  } catch {
+    return full;
+  }
+}
+
+/**
+ * 未接入 `onResetPlatformFilter` 时的兜底重置方案：
+ * 清理持久化存储并广播 `zstore:reset-platform-filter` 重置事件。
+ */
+export function broadcastPlatformReset(): void {
+  try {
+    window.localStorage.removeItem(PLATFORM_FILTER_STORAGE_KEY);
+  } catch {
+    // 忽略：存储抛错时保持内存中的选择
+  }
+  window.dispatchEvent(new CustomEvent(PLATFORM_RESET_EVENT));
 }

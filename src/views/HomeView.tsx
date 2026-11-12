@@ -31,9 +31,8 @@ import { annotateIsCataloged, annotateOnlineCataloged, buildCatalogIdSet, isInst
 import { resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import { normalizeId } from '../services/normalizeId';
 import { tauriApi } from '../services/api';
-import { moveInToDraft } from '../services/custom/draft';
-import { resolveRemoteIconUrl } from '../services/custom/iconUrl';
-import { notifyToast } from '../utils/notify';
+import { moveInToDraft, resolveRemoteIconUrl } from '../services/custom';
+import { notifyToast } from '../useToasts';
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /**

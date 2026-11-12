@@ -1,6 +1,6 @@
 import React from 'react';
 import { isTauri } from '../services/api';
-import { startWindowResizeDragging, type WindowResizeDirection } from '../services/window';
+import { startWindowResizeDragging, type WindowResizeDirection } from '../services/desktop';
 
 interface HandleDef {
   direction: WindowResizeDirection;

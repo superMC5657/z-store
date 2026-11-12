@@ -55,7 +55,7 @@ vi.mock('./services/api', () => {
 });
 
 import { App } from './App';
-import { PLATFORM_FILTER_STORAGE_KEY } from './app/platformStorage';
+import { PLATFORM_FILTER_STORAGE_KEY } from './lib/platformFilter';
 
 // 下方的同一 tick 派发直接使用 React.act（而非通过 fireEvent），
 // 显式为 jsdom 环境启用 act() 以避免无害告警。

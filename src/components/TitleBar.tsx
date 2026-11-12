@@ -3,7 +3,7 @@ import { Clock, Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { BrandLogo } from './BrandLogo';
 import { tauriApi } from '../services/api';
-import { closeWindow, minimizeWindow, toggleMaximizeWindow, isWindowMaximized } from '../services/window';
+import { closeWindow, minimizeWindow, toggleMaximizeWindow, isWindowMaximized } from '../services/desktop';
 
 interface TitleBarProps {
   searchQuery: string;

@@ -1,4 +1,4 @@
-use super::developer_endpoints::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE};
+use super::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE};
 use super::developer_profile::EtagGetOutcome;
 use super::models::{CatalogItem, GitHubRepoResponse};
 use super::CatalogService;

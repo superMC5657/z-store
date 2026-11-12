@@ -11,7 +11,7 @@ import {
   type FeedStrategy,
 } from '../../services/feed';
 import { getAppDescription, getCategoryLabel } from '../../utils/appHelper';
-import { isPlaceholderDescription } from '../../services/trends/enrich';
+import { isPlaceholderDescription } from '../../services/trends';
 
 type HomeFeedPage = {
   items: AppSummary[];

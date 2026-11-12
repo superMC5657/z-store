@@ -13,7 +13,7 @@ import {
   markTrendConfirmedOther,
   snapshotTrendEnrichCache,
 } from './enrich';
-import { fetchTrendsResult } from './boards';
+import { fetchTrendsResult } from '../trends';
 import { tauriApi } from '../api';
 import { makeTrendRepo, makeEnrichedApp } from '../../views/test-utils/trendFixture';
 

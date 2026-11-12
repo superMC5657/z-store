@@ -2,7 +2,13 @@
  * 资产过滤与安装/下载分流契约测试（对应详情弹窗抽屉需求）。
  */
 import { describe, expect, it } from 'vitest';
-import { isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from './appHelper';
+import {
+  detectHostArch,
+  detectHostOs,
+  isInstallableAssetKind,
+  isProductAssetName,
+  sortAssetsByRelevance,
+} from './appHelper';
 
 describe('isProductAssetName', () => {
   it.each([
@@ -183,5 +189,33 @@ describe('sortAssetsByRelevance', () => {
     const sorted = sortAssetsByRelevance(pair, 'windows', 'x86_64');
     expect(sorted.map((a) => a.name)).toEqual(['a.msi', 'b.msi']);
     expect(pair[0].name).toBe('b.msi');
+  });
+});
+
+describe('detectHostOs & detectHostArch (AppDetailModal UA cascade)', () => {
+  const WIN_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+  const MAC_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+  const LINUX_ARM_UA =
+    'Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+  const LINUX_X64_UA =
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+
+  it('detectHostOs maps Windows / mac / darwin / linux and falls back to windows', () => {
+    expect(detectHostOs(WIN_UA)).toBe('windows');
+    expect(detectHostOs(MAC_UA)).toBe('macos');
+    expect(detectHostOs('darwin/23.0 (arm64)')).toBe('macos');
+    expect(detectHostOs(LINUX_X64_UA)).toBe('linux');
+    expect(detectHostOs('')).toBe('windows');
+    expect(detectHostOs('some-unknown-agent/1.0')).toBe('windows');
+  });
+
+  it('detectHostArch maps arm64 / aarch64 and falls back to x86_64', () => {
+    expect(detectHostArch(LINUX_ARM_UA)).toBe('aarch64');
+    expect(detectHostArch('Mozilla/5.0 (Macintosh; arm64)')).toBe('aarch64');
+    expect(detectHostArch(WIN_UA)).toBe('x86_64');
+    expect(detectHostArch(LINUX_X64_UA)).toBe('x86_64');
+    expect(detectHostArch('')).toBe('x86_64');
   });
 });

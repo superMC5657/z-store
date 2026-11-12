@@ -63,6 +63,33 @@ export function formatBytes(bytes?: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+/** 文本复制（剪贴板 API 优先，失败回退 textarea + execCommand；永远不抛异常）。 */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 回退 textarea 方案
+  }
+  try {
+    if (typeof document === 'undefined') return false;
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 根据当前语言获取应用展示描述
  * 英文或非中文环境下优先展示 description_en，无则回退到 description
@@ -267,6 +294,32 @@ export function sortAssetsByRelevance<T extends AssetRelevance>(
     if (diff !== 0) return diff;
     return x.name.localeCompare(y.name);
   });
+}
+
+type HostOs = 'windows' | 'macos' | 'linux';
+type HostArch = 'x86_64' | 'aarch64';
+
+/** 宿主系统环境嗅探（navigator.userAgent 级联），供详情弹窗安装包版本资产匹配，测试可注入 UA。 */
+export function detectHostOs(userAgent?: string): HostOs {
+  if (userAgent === undefined) {
+    if (typeof navigator === 'undefined') return 'windows';
+    userAgent = navigator.userAgent;
+  }
+  const ua = userAgent.toLowerCase();
+  if (ua.includes('mac') || ua.includes('darwin')) return 'macos';
+  if (ua.includes('linux')) return 'linux';
+  return 'windows';
+}
+
+/** 宿主 CPU 架构嗅探（navigator.userAgent 级联），供详情弹窗资产匹配，测试可注入 UA。 */
+export function detectHostArch(userAgent?: string): HostArch {
+  if (userAgent === undefined) {
+    if (typeof navigator === 'undefined') return 'x86_64';
+    userAgent = navigator.userAgent;
+  }
+  const ua = userAgent.toLowerCase();
+  if (ua.includes('arm64') || ua.includes('aarch64')) return 'aarch64';
+  return 'x86_64';
 }
 
 

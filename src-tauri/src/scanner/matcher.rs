@@ -248,4 +248,22 @@ impl AppScanner {
         });
         final_results
     }
+
+    /// 在系统扫描结果与目录之间执行启发式匹配，并排除已纳管应用。
+    /// 已纳管判定经 `forge::canonical_lookup_id` 归一，治愈大小写/前缀漂移（ADR-0010）。
+    pub fn match_unmanaged(
+        scanned_apps: &[ScannedRawApp],
+        catalog: &[CatalogItem],
+        installed_ids: impl IntoIterator<Item = String>,
+    ) -> Vec<AppMatchResult> {
+        let managed: std::collections::HashSet<String> = installed_ids
+            .into_iter()
+            .map(|id| crate::forge::canonical_lookup_id(&id))
+            .filter(|k| !k.is_empty())
+            .collect();
+        Self::match_apps(scanned_apps, catalog)
+            .into_iter()
+            .filter(|m| !managed.contains(&crate::forge::canonical_lookup_id(&m.catalog_id)))
+            .collect()
+    }
 }

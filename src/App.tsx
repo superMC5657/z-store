@@ -25,16 +25,17 @@ import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
-import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload } from './types';
+import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload, createNavigate } from './types';
 import { tauriApi } from './services/api';
-import { togglePlatformSet, type PlatformId } from './lib/platformFilter';
-import { isPlatformLoading } from './lib/platformFilter';
-import { normalizeId } from './services/normalizeId';
-
 import {
   PLATFORM_FILTER_STORAGE_KEY,
+  isPlatformLoading,
   loadSelectedPlatforms,
-} from './app/platformStorage';
+  togglePlatformSet,
+  type PlatformId,
+} from './lib/platformFilter';
+import { normalizeId } from './services/normalizeId';
+
 import { InstallConfirmDialog } from './app/InstallConfirmDialog';
 import { usePlatformBackfill } from './app/hooks/usePlatformBackfill';
 import { useSearchState } from './app/hooks/useSearchState';
@@ -47,7 +48,6 @@ import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors } from './app/selectors';
 import { selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
-import { createNavigate } from './app/navigation';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
@@ -66,7 +66,7 @@ interface InstallAppRequest {
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   // 集中导航入口：全部视图切换（Sidebar/搜索回跳/深链 open_view/账号设置/趋势跳转）唯一收口，
-  // 合法 ViewType 校验收口于 app/navigation（非法视图拒绝，不回落 home）。
+  // 合法 ViewType 校验收口于 types（非法视图拒绝，不回落 home）。
   const navigate = useMemo(() => createNavigate(setCurrentView), [setCurrentView]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [apps, setApps] = useState<AppSummary[]>([]);

@@ -196,7 +196,7 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
 /// None 保持调用方原值，此处不二次判定）。
 /// 收录/未收录双分支共用（catalog 静态 / detail.icon 均为旧值，需同等覆盖）。
 fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
-    if let Some(ci) = crate::github::http::resolve_confirmed_icon_from_db(
+    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
         db,
         &summary.core.id,
         &summary.core.owner,
@@ -281,159 +281,18 @@ pub fn import_user_data(
     state: State<'_, AppState>,
     json: String,
 ) -> crate::AppResult<ImportUserDataResult> {
-    let plan = crate::userdata::parse_import_payload(&json)?;
     let db = state.db()?;
-
-    // 归一校验前置于任何写入（fail-fast，坏载荷零写入）；
-    // 随后单事务合入：任一步失败整体回滚，不留半量导入数据。
-    let favorite_ids = plan
-        .favorites
-        .iter()
-        .map(|id| super::require_app_id(id))
-        .collect::<Result<Vec<String>, String>>()?;
-    let watched_ids = plan
-        .watched
-        .iter()
-        .map(|id| super::require_app_id(id))
-        .collect::<Result<Vec<String>, String>>()?;
-
-    Ok(apply_import_plan(
-        &db,
-        |id| state.catalog.is_cataloged(id),
-        &favorite_ids,
-        &watched_ids,
-        &plan.settings,
-    )
-    .map_err(|e| e.to_string())?)
-}
-
-/// 导入事务体（命令与单测共用的生产一致路径）：
-/// 收藏→关注→设置依序合入，`BEGIN IMMEDIATE` 包裹，失败整体 ROLLBACK 并上浮 Err。
-fn apply_import_plan(
-    db: &crate::db::Database,
-    catalog_flag: impl Fn(&str) -> bool,
-    favorite_ids: &[String],
-    watched_ids: &[String],
-    settings: &[(String, String)],
-) -> rusqlite::Result<ImportUserDataResult> {
-    db.with_immediate_transaction(|| {
-        let mut favorites_added = 0usize;
-        let mut watched_added = 0usize;
-        let mut settings_applied = 0usize;
-
-        // 收藏/关注与安装态正交：同机恢复也必须合入；收录标记写时按目录判定一次。
-        for id in favorite_ids {
-            if db.add_favorite(id, catalog_flag(id))? {
-                favorites_added += 1;
-            }
-        }
-        for id in watched_ids {
-            if db.watch_app(id, catalog_flag(id))? {
-                watched_added += 1;
-            }
-        }
-        for (key, value) in settings {
-            let normalized = crate::db::normalize_setting_value(key, value);
-            db.set_setting(key, &normalized)?;
-            settings_applied += 1;
-        }
-
-        Ok(ImportUserDataResult {
-            favorites_added,
-            watched_added,
-            settings_applied,
-        })
-    })
-}
-
-#[cfg(test)]
-mod import_restore_tests {
-    use crate::db::Database;
-    use crate::models::InstalledApp;
-
-    fn installed_app(app_id: &str) -> InstalledApp {
-        InstalledApp {
-            app_id: app_id.to_string(),
-            app_name: "RustDesk".to_string(),
-            version: "1.0.0".to_string(),
-            installed_at: 1700000000,
-            install_method: "test".to_string(),
-            install_path: "C:\\test".to_string(),
-            asset_name: "test.exe".to_string(),
-            asset_sha256: "abc".to_string(),
-            uninstall_command: None,
-            icon: None,
-            icon_bg: None,
-        }
+    let result = crate::userdata::import_backup(&db, |id| state.catalog.is_cataloged(id), &json)?;
+    if result.favorites_added > 0 || result.watched_added > 0 {
+        crate::notify_affinity_updated();
     }
-
-    #[test]
-    fn test_same_machine_restore_merges_favorites_and_watch_for_installed_apps() {
-        // 同机备份恢复：已安装应用的收藏/关注是独立用户数据，导入合入时不得因已安装而跳过。
-        // （注：`import_user_data` 的命令入口需 Tauri State 挂载——`tauri::test`
-        // 能力门控于 tauri 自身 `test` feature，本 crate 未启用，故直调命令事务体
-        // `apply_import_plan`（生产一致路径）断言。）
-        let db = Database::open_in_memory().expect("内存数据库应当可用");
-        db.save_installed_app(&installed_app("rustdesk/rustdesk"))
-            .expect("预置已安装应用应当成功");
-
-        let json = r#"{
-            "version": 1,
-            "favorites": ["rustdesk/rustdesk"],
-            "watched": ["rustdesk/rustdesk"],
-            "settings": {}
-        }"#;
-        let plan = crate::userdata::parse_import_payload(json).expect("合法导入 JSON 应当成功");
-
-        let result = super::apply_import_plan(
-            &db,
-            |_| true,
-            &plan.favorites,
-            &plan.watched,
-            &plan.settings,
-        )
-        .expect("合并导入应当成功");
-
-        assert_eq!(result.favorites_added, 1, "已安装应用的收藏应当合入");
-        assert_eq!(result.watched_added, 1, "已安装应用的关注应当合入");
-        assert!(
-            db.get_favorites()
-                .unwrap()
-                .contains(&"rustdesk/rustdesk".to_string()),
-            "收藏表应当包含已安装应用"
-        );
-        assert!(
-            db.get_watched_apps()
-                .unwrap()
-                .iter()
-                .any(|w| w.app_id == "rustdesk/rustdesk"),
-            "关注表应当包含已安装应用"
-        );
-    }
-
-    #[test]
-    fn test_import_transaction_rolls_back_partial_writes() {
-        // 事务性锁值：合入中途失败必须整体回滚，不留半量导入数据
-        // （`apply_import_plan` 即经此 `with_immediate_transaction` 原语包裹）。
-        let db = Database::open_in_memory().expect("内存数据库应当可用");
-        let err = db
-            .with_immediate_transaction(|| -> rusqlite::Result<()> {
-                db.add_favorite("rustdesk/rustdesk", true)?;
-                Err(rusqlite::Error::InvalidParameterName(
-                    "注入的写入失败".to_string(),
-                ))
-            })
-            .expect_err("注入的写入失败应当上浮");
-        assert!(err.to_string().contains("注入的写入失败"));
-        assert!(
-            db.get_favorites().unwrap().is_empty(),
-            "事务回滚后半量收藏不得残留"
-        );
-        assert!(
-            db.get_watched_apps().unwrap().is_empty(),
-            "事务回滚不得污染后续写入"
-        );
-    }
+    log::info!(
+        "userdata import ok favorites={} watched={} settings={}",
+        result.favorites_added,
+        result.watched_added,
+        result.settings_applied
+    );
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -41,9 +41,12 @@ async function bootstrap(): Promise<void> {
     } catch {
       // 预先应用属于尽力而为（best-effort）；App 后续会通过 get_settings 应用相同数值
     }
-    const { initBrowserLockdown } = await import('./utils/browserLockdown');
-    initBrowserLockdown();
-    const { App } = await import('./App');
+    const [{ initBrowserLockdown }, { tauriApi }, { App }] = await Promise.all([
+      import('./utils/browserLockdown'),
+      import('./services/api'),
+      import('./App'),
+    ]);
+    initBrowserLockdown((url) => tauriApi.openUrl(url));
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <React.StrictMode>
         <ErrorBoundary>
@@ -54,12 +57,12 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  const { initBrowserLockdown } = await import('./utils/browserLockdown');
-  initBrowserLockdown();
-  const [{ isTauri }, { App }] = await Promise.all([
+  const [{ initBrowserLockdown }, { isTauri, tauriApi }, { App }] = await Promise.all([
+    import('./utils/browserLockdown'),
     import('./services/api'),
     import('./App'),
   ]);
+  initBrowserLockdown((url) => tauriApi.openUrl(url));
 
   // ZStore 仅以 Tauri 桌面端形态运行；浏览器直接打开时给出明确提示，不做模拟降级
   if (!isTauri) {

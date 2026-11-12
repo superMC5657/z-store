@@ -1,6 +1,6 @@
 import React from 'react';
 import { EmptyState } from '../components/EmptyState';
-import { PLATFORM_FILTER_STORAGE_KEY } from '../app/platformStorage';
+import { broadcastPlatformReset } from '../lib/platformFilter';
 import type { AppSummary } from '../types';
 
 /**
@@ -8,28 +8,12 @@ import type { AppSummary } from '../types';
  *
  * 提供：
  * - 外层 `<div className="*-view view-entrance">` 壳
- * - `broadcastPlatformReset` 兜底
+ * - 平台重置回调与 `broadcastPlatformReset`（自 `lib/platformFilter` 引入）兜底
  * - `.filter-empty-reset` 空状态按钮
  *
  * 约束：后端字段不动，只涉及前端展示层。`viewClass` 保持各 View
  * 原有的 CSS 类名不变，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
  */
-
-const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
-
-/**
- * 当 App 尚未接入 `onResetPlatformFilter` 时的兜底重置方案：
- * 清理持久化存储（`loadSelectedPlatforms` 在缺少键时会回退至全选集合），
- * 并向所有监听器广播重置意图。键经 `app/platformStorage` 单源导入，与持久化读写同键。
- */
-function broadcastPlatformReset(): void {
-  try {
-    window.localStorage.removeItem(PLATFORM_FILTER_STORAGE_KEY);
-  } catch {
-    // 忽略：存储抛错时保持内存中的选择
-  }
-  window.dispatchEvent(new CustomEvent(PLATFORM_RESET_EVENT));
-}
 
 /** 各内容 View 共用的应用网格 Props（Home / Categories / Favorites / Trends 对齐）。 */
 export interface ViewAppActions {

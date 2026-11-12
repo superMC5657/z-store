@@ -1,8 +1,3 @@
-import { tauriApi } from '../services/api';
-import { resolveFallbackOpener } from './fallbackOpener';
-
-export { resolveFallbackOpener };
-
 /**
  * 桌面原生化锁闭（第二轮去浏览器化）：
  * 关闭右键、缩放、查找、浏览器历史导航、另存为、打印、源码、调试器等浏览器默认行为。
@@ -21,29 +16,42 @@ export { resolveFallbackOpener };
  * - dragover / drop：全局阻止文件拖拽替换页面（防 file:// 顶替）
  * - mouse auxclick / mouseup：侧键（button 3/4 前进后退）阻止
  * - window.print：重写为空函数
- * - window.open：劫持转走 tauriApi.openUrl 并返回 null
- * - click 事件委托：a[target="_blank"] 及 http/https 外链拦截转走 tauriApi.openUrl
+ * - window.open：劫持转走注入的外链打开器（默认 `tauriApi.openUrl`）并返回 null
+ * - click 事件委托：a[target="_blank"] 及 http/https 外链拦截转走注入的外链打开器
  *
  * 显式放行：Ctrl+K（搜索聚焦）、Escape（关闭菜单）、Ctrl+C/V/X/A/Z/Y（标准编辑）、Tab/Enter/Space
  */
 
 let isInitialized = false;
+let openExternalHandler: ((url: string) => unknown) | null = null;
 
 /**
  * 劫持前捕获的原生 `window.open`（fallback 专用，绕过劫持直达浏览器）：
  * 劫持版 `window.open` 同步返回 null，直接调用必被拦截，所以必须在覆写前一次性捕获
  * 原生 opener 并同步到 `window.__ZSTORE_NATIVE_OPEN__`，兜底经该全局键绕过劫持直达
  * 浏览器；非劫持（未初始化/单测桩）时用当前 `window.open` 本体即可。
- * - `initBrowserLockdown` 在覆写前捕获并同步到全局键；`settings.openUrl` 与 `PendingView`
- *   的兜底均经 `utils/fallbackOpener` 的 `resolveFallbackOpener()` 读取（本文件再导出），
- *   该叶子模块不导入 `services/`，避免 `settings → browserLockdown → services/api` 循环；
- * - Demo 的 `__ZSTORE_DEMO_NATIVE_OPEN__` 同为劫持前捕获，两键任一可用即视为原生可用。
  */
 let cachedNativeOpen: typeof window.open | null = null;
 
 /** 读取劫持前捕获的原生 opener（未初始化时为 null）。 */
 export function getNativeWindowOpen(): typeof window.open | null {
   return cachedNativeOpen;
+}
+
+/** 解析绕过劫持的原生 opener（优先 `__ZSTORE_NATIVE_OPEN__` / `__ZSTORE_DEMO_NATIVE_OPEN__`）。 */
+export function resolveFallbackOpener(): typeof window.open | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const w = window as unknown as Record<string, unknown>;
+    const stored = w['__ZSTORE_NATIVE_OPEN__'] ?? w['__ZSTORE_DEMO_NATIVE_OPEN__'];
+    if (typeof stored === 'function') {
+      return (stored as typeof window.open).bind(window);
+    }
+    if (typeof window.open === 'function') return window.open.bind(window);
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 const BLOCKED_CTRL_KEYS = new Set([
@@ -101,7 +109,10 @@ export function isBlockedShortcut(
   return false;
 }
 
-export function initBrowserLockdown(): void {
+export function initBrowserLockdown(openExternal?: (url: string) => unknown): void {
+  if (openExternal) {
+    openExternalHandler = openExternal;
+  }
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return;
   }
@@ -209,12 +220,21 @@ export function initBrowserLockdown(): void {
   } catch {
     /* 忽略 */
   }
+  const forwardExternal = (urlStr: string): void => {
+    if (openExternalHandler) {
+      void Promise.resolve(openExternalHandler(urlStr)).catch(() => {});
+      return;
+    }
+    const fallback = resolveFallbackOpener();
+    if (fallback) fallback(urlStr, '_blank', 'noopener,noreferrer');
+  };
+
   const hijackedOpen = (url?: string | URL, target?: string, features?: string): WindowProxy | null => {
     void target;
     void features;
     if (url == null) return null;
     const urlStr = typeof url === 'string' ? url : url.toString();
-    void Promise.resolve(tauriApi.openUrl(urlStr)).catch(() => {});
+    forwardExternal(urlStr);
     return null;
   };
 
@@ -228,7 +248,7 @@ export function initBrowserLockdown(): void {
     window.open = hijackedOpen;
   }
 
-  // 9. 全局外链点击事件委托：a[target="_blank"] 及 http/https 链接拦截转走 tauriApi.openUrl
+  // 9. 全局外链点击事件委托：a[target="_blank"] 及 http/https 链接拦截转走注入打开器
   document.addEventListener(
     'click',
     (e) => {
@@ -244,7 +264,7 @@ export function initBrowserLockdown(): void {
         e.preventDefault();
         e.stopPropagation();
         if (href) {
-          void Promise.resolve(tauriApi.openUrl(href.trim())).catch(() => {});
+          forwardExternal(href.trim());
         }
       }
     },

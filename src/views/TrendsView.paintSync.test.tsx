@@ -11,8 +11,7 @@ import { trendingHtmlFixture, makeEnrichedApp } from './test-utils/trendFixture'
 import { makeApp } from './test-utils/filterFixture';
 import { tauriApi } from '../services/api';
 import * as clientModule from '../services/api/client';
-import { clearTrendsCache } from '../services/trends/cache';
-import { clearTrendEnrichCache, snapshotTrendEnrichCache } from '../services/trends/enrich';
+import { clearTrendEnrichCache, clearTrendsCache, snapshotTrendEnrichCache } from '../services/trends';
 import type { TrendRepo } from '../types';
 
 describe('裸行直展：未就绪展裸行不展骨架', () => {

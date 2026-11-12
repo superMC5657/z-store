@@ -25,7 +25,7 @@ import {
   clearTrendEnrichCache,
   putTrendEnrichMemory,
   snapshotTrendEnrichCache,
-} from '../../services/trends/enrich';
+} from '../../services/trends';
 import { __resetIconStoreForTests } from '../../services/iconStore';
 
 const mocks = vi.hoisted(() => ({

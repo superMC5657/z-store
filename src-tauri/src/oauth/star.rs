@@ -1,5 +1,4 @@
-use super::constants::GITHUB_API_BASE;
-use super::types::{AddToListOutcome, OAuthUser, StarRepoOutcome};
+use super::{AddToListOutcome, OAuthUser, StarRepoOutcome, GITHUB_API_BASE};
 use serde::Deserialize;
 
 /// Star API 地址构造（纯函数）。
@@ -85,7 +84,7 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
 
 /// 查询是否已 Star（204 = 已 Star，404 = 未 Star）。
 pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool, String> {
-    let resp = super::http::authed_req(
+    let resp = super::authed_req(
         reqwest::Method::GET,
         &starred_api_url(owner, repo),
         token,
@@ -98,7 +97,7 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
         404 => Ok(false),
         code => {
             let op_ctx = format!("op=check_starred owner={} repo={}", owner, repo);
-            super::http::map_auth_status(
+            super::map_auth_status(
                 code,
                 &op_ctx,
                 "GitHub 授权已失效 (401)，请重新登录",
@@ -112,7 +111,7 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
 /// Star 指定仓库（幂等，PUT 成功返回 204）。
 /// 并自动尝试将仓库归入 GitHub User List（z-store-list 列表）。
 pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoOutcome, String> {
-    let resp = super::http::authed_req(
+    let resp = super::authed_req(
         reqwest::Method::PUT,
         &starred_api_url(owner, repo),
         token,
@@ -156,7 +155,7 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
     } else {
         let code = resp.status().as_u16();
         let op_ctx = format!("op=star owner={} repo={}", owner, repo);
-        super::http::map_auth_status(
+        super::map_auth_status(
             code,
             &op_ctx,
             "GitHub 授权已失效 (401)，请重新登录",
@@ -391,7 +390,7 @@ pub async fn add_repo_to_star_list(
 
 /// 取消 Star（幂等，DELETE 成功返回 204）。
 pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), String> {
-    let resp = super::http::authed_req(
+    let resp = super::authed_req(
         reqwest::Method::DELETE,
         &starred_api_url(owner, repo),
         token,
@@ -406,7 +405,7 @@ pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), Str
         let status = resp.status();
         let op_ctx = format!("op=unstar owner={} repo={}", owner, repo);
         let forbidden_msg = format!("取消 Star 失败，HTTP 状态码: {}", status);
-        super::http::map_auth_status(
+        super::map_auth_status(
             code,
             &op_ctx,
             "GitHub 授权已失效 (401)，请重新登录",

@@ -1,5 +1,5 @@
 import type { AppSummary } from '../../types';
-import { TREND_DB_PAYLOAD_MAX_BYTES, utf8ByteLength } from '../trends/cache';
+import { TREND_DB_PAYLOAD_MAX_BYTES, utf8ByteLength } from '../trends';
 import { normalizeId } from '../normalizeId';
 
 /** 搜索列表缓存：M1 内存。key=`search|norm|page|perPage`，TTL 30min，50 条 FIFO，无 timer（提交/翻页时 sweep）。 */

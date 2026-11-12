@@ -1,7 +1,6 @@
 use futures_util::future::BoxFuture;
 
 use super::coord::ForgeType;
-use crate::installer::InstallerEngine;
 use crate::models::ReleaseAsset;
 use serde::{Deserialize, Serialize};
 
@@ -64,13 +63,13 @@ pub(crate) fn parse_assets(
         .collect()
 }
 
-/// 单资产分类唯一落点（msix/setup_exe 双轨合一）：`InstallerEngine::classify_asset`
+/// 单资产分类唯一落点（msix/setup_exe 双轨合一）：`crate::installer::classify_asset`
 /// 基础上，`.msix` 特判保留 `setup_exe` kind（classify 归 Other）、`os=all` 归 `windows`。
 /// forge `parse_assets` 与 GitHub 详情 `build_release_assets` 共用的单资产分类入口。
 /// 返回 `(kind_str, os, arch)`，均已 String 化供 `ReleaseAsset` 直填。
 pub(crate) fn classify_asset_fields(name: &str) -> (String, String, String) {
     let is_msix = name.to_lowercase().ends_with(".msix");
-    let (kind, os, arch) = InstallerEngine::classify_asset(name);
+    let (kind, os, arch) = crate::installer::classify_asset(name);
     let kind_str = match &kind {
         crate::installer::AssetKind::Other if is_msix => "setup_exe",
         _ => kind.as_str(),

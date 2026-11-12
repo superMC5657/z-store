@@ -11,10 +11,6 @@ static LAST_LOGOUT_INFO_MS: AtomicU64 = AtomicU64::new(0);
 const LOGIN_DEDUP_WINDOW_MS: u64 = 5000;
 const LOGOUT_DEDUP_WINDOW_MS: u64 = 2000;
 
-fn now_ms() -> u64 {
-    crate::now_ms()
-}
-
 /// 开始 Device Flow：返回用户验证码与浏览器授权地址（前端展示二维码/链接并轮询）。
 #[tauri::command]
 pub async fn oauth_device_start(
@@ -61,7 +57,7 @@ pub async fn oauth_device_poll(
             // 登录成功：只记 GitHub login 用户名，不记 token/device_code/user_code。
             // 幂等去重 + sid 关联，窗口内重复授权只记一行 INFO。
             let sid = crate::z_log::new_session_id();
-            let now = now_ms();
+            let now = crate::now_ms();
             let last = LAST_LOGIN_INFO_MS.swap(now, Ordering::SeqCst);
             if now.saturating_sub(last) < LOGIN_DEDUP_WINDOW_MS {
                 log::debug!("oauth login skipped reason=duplicate sid={}", sid);
@@ -71,12 +67,7 @@ pub async fn oauth_device_poll(
                 log::info!("oauth login ok sid={}", sid);
             }
             if let Ok(db) = state.db() {
-                let _ = db.set_setting(crate::oauth::SETTING_OAUTH_TOKEN, &clean_token);
-                if let Some(u) = user {
-                    if let Ok(json) = serde_json::to_string(&u) {
-                        let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &json);
-                    }
-                }
+                crate::oauth::save_oauth_session(&db, &clean_token, user.as_ref());
             }
             if let Ok(mut t) = state.github_token.lock() {
                 *t = Some(clean_token.clone());
@@ -120,65 +111,31 @@ pub async fn oauth_device_poll(
     }
 }
 
-/// 快照缺失或未标记权限范围时需实时补拉（纯谓词，可单元测试）。
-/// `is_expired` 快照原样返回（前端处理重登），`has_list_scope` 快照直接返回；
-/// 其余情况（无快照/损坏快照/未标记 scope）有令牌则补拉一次。
-pub(crate) fn should_refetch_oauth_user(stored: Option<&crate::oauth::OAuthUser>) -> bool {
-    match stored {
-        None => true,
-        Some(u) if u.is_expired => false,
-        Some(u) if u.has_list_scope => false,
-        _ => true,
-    }
-}
-
 /// 当前 OAuth 登录用户；未登录或快照无效返回 null（过期快照原样返回，`is_expired` 供前端处理重登）。
 #[tauri::command]
 pub async fn get_oauth_user(
     state: State<'_, AppState>,
 ) -> crate::AppResult<Option<crate::oauth::OAuthUser>> {
-    let raw_stored: Option<String> = state
+    let (stored, is_oauth) = state
         .db
         .lock()
         .ok()
-        .and_then(|db| {
-            db.get_setting(crate::oauth::SETTING_OAUTH_USER)
-                .ok()
-                .flatten()
-        })
-        .filter(|s| !s.trim().is_empty());
-    // 标准 `OAuthUser` 反序列化：快照缺失或字段不完整视为无快照。
-    let stored: Option<crate::oauth::OAuthUser> =
-        raw_stored.and_then(|json| serde_json::from_str::<crate::oauth::OAuthUser>(&json).ok());
-    if !should_refetch_oauth_user(stored.as_ref()) {
+        .map(|db| crate::oauth::load_oauth_user_snapshot(&db))
+        .unwrap_or((None, false));
+    if !crate::oauth::should_refetch_oauth_user(stored.as_ref()) {
         return Ok(stored);
     }
     // 有令牌但缺用户快照或快照未标记权限范围时实时补拉一次
-    let token = resolve_active_github_token(&state);
-    let is_oauth = state
-        .db
-        .lock()
-        .ok()
-        .and_then(|db| {
-            db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN)
-                .ok()
-                .flatten()
-        })
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
     if is_oauth {
-        if let Some(t) = token {
+        if let Some(t) = resolve_active_github_token(&state) {
             match crate::oauth::fetch_oauth_user(&t).await {
                 Ok(user) => {
                     if let Ok(db) = state.db() {
-                        if let Ok(json) = serde_json::to_string(&user) {
-                            let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &json);
-                        }
+                        crate::oauth::save_oauth_user_snapshot(&db, &user);
                     }
                     return Ok(Some(user));
                 }
                 Err(e) => {
-                    // 刷新/换 token 失败：warn，只记首行，不记 token。
                     log::warn!(
                         "oauth refresh failed reason={}",
                         crate::log_support::short_reason(&e)
@@ -194,20 +151,14 @@ pub async fn get_oauth_user(
 pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> {
     let fallback_pat = {
         let db = state.db()?;
-        db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN)?;
-        db.remove_setting(crate::oauth::SETTING_OAUTH_USER)?;
-        let _ = db.clear_github_account_signals();
-        db.get_host_token("github.com")
-            .ok()
-            .flatten()
-            .filter(|s| !s.trim().is_empty())
+        crate::oauth::clear_oauth_session(&db)?
     };
     if let Ok(mut t) = state.github_token.lock() {
         *t = fallback_pat.clone();
     }
     // 登出幂等去重 + sid 关联，清理行为每次都执行，INFO 窗口内只记一行。
     let sid = crate::z_log::new_session_id();
-    let now = now_ms();
+    let now = crate::now_ms();
     let last = LAST_LOGOUT_INFO_MS.swap(now, Ordering::SeqCst);
     if now.saturating_sub(last) < LOGOUT_DEDUP_WINDOW_MS {
         log::debug!("oauth logout skipped reason=duplicate sid={}", sid);
@@ -218,69 +169,33 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> 
     Ok(true)
 }
 
-/// ADR-0010：GitHub Star 仅面向 owner/repo 形态的 canonical 应用标识
-fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
-    let id = crate::forge::canonical_app_id(app_id)
-        .ok_or_else(|| format!("GitHub Star 仅支持 owner/repo 仓库坐标: {}", app_id))?;
-    let (owner, repo) = id
-        .split_once('/')
-        .ok_or_else(|| format!("GitHub Star 仅支持 owner/repo 仓库坐标: {}", app_id))?;
-    if owner.is_empty() || repo.is_empty() || owner.contains(':') || repo.contains('/') {
-        return Err(format!(
-            "GitHub Star 仅支持 owner/repo 仓库坐标: {}",
-            app_id
-        ));
-    }
-    Ok((owner.to_string(), repo.to_string()))
-}
-
-/// Star 本地缓存同步收敛（`star/unstar/fetch_starred_status` 三处共用，仅在实际状态变更时通知画像刷新）。
-fn sync_star_cache(state: &AppState, owner: &str, repo: &str, starred: bool) {
-    let mut changed = false;
-    if let Ok(db) = state.db() {
-        let prev = db.is_starred(owner, repo).unwrap_or(false);
-        let _ = db.set_starred(owner, repo, starred);
-        if !starred {
-            let full_name = crate::forge::canonical_app_id_from_parts(owner, repo);
-            let _ = db.remove_user_repo_signal(
-                &full_name,
-                crate::db::RepoRelation::Starred.as_str(),
-            );
-        }
-        changed = prev != starred;
-    }
-    if changed {
-        crate::notify_affinity_updated();
-    }
-}
-
 #[tauri::command(rename_all = "camelCase")]
 pub async fn star_app(
     state: State<'_, AppState>,
     app_id: String,
 ) -> crate::AppResult<crate::oauth::StarRepoOutcome> {
-    let (owner, repo) = split_github_repo_id(&app_id)?;
+    let (owner, repo) = crate::oauth::split_github_repo_id(&app_id)?;
     let token =
         resolve_active_github_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     let outcome = crate::oauth::star_repo(&token, &owner, &repo).await?;
     if outcome.starred {
-        sync_star_cache(&state, &owner, &repo, true);
+        if let Ok(db) = state.db() {
+            crate::oauth::sync_star_cache(&db, &owner, &repo, true);
+        }
     }
     Ok(outcome)
 }
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
-    let (owner, repo) = split_github_repo_id(&app_id)?;
+    let (owner, repo) = crate::oauth::split_github_repo_id(&app_id)?;
     let token =
         resolve_active_github_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
-    crate::oauth::unstar_repo(&token, &owner, &repo)
-        .await
-        .map(|_| {
-            sync_star_cache(&state, &owner, &repo, false);
-            true
-        })
-        .map_err(Into::into)
+    crate::oauth::unstar_repo(&token, &owner, &repo).await?;
+    if let Ok(db) = state.db() {
+        crate::oauth::sync_star_cache(&db, &owner, &repo, false);
+    }
+    Ok(true)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -288,11 +203,12 @@ pub async fn fetch_starred_status(
     state: State<'_, AppState>,
     app_id: String,
 ) -> crate::AppResult<bool> {
-    let (owner, repo) = split_github_repo_id(&app_id)?;
-    let token = resolve_active_github_token(&state);
-    if let Some(ref t) = token {
+    let (owner, repo) = crate::oauth::split_github_repo_id(&app_id)?;
+    if let Some(ref t) = resolve_active_github_token(&state) {
         if let Ok(remote_val) = crate::oauth::check_starred(t, &owner, &repo).await {
-            sync_star_cache(&state, &owner, &repo, remote_val);
+            if let Ok(db) = state.db() {
+                crate::oauth::sync_star_cache(&db, &owner, &repo, remote_val);
+            }
             return Ok(remote_val);
         }
     }

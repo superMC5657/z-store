@@ -5,7 +5,7 @@ import type {
 } from '../../types';
 import { CMD } from '../api';
 import { isTauri, tauriInvoke } from './client';
-import { resolveFallbackOpener } from '../../utils/fallbackOpener';
+import { resolveFallbackOpener } from '../../utils/browserLockdown';
 
 export async function switchMirror(mirrorId: string): Promise<boolean> {
   return tauriInvoke<boolean>(CMD.switchMirror, { mirrorId });
@@ -52,6 +52,14 @@ export async function getCliDeepLink(): Promise<string | null> {
 
 export async function importUserData(json: string): Promise<ImportUserDataCounts> {
   return tauriInvoke<ImportUserDataCounts>(CMD.importUserData, { json });
+}
+
+export async function getLogDir(): Promise<string> {
+  return tauriInvoke<string>(CMD.zlogGetDir);
+}
+
+export async function exportLogBundle(): Promise<string> {
+  return tauriInvoke<string>(CMD.zlogExportBundle);
 }
 
 export async function openUrl(url: string): Promise<void> {

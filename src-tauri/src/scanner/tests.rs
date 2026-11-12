@@ -471,3 +471,66 @@ fn test_batch_detect_catalog_apps() {
         "detected apps must be a subset of catalog"
     );
 }
+
+#[test]
+fn test_match_unmanaged_filters_managed_with_canonical_healing_and_no_fabrication() {
+    let mut catalog = create_mock_catalog();
+    catalog.push(CatalogItem {
+        id: "rustdesk/rustdesk".to_string(),
+        name: "RustDesk".to_string(),
+        owner: "rustdesk".to_string(),
+        repo: "rustdesk".to_string(),
+        icon: String::new(),
+        icon_bg: String::new(),
+        description: String::new(),
+        description_en: None,
+        category: "system".to_string(),
+        category_name: "系统实用".to_string(),
+        aliases: vec![],
+        default_version: "v1.0.0".to_string(),
+        added_at: None,
+        license: "AGPL-3.0".to_string(),
+        stars: 0,
+        forks: 0,
+        is_verified: false,
+        homepage: None,
+        identifiers: std::collections::HashMap::new(),
+        install_dirs: vec![],
+        search_subdirs: vec![],
+        publishers: vec![],
+        platforms: vec![],
+    });
+    let scanned = vec![
+        ScannedRawApp {
+            display_name: "VLC media player".to_string(),
+            display_version: String::new(),
+            publisher: Some("VideoLAN".to_string()),
+            install_location: None,
+            display_icon: None,
+            uninstall_string: None,
+            installed_at: None,
+        },
+        ScannedRawApp {
+            display_name: "RustDesk".to_string(),
+            display_version: String::new(),
+            publisher: Some("RustDesk".to_string()),
+            install_location: None,
+            display_icon: None,
+            uninstall_string: None,
+            installed_at: None,
+        },
+        ScannedRawApp {
+            display_name: " utterly-unrelated-thing ".to_string(),
+            display_version: String::new(),
+            publisher: None,
+            install_location: None,
+            display_icon: None,
+            uninstall_string: None,
+            installed_at: None,
+        },
+    ];
+    // 大小写漂移行 `RustDesk/RustDesk` 经 canonical 归一识别为已纳管并剔除
+    let results = AppScanner::match_unmanaged(&scanned, &catalog, ["RustDesk/RustDesk".to_string()]);
+    assert_eq!(results.len(), 1, "only unmanaged VLC should remain");
+    assert_eq!(results[0].catalog_id, "videolan/vlc");
+}

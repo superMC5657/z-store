@@ -11,7 +11,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import React from 'react';
 import { Sidebar } from './Sidebar';
 import { parseSelectedPlatformArray, togglePlatformSet } from '../lib/platformFilter';
-import { VIEW_TYPES } from '../app/navigation';
+import { VIEW_TYPES } from '../types';
 
 afterEach(() => {
   cleanup();

@@ -33,11 +33,11 @@
 3. **OAuth 加固（Device Flow）**：
    - Client ID 二级优先级公式为设置覆盖优先：
      - `github_oauth_client_id`（`SETTING_OAUTH_CLIENT_ID`）大于 `config.toml [oauth].default_client_id`（当前为 `Ov23lik0b7fDGMLTiOYH`）。
-     - 实现为 `resolve_oauth_client_id`（`oauth/constants.rs`）与 `resolve_oauth_client_id_from_db`（`commands/mod.rs`）；无编译期环境变量注入。
+     - 实现为 `resolve_oauth_client_id`（`oauth/mod.rs`）与 `resolve_oauth_client_id_from_db`（`commands/mod.rs`）；无编译期环境变量注入。
    - 占位拦截文案固定：
-     - 占位值为 `YOUR_CLIENT_ID_HERE`（`OAUTH_CLIENT_ID_PLACEHOLDER`，`oauth/constants.rs`）。
+     - 占位值为 `YOUR_CLIENT_ID_HERE`（`OAUTH_CLIENT_ID_PLACEHOLDER`，`oauth/mod.rs`）。
      - `oauth_device_start`（`commands/oauth.rs`）命中占位直接返回 `尚未配置 GitHub OAuth Client ID，请在「设置」中填写后重试`。
-   - 五态表由 `DevicePollOutcome` 承载（`oauth/types.rs`），解析为 `classify_device_poll`（`oauth/types.rs`）：
+   - 五态表由 `DevicePollOutcome` 承载（`oauth/mod.rs`），解析为 `classify_device_poll`（`oauth/mod.rs`）：
      - `Pending`：对应 `authorization_pending` 与 `slow_down`。
      - `Authorized`：携带 `access_token`，空令牌不算授权。
      - `Expired`：对应 `expired_token`，文案为 `设备验证码已过期，请重新开始授权`。
@@ -45,9 +45,9 @@
      - `Error`：未知错误透出 `error_description`，非 JSON 体提示轮询响应无法解析。
      - 前端 `services/api/social.ts::oauthDevicePoll` 把响应归一为 `authorized/pending/expired/denied/error` 五态，`OAuthAccountCard` 在 `authorized` 分支收尾登录，其余按错误态展示。
    - 协议常量固定：
-     - 端点为 `https://github.com/login/device/code`（`DEVICE_CODE_URL`）与 `https://github.com/login/oauth/access_token`（`ACCESS_TOKEN_URL`），定义于 `oauth/constants.rs`。
-     - 权限为 `OAUTH_SCOPE = "public_repo user"`（`oauth/constants.rs`），覆盖 Star 与 Star 清单管理。
-     - 发起与轮询复用共享 HTTP 客户端统一 API 超时（`config.toml` 的 `api_timeout_seconds`，默认 `12s`；实现经 `shared_http_client`，见 `oauth/device_flow.rs`），无独立 `10s` 超时。
+     - 端点为 `https://github.com/login/device/code`（`DEVICE_CODE_URL`）与 `https://github.com/login/oauth/access_token`（`ACCESS_TOKEN_URL`），定义于 `oauth/mod.rs`。
+     - 权限为 `OAUTH_SCOPE = "public_repo user"`（`oauth/mod.rs`），覆盖 Star 与 Star 清单管理。
+     - 发起与轮询复用共享 HTTP 客户端统一 API 超时（`config.toml` 的 `api_timeout_seconds`，默认 `12s`；实现经 `shared_http_client`，见 `oauth/mod.rs`），无独立 `10s` 超时。
    - 前端容错为连续 `10` 次失败才停：
      - `OAuthAccountCard` 以 `pollFailRef` 计数，抖动只提示 `网络波动，自动重试中` 并继续下一轮。
      - 攒够 `10` 次才停轮询，且保留用户码展示，提示检查网络后取消重来。

@@ -1,9 +1,10 @@
-use super::{resolve_uninstaller_command, InstallerEngine};
+use super::resolve_uninstaller_command;
 use crate::models::InstalledApp;
-use crate::AppState;
+use crate::{AppResult, AppState};
 use tauri::{AppHandle, State};
 
-/// 安装流程核心实现（从 `installer.rs` 抽离；命令包装层保留在原处）。
+/// 安装应用核心命令。
+#[tauri::command(rename_all = "camelCase")]
 pub async fn install_app(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -11,7 +12,7 @@ pub async fn install_app(
     asset_name: Option<String>,
     custom_install_dir: Option<String>,
     allow_unverified: Option<bool>,
-) -> Result<InstalledApp, String> {
+) -> AppResult<InstalledApp> {
     // ADR-0010：深链安装可能传入 URL/前缀形态，入站归一化后全程使用 canonical id；未知标识直接拒绝
     let app_id = super::require_app_id(&app_id)?;
     // 读取用户配置（绿色便携根路径）
@@ -51,7 +52,7 @@ pub async fn install_app(
     if !has_checksum && allow_unverified != Some(true) {
         return Err(
             "unverified-asset-required: 该资产未提供官方 SHA-256 校验清单，无法验证文件完整性，已默认拒绝安装。可在确认弹窗了解风险后显式继续，或改用带 checksums 清单的版本"
-                .to_string(),
+                .into(),
         );
     }
 
@@ -69,11 +70,11 @@ pub async fn install_app(
     .await?;
 
     // 4. 调用原生安装器或解压便携版（优先使用用户在前端主动选择的目录）
-    let (kind, _, _) = InstallerEngine::classify_asset(&asset.name);
+    let (kind, _, _) = crate::installer::classify_asset(&asset.name);
     let effective_portable_dir = custom_install_dir.or(custom_portable_dir);
     // Finding 3.3-4：平台跳过是结构化非成功信号，映射为 Err 中断、
     // 绝不落库为"已安装"（经 InstallOutcome::into_result 统一）。
-    let _install_note = InstallerEngine::execute_installation(
+    let _install_note = crate::installer::execute_installation(
         &dest_path,
         &kind,
         &detail.core.id,

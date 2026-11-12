@@ -1,5 +1,5 @@
 #[cfg(test)]
-use super::developer_endpoints::STARRED_RELEASE_ENRICH_LIMIT;
+use super::STARRED_RELEASE_ENRICH_LIMIT;
 
 #[cfg(test)]
 mod tests {

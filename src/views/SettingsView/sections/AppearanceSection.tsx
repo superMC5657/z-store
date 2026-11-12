@@ -9,7 +9,6 @@ import {
   Globe,
 } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
-import { SettingsSection } from '../SettingsSection';
 import { normalizeFontSizePreset } from '../../../utils/density';
 import type { AppSettings } from '../../../types';
 
@@ -55,7 +54,7 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
   const activeUiScale = UI_SCALE_OPTIONS.includes(uiScale as any) ? (uiScale as AppSettings['ui_scale']) : '100';
 
   return (
-    <SettingsSection title={t('settings.appearance')}>
+    <>
       <div className={`settings-row ${highlightRow === 'theme' ? 'row-highlight' : ''}`}>
         <div className="settings-row-info">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -184,6 +183,6 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
           options={fontSizeOptions}
         />
       </div>
-    </SettingsSection>
+    </>
   );
 };

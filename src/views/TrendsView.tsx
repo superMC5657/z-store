@@ -16,21 +16,18 @@ import {
 } from './ViewShell';
 import {
   TREND_BOARD_IDS,
-} from '../services/trends/boards';
-import { formatStars, matchCatalogApp } from '../services/trends/enrich';
-import { moveInToDraft } from '../services/custom/draft';
+  formatStars,
+  matchCatalogApp,
+} from '../services/trends';
+import { moveInToDraft } from '../services/custom';
 import { normalizeId } from '../services/normalizeId';
-import { notifyToast } from '../utils/notify';
+import { notifyToast } from '../useToasts';
 import type {
   AppSummary,
   TrendBoardId,
   TrendRepo,
   TrendsErrorKind,
 } from '../types';
-import {
-  snapshotBoardEnrich,
-  useTrendLoadingLifecycle,
-} from '../services/trends/board';
 import {
   annotateEnrichMirrorCataloged,
   resolveBareRowLocalBadgeVariant,
@@ -56,9 +53,7 @@ import { useTrendEnrichment, type DisplayTrendItem } from './TrendsView/useTrend
  * 远端为空一律走空状态，绝不回退本地加权假榜。
  *
  * 本 View 仅做 load/refresh + render/filter/count；
- * 抓取→L1→L2-hydrate→enrich-merge→落盘收口于 `services/trends/board`，
- * 持久化（hydrate/mark/unmark/saveBoardCacheMerged）一律经 board seam，
- * 此处仅持有 `enrichedApps` 镜像。
+ * 抓取→L1→L2-hydrate→enrich-merge→落盘收口于 `services/trends` 会话控制器。
  */
 
 interface TrendsViewProps
@@ -149,49 +144,14 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     refreshEnrichForceRef,
   } = useTrendBoard('weekly');
 
-  // 未收录行 enrichment 镜像（键为小写 owner/repo）：命中即完整 AppCard，
-  // 缺席（加载中/失败）即旧小行占位，榜单永不因此变空。
-  // View 仅持有此镜像；写透/hydrate/确认一律经 board seam。
-  const [enrichedApps, setEnrichedApps] = useState<Record<string, AppSummary>>(() =>
-    snapshotBoardEnrich(),
-  );
-  // 未收录行榜单内已确认 Other（lite 空非 stale 落定 + settle 超时兜底）：
-  // App 级 lazyBackfill 只补 apps/recents，此处补 enrichedApps 覆盖不到的缺口；
-  // 与全局 platformResolvedOtherIds 取并集判定 loading，详情治愈时同步移除。
-  // 现状：初值置空由下 SWR 合并补齐；重启同 key 命中不回 loading；未就绪展裸行不拦榜。
-  const [trendConfirmedOtherIds, setTrendConfirmedOtherIds] = useState<Set<string>>(
-    () => new Set<string>(),
-  );
-  const enrichedAppsRef = useRef(enrichedApps);
-  enrichedAppsRef.current = enrichedApps;
-
-  // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
-  // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。
-  // 身份匹配用全量收录（未过滤口径，保证取消勾选后行直接消失而非降级为占位小行）。
-  // 本地橘黄：matchingBase 为合并后全量（含本地 source，远端优先语义不动），
-  // enrich 标注直接传数组本体以搬运 source/status（蓝优先）。
   const matchingBase = allApps ?? apps;
-  // 本地显式 lookup（inferred + localApps 合成）：matchingBase 自带 local 行一般已够，
-  // localApps（过滤后缺 local 时）显式补齐；引用变化即重标（缺席透传，就绪补黄）。
-  // 只认已收录：草稿 customIds 仅抑制移入入口，绝不叠黄。
   const trendLocalLookup = useMemo(() => {
     const inferred = (matchingBase ?? []).filter(
       (m) => (m as { source?: unknown }).source === 'local',
     );
     return mergeLocalLookups(inferred, localApps);
   }, [matchingBase, localApps]);
-  // enrich 合并处显式标注 is_cataloged（显式优先于 category 兜底；未命中=false 即显示按钮）。
-  // 本地收录叠加经 localApps 显式口径补齐（matchingBase 缺 local 时 enrich 仍能黄）；
-  // 草稿在收录进本地前不带黄标。
-  const annotatedEnrichedApps = useMemo(
-    () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase, localApps),
-    [enrichedApps, matchingBase, localApps],
-  );
 
-  // 移入收录（未收录富卡一键 save_custom_app 草稿，platforms [] loading）：
-  // 经 tauriApi（视图禁直调 invoke，命令表驱动），复用 lite 确认链（缺席即 loading，编辑页可手改）。
-  // 入口收进 AppCard 内部操作区（仅未收录 external 富卡渲染），小行无外挂按钮，
-  // 小行 enrich 为富卡后同样走内部入口；此处只保留动作实现（useCallback 稳定引用）。
   const [trendMovingIds, setTrendMovingIds] = useState<Set<string>>(() => new Set<string>());
   const trendMovingRef = useRef<Set<string>>(new Set<string>());
   const handleTrendMoveIn = useCallback(async (app: AppSummary) => {
@@ -225,8 +185,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [t]);
 
   // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
-  // catalog 匹配（matchCatalogApp）保留——下掉的只是分类榜单，不是收录对照展示。
-  // 身份匹配用全量收录（未过滤口径，保证取消勾选后行直接消失而非降级为占位小行）。
   const rawDisplayItems = useMemo<DisplayTrendItem[]>(() => {
     if (trendResult === null || trendResult.status === 'error') return [];
 
@@ -259,48 +217,41 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     return items;
   }, [trendResult, matchingBase]);
 
-  // 双维 loading 生命周期编排（lite 补验 + settle 超时 + 确认集并集）：
-  // View 不自持 inflight/seq/trusted/ref 镜像与两段 effect，经 board 唯一 hook 编排；
-  // 返回的 `combinedConfirmed`（全局 ∪ 榜单内）为过滤/计数/徽标统一口径。
-  const { combinedConfirmed } = useTrendLoadingLifecycle({
+  // 富卡生命周期与镜像编排（SWR/DB 图标回填/enrich/lite/settle/治愈/图标流/写透）收口单一控制器。
+  const displayItemsRef = useRef<DisplayTrendItem[]>([]);
+  const { enrichedApps, combinedConfirmed } = useTrendEnrichment({
     trendResult,
     rawItems: rawDisplayItems,
-    enrichedApps,
+    getDisplayItems: () => displayItemsRef.current,
     activeBoard,
     trendFetchOpts,
+    boardReady,
+    refreshEnrichForceRef,
     globalConfirmed: platformResolvedOtherIds,
-    localConfirmed: trendConfirmedOtherIds,
-    setEnrichedApps,
-    setTrendConfirmedOtherIds,
-    fetchLite: (liteId) => tauriApi.getPlatformsLite(liteId),
   });
 
-  // 全局设备平台过滤接入榜单行（含未收录行）：catalog 命中按收录 platforms 判定，
-  // 加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet；
-  // enrich 命中且具真实平台按其判定；enrich 空（`fallback_summary` 恒 `[]`）一律视为 loading：
-  // 未确认前恒可见、不计入分布，详情治愈/lite 回填/确认为 other 后一次落定。
-  // 裸 TrendRepo（enrich 尚未落定）视为 loading，恒可见，绝不视同 other；
-  // settle 超时后降级为已确认 Other（可过滤、可计数、展示徽标），避免无限 shimmer。
-  // 未传入 selectedPlatforms 时不过滤。
+  // enrich 合并处显式标注 is_cataloged（显式优先于 category 兜底；未命中=false 即显示按钮）。
+  const annotatedEnrichedApps = useMemo(
+    () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase, localApps),
+    [enrichedApps, matchingBase, localApps],
+  );
+
+  // 全局设备平台过滤接入榜单行（含未收录行）：加载中行恒可见，落定后再走 matchPlatformSet。
   const displayItems = useMemo<DisplayTrendItem[]>(() => {
     if (!selectedPlatforms) return rawDisplayItems;
-    // loading 语义（全局 ∪ 榜单内已确认；缺省集合即空追踪）。
     return rawDisplayItems.filter((item) => {
       if (item.type === 'catalog') {
         return matchPlatformSetWithLoading(item.app, selectedPlatforms, platformResolvedOtherIds ?? new Set<string>());
       }
       const key = item.repo.id.toLowerCase();
       const enriched = enrichedApps[key];
-      // loading 语义：未落定恒可见（含裸行）；已确认 Other 后走正常 Other 过滤（统一接口判定）。
       if (isEnrichedRowLoading(key, enriched, combinedConfirmed)) return true;
       return matchPlatformSet(enriched ?? { platforms: [] }, selectedPlatforms);
     });
   }, [rawDisplayItems, selectedPlatforms, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
+  displayItemsRef.current = displayItems;
 
-  // 榜单平台分布（已过滤口径：计数跟随当前可见行，取消勾选即收缩；与过滤判定同语义）。
-  // 加载中行暂不计数：裸 TrendRepo（enrich 未落定）、catalog loading 行、enrich 空 loading 行均排除在外，
-  // 首绘不闪 Other=N，enrich/回填/详情治愈/settle 落定后单次更新。
-  // memo 稳定引用：可见行/回填不变即不触发上报，避免侧栏数字闪烁。
+  // 榜单平台分布（加载中行暂不计数，落定后单次更新）。
   const displayPlatformCounts = useMemo<Record<PlatformId, number>>(() => {
     const counts = {} as Record<PlatformId, number>;
     for (const id of PLATFORM_IDS) counts[id] = 0;
@@ -310,7 +261,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
     const isLoadingItem = (item: DisplayTrendItem): boolean => {
       if (item.type === 'catalog') return isPlatformLoading(item.app, platformResolvedOtherIds ?? new Set<string>());
-      // 未收录行 loading 口径与过滤判定同源（统一接口）。
       const key = item.repo.id.toLowerCase();
       return isEnrichedRowLoading(key, enrichedApps[key], combinedConfirmed);
     };
@@ -327,23 +277,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   useEffect(() => {
     onDisplayPlatformCounts?.(displayPlatformCounts);
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
-
-  // 富卡编排（SWR/enrich/图标流/治愈/写透）收口单一 hook，View 只持镜像与渲染派生。
-  useTrendEnrichment({
-    mirror: {
-      enrichedApps,
-      setEnrichedApps,
-      enrichedAppsRef,
-      trendConfirmedOtherIds,
-      setTrendConfirmedOtherIds,
-    },
-    trendResult,
-    displayItems,
-    activeBoard,
-    trendFetchOpts,
-    boardReady,
-    refreshEnrichForceRef,
-  });
 
   const gainTextFor = (gain?: number): string | undefined => {
     if (!gain || gain <= 0) return undefined;

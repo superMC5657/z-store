@@ -1,6 +1,4 @@
-use super::developer_endpoints::{
-    GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE, STARRED_RELEASE_ENRICH_LIMIT,
-};
+use super::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE, STARRED_RELEASE_ENRICH_LIMIT};
 use super::developer_profile::EtagGetOutcome;
 use super::models::GitHubRepoResponse;
 use super::CatalogService;

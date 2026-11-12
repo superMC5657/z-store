@@ -376,68 +376,13 @@ pub(crate) fn guess_category(
     }
 }
 
-/// DB落盘命中零网络（M2）：`app_icon_cycles` 有该 app 且 `selected_url` 非空时，
-/// 缓存文件有效（`cache_file` 非空且落盘文件存在且为合法图片）返回 dataURI（M2）；
-/// 无有效文件时 level 1-3 回退 `selected_url` 远端，level 4 返回 None（4=L4 README需网络，此处不给）。
-/// level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存正交用M(M1前端内存，M2=DB落盘)。
-/// SSOT：标识解析经 `RepositoryUrlParser` + `canonical_app_id`，大小写回退收进
-/// `forge::coord::lookup_case_insensitive`（db 查询侧）。
-pub(crate) fn resolve_confirmed_icon_from_db(
-    db: &crate::db::Database,
-    app_id: &str,
-    owner: &str,
-    repo: &str,
-) -> Option<String> {
-    let repo_ref = crate::forge::coord::RepoRef::new(owner, repo);
-    let cycle = crate::forge::coord::lookup_case_insensitive(db, app_id, &repo_ref)?;
-
-    if cycle.level == 5 {
-        return None;
-    }
-
-    let selected = cycle.selected_url.trim();
-    if selected.is_empty() {
-        return None;
-    }
-
-    let icons_dir = crate::get_app_data_dir().join("icons");
-    let cache_file = cycle.cache_file.trim();
-    if !cache_file.is_empty() {
-        let cache_path = icons_dir.join(cache_file);
-        if let Some(bytes) = crate::commands::icons_cycle_probe::read_valid_image_file(&cache_path)
-        {
-            return Some(crate::commands::bytes_to_data_uri(&bytes));
-        }
-    }
-
-    // 自愈查找：当 cache_file 为空或旧文件不在盘上，但 icons/ 下已有按 selected_url 哈希命名的有效图片时，
-    // 自动补齐 cache_file 并返回 dataURI（涵盖 L1..=L4，保证详情探测到的 L4 图标落盘后列表同样直出 M2）。
-    if let Some((bytes, fname)) =
-        crate::commands::icons_cycle_probe::find_cached_icon_by_url(&icons_dir, selected)
-    {
-        let _ = db.set_icon_cycle_selected(&cycle.app_id, cycle.level, selected, &fname);
-        return Some(crate::commands::bytes_to_data_uri(&bytes));
-    }
-
-    // 无有效缓存文件：level 1-3 回退 selected_url 远端；level 4=L4需网络，此处返回 None。
-    if (1..=3).contains(&cycle.level) {
-        return Some(selected.to_string());
-    }
-    None
-}
-
 /// 打开默认数据目录下的 z_store.db（不存在返回 None）。
 pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
-    let db_path = crate::get_app_data_dir().join("z_store.db");
-    if db_path.is_file() {
-        crate::db::Database::open(&db_path).ok()
-    } else {
-        None
-    }
+    crate::db::Database::open_default_opt()
 }
 
 /// 目录外仓库 `AppSummary` 兜底构造。
-/// 图标：若 probe 为 true，经统一同步适配器 `icon_fetch::probe_single_live`（L2→L3，
+/// 图标：若 probe 为 true，经统一同步适配器 `icons::probe_single_live`（L2→L3，
 /// 经 `resolve_probe_branches` 取默认分支，与流式核同源）；
 /// 图标探测不调 users API、不拼用户画像 avatar_url（见 OAuth/Sidebar，与图标无关）；
 /// 若 probe 为 false，图标置空（首屏快返，等后台 `fetch_icons_stream` emit）。
@@ -467,8 +412,9 @@ pub(crate) async fn fallback_summary(
         Some(ci) => Some(ci),
         None => {
             if probe {
-                open_db_opt()
-                    .and_then(|odb| resolve_confirmed_icon_from_db(&odb, &id, &owner, &repo))
+                open_db_opt().and_then(|odb| {
+                    crate::icons::resolve_confirmed_icon_from_db(&odb, &id, &owner, &repo)
+                })
             } else {
                 None
             }
@@ -482,7 +428,9 @@ pub(crate) async fn fallback_summary(
         let hdrs_opt = token
             .filter(|t| !t.trim().is_empty())
             .map(|tok| token_headers(Some(tok)));
-        crate::github::icon_fetch::probe_single_live(client, hdrs_opt.as_ref(), &owner, &repo)
+        let icon_client = crate::forge::http::new_icon_client(api_timeout().as_secs())
+            .unwrap_or_default();
+        crate::icons::probe_single_live(&icon_client, client, hdrs_opt.as_ref(), &owner, &repo)
             .await
             .map(|(url, _level)| url)
             .unwrap_or_default()
@@ -586,170 +534,6 @@ mod tests {
             guess_category(None, None, &["emulator".to_string()]).key,
             "games"
         );
-    }
-
-    #[tokio::test]
-    async fn test_resolve_confirmed_icon_from_db_scenarios() {
-        let db = crate::db::Database::open_in_memory().unwrap();
-        let app_id = "testowner/testrepo";
-        let owner = "testowner";
-        let repo = "testrepo";
-
-        // 1. 无记录：返回 None
-        assert_eq!(
-            resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
-            None
-        );
-
-        // 2. 有记录但 selected_url 为空（Level 5）
-        let empty_cycle = crate::db::AppIconCycle {
-            app_id: app_id.to_string(),
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-            level: 5,
-            selected_url: String::new(),
-            cache_file: String::new(),
-            ..Default::default()
-        };
-        db.upsert_icon_cycle(&empty_cycle).unwrap();
-        assert_eq!(
-            resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
-            None
-        );
-
-        // 3. 有记录且 selected_url 非空，但 cache_file 在磁盘上不存在：
-        //    L1 回退 remote_url；level 4=L4 需网络，此处返回 None。
-        let cycle_missing_file = crate::db::AppIconCycle {
-            app_id: app_id.to_string(),
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-            level: 1,
-            selected_url: "https://example.com/icon.png".to_string(),
-            cache_file: "non_existent_file_12345.png".to_string(),
-            ..Default::default()
-        };
-        db.upsert_icon_cycle(&cycle_missing_file).unwrap();
-        assert_eq!(
-            resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
-            Some("https://example.com/icon.png".to_string())
-        );
-
-        // 4. 有记录且 cache_file 存在并为有效图片：返回 dataURI（M2落盘）。
-        let icons_dir = crate::get_app_data_dir().join("icons");
-        let _ = std::fs::create_dir_all(&icons_dir);
-        let test_filename = "testowner_testrepo_l1.png";
-        let test_file_path = icons_dir.join(test_filename);
-        let png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4";
-        std::fs::write(&test_file_path, png_bytes).unwrap();
-
-        let cycle_valid = crate::db::AppIconCycle {
-            app_id: app_id.to_string(),
-            owner: owner.to_string(),
-            repo: repo.to_string(),
-            level: 1,
-            selected_url: "https://example.com/icon.png".to_string(),
-            cache_file: test_filename.to_string(),
-            ..Default::default()
-        };
-        db.upsert_icon_cycle(&cycle_valid).unwrap();
-
-        let resolved = resolve_confirmed_icon_from_db(&db, app_id, owner, repo);
-        assert!(resolved.is_some());
-        let uri = resolved.unwrap();
-        assert!(uri.starts_with("data:image/png;base64,"));
-
-        // 5. 大小写容错支持（例如传入 TestOwner/TestRepo）
-        let resolved_case =
-            resolve_confirmed_icon_from_db(&db, "TestOwner/TestRepo", "TestOwner", "TestRepo");
-        assert_eq!(resolved_case, Some(uri.clone()));
-
-        // 6. 清理测试文件
-        let _ = std::fs::remove_file(&test_file_path);
-    }
-
-    #[test]
-    fn search_resolve_falls_back_to_selected_url() {
-        // L2 无缓存文件时回退 remote_url 远端。
-        let db = crate::db::Database::open_in_memory().unwrap();
-        let app_id = "fallbackowner/fallbackrepo";
-        let cycle = crate::db::AppIconCycle {
-            app_id: app_id.to_string(),
-            owner: "fallbackowner".to_string(),
-            repo: "fallbackrepo".to_string(),
-            level: 2,
-            selected_url: "https://cdn.simpleicons.org/fallbackrepo".to_string(),
-            cache_file: String::new(),
-            ..Default::default()
-        };
-        db.upsert_icon_cycle(&cycle).unwrap();
-        assert_eq!(
-            resolve_confirmed_icon_from_db(&db, app_id, "fallbackowner", "fallbackrepo"),
-            Some("https://cdn.simpleicons.org/fallbackrepo".to_string())
-        );
-    }
-
-    #[test]
-    fn level4_without_cache_file_is_not_m2() {
-        // level:4=L4 README需网络，无有效缓存文件返回 None。
-        let db = crate::db::Database::open_in_memory().unwrap();
-        let app_id = "m2owner/m2repo";
-        let cycle = crate::db::AppIconCycle {
-            app_id: app_id.to_string(),
-            owner: "m2owner".to_string(),
-            repo: "m2repo".to_string(),
-            level: 4,
-            selected_url: "https://example.com/m2.png".to_string(),
-            cache_file: String::new(),
-            ..Default::default()
-        };
-        db.upsert_icon_cycle(&cycle).unwrap();
-        assert_eq!(
-            resolve_confirmed_icon_from_db(&db, app_id, "m2owner", "m2repo"),
-            None
-        );
-
-        let missing = crate::db::AppIconCycle {
-            app_id: app_id.to_string(),
-            owner: "m2owner".to_string(),
-            repo: "m2repo".to_string(),
-            level: 4,
-            selected_url: "https://example.com/m2.png".to_string(),
-            cache_file: "non_existent_m2_file_12345.png".to_string(),
-            ..Default::default()
-        };
-        db.upsert_icon_cycle(&missing).unwrap();
-        assert_eq!(
-            resolve_confirmed_icon_from_db(&db, app_id, "m2owner", "m2repo"),
-            None
-        );
-
-        // 但若磁盘 icons/ 下已有按 selected_url 哈希命名的有效图片，L4 即使 cache_file 为空也应自愈返回 dataURI
-        let l4_url = "https://example.com/m2_on_disk_l4.png";
-        let fname = crate::db::icon_cycle::hash_icon_filename(l4_url, "png");
-        let icons_dir = crate::get_app_data_dir().join("icons");
-        let _ = std::fs::create_dir_all(&icons_dir);
-        let disk_path = icons_dir.join(&fname);
-        std::fs::write(&disk_path, b"\x89PNG\r\n\x1a\n12345678").unwrap();
-        let l4_on_disk = crate::db::AppIconCycle {
-            app_id: app_id.to_string(),
-            owner: "m2owner".to_string(),
-            repo: "m2repo".to_string(),
-            level: 4,
-            selected_url: l4_url.to_string(),
-            cache_file: String::new(),
-            ..Default::default()
-        };
-        db.upsert_icon_cycle(&l4_on_disk).unwrap();
-        let resolved_l4 = resolve_confirmed_icon_from_db(&db, app_id, "m2owner", "m2repo");
-        assert!(
-            resolved_l4
-                .as_deref()
-                .is_some_and(|s| s.starts_with("data:image/png;base64,")),
-            "L4 with on-disk hash file should resolve to data URI"
-        );
-        let healed = db.get_icon_cycle(app_id).unwrap().unwrap();
-        assert_eq!(healed.cache_file, fname);
-        let _ = std::fs::remove_file(&disk_path);
     }
 
     #[tokio::test]

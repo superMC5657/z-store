@@ -6,7 +6,7 @@
  *   不回落 home；合法视图才写入 `setCurrentView`。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { createNavigate, isViewType, VIEW_TYPES, type ViewType } from './navigation';
+import { createNavigate, isViewType, VIEW_TYPES, type ViewType } from '../types';
 
 // 编译期反向校验：`satisfies ViewType[]` 要求联合每项都在此列出；
 // 漏掉清单项时本文件先失败，再由运行时对比兜住反向漏项。

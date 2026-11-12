@@ -8,7 +8,7 @@ import { VerifiedBadge, resolveVerifiedBadgeVariant } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
-import { formatStars, isPlaceholderDescription } from '../services/trends/enrich';
+import { formatStars, isPlaceholderDescription } from '../services/trends';
 
 interface AppCardProps {
   app: AppSummary;

@@ -7,7 +7,6 @@ pub mod icon_cycle;
 pub mod rules;
 pub mod schema;
 pub mod settings;
-pub mod tokens;
 pub mod update_results;
 pub mod watch;
 
@@ -15,6 +14,7 @@ pub use affinity::{RawAffinitySignals, RepoRelation, UserRepoSignal};
 pub use cache::AssetCacheRecord;
 pub use custom_apps::CustomAppEntry;
 pub use icon_cycle::AppIconCycle;
+pub use settings::*;
 pub use update_results::UpdateCheckRow;
 
 #[cfg(test)]
@@ -27,112 +27,15 @@ pub struct Database {
     pub(crate) conn: Connection,
 }
 
-/// ADR-0007：应用详情缓存保鲜期（TTL）默认推荐值（分钟，优先读取 config.toml）。
-pub fn default_detail_cache_ttl_minutes() -> i64 {
-    crate::config::get_project_config().cache.detail_ttl_minutes
-}
-/// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/60/360/1440。
-pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 5] = [0, 10, 60, 360, 1440];
-
-/// 通用图片磁盘缓存配额默认值（兆字节，优先读取 config.toml）。
-pub fn default_asset_cache_max_mb() -> u64 {
-    crate::config::get_project_config().cache.asset_max_mb
-}
-
-/// 通用图片磁盘缓存配额默认值（文件数，优先读取 config.toml）。
-pub fn default_asset_cache_max_files() -> usize {
-    crate::config::get_project_config().cache.asset_max_files
-}
-
-/// 将任意输入归一化到图片缓存配额有效值；非法值回退 config.toml 默认值。
-pub fn normalize_asset_cache_max_mb(mb: u64) -> u64 {
-    if mb > 0 {
-        mb
-    } else {
-        default_asset_cache_max_mb()
-    }
-}
-
-/// 将任意输入归一化到图片缓存配额有效值；非法值回退 config.toml 默认值。
-pub fn normalize_asset_cache_max_files(files: usize) -> usize {
-    if files > 0 {
-        files
-    } else {
-        default_asset_cache_max_files()
-    }
-}
-
-/// 运行错误策略默认值（优先读取 config.toml，缺失按构建类型回退）。
-pub fn default_strict_errors() -> bool {
-    crate::config::get_project_config().runtime.strict_errors
-}
-
-/// 解析严格开关文本：`true`/`1` 为开，`false`/`0` 为关，其余返回 None。
-pub fn parse_strict_errors(value: &str) -> Option<bool> {
-    match clean(value).to_ascii_lowercase().as_str() {
-        "true" | "1" => Some(true),
-        "false" | "0" => Some(false),
-        _ => None,
-    }
-}
-
-/// 将任意输入归一化到严格开关有效值；非法值回退 config.toml 默认值。
-pub fn normalize_strict_errors(value: &str) -> bool {
-    parse_strict_errors(value).unwrap_or_else(default_strict_errors)
-}
-
-/// 关注通知频率默认值（每天至多通知一次）。
-pub const WATCH_NOTIFY_FREQUENCY_DEFAULT: &str = "daily";
-/// 关注通知频率有效值：`startup`（每次启动检查即通知）/`daily`。
-pub const WATCH_NOTIFY_FREQUENCY_VALID: [&str; 2] = ["startup", "daily"];
-
-/// 将任意输入归一化到关注通知频率有效值；非法值回退默认 `daily`。
-pub fn normalize_watch_notify_frequency(value: &str) -> String {
-    let clean_value = clean(value).to_lowercase();
-    if WATCH_NOTIFY_FREQUENCY_VALID.contains(&clean_value.as_str()) {
-        clean_value
-    } else {
-        WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string()
-    }
-}
-
-/// 将任意输入归一化到 TTL 有效挡位；非法值回退 config.toml 默认值。
-/// 调用方应在持久化前用此函数清洗，保证库中只存有效挡位。
-pub fn normalize_detail_cache_ttl(minutes: i64) -> i64 {
-    if DETAIL_CACHE_TTL_VALID_MINUTES.contains(&minutes) {
-        minutes
-    } else {
-        default_detail_cache_ttl_minutes()
-    }
-}
-
-/// 设置项写入侧统一清洗：仅对存在有效值集的键归一化，其余原样透传。
-/// 持久化前必须经此函数（ADR-0007 TTL 挡位 / 通知频率）。
-pub fn normalize_setting_value(key: &str, value: &str) -> String {
-    if key == "detail_cache_ttl_minutes" {
-        clean(value)
-            .parse::<i64>()
-            .map(normalize_detail_cache_ttl)
-            .unwrap_or_else(|_| default_detail_cache_ttl_minutes())
-            .to_string()
-    } else if key == "asset_cache_max_mb" {
-        clean(value)
-            .parse::<u64>()
-            .map(normalize_asset_cache_max_mb)
-            .unwrap_or_else(|_| default_asset_cache_max_mb())
-            .to_string()
-    } else if key == "asset_cache_max_files" {
-        clean(value)
-            .parse::<usize>()
-            .map(normalize_asset_cache_max_files)
-            .unwrap_or_else(|_| default_asset_cache_max_files())
-            .to_string()
-    } else if key == "watch_notify_frequency" {
-        normalize_watch_notify_frequency(value)
-    } else if key == "strict_errors" {
-        normalize_strict_errors(value).to_string()
-    } else {
-        value.to_string()
+impl Database {
+    /// 打开默认数据目录下的 `z_store.db`（文件不存在时返回 `None`）。
+    pub(crate) fn open_default_opt() -> Option<Self> {
+        let db_path = crate::get_app_data_dir().join("z_store.db");
+        if db_path.is_file() {
+            Self::open(&db_path).ok()
+        } else {
+            None
+        }
     }
 }
 
@@ -140,28 +43,6 @@ pub fn normalize_setting_value(key: &str, value: &str) -> String {
 #[inline]
 pub(crate) fn clean(s: &str) -> &str {
     s.trim()
-}
-
-/// 配置回退泛型（DB 设置优先，解析/归一化失败回退基线）：
-/// - `stored`：`get_setting(key).ok().flatten()` 结果；
-/// - `parse`：文本解析（如 `str::parse`，失败进回退）；
-/// - `normalize`：有效值清洗（如挡位钳制）；
-/// - `fallback`：config.toml 基线闭包。
-///
-/// settings 三 getter、配额水位、详情 TTL 秒换算统一复用此抽象。
-pub(crate) fn get_or_config<T>(
-    stored: Option<String>,
-    parse: impl FnOnce(&str) -> Option<T>,
-    normalize: impl FnOnce(T) -> T,
-    fallback: impl FnOnce() -> T,
-) -> T {
-    stored
-        .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .and_then(parse)
-        .map(normalize)
-        .unwrap_or_else(fallback)
 }
 
 /// 历史裁剪表白名单（防 SQL 注入：表名/排序列仅允许白名单常量，limit 为整数格式化）。

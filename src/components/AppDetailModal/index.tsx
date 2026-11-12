@@ -3,13 +3,11 @@ import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi } from '../../services/api';
-import { getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../../utils/appHelper';
-import { detectHostArch, detectHostOs } from '../hostEnv';
-import { Header } from './Header';
+import { detectHostArch, detectHostOs, getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../../utils/appHelper';
+import { Header, handleOpenExternal } from './Header';
 import { InstallActions } from './InstallActions';
 import { AssetList } from './AssetList';
 import { ReadmeSection } from './ReadmeSection';
-import { handleOpenExternal } from './openExternal';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
