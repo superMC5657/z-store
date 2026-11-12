@@ -1,4 +1,7 @@
-use crate::models::{AppSummary, FavoriteEntry, ImportUserDataResult, WatchedApp};
+use crate::models::{
+    AppSummary, FavoriteEntry, ImportUserDataResult, WatchDismissedEntry, WatchUpdatedPayload,
+    WatchedApp,
+};
 use crate::AppState;
 use tauri::State;
 
@@ -246,6 +249,44 @@ pub fn unwatch_app(state: State<'_, AppState>, app_id: String) -> crate::AppResu
 pub fn get_watched_apps(state: State<'_, AppState>) -> crate::AppResult<Vec<WatchedApp>> {
     let db = state.db()?;
     Ok(db.get_watched_apps()?)
+}
+
+/// 待处理的关注提醒（持久化，重启后可读回）；实时提醒仍经 `zstore://watch-updated` 推送。
+#[tauri::command]
+pub fn get_watch_notifications(
+    state: State<'_, AppState>,
+) -> crate::AppResult<Vec<WatchUpdatedPayload>> {
+    let db = state.db()?;
+    Ok(db.get_pending_watch_notifications()?)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn dismiss_watch_notification(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> crate::AppResult<bool> {
+    let id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
+    Ok(db.dismiss_watch_notification(&id)?)
+}
+
+/// 已确认的关注提醒，供规则管理列出与恢复。
+#[tauri::command]
+pub fn get_dismissed_watch_notifications(
+    state: State<'_, AppState>,
+) -> crate::AppResult<Vec<WatchDismissedEntry>> {
+    let db = state.db()?;
+    Ok(db.get_dismissed_watch_notifications()?)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn restore_watch_notification(
+    state: State<'_, AppState>,
+    app_id: String,
+) -> crate::AppResult<bool> {
+    let id = super::require_app_id(&app_id)?;
+    let db = state.db()?;
+    Ok(db.restore_watch_notification(&id)?)
 }
 
 // ---------- 手动跨设备同步（导入侧；导出由前端经 getters 组装） ----------

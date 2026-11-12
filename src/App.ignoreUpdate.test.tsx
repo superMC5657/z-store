@@ -1,8 +1,8 @@
 /**
  * 忽略更新持久化测试（真实 <App/> 链路）。
  *
- * `忽略本次提醒` 必须走与 `跳过此版本` 相同的后端链路
- * (tauriApi.setAppSkipVersion + 规则刷新)：被忽略的更新在重新检查后依然保持忽略状态，
+ * 更新菜单的 `跳过版本` 走 tauriApi.setAppSkipVersion + 规则刷新：
+ * 被跳过的更新在重新检查后依然保持排除状态，
  * 且规则管理弹窗界面需准确反映该持久化的跳过规则。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
@@ -108,9 +108,9 @@ describe('ignore-update persistence (real App path)', () => {
     fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
     expect(await screen.findByText('Ignored App')).toBeTruthy();
 
-    // 忽略该更新（入口与用户界面菜单一致）。
+    // 跳过该版本（入口与用户界面菜单一致）。
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
-    fireEvent.click(await screen.findByText('忽略本次提醒'));
+    fireEvent.click(await screen.findByText('跳过版本'));
 
     // 后端链路（对齐跳过版本流程）：跳过规则已持久化 + 规则列表已刷新。
     await waitFor(() => {

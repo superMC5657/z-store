@@ -135,13 +135,17 @@ impl Database {
             -- ADR-0007 默认挡位：应用详情缓存保鲜期 60 分钟（仅缺失时填充，不覆盖用户已存值）
             INSERT OR IGNORE INTO user_settings (key, value) VALUES ('detail_cache_ttl_minutes', '60');
 
-            -- 关注订阅表：daily 频率下 last_notified_at 保证每应用每天至多通知一次
+            -- 关注订阅表：daily 频率下 last_notified_at 保证每应用每天至多通知一次；
+            -- dismissed_version/dismissed_at 记录用户已确认的提醒版本与确认时间，
+            -- dismissed_version 与 last_notified_version 不同即为待处理提醒
             CREATE TABLE IF NOT EXISTS watched_apps (
                 app_id TEXT PRIMARY KEY,
                 added_at INTEGER NOT NULL,
                 last_notified_version TEXT,
                 last_notified_at INTEGER,
-                is_cataloged INTEGER NOT NULL DEFAULT 0
+                is_cataloged INTEGER NOT NULL DEFAULT 0,
+                dismissed_version TEXT,
+                dismissed_at INTEGER
             );
 
             -- GitHub Star 列表本地持久化记录
@@ -281,6 +285,16 @@ impl Database {
             "watched_apps",
             "is_cataloged",
             "ALTER TABLE watched_apps ADD COLUMN is_cataloged INTEGER NOT NULL DEFAULT 0",
+        )?;
+        self.ensure_column(
+            "watched_apps",
+            "dismissed_version",
+            "ALTER TABLE watched_apps ADD COLUMN dismissed_version TEXT",
+        )?;
+        self.ensure_column(
+            "watched_apps",
+            "dismissed_at",
+            "ALTER TABLE watched_apps ADD COLUMN dismissed_at INTEGER",
         )?;
         self.run_migrations()
     }

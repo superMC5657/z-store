@@ -25,7 +25,7 @@ import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
-import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchUpdatedPayload, createNavigate } from './types';
+import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchDismissedEntry, WatchUpdatedPayload, createNavigate } from './types';
 import { tauriApi } from './services/api';
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -92,6 +92,8 @@ export const App: React.FC = () => {
   // 关注订阅（Watch）
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
+  // 已确认的关注提醒（规则管理「关注已读」，可恢复）
+  const [dismissedWatches, setDismissedWatches] = useState<WatchDismissedEntry[]>([]);
   // 设备平台全局过滤：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
@@ -346,10 +348,9 @@ export const App: React.FC = () => {
     [updates],
   );
 
-  // 7. 更新规则动作簇（单项更新/忽略/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
+  // 7. 更新规则动作簇（单项更新/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
   const {
     handleApplyUpdate,
-    handleIgnoreUpdate,
     handleSkipVersion,
     handleFreezeVersion,
     handleHideApp,
@@ -414,6 +415,23 @@ export const App: React.FC = () => {
     }
   };
 
+  const refreshDismissedWatches = useCallback(async () => {
+    try {
+      const rows = await tauriApi.getDismissedWatchNotifications();
+      setDismissedWatches(Array.isArray(rows) ? rows : []);
+    } catch {
+      // 读失败保留现有列表
+    }
+  }, []);
+
+  // 启动读一次（规则计数）；打开规则管理时再读，覆盖期间新版本使已读项失效的情况
+  useEffect(() => {
+    void refreshDismissedWatches();
+  }, [refreshDismissedWatches]);
+  useEffect(() => {
+    if (isRulesModalOpen) void refreshDismissedWatches();
+  }, [isRulesModalOpen, refreshDismissedWatches]);
+
   // 关注 / 取消关注切换（后端未就绪时 Toast 提示且不崩溃）
   // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
   const handleToggleWatch = useCallback(async (id: string) => {
@@ -445,12 +463,54 @@ export const App: React.FC = () => {
     });
     if (isWatched) {
       setWatchNotifications((prev) => prev.filter((n) => normalizeId(n.app_id) !== key));
+      void refreshDismissedWatches();
     }
-  }, [showToast, t]);
+  }, [showToast, t, refreshDismissedWatches]);
 
-  const handleDismissWatchNotification = useCallback((appId: string) => {
+  // 确认提醒：后端记下已确认版本（重启后不再出现），成功后移出列表；失败保留并提示
+  const handleDismissWatchNotification = useCallback(async (appId: string) => {
+    try {
+      await tauriApi.dismissWatchNotification(appId);
+    } catch (e) {
+      showToast(t('toast.watch_failed', { error: String(e) }), 'error');
+      return;
+    }
     setWatchNotifications((prev) => prev.filter((n) => n.app_id !== appId));
-  }, []);
+    void refreshDismissedWatches();
+  }, [showToast, t, refreshDismissedWatches]);
+
+  // 规则管理「关注已读」恢复：撤销确认后以后端为准重读待处理与已读两份列表。
+  // 后端失败时抛出，由规则管理就地提示（成功/失败反馈均在弹窗内，不另弹 Toast）。
+  const handleRestoreWatchNotification = useCallback(async (appId: string) => {
+    await tauriApi.restoreWatchNotification(appId);
+    const [pending] = await Promise.all([
+      tauriApi.getWatchNotifications().catch(() => null),
+      refreshDismissedWatches(),
+    ]);
+    if (Array.isArray(pending)) setWatchNotifications(pending);
+  }, [refreshDismissedWatches]);
+
+  // 规则管理「关注已读」取消关注：已读项均为已关注应用，直接取消而非切换；失败时抛出，由弹窗提示
+  const handleUnwatchFromRules = useCallback(async (appId: string) => {
+    const key = normalizeId(appId);
+    if (!key) return;
+    await tauriApi.unwatchApp(key);
+    setWatchedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    setWatchNotifications((prev) => prev.filter((n) => normalizeId(n.app_id) !== key));
+    await refreshDismissedWatches();
+  }, [refreshDismissedWatches]);
+
+  // 同一应用的待处理提醒与已读记录互斥：新版本到来（实时事件）即令其已读记录失效，
+  // 规则计数与弹窗列表据此即时剔除，无需等下次重读
+  const activeDismissedWatches = useMemo(() => {
+    if (watchNotifications.length === 0) return dismissedWatches;
+    const pendingIds = new Set(watchNotifications.map((n) => normalizeId(n.app_id)));
+    return dismissedWatches.filter((d) => !pendingIds.has(normalizeId(d.app_id)));
+  }, [dismissedWatches, watchNotifications]);
 
   // 切换收藏状态（稳定回调，供 memo 卡片复用；入口归一，读写一致）
   // 后端 reject 时 toast 报错并保持原态：收藏集合仅在成功后更新，失败无乐观态可回滚
@@ -751,11 +811,10 @@ export const App: React.FC = () => {
               onApplyUpdate={handleApplyUpdate}
               onBatchUpdateAll={handleBatchUpdateAll}
               onCheckUpdates={handleCheckUpdates}
-              onIgnoreUpdate={handleIgnoreUpdate}
               onSkipVersion={handleSkipVersion}
               onFreezeVersion={handleFreezeVersion}
               onHideApp={handleHideApp}
-              updateRulesCount={updateRules.length}
+              updateRulesCount={updateRules.length + activeDismissedWatches.length}
               onOpenRules={() => setIsRulesModalOpen(true)}
               watchNotifications={watchNotifications}
               onOpenWatchedApp={handleOpenDetail}
@@ -772,7 +831,7 @@ export const App: React.FC = () => {
                   settings={settings}
                   onUpdateSetting={handleUpdateSetting}
                   installedCount={installedApps.length}
-                  updateRulesCount={updateRules.length}
+                  updateRulesCount={updateRules.length + activeDismissedWatches.length}
                   onOpenRules={() => setIsRulesModalOpen(true)}
                 />
               )}
@@ -884,6 +943,9 @@ export const App: React.FC = () => {
         onToggleRuleFrozen={handleToggleRuleFrozen}
         onToggleRuleHidden={handleToggleRuleHidden}
         onSkipVersion={handleSkipVersion}
+        dismissedWatches={activeDismissedWatches}
+        onRestoreWatch={handleRestoreWatchNotification}
+        onUnwatch={handleUnwatchFromRules}
       />
 
       {/* 应用内通知 Toast */}

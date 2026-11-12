@@ -350,6 +350,14 @@ pub struct WatchUpdatedPayload {
     pub version: String,
 }
 
+/// 已确认（「知道了」）的关注提醒：规则管理中可恢复。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WatchDismissedEntry {
+    pub app_id: String,
+    pub version: String,
+    pub dismissed_at: i64,
+}
+
 /// OAuth Device 轮询结果：`pending` | `authorized` | `expired` | `denied` | `error`。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DevicePollResult {

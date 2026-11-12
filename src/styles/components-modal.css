@@ -444,3 +444,108 @@
   font-size: calc(11.5px * var(--font-scale));
   border: 1px solid var(--border-subtle);
 }
+
+/* 规则管理行：名称/ID 一行、状态标签+生效时间一行，操作区固定在右侧不换行；
+   超长版本号与 ID 截断为省略号（悬停 title 显示全文），保证每行等高 */
+.fluent-list-row.rules-row {
+  padding: 10px 12px !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+}
+
+.rules-row-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rules-row-title,
+.rules-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.rules-row-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 590;
+  font-size: var(--font-base);
+  color: var(--text-primary);
+  letter-spacing: -0.015em;
+}
+
+.rules-row-id {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.rules-row-meta {
+  gap: 6px;
+}
+
+/* 只有含长度不定版本号的标签（跳过、关注已读）可收缩；锁定/隐藏标签文案固定，保持完整 */
+.rules-row-tag {
+  flex: 0 0 auto;
+}
+
+.rules-row-tag.app-tag-skipped,
+.rules-row-tag.app-tag-watch {
+  flex: 0 4 auto;
+  min-width: 0;
+  max-width: 220px;
+}
+
+.rules-row-tag > svg {
+  flex-shrink: 0;
+}
+
+.rules-row-tag > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rules-row-date {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.rules-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.rules-notice {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+
+.rules-notice.is-success {
+  color: #10b981;
+}
+
+.rules-notice.is-error {
+  color: #ef4444;
+}

@@ -55,6 +55,8 @@ function stubFor(cmd: string): unknown {
     case 'delete_custom_app':
     case 'unwatch_app':
     case 'watch_app':
+    case 'dismiss_watch_notification':
+    case 'restore_watch_notification':
     case 'unstar_app':
     case 'toggle_favorite':
     case 'uninstall_app':
@@ -197,6 +199,10 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(social.syncGithubStarred('user'));
     await swallow(social.watchApp('o/r'));
     await swallow(social.unwatchApp('o/r'));
+    await swallow(social.getWatchNotifications());
+    await swallow(social.dismissWatchNotification('o/r'));
+    await swallow(social.getDismissedWatchNotifications());
+    await swallow(social.restoreWatchNotification('o/r'));
     await swallow(social.oauthDevicePoll('code'));
     await swallow(social.starApp('o/r'));
     await swallow(social.unstarApp('o/r'));

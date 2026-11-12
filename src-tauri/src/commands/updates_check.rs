@@ -9,6 +9,10 @@ use tauri::{AppHandle, Emitter, State};
 /// 按天限频关注通知的最小间隔时间（秒，24 小时）
 pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 
+/// 关注时的「近期发布」窗口（秒，7 天）：从未提醒过的关注应用，其最新 Release
+/// 发布不足 7 天即作为一条动态提醒一次，而非静默记为基线。
+pub const WATCH_RECENT_RELEASE_SECONDS: i64 = 7 * 24 * 60 * 60;
+
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
 /// - 默认 DB-only（`force_refresh != Some(true)`）：仅读 `get_cached_app_detail(None)` /
@@ -509,9 +513,55 @@ impl WatchCheckSummary {
     }
 }
 
+/// 从未提醒过的关注应用面对其最新版本时的处置。
+#[derive(Debug, PartialEq, Eq)]
+enum FirstSeenAction {
+    /// 最新 Release 发布不足 7 天：提醒一次。
+    Notify,
+    /// 发布已久：静默记为基线，只提醒之后的新版本。
+    Baseline,
+    /// 发布时间未知且本轮未联网：暂不建立基线，留待手动检查拿到发布时间再判定。
+    Defer,
+}
+
+fn decide_first_seen(published_at: Option<i64>, now: i64, is_force: bool) -> FirstSeenAction {
+    match published_at {
+        Some(t) if now.saturating_sub(t) < WATCH_RECENT_RELEASE_SECONDS => FirstSeenAction::Notify,
+        Some(_) => FirstSeenAction::Baseline,
+        None if is_force => FirstSeenAction::Baseline,
+        None => FirstSeenAction::Defer,
+    }
+}
+
+/// 从 `releases/latest` 响应体取发布时间（Unix 秒）；tag 与 `version` 不符时视为未知，
+/// 避免拿旧载荷的时间去判定新版本。
+fn release_published_at_from_payload(payload: &str, version: &str) -> Option<i64> {
+    let v: serde_json::Value = serde_json::from_str(payload).ok()?;
+    if v.get("tag_name")?.as_str()?.trim() != version.trim() {
+        return None;
+    }
+    let raw = v.get("published_at")?.as_str()?;
+    time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
+        .ok()
+        .map(|t| t.unix_timestamp())
+}
+
+/// 最新 Release 的发布时间，读手动检查时落库的 GitHub `releases/latest` ETag 载荷；
+/// 无载荷或非 GitHub 来源时为 None。
+fn cached_release_published_at(state: &AppState, app_id: &str, version: &str) -> Option<i64> {
+    let coords = state.catalog.get_repo_coordinates(app_id).ok()?;
+    let ep = format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        coords.owner, coords.repo
+    );
+    let payload = state.db().ok()?.get_cached_payload(&ep).ok().flatten()?;
+    release_published_at_from_payload(&payload, version)
+}
+
 /// 遍历被关注应用，若出现较 `last_notified_version` 更新的
 /// Release，按 `watch_notify_frequency`（`startup`|`daily`）决定是否经由
 /// `zstore://watch-updated` 事件应用内通知。
+/// 从未提醒过的应用（新关注或仅有静默基线）若最新 Release 发布不足 7 天，也提醒一次。
 async fn notify_watched_updates(
     state: &AppState,
     rules_map: &HashMap<String, UpdateRule>,
@@ -530,6 +580,7 @@ async fn notify_watched_updates(
     };
     let now = crate::now_secs();
     let is_daily = frequency.as_str() == "daily";
+    let is_force = force_refresh.unwrap_or(false);
     let notified = Arc::new(AtomicUsize::new(0));
     let deferred_err = Arc::new(AtomicUsize::new(0));
     let deferred_baseline = Arc::new(AtomicUsize::new(0));
@@ -563,15 +614,43 @@ async fn notify_watched_updates(
                 if latest.is_empty() {
                     return;
                 }
-                let Some(base) = w.last_notified_version.clone() else {
-                    if let Ok(db) = state.db() {
-                        let _ = db.init_watch_baseline(&w.app_id, &latest);
-                    }
-                    deferred_baseline.fetch_add(1, Ordering::Relaxed);
-                    return;
+                // 从未提醒过：新关注（无基线），或基线即当前最新版本且从未发出过提醒
+                let never_notified_at_latest = match w.last_notified_version.as_deref() {
+                    None => true,
+                    Some(base) if base.trim() == latest => state
+                        .db()
+                        .ok()
+                        .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten())
+                        .is_none(),
+                    Some(_) => false,
                 };
-                if !is_version_newer(&base, &latest) {
-                    return;
+                if never_notified_at_latest {
+                    // 仅尚无基线的新关注计入 deferred_baseline；已有静默基线的应用本轮无事可做，不计数
+                    let is_new_watch = w.last_notified_version.is_none();
+                    let published_at = cached_release_published_at(state, &w.app_id, &latest);
+                    match decide_first_seen(published_at, now, is_force) {
+                        FirstSeenAction::Notify => {}
+                        FirstSeenAction::Baseline => {
+                            if is_new_watch {
+                                if let Ok(db) = state.db() {
+                                    let _ = db.init_watch_baseline(&w.app_id, &latest);
+                                }
+                                deferred_baseline.fetch_add(1, Ordering::Relaxed);
+                            }
+                            return;
+                        }
+                        FirstSeenAction::Defer => {
+                            if is_new_watch {
+                                deferred_baseline.fetch_add(1, Ordering::Relaxed);
+                            }
+                            return;
+                        }
+                    }
+                } else {
+                    let base = w.last_notified_version.clone().unwrap_or_default();
+                    if !is_version_newer(&base, &latest) {
+                        return;
+                    }
                 }
                 if is_daily {
                     let last_at = state
@@ -607,6 +686,47 @@ async fn notify_watched_updates(
         deferred_err: deferred_err.load(Ordering::Relaxed),
         deferred_baseline: deferred_baseline.load(Ordering::Relaxed),
         deferred_throttle: deferred_throttle.load(Ordering::Relaxed),
+    }
+}
+
+#[cfg(test)]
+mod watch_first_seen_tests {
+    use super::{
+        decide_first_seen, release_published_at_from_payload, FirstSeenAction,
+        WATCH_RECENT_RELEASE_SECONDS,
+    };
+
+    const NOW: i64 = 1_800_000_000;
+
+    #[test]
+    fn recent_release_notifies_old_release_baselines() {
+        let six_hours_ago = NOW - 6 * 3600;
+        assert_eq!(decide_first_seen(Some(six_hours_ago), NOW, false), FirstSeenAction::Notify);
+        assert_eq!(decide_first_seen(Some(six_hours_ago), NOW, true), FirstSeenAction::Notify);
+        let just_over = NOW - WATCH_RECENT_RELEASE_SECONDS;
+        assert_eq!(decide_first_seen(Some(just_over), NOW, true), FirstSeenAction::Baseline);
+        assert_eq!(decide_first_seen(Some(NOW - 30 * 86400), NOW, false), FirstSeenAction::Baseline);
+    }
+
+    #[test]
+    fn unknown_publish_time_defers_offline_and_baselines_online() {
+        assert_eq!(decide_first_seen(None, NOW, false), FirstSeenAction::Defer);
+        assert_eq!(decide_first_seen(None, NOW, true), FirstSeenAction::Baseline);
+    }
+
+    #[test]
+    fn publish_time_parsed_only_for_matching_tag() {
+        let payload = r#"{"tag_name":"v0.101.0","published_at":"2026-11-13T00:00:00Z"}"#;
+        assert_eq!(
+            release_published_at_from_payload(payload, "v0.101.0"),
+            Some(1_794_528_000)
+        );
+        assert_eq!(release_published_at_from_payload(payload, "v0.102.0"), None);
+        assert_eq!(
+            release_published_at_from_payload(r#"{"tag_name":"v1","published_at":null}"#, "v1"),
+            None
+        );
+        assert_eq!(release_published_at_from_payload("not json", "v1"), None);
     }
 }
 

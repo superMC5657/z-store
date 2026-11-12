@@ -5,7 +5,6 @@ import '../i18n';
 import { marked } from 'marked';
 import {
   ArrowRight,
-  BellOff,
   CheckCircle2,
   ChevronDown,
   Download,
@@ -43,7 +42,6 @@ interface UpdatesViewProps {
   onApplyUpdate: (id: string) => Promise<void>;
   onBatchUpdateAll: () => Promise<void>;
   onCheckUpdates?: () => Promise<void>;
-  onIgnoreUpdate?: (id: string) => void;
   onSkipVersion?: (id: string, version: string) => Promise<void>;
   onFreezeVersion?: (id: string) => Promise<void>;
   onHideApp?: (id: string) => Promise<void>;
@@ -66,7 +64,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   onApplyUpdate,
   onBatchUpdateAll,
   onCheckUpdates,
-  onIgnoreUpdate,
   onSkipVersion,
   onFreezeVersion,
   onHideApp,
@@ -118,13 +115,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
     }
   }, [updates, watchNotifications, catalogById]);
 
-  // 关注动态清空后若停留在 watched 标签则自动回到 all
-  useEffect(() => {
-    if (activeTab === 'watched' && watchNotifications.length === 0) {
-      setActiveTab('all');
-    }
-  }, [activeTab, watchNotifications.length]);
-
   const handleUpdate = async (id: string) => {
     try {
       setUpdatingId(id);
@@ -161,29 +151,28 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
       ? Math.min(100, Math.round((checkProgress.checked / checkProgress.total) * 100))
       : 0;
 
-  const filterTabs: ManageFilterTab<UpdatesFilterTabId>[] | undefined =
-    watchNotifications.length > 0
-      ? [
-          {
-            id: 'all',
-            label: t('updates.filter_all'),
-            count: updates.length + watchNotifications.length,
-          },
-          {
-            id: 'updates',
-            label: t('updates.filter_updates'),
-            count: updates.length,
-          },
-          {
-            id: 'watched',
-            label: t('updates.filter_watched'),
-            count: watchNotifications.length,
-          },
-        ]
-      : undefined;
+  // 筛选签常驻：关注动态为空（无提醒或均已确认）时仍可切入，显示空态说明
+  const filterTabs: ManageFilterTab<UpdatesFilterTabId>[] = [
+    {
+      id: 'all',
+      label: t('updates.filter_all'),
+      count: updates.length + watchNotifications.length,
+    },
+    {
+      id: 'updates',
+      label: t('updates.filter_updates'),
+      count: updates.length,
+    },
+    {
+      id: 'watched',
+      label: t('updates.filter_watched'),
+      count: watchNotifications.length,
+    },
+  ];
 
+  // 「全部」下仅在有提醒时插入关注分节；「关注动态」签下始终渲染（空时为空态）
   const showWatchSection =
-    (activeTab === 'all' || activeTab === 'watched') && watchNotifications.length > 0;
+    activeTab === 'watched' || (activeTab === 'all' && watchNotifications.length > 0);
   const showUpdatesSection = activeTab === 'all' || activeTab === 'updates';
 
   const subtitle = updates.length > 0 ? undefined : t('updates.subtitle_all_latest');
@@ -193,7 +182,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
       <ManageHeader
         icon={<RotateCcw size={16} strokeWidth={1.5} />}
         title={t('updates.title_label')}
-        count={filterTabs ? undefined : updates.length}
         subtitle={subtitle}
         actions={
           <>
@@ -289,14 +277,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         </div>
       )}
 
-      {filterTabs && (
-        <ManageFilterBar<UpdatesFilterTabId>
-          tabs={filterTabs}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          tabsAriaLabel={t('updates.filter_tabs_aria')}
-        />
-      )}
+      <ManageFilterBar<UpdatesFilterTabId>
+        tabs={filterTabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        tabsAriaLabel={t('updates.filter_tabs_aria')}
+      />
 
       {showWatchSection && (
         <section
@@ -309,6 +295,13 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               <span>{t('updates.watch_updates_title')}</span>
             </span>
           </div>
+          {watchNotifications.length === 0 ? (
+            <EmptyState
+              icon={<Eye size={40} strokeWidth={1.5} />}
+              title={t('updates.watch_empty_title')}
+              description={t('updates.watch_empty_desc')}
+            />
+          ) : (
           <div className="manage-panel">
             {watchNotifications.map((n) => {
               const iconInfo = resolveAppIconInfo(n.app_id, apps);
@@ -368,6 +361,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               );
             })}
           </div>
+          )}
         </section>
       )}
 
@@ -524,16 +518,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                             onClose={() => setActiveMenuId(null)}
                             width={210}
                           >
-                            {onIgnoreUpdate && (
-                              <ManageMenuItem
-                                icon={<BellOff size={13} strokeWidth={1.5} />}
-                                label={t('updates.ignore_once')}
-                                onClick={() =>
-                                  triggerAnimatedAction(item.app_id, () => onIgnoreUpdate(item.app_id))
-                                }
-                              />
-                            )}
-
                             {onSkipVersion && (
                               <ManageMenuItem
                                 icon={<SkipForward size={13} strokeWidth={1.5} />}

@@ -298,7 +298,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('应用更新')).toBeTruthy();
-      expect(document.querySelector('.manage-title .count-badge')?.textContent).toBe('0');
+      expect(screen.getByRole('tab', { name: '待更新 0' })).toBeTruthy();
       expect(screen.getByText('检查更新')).toBeTruthy();
       expect(screen.getByText('已是最新版本')).toBeTruthy();
       unmount();
@@ -315,7 +315,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('App Updates')).toBeTruthy();
-      expect(document.querySelector('.manage-title .count-badge')?.textContent).toBe('0');
+      expect(screen.getByRole('tab', { name: 'Updates 0' })).toBeTruthy();
       expect(screen.getByText('Check Updates')).toBeTruthy();
       expect(screen.getByText('Up to Date')).toBeTruthy();
     });

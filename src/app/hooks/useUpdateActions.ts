@@ -16,7 +16,7 @@ interface UseUpdateActionsParams {
 }
 
 /**
- * 更新规则动作簇（C3 自 App.tsx 抽出，原 L1119-1260：单项更新/忽略/
+ * 更新规则动作簇（C3 自 App.tsx 抽出，原 L1119-1260：单项更新/
  * 跳过版本/锁定/隐藏/移除规则/清除跳过/切换锁定隐藏/批量升级/手动检查）。
  */
 export function useUpdateActions({
@@ -41,16 +41,6 @@ export function useUpdateActions({
     } catch (err) {
       showToast(t('toast.update_failed', { error: String(err) }), 'error');
     }
-  };
-
-  // 忽略单项更新
-  const handleIgnoreUpdate = async (id: string) => {
-    const target = updates.find((u) => u.app_id === id);
-    await tauriApi.setAppSkipVersion(id, target?.latest_version ?? null);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await tauriApi.getUpdateRules();
-    setUpdateRules(rules);
-    showToast(t('toast.skip_update', { id }), 'info');
   };
 
   // 跳过指定版本
@@ -184,7 +174,6 @@ export function useUpdateActions({
 
   return {
     handleApplyUpdate,
-    handleIgnoreUpdate,
     handleSkipVersion,
     handleFreezeVersion,
     handleHideApp,

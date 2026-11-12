@@ -124,16 +124,6 @@ describe('useUpdateActions：单项动作', () => {
     expect(deps.setUpdates).not.toHaveBeenCalled();
   });
 
-  it('忽略更新：取目标行 latest_version 写 skip，无目标行落 null', async () => {
-    const { rendered, deps } = renderActions([makeUpdate('acme/atlas', { latest_version: '3.0.0' })]);
-    await act(async () => {
-      await rendered.result.current.handleIgnoreUpdate('acme/atlas');
-    });
-    expect(mocks.setAppSkipVersion).toHaveBeenCalledWith('acme/atlas', '3.0.0');
-    expect(deps.setUpdateRules).toHaveBeenCalledWith([]);
-    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.skip_update'), 'info');
-  });
-
   it('跳过指定版本 / 锁定 / 隐藏：写后重读规则；隐藏还刷新目录', async () => {
     const { rendered, deps } = renderActions([makeUpdate('acme/atlas')], 'query-x');
     await act(async () => {

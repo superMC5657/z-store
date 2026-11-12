@@ -7,6 +7,7 @@ import type {
   OAuthUser,
   StarAppResult,
   StarredSyncResult,
+  WatchDismissedEntry,
   WatchedAppEntry,
   WatchUpdatedPayload,
 } from '../../types';
@@ -63,6 +64,32 @@ export async function watchApp(appId: string): Promise<boolean> {
 
 export async function unwatchApp(appId: string): Promise<boolean> {
   return tauriInvoke<boolean>(CMD.unwatchApp, { appId });
+}
+
+// 待处理的关注提醒（后端持久化，重启后可读回）；后端缺席时以空数组计。
+export async function getWatchNotifications(): Promise<WatchUpdatedPayload[]> {
+  const rows = await tauriInvoke<WatchUpdatedPayload[]>(CMD.getWatchNotifications);
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(
+    (r) => r && typeof r.app_id === 'string' && r.app_id.trim() !== '' && typeof r.version === 'string',
+  );
+}
+
+export async function dismissWatchNotification(appId: string): Promise<boolean> {
+  return tauriInvoke<boolean>(CMD.dismissWatchNotification, { appId });
+}
+
+// 已确认的关注提醒（规则管理「关注已读」）；后端缺席时以空数组计。
+export async function getDismissedWatchNotifications(): Promise<WatchDismissedEntry[]> {
+  const rows = await tauriInvoke<WatchDismissedEntry[]>(CMD.getDismissedWatchNotifications);
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(
+    (r) => r && typeof r.app_id === 'string' && r.app_id.trim() !== '' && typeof r.version === 'string',
+  );
+}
+
+export async function restoreWatchNotification(appId: string): Promise<boolean> {
+  return tauriInvoke<boolean>(CMD.restoreWatchNotification, { appId });
 }
 
 export async function onWatchUpdated(

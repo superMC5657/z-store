@@ -319,6 +319,13 @@ export interface WatchUpdatedPayload {
   app_name?: string;
 }
 
+// 已确认（「知道了」）的关注提醒 —— `get_dismissed_watch_notifications` 行，规则管理中可恢复
+export interface WatchDismissedEntry {
+  app_id: string;
+  version: string;
+  dismissed_at: number;
+}
+
 // 收藏/关注收录标记行（写入时按 catalog index 落 `is_cataloged`，启动与同步时回填校验）：
 // `get_favorite_entries` / `get_watched_apps` 逐行携带，展示层徽标以记录为准
 // （记录优先；`apps` 目录列表仅作结构去重/驱逐补充，永不覆盖记录标记）。

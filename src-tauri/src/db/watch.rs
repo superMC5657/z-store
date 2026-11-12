@@ -81,6 +81,71 @@ impl Database {
         Ok(())
     }
 
+    /// 待处理的关注提醒（最近通知在前）：该版本确实发出过提醒（`last_notified_at` 非空，
+    /// 静默基线不写该列故不计入）且用户尚未确认。提醒在重启后仍可读回，直至确认或取消关注。
+    pub fn get_pending_watch_notifications(
+        &self,
+    ) -> Result<Vec<crate::models::WatchUpdatedPayload>> {
+        self.query_vec(
+            "SELECT app_id, last_notified_version FROM watched_apps \
+             WHERE last_notified_at IS NOT NULL \
+               AND last_notified_version IS NOT NULL \
+               AND last_notified_version IS NOT dismissed_version \
+             ORDER BY last_notified_at DESC, app_id",
+            [],
+            |row| {
+                Ok(crate::models::WatchUpdatedPayload {
+                    app_id: row.get(0)?,
+                    version: row.get(1)?,
+                })
+            },
+        )
+    }
+
+    /// 确认当前提醒：记下已确认版本与时间，更新的 Release 到来时会再次提醒。
+    pub fn dismiss_watch_notification(&self, app_id: &str) -> Result<bool> {
+        let rows = self.exec_write(
+            "UPDATE watched_apps SET dismissed_version = last_notified_version, dismissed_at = ?2 \
+             WHERE app_id = ?1 AND last_notified_at IS NOT NULL \
+               AND last_notified_version IS NOT dismissed_version",
+            params![clean(app_id), now_secs()],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// 已确认的关注提醒（最近确认在前）：确认的正是当前最新提醒版本。
+    /// 之后若有更新的 Release，该应用回到待处理列表，不再出现在此。
+    pub fn get_dismissed_watch_notifications(
+        &self,
+    ) -> Result<Vec<crate::models::WatchDismissedEntry>> {
+        self.query_vec(
+            "SELECT app_id, dismissed_version, COALESCE(dismissed_at, last_notified_at) AS at \
+             FROM watched_apps \
+             WHERE last_notified_at IS NOT NULL \
+               AND dismissed_version IS NOT NULL \
+               AND dismissed_version = last_notified_version \
+             ORDER BY at DESC, app_id",
+            [],
+            |row| {
+                Ok(crate::models::WatchDismissedEntry {
+                    app_id: row.get(0)?,
+                    version: row.get(1)?,
+                    dismissed_at: row.get(2)?,
+                })
+            },
+        )
+    }
+
+    /// 撤销确认：该提醒回到待处理列表。
+    pub fn restore_watch_notification(&self, app_id: &str) -> Result<bool> {
+        let rows = self.exec_write(
+            "UPDATE watched_apps SET dismissed_version = NULL, dismissed_at = NULL \
+             WHERE app_id = ?1 AND dismissed_version IS NOT NULL",
+            params![clean(app_id)],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// 首次建立基线（静默，不触发通知）：仅当从未记录过版本时写入当前版本。
     pub fn init_watch_baseline(&self, app_id: &str, version: &str) -> Result<()> {
         self.exec_write(

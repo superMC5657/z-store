@@ -150,6 +150,25 @@ describe('UpdatesView redesigned workbench', () => {
     expect(screen.queryByText('RustDesk')).toBeNull();
   });
 
+  it('keeps the Watched tab with an empty state when there are no watch alerts', () => {
+    render(
+      <UpdatesView
+        updates={UPDATES}
+        apps={CATALOG_APPS}
+        watchNotifications={[]}
+        onApplyUpdate={async () => {}}
+        onBatchUpdateAll={async () => {}}
+      />,
+    );
+
+    // 「全部」下无提醒时不插入关注分节
+    expect(screen.queryByText('暂无关注动态')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /关注动态/ }));
+    expect(screen.getByText('暂无关注动态')).toBeTruthy();
+    expect(screen.queryByText('Motrix')).toBeNull();
+  });
+
   it('renders streaming check progress banner with percentage fill', () => {
     const { container } = render(
       <UpdatesView

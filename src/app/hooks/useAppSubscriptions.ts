@@ -311,7 +311,7 @@ export function useAppSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localApps]);
 
-  // 加载关注列表 + 订阅 `zstore://watch-updated` 应用内提醒
+  // 加载关注列表与持久化的待处理提醒 + 订阅 `zstore://watch-updated` 实时提醒
   useEffect(() => {
     const ctx = newMountCtx();
     tauriApi.getWatchedApps().then((entries) => {
@@ -320,14 +320,19 @@ export function useAppSubscriptions({
         setWatchedIds(new Set(ids));
       }
     }).catch(() => {});
+    tauriApi.getWatchNotifications().then((pending) => {
+      if (!ctx.mounted || !Array.isArray(pending)) return;
+      // 读回期间已到达的实时提醒优先（同应用取较新的一条）
+      setWatchNotifications((prev) => {
+        const live = new Set(prev.map((n) => n.app_id));
+        return [...prev, ...pending.filter((n) => !live.has(n.app_id))];
+      });
+    }).catch(() => {});
     trackSubscription(ctx, tauriApi.onWatchUpdated((payload) => {
       if (!ctx.mounted) return;
       const label = payload.app_name || payload.app_id;
       showToastRef.current(tRef.current('toast.watch_update_released', { name: label, version: payload.version }), 'info');
-      setWatchNotifications((prev) => {
-        const next = prev.filter((n) => n.app_id !== payload.app_id);
-        return [...next, payload];
-      });
+      setWatchNotifications((prev) => [payload, ...prev.filter((n) => n.app_id !== payload.app_id)]);
     }));
     return () => {
       releaseMountCtx(ctx);

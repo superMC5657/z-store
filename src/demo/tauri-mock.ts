@@ -338,6 +338,13 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleWatchApp(a);
     case 'unwatch_app':
       return handleUnwatchApp(a);
+    // 演示环境不跑关注检查，无待处理提醒
+    case 'get_watch_notifications':
+    case 'get_dismissed_watch_notifications':
+      return [];
+    case 'dismiss_watch_notification':
+    case 'restore_watch_notification':
+      return true;
     case 'oauth_device_start':
       return handleOAuthDeviceStart();
     case 'oauth_device_poll':

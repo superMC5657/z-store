@@ -321,6 +321,13 @@
   border-color: rgba(245, 158, 11, 0.25);
 }
 
+/* 已确认的关注提醒（规则管理「关注已读」） */
+.app-tag-watch {
+  background: var(--status-success-bg);
+  color: var(--status-success);
+  border-color: var(--status-success-bg);
+}
+
 /* 平台加载中占位：同尺寸骨架避免布局跳动，低透明脉冲提示正在加载 */
 .app-tag-platforms-loading {
   min-width: 52px;

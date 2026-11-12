@@ -438,6 +438,121 @@ fn test_watched_apps_crud() {
 }
 
 #[test]
+fn test_watch_notifications_persist_until_dismissed() {
+    let db = fixtures::test_db();
+    db.watch_app("rustdesk/rustdesk", false).unwrap();
+    db.watch_app("localsend/localsend", false).unwrap();
+    let pending = |db: &Database| {
+        db.get_pending_watch_notifications()
+            .unwrap()
+            .into_iter()
+            .map(|p| (p.app_id, p.version))
+            .collect::<Vec<_>>()
+    };
+
+    // 静默基线不是提醒
+    db.init_watch_baseline("rustdesk/rustdesk", "v1.0.0").unwrap();
+    db.init_watch_baseline("localsend/localsend", "v2.0.0").unwrap();
+    assert!(pending(&db).is_empty());
+
+    // 发出提醒后可读回，最近通知在前
+    db.set_watch_notified("rustdesk/rustdesk", "v1.1.0", 1_700_000_000).unwrap();
+    db.set_watch_notified("localsend/localsend", "v2.1.0", 1_700_000_100).unwrap();
+    assert_eq!(
+        pending(&db),
+        vec![
+            ("localsend/localsend".to_string(), "v2.1.0".to_string()),
+            ("rustdesk/rustdesk".to_string(), "v1.1.0".to_string()),
+        ]
+    );
+
+    // 确认后不再出现；重复确认无变化
+    assert!(db.dismiss_watch_notification("rustdesk/rustdesk").unwrap());
+    assert!(!db.dismiss_watch_notification("rustdesk/rustdesk").unwrap());
+    assert_eq!(
+        pending(&db),
+        vec![("localsend/localsend".to_string(), "v2.1.0".to_string())]
+    );
+
+    // 已确认列表可读回，恢复后回到待处理
+    let dismissed = db.get_dismissed_watch_notifications().unwrap();
+    assert_eq!(dismissed.len(), 1);
+    assert_eq!(dismissed[0].app_id, "rustdesk/rustdesk");
+    assert_eq!(dismissed[0].version, "v1.1.0");
+    assert!(dismissed[0].dismissed_at > 0);
+    assert!(db.restore_watch_notification("rustdesk/rustdesk").unwrap());
+    assert!(!db.restore_watch_notification("rustdesk/rustdesk").unwrap());
+    assert!(db.get_dismissed_watch_notifications().unwrap().is_empty());
+    assert_eq!(pending(&db).len(), 2);
+    db.dismiss_watch_notification("rustdesk/rustdesk").unwrap();
+
+    // 静默基线不可确认
+    db.watch_app("alacritty/alacritty", false).unwrap();
+    db.init_watch_baseline("alacritty/alacritty", "v0.17.0").unwrap();
+    assert!(!db.dismiss_watch_notification("alacritty/alacritty").unwrap());
+    assert_eq!(db.get_dismissed_watch_notifications().unwrap().len(), 1);
+
+    // 更新的 Release 再次提醒，旧确认不再列为已确认
+    db.set_watch_notified("rustdesk/rustdesk", "v1.2.0", 1_700_000_200).unwrap();
+    assert_eq!(pending(&db)[0], ("rustdesk/rustdesk".to_string(), "v1.2.0".to_string()));
+    assert!(db.get_dismissed_watch_notifications().unwrap().is_empty());
+
+    // 取消关注即移除其提醒
+    db.unwatch_app("localsend/localsend").unwrap();
+    assert_eq!(
+        pending(&db),
+        vec![("rustdesk/rustdesk".to_string(), "v1.2.0".to_string())]
+    );
+}
+
+#[test]
+fn test_watch_notifications_survive_reopen_and_legacy_column_upgrade() {
+    let dir = std::env::temp_dir().join(format!(
+        "zstore-watch-notif-{}-{}",
+        std::process::id(),
+        crate::now_secs()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("legacy.db");
+    {
+        // 旧库形态：watched_apps 无 dismissed_version 列，已有一条发出过的提醒和一条静默基线
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE watched_apps (
+                app_id TEXT PRIMARY KEY,
+                added_at INTEGER NOT NULL,
+                last_notified_version TEXT,
+                last_notified_at INTEGER,
+                is_cataloged INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO watched_apps VALUES ('rustdesk/rustdesk', 1, 'v1.1.0', 1700000000, 0);
+            INSERT INTO watched_apps VALUES ('localsend/localsend', 1, 'v2.0.0', NULL, 0);
+            "#,
+        )
+        .unwrap();
+    }
+    {
+        let db = Database::open(&path).unwrap();
+        let pending = db.get_pending_watch_notifications().unwrap();
+        assert_eq!(pending.len(), 1, "升级后已发出的提醒可读回，静默基线不计入");
+        assert_eq!(pending[0].app_id, "rustdesk/rustdesk");
+        assert_eq!(pending[0].version, "v1.1.0");
+    }
+    {
+        // 重新打开（模拟重启）提醒仍在；确认后再次重启不再出现
+        let db = Database::open(&path).unwrap();
+        assert_eq!(db.get_pending_watch_notifications().unwrap().len(), 1);
+        db.dismiss_watch_notification("rustdesk/rustdesk").unwrap();
+    }
+    {
+        let db = Database::open(&path).unwrap();
+        assert!(db.get_pending_watch_notifications().unwrap().is_empty());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_cataloged_flags_fail_closed_default_and_backfill() {
     // 新库 fail-closed：缺省不带标记建行读出为 false，回填置 true 校准。
     let db = fixtures::test_db();
