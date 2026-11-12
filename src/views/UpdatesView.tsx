@@ -33,11 +33,7 @@ import { AppIconFrame } from '../components/AppIconFrame';
 import { ManageHeader } from './manage/ManageHeader';
 import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar';
 import { ManageMenuItem } from './manage/ManageMenuItem';
-import {
-  buildCatalogLookup,
-  filterUpdates,
-  type UpdatesFilterTabId,
-} from './manage/manageModel';
+import { buildCatalogLookup, type UpdatesFilterTabId } from './manage/manageModel';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
@@ -89,7 +85,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<UpdatesFilterTabId>('all');
 
   const catalogById = useMemo(() => buildCatalogLookup(apps), [apps]);
@@ -129,21 +124,6 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
       setActiveTab('all');
     }
   }, [activeTab, watchNotifications.length]);
-
-  const filteredUpdates = useMemo(
-    () => filterUpdates(updates, catalogById, searchQuery),
-    [updates, catalogById, searchQuery],
-  );
-
-  const filteredWatches = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return watchNotifications;
-    return watchNotifications.filter(
-      (n) =>
-        (n.app_name && n.app_name.toLowerCase().includes(q)) ||
-        n.app_id.toLowerCase().includes(q),
-    );
-  }, [watchNotifications, searchQuery]);
 
   const handleUpdate = async (id: string) => {
     try {
@@ -202,19 +182,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         ]
       : undefined;
 
-  const showControlsBar = updates.length > 0 || watchNotifications.length > 0;
-  const isSearchFilteredOut =
-    searchQuery.trim() !== '' &&
-    ((activeTab === 'all' && filteredUpdates.length === 0 && filteredWatches.length === 0) ||
-      (activeTab === 'updates' && updates.length > 0 && filteredUpdates.length === 0) ||
-      (activeTab === 'watched' && filteredWatches.length === 0));
-
   const showWatchSection =
-    !isSearchFilteredOut &&
-    (activeTab === 'all' || activeTab === 'watched') &&
-    filteredWatches.length > 0;
-  const showUpdatesSection =
-    !isSearchFilteredOut && (activeTab === 'all' || activeTab === 'updates');
+    (activeTab === 'all' || activeTab === 'watched') && watchNotifications.length > 0;
+  const showUpdatesSection = activeTab === 'all' || activeTab === 'updates';
 
   const subtitle = updates.length > 0 ? undefined : t('updates.subtitle_all_latest');
 
@@ -319,36 +289,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         </div>
       )}
 
-      {showControlsBar && (
+      {filterTabs && (
         <ManageFilterBar<UpdatesFilterTabId>
           tabs={filterTabs}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           tabsAriaLabel={t('updates.filter_tabs_aria')}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder={t('updates.search_placeholder')}
-          clearSearchLabel={t('updates.clear_search')}
-        />
-      )}
-
-      {isSearchFilteredOut && (
-        <EmptyState
-          icon={<Search size={36} strokeWidth={1.5} />}
-          title={t('updates.no_match_title')}
-          description={t('updates.no_match_desc')}
-          action={
-            <button
-              type="button"
-              className="btn-fluent btn-secondary btn-sm"
-              onClick={() => {
-                setSearchQuery('');
-                setActiveTab('all');
-              }}
-            >
-              {t('updates.reset_filters')}
-            </button>
-          }
         />
       )}
 
@@ -364,7 +310,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             </span>
           </div>
           <div className="manage-panel">
-            {filteredWatches.map((n) => {
+            {watchNotifications.map((n) => {
               const iconInfo = resolveAppIconInfo(n.app_id, apps);
               const displayName = n.app_name || n.app_id;
               return (
@@ -448,7 +394,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             )
           ) : (
             <div className="manage-panel">
-              {filteredUpdates.map((item) => {
+              {updates.map((item) => {
                 const isExpanded = expandedId === item.app_id;
                 const isThisUpdating = updatingId === item.app_id;
                 const isMenuOpen = activeMenuId === item.app_id;

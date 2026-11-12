@@ -1,4 +1,4 @@
-import type { AppSummary, InstalledApp, UpdateItem, UpdateRule } from '../../types';
+import type { AppSummary, InstalledApp, UpdateRule } from '../../types';
 import { resolveInstalledAppName } from '../../utils/appHelper';
 
 export type InstalledFilterTabId = 'all' | 'frozen' | 'hidden' | 'missing_path';
@@ -33,30 +33,25 @@ export interface InstalledRuleStats {
   frozenCount: number;
   hiddenCount: number;
   missingPathCount: number;
-  updatableCount: number;
 }
 
-/** 汇总已安装应用的状态计数，供顶栏副标题与筛选标签展示。 */
+/** 汇总已安装应用的状态计数，供筛选标签展示。 */
 export function computeInstalledStats(
   installedApps: InstalledApp[],
   rulesByAppId: ReadonlyMap<string, UpdateRule>,
-  updatableIds?: ReadonlySet<string>,
 ): InstalledRuleStats {
   let frozenCount = 0;
   let hiddenCount = 0;
   let missingPathCount = 0;
-  let updatableCount = 0;
 
   for (const app of installedApps) {
-    const idLower = app.app_id.toLowerCase();
-    const rule = rulesByAppId.get(idLower);
+    const rule = rulesByAppId.get(app.app_id.toLowerCase());
     if (rule?.is_frozen) frozenCount++;
     if (rule?.is_hidden) hiddenCount++;
     if (!app.install_path || !app.install_path.trim()) missingPathCount++;
-    if (updatableIds?.has(idLower)) updatableCount++;
   }
 
-  return { frozenCount, hiddenCount, missingPathCount, updatableCount };
+  return { frozenCount, hiddenCount, missingPathCount };
 }
 
 /** 按规则表生成大小写归一的规则查找索引。 */
@@ -107,23 +102,4 @@ export function filterAndSortInstalledApps(
   }
 
   return [...filtered].sort((a, b) => (b.installed_at || 0) - (a.installed_at || 0));
-}
-
-/** 更新列表按名称 / 仓库坐标过滤。 */
-export function filterUpdates(
-  updates: UpdateItem[],
-  catalogById: ReadonlyMap<string, AppSummary>,
-  searchQuery: string,
-): UpdateItem[] {
-  const q = searchQuery.trim().toLowerCase();
-  if (!q) return updates;
-
-  return updates.filter((item) => {
-    const catalogName = catalogById.get(item.app_id.toLowerCase())?.name?.toLowerCase() ?? '';
-    return (
-      item.app_name.toLowerCase().includes(q) ||
-      item.app_id.toLowerCase().includes(q) ||
-      catalogName.includes(q)
-    );
-  });
 }

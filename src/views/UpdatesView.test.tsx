@@ -124,7 +124,7 @@ describe('UpdatesView redesigned workbench', () => {
     ).toBeTruthy();
   });
 
-  it('filters updates by search query and switches between Updates and Watched tabs', () => {
+  it('switches between Updates and Watched tabs without a search box', () => {
     render(
       <UpdatesView
         updates={UPDATES}
@@ -137,24 +137,17 @@ describe('UpdatesView redesigned workbench', () => {
       />,
     );
 
-    // 搜索过滤
-    const searchInput = screen.getByPlaceholderText('筛选待更新应用...');
-    fireEvent.change(searchInput, { target: { value: 'Motrix' } });
+    expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByText('Motrix')).toBeTruthy();
-    expect(screen.queryByText('WezTerm')).toBeNull();
+    expect(screen.getByText('RustDesk')).toBeTruthy();
 
-    // 清空回到全量并切至「关注动态」标签
-    fireEvent.change(searchInput, { target: { value: '' } });
     fireEvent.click(screen.getByRole('tab', { name: /关注动态/ }));
     expect(screen.getByText('RustDesk')).toBeTruthy();
     expect(screen.queryByText('Motrix')).toBeNull();
 
-    // 在「关注动态」标签搜索无命中时渲染筛选空态并可一键重置
-    fireEvent.change(searchInput, { target: { value: 'non-existent' } });
-    expect(screen.getByText('没有匹配的待更新应用')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
+    fireEvent.click(screen.getByRole('tab', { name: /待更新/ }));
     expect(screen.getByText('Motrix')).toBeTruthy();
-    expect(screen.getByText('RustDesk')).toBeTruthy();
+    expect(screen.queryByText('RustDesk')).toBeNull();
   });
 
   it('renders streaming check progress banner with percentage fill', () => {

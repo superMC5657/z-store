@@ -108,8 +108,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
 
   const rulesByAppId = useMemo(() => buildRulesMap(updateRules), [updateRules]);
   const stats = useMemo(
-    () => computeInstalledStats(installedApps, rulesByAppId, updatableIds),
-    [installedApps, rulesByAppId, updatableIds],
+    () => computeInstalledStats(installedApps, rulesByAppId),
+    [installedApps, rulesByAppId],
   );
 
   const visibleApps = useMemo(
@@ -172,15 +172,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     { id: 'missing_path', label: t('installed.filter_missing_path'), count: stats.missingPathCount },
   ];
 
-  const subtitle =
-    stats.updatableCount > 0 ? t('installed.subtitle_updatable', { count: stats.updatableCount }) : undefined;
-
   return (
     <ViewShell viewClass="installed-view manage-view">
       <ManageHeader
         icon={<Package size={16} strokeWidth={1.5} />}
         title={t('installed.title_label')}
-        subtitle={subtitle}
         actions={
           <>
             {onOpenRules && (
@@ -243,10 +239,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           activeTab={activeTab}
           onTabChange={setActiveTab}
           tabsAriaLabel={t('installed.filter_tabs_aria')}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder={t('installed.search_placeholder')}
-          clearSearchLabel={t('installed.clear_search')}
+          search={{
+            query: searchQuery,
+            onChange: setSearchQuery,
+            placeholder: t('installed.search_placeholder'),
+            clearLabel: t('installed.clear_search'),
+          }}
           rightExtra={
             <button
               type="button"
