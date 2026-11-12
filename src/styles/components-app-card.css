@@ -58,20 +58,63 @@
   position: relative;
 }
 
-.app-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
+/* 统一应用图标框（AppIconFrame）：sm 28 / md 36 / lg 48 三档，圆角取 token；
+ * 徽章约 0.4×、emoji 约 0.5× 框边长，保证兜底态可读 */
+.app-icon-frame {
+  --icon-frame-size: 36px;
+  --icon-frame-radius: var(--radius-lg);
+  --icon-frame-badge-font: calc(14px * var(--font-scale));
+  --icon-frame-emoji-font: 18px;
+  width: var(--icon-frame-size);
+  height: var(--icon-frame-size);
+  min-width: var(--icon-frame-size);
+  padding: 0;
+  border-radius: var(--icon-frame-radius);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 590;
-  font-size: var(--font-base);
-  color: #ffffff;
+  overflow: hidden;
   flex-shrink: 0;
-  box-shadow: none;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  transition: none;
+  box-sizing: border-box;
+  transition: border-color 0.12s var(--ease-smooth);
+}
+
+.app-icon-frame.size-sm {
+  --icon-frame-size: 28px;
+  --icon-frame-radius: var(--radius-sm);
+  --icon-frame-badge-font: calc(11px * var(--font-scale));
+  --icon-frame-emoji-font: 14px;
+}
+
+.app-icon-frame.size-lg {
+  --icon-frame-size: 48px;
+  --icon-frame-badge-font: calc(19px * var(--font-scale));
+  --icon-frame-emoji-font: 24px;
+}
+
+.app-icon-frame.is-clickable {
+  cursor: pointer;
+}
+
+.app-icon-frame.is-clickable:hover,
+.app-icon-frame.is-selected {
+  border-color: var(--border-highlight);
+}
+
+.app-icon-frame.is-clickable:focus-visible {
+  outline: 2px solid var(--border-highlight);
+  outline-offset: 1px;
+}
+
+/* 内框位于 1px 描边之内，圆角相应收 1px 才与外框同心 */
+.app-icon-frame-inner {
+  --app-icon-badge-font: var(--icon-frame-badge-font);
+  width: 100%;
+  height: 100%;
+  border-radius: calc(var(--icon-frame-radius) - 1px);
+  font-size: var(--icon-frame-emoji-font);
 }
 
 .app-icon-image {

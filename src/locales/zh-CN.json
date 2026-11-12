@@ -199,6 +199,7 @@
   },
   "app": {
     "get": "获取",
+    "icon_action_label": "{{name}}：{{action}}",
     "installed": "安装",
     "launch": "启动",
     "installing": "安装中...",

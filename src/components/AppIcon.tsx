@@ -223,7 +223,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
         <span
           className="app-icon-fallback-badge"
           style={{
-            fontSize: '0.45em',
+            // 容器可经 `--app-icon-badge-font` 指定徽章字号（如 AppIconFrame 各档），缺省随容器字号。
+            fontSize: 'var(--app-icon-badge-font, 0.45em)',
             fontWeight: 590,
             letterSpacing: '0.5px',
             color: '#ffffff',

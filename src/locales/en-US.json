@@ -199,6 +199,7 @@
   },
   "app": {
     "get": "Get",
+    "icon_action_label": "{{name}}: {{action}}",
     "installed": "Install",
     "launch": "Launch",
     "installing": "Installing...",

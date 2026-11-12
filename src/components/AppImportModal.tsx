@@ -13,7 +13,7 @@ import {
 import { AppMatchResult, ImportAppRequest } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
-import { AppIcon } from './AppIcon';
+import { AppIconFrame } from './AppIconFrame';
 import { useTranslation } from 'react-i18next';
 
 interface AppImportModalProps {
@@ -301,17 +301,12 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                     />
 
                     {/* 图标 */}
-                    <AppIcon
+                    <AppIconFrame
                       icon={item.icon}
                       name={item.name}
                       appId={item.catalog_id}
                       iconBg={item.icon_bg || 'var(--brand-subtle)'}
-                      size={42}
-                      style={{
-                        borderRadius: 'var(--radius-sm)',
-                        flexShrink: 0,
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                      }}
+                      size="md"
                     />
 
                     {/* 应用信息 */}

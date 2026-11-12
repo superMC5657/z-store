@@ -75,17 +75,6 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-.fluent-list-row .app-icon,
-.installed-list-row .app-icon,
-.app-card.fluent-list-row .app-icon {
-  width: 32px !important;
-  height: 32px !important;
-  border-radius: var(--radius-sm) !important;
-  font-size: var(--font-base) !important;
-  box-shadow: none;
-  transition: none;
-}
-
 /* 内容区块与行式网格布局 */
 .section-header {
   display: flex;

@@ -5,7 +5,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Inbox, Link2 } from 'lucide-react';
-import { AppIcon } from '../../components/AppIcon';
+import { AppIconFrame } from '../../components/AppIconFrame';
 import {
   resolvePendingDraftDescription,
   type CustomDraftEntry,
@@ -65,13 +65,14 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
                 }
               }}
             >
-              <AppIcon
+              <AppIconFrame
                 icon={entry.item.icon}
                 name={entry.item.name || entry.id}
                 appId={entry.id}
                 iconBg={entry.item.icon_bg || undefined}
-                className="pending-item-icon-box"
-                size={28}
+                className="pending-item-icon"
+                size="sm"
+                selected={selected}
               />
               <div className="pending-item-content">
                 <div className="pending-item-name">

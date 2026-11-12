@@ -370,50 +370,6 @@
 }
 
 /* ==========================================================================
-   4. 光学安全区图标框（36×36px 中性容器配合内图 contain 安全留白）
-   ========================================================================== */
-.manage-icon-frame {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  padding: 0;
-  border-radius: var(--radius-lg);
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  flex-shrink: 0;
-  box-sizing: border-box;
-  transition: border-color 0.12s var(--ease-smooth), transform 0.12s var(--ease-smooth);
-}
-
-.manage-icon-frame.size-sm {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  border-radius: var(--radius-sm);
-}
-
-.manage-icon-frame.is-clickable {
-  cursor: pointer;
-}
-
-.manage-icon-frame.is-clickable:hover {
-  border-color: var(--border-highlight);
-}
-
-.manage-icon-inner {
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: inherit;
-  border: none !important;
-  box-shadow: none !important;
-  font-size: var(--font-sm) !important;
-}
-
-/* ==========================================================================
    5. 行内身份列 / 版本对比轨 / 元信息胶囊 / Outline 按钮
    ========================================================================== */
 .manage-identity {

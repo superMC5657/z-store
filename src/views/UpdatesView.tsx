@@ -28,7 +28,7 @@ import { ForgeIcon } from '../components/icons/PlatformIcons';
 import { ViewShell } from './ViewShell';
 import { resolveAppIconInfo } from '../utils/appHelper';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { ManageAppIcon } from './manage/ManageAppIcon';
+import { AppIconFrame } from '../components/AppIconFrame';
 import { ManageHeader } from './manage/ManageHeader';
 import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar';
 import { ManageMenuItem } from './manage/ManageMenuItem';
@@ -376,7 +376,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                 <div key={n.app_id} className="manage-row">
                   <div className="manage-row-main">
                     <div className="manage-identity">
-                      <ManageAppIcon
+                      <AppIconFrame
                         size="sm"
                         icon={iconInfo.icon}
                         name={displayName}
@@ -475,7 +475,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                   <div key={item.app_id} className={rowClasses}>
                     <div className="manage-row-main">
                       <div className="manage-identity">
-                        <ManageAppIcon
+                        <AppIconFrame
                           size="md"
                           icon={iconInfo.icon}
                           name={item.app_name}

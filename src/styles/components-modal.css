@@ -179,21 +179,6 @@
   }
 }
 
-.modal-app-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-sm);
-  font-size: calc(20px * var(--font-scale));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  font-weight: 590;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  flex-shrink: 0;
-  box-shadow: none;
-}
-
 .modal-header-info {
   flex: 1;
   min-width: 0;

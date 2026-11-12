@@ -5,7 +5,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp, Eye, Globe, ShieldCheck, Tag } from 'lucide-react';
-import { AppIcon } from '../../components/AppIcon';
+import { AppIconFrame } from '../../components/AppIconFrame';
 import { PlatformIcon } from '../../components/icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { resolvePendingDraftDescription, type PendingDraftItem } from './draftModel';
@@ -72,13 +72,12 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
         <div id="pending-preview-body" className="pending-preview-body">
           {/* 卡片主体：图标 + 标题 + owner/repo + 分类 + 平台 */}
           <div className="pending-preview-main">
-            <AppIcon
+            <AppIconFrame
               icon={form.icon.trim()}
               name={form.name.trim() || form.owner.trim() || resolvedId}
               appId={resolvedId}
               iconBg={form.icon_bg.trim() || undefined}
-              className="pending-preview-icon-box"
-              size={32}
+              size="md"
             />
             <div className="pending-preview-meta">
               <div className="pending-preview-title-row">

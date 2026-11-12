@@ -83,8 +83,8 @@ describe('UpdatesView redesigned workbench', () => {
     expect(screen.getByText('motrix/motrix')).toBeTruthy();
     expect(screen.getByText('codeberg.org')).toBeTruthy();
 
-    // 图标采用 ManageAppIcon + fit="contain" 防裁切
-    const imgs = container.querySelectorAll('.manage-icon-frame img') as NodeListOf<HTMLImageElement>;
+    // 图标采用 AppIconFrame + fit="contain" 防裁切
+    const imgs = container.querySelectorAll('.app-icon-frame img') as NodeListOf<HTMLImageElement>;
     expect(imgs.length).toBe(2);
     expect(imgs[0].style.objectFit).toBe('contain');
 

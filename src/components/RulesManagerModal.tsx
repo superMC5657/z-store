@@ -15,7 +15,7 @@ import '../i18n';
 import { AppSummary, InstalledApp, UpdateRule } from '../types';
 import { SegmentedControl } from './SegmentedControl';
 import { EmptyState } from './EmptyState';
-import { AppIcon } from './AppIcon';
+import { AppIconFrame } from './AppIconFrame';
 import { resolveAppIconInfo, resolveInstalledAppName } from '../utils/appHelper';
 
 interface RulesManagerModalProps {
@@ -473,13 +473,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '180px', flex: '1 1 auto' }}>
-                    <AppIcon
+                    <AppIconFrame
                       icon={iconInfo.icon}
                       name={appDisplayName}
                       appId={rule.app_id}
                       iconBg={iconInfo.iconBg}
-                      className="app-icon"
-                      size={32}
+                      size="md"
                     />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>

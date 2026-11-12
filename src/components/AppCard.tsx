@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { Inbox, Download } from 'lucide-react';
 import { AppSummary } from '../types';
-import { AppIcon } from './AppIcon';
+import { AppIconFrame } from './AppIconFrame';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon, WatchEyeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
@@ -211,12 +211,12 @@ export const AppCard: React.FC<AppCardProps> = memo(({
       }}
     >
       <div className="app-card-header">
-        <AppIcon
+        <AppIconFrame
+          size="md"
           icon={app.icon}
           name={displayName}
           appId={app.id}
           iconBg={app.icon_bg}
-          className="app-icon"
           loading={eager ? 'eager' : 'lazy'}
         />
         <div className="app-meta">

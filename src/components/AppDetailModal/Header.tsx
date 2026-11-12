@@ -10,7 +10,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi, type AppIconCycleResult } from '../../services/api';
-import { AppIcon } from '../AppIcon';
+import { AppIconFrame } from '../AppIconFrame';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../useToasts';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
@@ -377,14 +377,14 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </div>
 
-      <AppIcon
+      <AppIconFrame
+        size="lg"
         key={`${app.id}-${iconCycle?.level ?? 1}`}
         icon={app.icon}
         iconOverride={effectiveIconOverride}
         name={displayName}
         appId={app.id}
         iconBg={app.icon_bg}
-        className="modal-app-icon"
       />
 
       <div className="modal-header-info">

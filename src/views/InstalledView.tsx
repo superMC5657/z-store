@@ -27,7 +27,7 @@ import {
 } from '../utils/appHelper';
 import { InstalledItemActions } from './InstalledView/InstalledItemActions';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { ManageAppIcon } from './manage/ManageAppIcon';
+import { AppIconFrame } from '../components/AppIconFrame';
 import { ManageHeader } from './manage/ManageHeader';
 import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar';
 import {
@@ -349,7 +349,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               >
                 <div className="manage-row-main">
                   <div className="manage-identity">
-                    <ManageAppIcon
+                    <AppIconFrame
                       size="md"
                       icon={iconInfo.icon}
                       name={appDisplayName}
