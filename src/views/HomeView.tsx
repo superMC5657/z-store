@@ -377,8 +377,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
             {/* 操作按钮组 */}
             <div className="hero-actions">
               <button
+                type="button"
                 className={`btn-fluent ${selectIsInstalled(heroApp.id, installedIds) ? 'btn-secondary' : 'btn-primary'}`}
-                style={{ padding: '8px 20px', fontSize: 'var(--font-base)', fontWeight: 510, display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 disabled={installingIds?.has(heroApp.id)}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -403,15 +403,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 )}
               </button>
               <button
+                type="button"
                 className="btn-fluent btn-secondary"
-                style={{ padding: '9px 18px', fontSize: 'calc(13.5px * var(--font-scale))', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onNavigateTrends();
                 }}
               >
                 <span>{t('home.explore_trends')}</span>
-                <ArrowRight size={13} />
+                <ArrowRight size={14} />
               </button>
             </div>
           </div>
@@ -470,11 +470,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
             {onClearRecentViews && (
               <button
                 type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                className="btn-fluent btn-secondary btn-sm"
                 onClick={onClearRecentViews}
               >
-                <Trash2 size={11} />
+                <Trash2 size={12} />
                 <span>{t('home.clear_recent')}</span>
               </button>
             )}
@@ -623,7 +622,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     data-testid="search-online-trigger"
                     className={`btn-fluent ${onlineSearchPerformed ? 'btn-secondary' : 'btn-primary'}`}
                     onClick={onSearchOnline}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   >
                     <Globe size={14} />
                     <span>

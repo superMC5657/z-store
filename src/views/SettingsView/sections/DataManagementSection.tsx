@@ -36,9 +36,9 @@ export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
-            className="btn-fluent btn-secondary"
+            type="button"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={handleExportJson}
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
             disabled={installedCount === 0}
           >
             <Download size={13} strokeWidth={1.5} />

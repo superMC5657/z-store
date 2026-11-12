@@ -142,36 +142,36 @@ export const ClientUpdateRow: React.FC = () => {
     switch (phase.kind) {
       case 'checking':
         return (
-          <button className="btn-fluent btn-sm btn-secondary" disabled style={{ gap: '6px' }}>
-            <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
+          <button type="button" className="btn-fluent btn-compact btn-secondary" disabled>
+            <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" />
             <span>{t('client_update.checking')}</span>
           </button>
         );
       case 'available':
         return (
-          <button className="btn-fluent btn-sm btn-primary" onClick={handleDownloadAndInstall} style={{ gap: '6px' }}>
-            <Download size={14} strokeWidth={1.5} />
+          <button type="button" className="btn-fluent btn-compact btn-primary" onClick={handleDownloadAndInstall}>
+            <Download size={13} strokeWidth={1.5} />
             <span>{t('client_update.download_and_install', { version: phase.version })}</span>
           </button>
         );
       case 'downloading':
         return (
-          <button className="btn-fluent btn-sm btn-secondary" disabled style={{ gap: '6px' }}>
-            <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
+          <button type="button" className="btn-fluent btn-compact btn-secondary" disabled>
+            <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" />
             <span>{phase.percent !== null ? t('client_update.downloading_percent', { percent: phase.percent }) : t('client_update.downloading_btn')}</span>
           </button>
         );
       case 'ready':
         return (
-          <button className="btn-fluent btn-sm btn-primary" onClick={handleRestart} style={{ gap: '6px' }}>
-            <RotateCcw size={14} strokeWidth={1.5} />
+          <button type="button" className="btn-fluent btn-compact btn-primary" onClick={handleRestart}>
+            <RotateCcw size={13} strokeWidth={1.5} />
             <span>{t('client_update.restart_btn')}</span>
           </button>
         );
       default:
         return (
-          <button className="btn-fluent btn-sm btn-secondary" onClick={handleCheck} style={{ gap: '6px' }}>
-            <Search size={14} strokeWidth={1.5} />
+          <button type="button" className="btn-fluent btn-compact btn-secondary" onClick={handleCheck}>
+            <Search size={13} strokeWidth={1.5} />
             <span>{t('client_update.check_btn')}</span>
           </button>
         );

@@ -195,11 +195,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             {onOpenRules && (
               <button
                 type="button"
-                className="btn-fluent btn-secondary btn-sm"
+                className="btn-fluent btn-secondary btn-compact"
                 onClick={onOpenRules}
                 title={t('installed.rules_tooltip')}
               >
-                <Shield size={14} strokeWidth={1.5} />
+                <Shield size={13} strokeWidth={1.5} />
                 <span>{t('installed.rules')}</span>
                 {updateRules.length > 0 && (
                   <span className="badge-capsule">{updateRules.length}</span>
@@ -210,12 +210,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             {onRefresh && (
               <button
                 type="button"
-                className="btn-fluent btn-secondary btn-sm"
+                className="btn-fluent btn-secondary btn-compact"
                 onClick={onRefresh}
                 disabled={isRefreshing}
                 title={t('installed.refresh_status_tooltip')}
               >
-                <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
+                <RotateCcw size={13} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
                 <span>{isRefreshing ? t('installed.refreshing') : t('installed.refresh_status')}</span>
               </button>
             )}
@@ -223,12 +223,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             {onExportAppsJson && (
               <button
                 type="button"
-                className="btn-fluent btn-secondary btn-sm"
+                className="btn-fluent btn-secondary btn-compact"
                 onClick={onExportAppsJson}
                 title={t('installed.export_list_tooltip')}
                 disabled={installedApps.length === 0}
               >
-                <Download size={14} strokeWidth={1.5} />
+                <Download size={13} strokeWidth={1.5} />
                 <span>{t('installed.export_list')}</span>
               </button>
             )}
@@ -236,11 +236,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             {onScanSystemApps && (
               <button
                 type="button"
-                className="btn-fluent btn-primary btn-sm"
+                className="btn-fluent btn-primary btn-compact"
                 onClick={onScanSystemApps}
                 title={t('installed.scan_local_tooltip')}
               >
-                <ScanLine size={14} strokeWidth={1.5} />
+                <ScanLine size={13} strokeWidth={1.5} />
                 <span>{t('installed.scan_local_apps')}</span>
               </button>
             )}
@@ -261,7 +261,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           rightExtra={
             <button
               type="button"
-              className="btn-fluent btn-secondary btn-sm"
+              className="btn-fluent btn-secondary btn-compact"
               onClick={() => setSortOrder((prev) => (prev === 'recent' ? 'name' : 'recent'))}
               title={t('installed.sort_tooltip')}
             >
@@ -284,7 +284,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 onClick={onRetryLoad}
               >
                 <RotateCcw size={14} strokeWidth={1.5} />
@@ -303,7 +302,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 onClick={onRefresh}
                 disabled={isRefreshing}
               >
@@ -321,7 +319,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           action={
             <button
               type="button"
-              className="btn-fluent btn-secondary btn-sm"
+              className="btn-fluent btn-secondary btn-compact"
               onClick={() => {
                 setActiveTab('all');
                 setSearchQuery('');

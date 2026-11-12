@@ -49,11 +49,11 @@ export const ReadmeSection: React.FC<ReadmeSectionProps> = ({
           </div>
           {onRetry && (
             <button
-              className="btn-fluent btn-secondary"
+              type="button"
+              className="btn-fluent btn-secondary btn-compact"
               onClick={() => onRetry(app.id)}
-              style={{ padding: '6px 18px', fontSize: 'var(--font-base)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
-              <RotateCcw size={12} />
+              <RotateCcw size={13} />
               <span>{t('detail.readme.retry')}</span>
             </button>
           )}

@@ -94,25 +94,13 @@ export const UpdatesRulesSection: React.FC<UpdatesRulesSectionProps> = ({
         </div>
         <button
           type="button"
-          className="btn-fluent btn-secondary"
+          className="btn-fluent btn-secondary btn-compact"
           onClick={onOpenRules}
-          style={{ fontSize: 'var(--font-sm)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           <Shield size={13} strokeWidth={1.5} />
           <span>{t('settings.rules_btn')}</span>
           {updateRulesCount > 0 && (
-            <span
-              style={{
-                fontSize: 'var(--font-xs)',
-                padding: '1px 7px',
-                borderRadius: 'var(--radius-pill)',
-                background: 'var(--brand-primary)',
-                color: '#ffffff',
-                fontWeight: 510,
-              }}
-            >
-              {updateRulesCount}
-            </span>
+            <span className="badge-capsule">{updateRulesCount}</span>
           )}
         </button>
       </div>

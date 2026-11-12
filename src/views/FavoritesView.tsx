@@ -132,6 +132,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
         <SegmentedControl
           value={activeTab}
           onChange={setActiveTab}
+          size="compact"
           options={[
             {
               value: 'local',
@@ -302,8 +303,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                   }}
                 />
                 <button
-                  className="btn-fluent btn-primary"
-                  style={{ height: '28px', padding: '0 14px', fontSize: 'calc(12.5px * var(--font-scale))', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
+                  type="button"
+                  className="btn-fluent btn-primary btn-compact"
                   disabled={isSyncing}
                   onClick={handleSyncStarred}
                 >
@@ -342,22 +343,22 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
                 </span>
 
                 {syncResult.catalog_matches.length > 0 && (
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <button
-                      className="btn-fluent btn-primary"
-                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      type="button"
+                      className="btn-fluent btn-primary btn-compact"
                       disabled={isBatchInstalling || syncResult.catalog_matches.every((a) => selectIsInstalled(a.id, installedIds))}
                       onClick={handleBatchInstallAll}
                     >
-                      {isBatchInstalling ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}
+                      {isBatchInstalling ? <RotateCcw size={13} className="icon-spin" /> : <Zap size={13} />}
                       <span>{isBatchInstalling ? t('favorites.batch_installing') : t('favorites.batch_install_btn')}</span>
                     </button>
                     <button
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      type="button"
+                      className="btn-fluent btn-secondary btn-compact"
                       onClick={handleAddAllToFavorites}
                     >
-                      <BookmarkPlus size={12} />
+                      <BookmarkPlus size={13} />
                       <span>{t('favorites.add_all_favorites')}</span>
                     </button>
                   </div>

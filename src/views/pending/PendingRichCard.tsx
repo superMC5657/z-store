@@ -224,7 +224,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
               />
               <button
                 type="button"
-                className="btn-fluent btn-secondary btn-sm"
+                className="btn-fluent btn-secondary btn-compact"
                 onClick={() => onMarkSubmitted(entry.id)}
               >
                 <Send size={13} strokeWidth={1.5} aria-hidden="true" />
@@ -288,7 +288,6 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
                 className="btn-fluent btn-secondary btn-sm"
                 data-testid="pending-duplicate"
                 onClick={onDuplicate}
-                style={{ padding: '2px 8px', fontSize: '11px' }}
               >
                 <span>{t('pending.duplicate_as_new_draft')}</span>
               </button>

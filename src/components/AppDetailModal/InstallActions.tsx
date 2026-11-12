@@ -304,7 +304,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               className="btn-fluent btn-primary"
               disabled={isUninstallingGlobal || isUnknown}
               onClick={() => onLaunch(app.id)}
-              style={{ fontWeight: 510, display: isUnknown ? 'none' : 'inline-flex', alignItems: 'center', gap: '5px' }}
+              style={isUnknown ? { display: 'none' } : undefined}
             >
               <Play size={13} strokeWidth={1.5} />
               <span>{t('app.launch')}</span>
@@ -314,15 +314,15 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
           isAuthExpired && onOpenAccountSettings ? (
             <button
               type="button"
-              className="btn-fluent btn-secondary"
+              className="btn-fluent btn-warning"
               onClick={() => {
                 onClose();
                 onOpenAccountSettings();
               }}
-              style={{ minWidth: '120px', fontWeight: 510, color: '#eab308', borderColor: 'rgba(234, 179, 8, 0.4)' }}
+              style={{ minWidth: '120px' }}
               title={t('detail.install.reauth_title')}
             >
-              <KeyRound size={13} strokeWidth={1.5} style={{ marginRight: '4px' }} />
+              <KeyRound size={13} strokeWidth={1.5} />
               <span>{t('detail.install.reauth_btn')}</span>
             </button>
           ) : (
@@ -330,7 +330,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               type="button"
               className="btn-fluent btn-secondary"
               disabled
-              style={{ minWidth: '120px', fontWeight: 510, opacity: 0.6 }}
+              style={{ minWidth: '120px', opacity: 0.6 }}
             >
               {t('detail.install.no_assets_available')}
             </button>
@@ -353,7 +353,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               className="btn-fluent btn-primary"
               onClick={onDownloadPrimary}
               disabled={effectiveIsBusy}
-              style={{ minWidth: '120px', fontWeight: 510 }}
+              style={{ minWidth: '120px' }}
               title={t('detail.install.download_only_title')}
             >
               {isDownloadingOnly ? (
@@ -374,7 +374,7 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
             className="btn-fluent btn-primary"
             onClick={onAction}
             disabled={effectiveIsBusy || Boolean(app.isLoading && hasNoReleases)}
-            style={{ minWidth: '120px', fontWeight: 510, opacity: app.isLoading && hasNoReleases ? 0.75 : 1 }}
+            style={{ minWidth: '120px', opacity: app.isLoading && hasNoReleases ? 0.75 : 1 }}
           >
             {app.isLoading && hasNoReleases ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>

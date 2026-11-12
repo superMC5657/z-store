@@ -250,16 +250,7 @@
 }
 
 .settings-input-group .btn-fluent {
-  height: 28px;
-  box-sizing: border-box;
-  padding: 0 10px;
-  font-size: var(--font-sm);
-  white-space: nowrap;
   flex-shrink: 0;
-}
-
-.settings-row .btn-fluent {
-  font-size: var(--font-sm);
 }
 
 .settings-input {

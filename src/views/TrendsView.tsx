@@ -4,6 +4,7 @@ import '../i18n';
 import '../styles/components-trends.css';
 import { RefreshCw, TrendingUp, WifiOff } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
+import { WatchEyeIcon } from '../components/icons/PlatformIcons';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { useTrendBoard } from './TrendsView/useTrendBoard';
 import { tauriApi } from '../services/api';
@@ -501,10 +502,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                         aria-label={bareWatched ? t('app.watch_active') : t('app.watch_inactive')}
                         style={bareWatched ? { color: 'var(--brand-primary)' } : undefined}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill={bareWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
+                        <WatchEyeIcon isWatched={bareWatched} />
                       </button>
                     )}
                     {onToggleFavorite && (
@@ -528,7 +526,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                       <button
                         type="button"
                         data-testid={`trend-move-in-${item.repo.id}`}
-                        className="btn-fluent btn-secondary"
+                        className="btn-fluent btn-secondary btn-compact"
                         disabled={bareMoving}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -557,7 +555,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                         onKeyDown={(e) => e.stopPropagation()}
                         title={t('custom.move_in_hint')}
                         aria-label={bareMoveLabel}
-                        style={{ padding: '2px 8px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       >
                         <span>{bareMoveLabel}</span>
                       </button>

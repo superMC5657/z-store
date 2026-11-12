@@ -1,13 +1,13 @@
 /* components-buttons.css · Linear Design System Buttons (Achromatic Monochrome) */
-/* Linear 去彩单色通用按钮系统 - 28-32px / 6px 圆角 / 510 字重 / press scale 0.97 / 120ms 缓动 */
+/* Linear 去彩单色通用按钮系统 - 三档严格高度 (30 / 28 / 26px) / 6px 圆角 / 510 字重 / press scale 0.97 / 120ms 缓动 */
 .btn-fluent {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: 30px;
-  min-height: 28px;
-  max-height: 32px;
+  min-height: 30px;
+  max-height: 30px;
   box-sizing: border-box;
   padding: 0 12px;
   border-radius: var(--radius-sm);
@@ -16,6 +16,7 @@
   letter-spacing: -0.011em;
   line-height: 1;
   white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
   border: 1px solid transparent;
   transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
@@ -52,13 +53,56 @@
   box-shadow: none;
 }
 
+/* 紧凑档（28px）：对齐 28px 输入框、管理工作台、卡片安装钮、设置行与弹窗资产行 */
+.btn-fluent.btn-compact {
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 10px;
+  font-size: var(--font-sm);
+  gap: 5px;
+}
+
+.btn-fluent.btn-compact svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 小号档（26px）：高密度内联次级动作与紧凑表单页脚 */
 .btn-fluent.btn-sm {
   height: 26px;
-  min-height: 24px;
-  max-height: 28px;
+  min-height: 26px;
+  max-height: 26px;
   padding: 0 8px;
   font-size: var(--font-sm);
   gap: 4px;
+}
+
+.btn-fluent.btn-sm svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 通用纯图标正方形按钮：随档位自动锁定 30×30 / 28×28 / 26×26 */
+.btn-fluent.btn-icon-only {
+  width: 30px;
+  min-width: 30px;
+  max-width: 30px;
+  padding: 0;
+}
+
+.btn-fluent.btn-compact.btn-icon-only {
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  padding: 0;
+}
+
+.btn-fluent.btn-sm.btn-icon-only {
+  width: 26px;
+  min-width: 26px;
+  max-width: 26px;
+  padding: 0;
 }
 
 /* 胶囊计数徽章（Capsule Badge） */
@@ -78,15 +122,14 @@
   box-sizing: border-box;
 }
 
-/* 主按钮：去彩单色（Light: #08090A 白字 / Dark: #F7F8F8 黑字）30px 高 6px 圆角 + 顶部中性 inset 高光 + press scale 0.97 */
+/* 主按钮：去彩单色（Light: #08090A 白字 / Dark: #ECEEEF 黑字）；
+   使用 padding-box + 纯内高光（无外扩阴影）消除并列剪影高差与辐射膨胀 */
 .btn-primary {
-  height: 30px;
-  min-height: 28px;
-  padding: 0 12px;
   background: var(--btn-primary-bg);
   color: var(--btn-primary-text);
   border: 1px solid var(--btn-primary-border);
-  box-shadow: var(--btn-primary-inset), 0 1px 2px rgba(0, 0, 0, 0.08);
+  background-clip: padding-box;
+  box-shadow: var(--btn-primary-inset);
 }
 
 .btn-primary:hover {
@@ -100,33 +143,8 @@
   transform: scale(0.97);
 }
 
-[data-theme="dark"] .btn-primary {
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-text);
-  border: 1px solid var(--btn-primary-border);
-  box-shadow: var(--btn-primary-inset), 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-[data-theme="dark"] .btn-primary:hover {
-  background: var(--btn-primary-hover);
-  color: var(--btn-primary-text);
-}
-
-[data-theme="dark"] .btn-primary:active {
-  background: var(--btn-primary-active);
-}
-
-/* 主按钮去底部外投影、只留顶部 inset 高光——凡与次级按钮同排并列（任意尺寸），
-   外轮廓即与次级同高（dense 行 1px 剪影差）；独立成排的大 CTA 不受影响，保留原立体感 */
-.btn-fluent.btn-sm.btn-primary,
-div:has(> .btn-fluent.btn-secondary) > .btn-fluent.btn-primary {
-  box-shadow: var(--btn-primary-inset);
-}
-
-/* 次级与幽灵按钮：Ghost 透明底 / secondary 文字 / hover 微透 / 28-32px / 6px 圆角 */
+/* 次级与幽灵按钮：Ghost 透明底 / secondary 文字 / hover 微透 / 6px 圆角 */
 .btn-secondary {
-  height: 30px;
-  min-height: 28px;
   background: var(--btn-secondary-bg);
   color: var(--btn-secondary-text);
   border: 1px solid var(--btn-secondary-border);
@@ -161,10 +179,81 @@ div:has(> .btn-fluent.btn-secondary) > .btn-fluent.btn-primary {
   background: var(--btn-secondary-active);
 }
 
+/* 危险与警告语义按钮：subtle 描边与高对比实底确认态（严格遵循同排盒高与 1px 边框） */
+.btn-danger {
+  background: transparent;
+  color: var(--status-danger);
+  border: 1px solid rgba(220, 38, 38, 0.28);
+  box-shadow: none;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+  border-color: rgba(220, 38, 38, 0.45);
+}
+
+.btn-danger:active:not(:disabled) {
+  background: rgba(220, 38, 38, 0.16);
+  transform: scale(0.97);
+}
+
+[data-theme="dark"] .btn-danger {
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+[data-theme="dark"] .btn-danger:hover:not(:disabled) {
+  border-color: rgba(239, 68, 68, 0.48);
+}
+
+.btn-danger-solid {
+  background: var(--status-danger);
+  color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background-clip: padding-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.btn-danger-solid:active:not(:disabled) {
+  filter: brightness(0.95);
+  transform: scale(0.97);
+}
+
+[data-theme="dark"] .btn-danger-solid {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.btn-warning {
+  background: transparent;
+  color: var(--status-warning);
+  border: 1px solid rgba(217, 119, 6, 0.30);
+  box-shadow: none;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+  border-color: rgba(217, 119, 6, 0.48);
+}
+
+[data-theme="dark"] .btn-warning {
+  border-color: rgba(245, 165, 36, 0.30);
+}
+
+[data-theme="dark"] .btn-warning:hover:not(:disabled) {
+  border-color: rgba(245, 165, 36, 0.50);
+}
+
+.btn-warning:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 /* 幽灵按钮：完全透明底 / secondary 文字 / hover 微透 / 用于紧凑次级与批量操作 */
 .btn-ghost {
-  height: 30px;
-  min-height: 28px;
   background: transparent;
   color: var(--btn-secondary-text);
   border: 1px solid transparent;

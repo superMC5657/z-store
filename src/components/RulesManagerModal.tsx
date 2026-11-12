@@ -8,6 +8,7 @@ import {
   SkipForward,
   ShieldAlert,
   Search,
+  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -163,32 +164,28 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               type="button"
-              className={`btn-fluent ${isAddOpen ? 'btn-secondary' : 'btn-primary'}`}
-              style={{ fontSize: 'var(--font-sm)', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              className={`btn-fluent btn-compact ${isAddOpen ? 'btn-secondary' : 'btn-primary'}`}
               onClick={() => setIsAddOpen(!isAddOpen)}
             >
               {isAddOpen ? (
                 <>
-                  <ChevronUp size={14} strokeWidth={1.5} />
+                  <ChevronUp size={13} strokeWidth={1.5} />
                   <span>{t('rules.collapse_add')}</span>
                 </>
               ) : (
                 <>
-                  <Plus size={14} strokeWidth={1.5} />
+                  <Plus size={13} strokeWidth={1.5} />
                   <span>{t('rules.add_rule')}</span>
                 </>
               )}
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="modal-close-btn"
+              className="modal-header-btn modal-close-btn"
               aria-label={t('rules.close_modal')}
-              style={{ position: 'relative', top: 'auto', right: 'auto' }}
             >
-              <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
-                <line x1="1" y1="1" x2="9" y2="9" />
-                <line x1="9" y1="1" x2="1" y2="9" />
-              </svg>
+              <X size={14} strokeWidth={1.5} />
             </button>
           </div>
         </div>
@@ -325,7 +322,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                style={{ fontSize: 'var(--font-sm)', padding: '6px 14px' }}
                 onClick={() => {
                   setIsAddOpen(false);
                   setSelectedAppId('');
@@ -337,7 +333,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               <button
                 type="button"
                 className="btn-fluent btn-primary"
-                style={{ fontSize: 'var(--font-sm)', padding: '6px 18px', fontWeight: 510 }}
                 onClick={handleCreateRule}
                 disabled={isSubmitting}
               >
@@ -362,6 +357,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <SegmentedControl
             value={rulesTab}
             onChange={(val) => setRulesTab(val as 'all' | 'skipped' | 'frozen' | 'hidden')}
+            size="compact"
             options={[
               {
                 value: 'all',
@@ -433,7 +429,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                   <button
                     type="button"
                     className="btn-fluent btn-primary"
-                    style={{ fontSize: 'var(--font-sm)', padding: '7px 18px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                     onClick={() => setIsAddOpen(true)}
                   >
                     <Plus size={14} strokeWidth={1.5} />
@@ -525,8 +520,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     {rule.skipped_version && (
                       <button
                         type="button"
-                        className="btn-fluent btn-secondary"
-                        style={{ fontSize: 'var(--font-xs)', padding: '4px 8px' }}
+                        className="btn-fluent btn-secondary btn-sm"
                         onClick={async () => {
                           await onClearRuleSkip(rule.app_id);
                           showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
@@ -537,8 +531,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     )}
                     <button
                       type="button"
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: 'var(--font-xs)', padding: '4px 8px' }}
+                      className="btn-fluent btn-secondary btn-sm"
                       onClick={async () => {
                         await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
                         showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
@@ -548,8 +541,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: 'var(--font-xs)', padding: '4px 8px' }}
+                      className="btn-fluent btn-secondary btn-sm"
                       onClick={async () => {
                         await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
                         showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
@@ -559,8 +551,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     </button>
                     <button
                       type="button"
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: 'var(--font-xs)', padding: '4px 8px', color: '#ef4444' }}
+                      className="btn-fluent btn-danger btn-sm"
                       onClick={async () => {
                         await onRemoveRule(rule.app_id);
                         showNotice(t('rules.remove_notice_success', { id: rule.app_id }));
@@ -588,7 +579,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <button
             type="button"
             className="btn-fluent btn-primary"
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 18px' }}
             onClick={onClose}
           >
             {t('rules.done')}

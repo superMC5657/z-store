@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Languages } from 'lucide-react';
+import { Clock, Languages, Moon, Sun, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { BrandLogo } from './BrandLogo';
 import { tauriApi } from '../services/api';
@@ -224,6 +224,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       <div className={`titlebar-left ${isSidebarCollapsed ? 'collapsed' : ''}`} data-tauri-drag-region>
         {onToggleSidebar && (
           <button
+            type="button"
             className="nav-toggle-btn"
             data-tauri-drag-region="false"
             onDoubleClick={(e) => e.stopPropagation()}
@@ -299,16 +300,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                 </span>
                 <button
                   type="button"
+                  className="btn-fluent btn-ghost btn-sm"
                   onClick={handleClearHistory}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-tertiary)',
-                    cursor: 'pointer',
-                    fontSize: 'var(--font-xs)',
-                    padding: '2px 6px',
-                    borderRadius: 'var(--radius-xs)',
-                  }}
                   title={t('titlebar.clear_history_tooltip')}
                 >
                   {t('titlebar.clear_all')}
@@ -320,33 +313,18 @@ export const TitleBar: React.FC<TitleBarProps> = ({
                   <div
                     key={item}
                     onClick={() => handleSelectHistory(item)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '3px 8px',
-                      borderRadius: 'var(--radius-xs)',
-                      background: 'var(--bg-acrylic-hover)',
-                      border: '1px solid var(--border-subtle)',
-                      fontSize: 'var(--font-sm)',
-                      color: 'var(--text-primary)',
-                      cursor: 'pointer',
-                      transition: 'border-color 0.1s ease',
-                    }}
+                    className="search-history-chip"
                   >
                     <span>{item}</span>
-                    <span
+                    <button
+                      type="button"
+                      className="search-history-chip-remove"
                       onClick={(e) => handleRemoveHistoryItem(e, item)}
-                      style={{
-                        color: 'var(--text-tertiary)',
-                        fontSize: 'var(--font-xs)',
-                        cursor: 'pointer',
-                        padding: '0 2px',
-                      }}
                       title={t('titlebar.delete_history_item')}
+                      aria-label={t('titlebar.delete_history_item')}
                     >
-                      ×
-                    </span>
+                      <X size={11} strokeWidth={1.5} />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -372,55 +350,45 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         )}
 
         <button
+          type="button"
           className="theme-toggle-btn"
           data-tauri-drag-region="false"
           onDoubleClick={(e) => e.stopPropagation()}
           onClick={onToggleTheme}
           title={t('titlebar.theme_toggle')}
+          aria-label={t('titlebar.theme_toggle')}
         >
           {theme === 'dark' ? (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="12" r="5" />
-              <line x1="12" y1="1" x2="12" y2="3" />
-              <line x1="12" y1="21" x2="12" y2="23" />
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-              <line x1="1" y1="12" x2="3" y2="12" />
-              <line x1="21" y1="12" x2="23" y2="12" />
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-            </svg>
+            <Sun size={14} strokeWidth={1.5} />
           ) : (
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            </svg>
+            <Moon size={14} strokeWidth={1.5} />
           )}
         </button>
 
         <div className="win-controls" data-tauri-drag-region="false" onDoubleClick={(e) => e.stopPropagation()}>
-          <div className="win-btn" data-tauri-drag-region="false" onDoubleClick={(e) => e.stopPropagation()} onClick={handleMinimize} title={t('titlebar.minimize')} aria-label={t('titlebar.minimize')}>
+          <button type="button" className="win-btn" data-tauri-drag-region="false" onDoubleClick={(e) => e.stopPropagation()} onClick={handleMinimize} title={t('titlebar.minimize')} aria-label={t('titlebar.minimize')}>
             <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
               <rect width="10" height="1" />
             </svg>
-          </div>
-          <div className="win-btn" data-tauri-drag-region="false" onDoubleClick={(e) => e.stopPropagation()} onClick={handleMaximize} title={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')} aria-label={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}>
+          </button>
+          <button type="button" className="win-btn" data-tauri-drag-region="false" onDoubleClick={(e) => e.stopPropagation()} onClick={handleMaximize} title={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')} aria-label={isMaximized ? t('titlebar.restore') : t('titlebar.maximize')}>
             {isMaximized ? (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1">
                 <path d="M2.5 2.5V0.5H9.5V7.5H7.5" />
                 <rect x="0.5" y="2.5" width="7" height="7" />
               </svg>
             ) : (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1">
                 <rect x="0.5" y="0.5" width="9" height="9" />
               </svg>
             )}
-          </div>
-          <div className="win-btn close" data-tauri-drag-region="false" onDoubleClick={(e) => e.stopPropagation()} onClick={handleClose} title={t('titlebar.close')} aria-label={t('titlebar.close')}>
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
+          </button>
+          <button type="button" className="win-btn close" data-tauri-drag-region="false" onDoubleClick={(e) => e.stopPropagation()} onClick={handleClose} title={t('titlebar.close')} aria-label={t('titlebar.close')}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.25">
               <line x1="1" y1="1" x2="9" y2="9" />
               <line x1="9" y1="1" x2="1" y2="9" />
             </svg>
-          </div>
+          </button>
         </div>
       </div>
     </header>

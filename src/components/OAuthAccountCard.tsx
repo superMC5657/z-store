@@ -231,8 +231,7 @@ export const OAuthAccountCard: React.FC = () => {
             {user.is_expired ? (
               <button
                 type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                className="btn-fluent btn-secondary btn-compact"
                 disabled={isStarting}
                 onClick={handleLogin}
               >
@@ -242,8 +241,7 @@ export const OAuthAccountCard: React.FC = () => {
             ) : null}
             <button
               type="button"
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              className="btn-fluent btn-secondary btn-compact"
               onClick={handleLogout}
             >
               <LogOut size={13} strokeWidth={1.5} />
@@ -253,8 +251,7 @@ export const OAuthAccountCard: React.FC = () => {
         ) : (
           <button
             type="button"
-            className="btn-fluent btn-primary"
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            className="btn-fluent btn-primary btn-compact"
             disabled={isStarting}
             onClick={handleLogin}
           >
@@ -286,8 +283,7 @@ export const OAuthAccountCard: React.FC = () => {
           </div>
           <button
             type="button"
-            className="btn-fluent btn-primary"
-            style={{ fontSize: 'var(--font-sm)', padding: '5px 14px', flexShrink: 0 }}
+            className="btn-fluent btn-primary btn-compact"
             onClick={handleLogin}
             disabled={isStarting}
           >
@@ -316,8 +312,7 @@ export const OAuthAccountCard: React.FC = () => {
           </div>
           <button
             type="button"
-            className="btn-fluent btn-primary"
-            style={{ fontSize: 'var(--font-sm)', padding: '5px 12px', whiteSpace: 'nowrap' }}
+            className="btn-fluent btn-primary btn-compact"
             disabled={isStarting}
             onClick={handleLogin}
           >
@@ -363,26 +358,23 @@ export const OAuthAccountCard: React.FC = () => {
             </code>
             <button
               type="button"
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              className="btn-fluent btn-secondary btn-compact"
               onClick={handleCopyCode}
             >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? <Check size={13} /> : <Copy size={13} />}
               <span>{copied ? t('oauth.copied') : t('oauth.copy_code')}</span>
             </button>
             <button
               type="button"
-              className="btn-fluent btn-primary"
-              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              className="btn-fluent btn-primary btn-compact"
               onClick={() => tauriApi.openUrl(session.verificationUri)}
             >
               <span>{t('oauth.open_auth_page')}</span>
-              <ExternalLink size={12} />
+              <ExternalLink size={13} />
             </button>
             <button
               type="button"
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px' }}
+              className="btn-fluent btn-secondary btn-compact"
               onClick={handleCancelSession}
             >
               {t('common.cancel')}

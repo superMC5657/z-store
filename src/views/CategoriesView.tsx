@@ -245,9 +245,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         </h3>
         {selectedCategory ? (
           <button
-            className="btn-fluent btn-sm btn-secondary"
+            type="button"
+            className="btn-fluent btn-compact btn-secondary"
             onClick={() => setSelectedCategory(null)}
-            style={{ gap: '6px' }}
           >
             <ArrowLeft size={13} strokeWidth={1.5} />
             <span>{t('categories.back_to_hall')}</span>
@@ -411,7 +411,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           {catError && !catLoading && (
             <div style={{ width: '100%', display: 'flex', gap: '8px', alignItems: 'center' }}>
               <span>{t('categories.list_error')}</span>
-              <button className="btn-fluent btn-sm btn-secondary" onClick={handleRetry}>
+              <button type="button" className="btn-fluent btn-compact btn-secondary" onClick={handleRetry}>
                 {t('categories.retry')}
               </button>
             </div>

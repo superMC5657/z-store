@@ -62,18 +62,18 @@ export const LogExportRow: React.FC = () => {
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         <button
-          className="btn-fluent btn-secondary"
+          type="button"
+          className="btn-fluent btn-secondary btn-compact"
           onClick={handleExport}
           disabled={isExporting}
-          style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           {isExporting ? <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" /> : <ScrollText size={13} strokeWidth={1.5} />}
           <span>{isExporting ? t('zlog.exporting') : t('zlog.export')}</span>
         </button>
         <button
-          className="btn-fluent btn-secondary"
+          type="button"
+          className="btn-fluent btn-secondary btn-compact"
           onClick={handleOpenFolder}
-          style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           <FolderOpen size={13} strokeWidth={1.5} />
           <span>{t('zlog.open_folder')}</span>

@@ -39,6 +39,21 @@
   box-sizing: border-box;
 }
 
+/* 紧凑档（30px）：对齐同排 30px 搜索框（如 FavoritesView、RulesManagerModal 工具栏） */
+.segmented-group.segmented-compact {
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  padding: 1px;
+}
+
+.segmented-group.segmented-compact .segmented-item {
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  padding: 0 10px;
+}
+
 .segmented-item:hover {
   color: var(--text-primary);
   background: var(--bg-acrylic-hover);

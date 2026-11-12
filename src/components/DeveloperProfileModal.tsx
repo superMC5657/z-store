@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink } from 'lucide-react';
+import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { DeveloperProfile } from '../types';
 import { tauriApi } from '../services/api';
@@ -96,15 +96,13 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
         {/* 顶部个人概览横幅 */}
         <div className="modal-header" style={{ position: 'relative', padding: '24px 28px' }}>
           <button
-            className="modal-close-btn"
+            type="button"
+            className="modal-header-btn modal-close-btn"
             onClick={onClose}
             aria-label={t('developer_profile.close')}
             style={{ position: 'absolute', top: '16px', right: '16px' }}
           >
-            <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
-              <line x1="1" y1="1" x2="9" y2="9" />
-              <line x1="9" y1="1" x2="1" y2="9" />
-            </svg>
+            <X size={14} strokeWidth={1.5} />
           </button>
 
           {loading ? (
@@ -154,15 +152,14 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                     href={profile.html_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="btn-fluent btn-secondary"
-                    style={{ fontSize: 'var(--font-xs)', padding: '2px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    className="btn-fluent btn-secondary btn-sm"
                     onClick={(e) => {
                       e.preventDefault();
                       void tauriApi.openUrl(profile.html_url);
                     }}
                   >
                     <span>GitHub</span>
-                    <ExternalLink size={10} />
+                    <ExternalLink size={12} />
                   </a>
                 </div>
 
@@ -321,8 +318,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                       {repo.in_catalog ? (
                         <>
                           <button
-                            className="btn-fluent btn-secondary"
-                            style={{ fontSize: 'var(--font-sm)', padding: '6px 12px' }}
+                            type="button"
+                            className="btn-fluent btn-secondary btn-compact"
                             onClick={() => {
                               onClose();
                               onOpenAppDetail(repo.id);
@@ -333,9 +330,10 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                           {isUnknownRow ? (
                             // 未知态中性占位（单色骨架，不可交互）
                             <button
-                              className="btn-fluent btn-secondary"
+                              type="button"
+                              className="btn-fluent btn-secondary btn-compact"
                               data-badge="unknown"
-                              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', opacity: 0.65, cursor: 'default' }}
+                              style={{ opacity: 0.65, cursor: 'default' }}
                               disabled
                               title={t('developer_profile.checking_status')}
                               aria-label={t('developer_profile.checking_status')}
@@ -348,9 +346,9 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             </button>
                           ) : showManaged ? (
                             <button
-                              className="btn-fluent btn-install btn-installed"
+                              type="button"
+                              className="btn-fluent btn-install btn-installed btn-compact"
                               data-badge="managed"
-                              style={{ fontSize: 'var(--font-sm)', padding: '5px 12px' }}
                               onClick={() => {
                                 onClose();
                                 onOpenAppDetail(repo.id);
@@ -361,8 +359,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             </button>
                           ) : (
                             <button
-                              className="btn-fluent btn-primary"
-                              style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', fontWeight: 510 }}
+                              type="button"
+                              className="btn-fluent btn-primary btn-compact"
                               disabled={isInstalling}
                               onClick={() => handleInstall(repo.id)}
                             >
@@ -373,8 +371,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                       ) : (
                         <>
                           <button
-                            className="btn-fluent btn-secondary"
-                            style={{ fontSize: 'var(--font-sm)', padding: '6px 12px' }}
+                            type="button"
+                            className="btn-fluent btn-secondary btn-compact"
                             onClick={() => {
                               onClose();
                               onOpenAppDetail(repo.id);
@@ -386,8 +384,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                             href={repo.html_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="btn-fluent btn-secondary"
-                            style={{ fontSize: 'var(--font-sm)', padding: '6px 8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                            className="btn-fluent btn-secondary btn-compact btn-icon-only"
                             title={t('developer_profile.open_github')}
                             aria-label={t('developer_profile.open_github')}
                             onClick={(e) => {
@@ -395,7 +392,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
                               void tauriApi.openUrl(repo.html_url);
                             }}
                           >
-                            <ExternalLink size={12} />
+                            <ExternalLink size={13} />
                           </a>
                         </>
                       )}

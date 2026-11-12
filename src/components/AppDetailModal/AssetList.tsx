@@ -69,7 +69,7 @@ export const AssetList: React.FC<AssetListProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectAsset(asset.name)}
-                  className={`btn-fluent ${isSelected ? 'btn-primary' : 'btn-secondary'} detail-asset-btn`}
+                  className={`btn-fluent btn-compact ${isSelected ? 'btn-primary' : 'btn-secondary'} detail-asset-btn`}
                   disabled={effectiveIsBusy}
                   title={isSelected ? t('detail.asset_selected_title') : t('detail.asset_select_title')}
                 >
@@ -80,7 +80,7 @@ export const AssetList: React.FC<AssetListProps> = ({
                   onClick={(e) => onOpenExternal(e, asset.download_url)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="btn-fluent btn-secondary detail-asset-btn"
+                  className="btn-fluent btn-compact btn-secondary detail-asset-btn"
                   title={t('detail.asset_download_title')}
                 >
                   {t('detail.asset_direct_link')}

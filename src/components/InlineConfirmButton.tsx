@@ -13,6 +13,7 @@ interface InlineConfirmButtonProps {
   disabled?: boolean;
   timeoutMs?: number;
   className?: string;
+  size?: 'md' | 'compact' | 'sm';
   style?: React.CSSProperties;
 }
 
@@ -27,6 +28,7 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
   disabled = false,
   timeoutMs = 4000,
   className = '',
+  size,
   style,
 }) => {
   const { t } = useTranslation();
@@ -41,12 +43,22 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
     return () => clearTimeout(timer);
   }, [isConfirming, timeoutMs]);
 
+  const sizeClass = size
+    ? (size === 'md' ? '' : `btn-${size}`)
+    : className.includes('btn-sm')
+      ? 'btn-sm'
+      : className.includes('btn-compact')
+        ? 'btn-compact'
+        : '';
+
   if (isConfirming) {
+    const resolvedConfirmVariant =
+      confirmVariant === 'danger' ? 'btn-danger-solid' : `btn-${confirmVariant}`;
     return (
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
         <button
           type="button"
-          className={`btn-fluent btn-${confirmVariant} ${className}`.trim()}
+          className={`btn-fluent ${resolvedConfirmVariant} ${sizeClass} ${className}`.trim()}
           style={style}
           onClick={async (e) => {
             e.stopPropagation();
@@ -59,17 +71,16 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
         </button>
         <button
           type="button"
-          className="btn-fluent btn-secondary btn-icon-only"
-          // 与详情弹窗顶部操作行的大按钮档同高（30px），确认态展开时不跳动
-          style={{ width: '30px', height: '30px', minHeight: '30px', maxHeight: '30px', padding: 0, boxSizing: 'border-box', flexShrink: 0 }}
+          className={`btn-fluent btn-secondary btn-icon-only ${sizeClass}`.trim()}
           onClick={(e) => {
             e.stopPropagation();
             setIsConfirming(false);
           }}
           title={effectiveCancelTitle}
+          aria-label={effectiveCancelTitle}
           disabled={disabled}
         >
-          <X size={12} strokeWidth={2} />
+          <X size={13} strokeWidth={1.5} />
         </button>
       </div>
     );
@@ -78,7 +89,7 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
   return (
     <button
       type="button"
-      className={`btn-fluent btn-${variant} ${className}`.trim()}
+      className={`btn-fluent btn-${variant} ${sizeClass} ${className}`.trim()}
       onClick={(e) => {
         e.stopPropagation();
         setIsConfirming(true);

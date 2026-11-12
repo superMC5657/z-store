@@ -235,7 +235,8 @@ export const LatestView: React.FC<LatestViewProps> = ({
           <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {activeWindow === '7d' && (
               <button
-                className="btn-fluent btn-sm btn-secondary"
+                type="button"
+                className="btn-fluent btn-compact btn-secondary"
                 onClick={() => setActiveWindow('30d')}
               >
                 {t('latest.switch_to_30d')}
@@ -243,7 +244,8 @@ export const LatestView: React.FC<LatestViewProps> = ({
             )}
             {activeWindow !== '90d' && (
               <button
-                className="btn-fluent btn-sm btn-primary"
+                type="button"
+                className="btn-fluent btn-compact btn-primary"
                 onClick={() => setActiveWindow('90d')}
               >
                 {t('latest.switch_to_90d')}
@@ -251,7 +253,8 @@ export const LatestView: React.FC<LatestViewProps> = ({
             )}
             {activeWindow === '90d' && onNavigateCategories && (
               <button
-                className="btn-fluent btn-sm btn-secondary"
+                type="button"
+                className="btn-fluent btn-compact btn-secondary"
                 onClick={onNavigateCategories}
               >
                 {t('latest.explore_categories')}
@@ -289,7 +292,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
           {error && !loading && (
             <div style={{ width: '100%', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', padding: '16px 0' }}>
               <span>{t('latest.list_error')}</span>
-              <button className="btn-fluent btn-sm btn-secondary" onClick={handleRetry}>
+              <button type="button" className="btn-fluent btn-compact btn-secondary" onClick={handleRetry}>
                 {t('latest.retry')}
               </button>
             </div>

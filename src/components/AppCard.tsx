@@ -5,7 +5,7 @@ import { Inbox, Download } from 'lucide-react';
 import { AppSummary } from '../types';
 import { AppIcon } from './AppIcon';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from './VerifiedBadge';
-import { PlatformIcon, ForgeIcon } from './icons/PlatformIcons';
+import { PlatformIcon, ForgeIcon, WatchEyeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
 import { getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
 import { formatStars, isPlaceholderDescription } from '../services/trends';
@@ -241,10 +241,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             aria-label={isWatched ? t('app.watch_active') : t('app.watch_inactive')}
             style={isWatched ? { color: 'var(--brand-primary)' } : undefined}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <WatchEyeIcon isWatched={isWatched} />
           </button>
         ) : (
           <span className="btn-fav-card btn-fav-placeholder" aria-hidden="true" />
@@ -363,7 +360,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           <button
             type="button"
             data-testid={`move-in-${app.id}`}
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             disabled={isMovingIn}
             onClick={(e) => {
               e.stopPropagation();
@@ -372,9 +369,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             onKeyDown={(e) => e.stopPropagation()}
             title={t('custom.move_in_hint')}
             aria-label={moveInLabel}
-            style={{ padding: '6px 10px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
           >
-            <Inbox size={12} strokeWidth={1.5} aria-hidden="true" />
+            <Inbox size={13} strokeWidth={1.5} aria-hidden="true" />
             <span>{moveInLabel}</span>
           </button>
         )}
@@ -382,7 +378,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           <button
             type="button"
             data-testid={`load-detail-${app.id}`}
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={(e) => {
               e.stopPropagation();
               onLoadDetail?.(app.id);
@@ -390,9 +386,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             onKeyDown={(e) => e.stopPropagation()}
             title={loadDetailLabel}
             aria-label={loadDetailLabel}
-            style={{ padding: '6px 10px', fontSize: 'var(--font-xs)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
           >
-            <Download size={12} strokeWidth={1.5} aria-hidden="true" />
+            <Download size={13} strokeWidth={1.5} aria-hidden="true" />
             <span>{loadDetailLabel}</span>
           </button>
         )}

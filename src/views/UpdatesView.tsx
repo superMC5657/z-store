@@ -233,11 +233,11 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             {onOpenRules && (
               <button
                 type="button"
-                className="btn-fluent btn-secondary btn-sm"
+                className="btn-fluent btn-secondary btn-compact"
                 onClick={onOpenRules}
                 title={t('updates.rules_tooltip')}
               >
-                <Shield size={14} strokeWidth={1.5} />
+                <Shield size={13} strokeWidth={1.5} />
                 <span>{t('updates.rules_btn')}</span>
                 {typeof updateRulesCount === 'number' && updateRulesCount > 0 && (
                   <span className="badge-capsule">{updateRulesCount}</span>
@@ -247,7 +247,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             {onCheckUpdates && (
               <button
                 type="button"
-                className={`btn-fluent btn-sm ${updates.length === 0 ? 'btn-primary' : 'btn-secondary'}`}
+                className={`btn-fluent btn-compact ${updates.length === 0 ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={async () => {
                   setLocalChecking(true);
                   try {
@@ -261,12 +261,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               >
                 {isChecking ? (
                   <>
-                    <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
+                    <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" />
                     <span>{t('updates.checking')}</span>
                   </>
                 ) : (
                   <>
-                    <Search size={14} strokeWidth={1.5} />
+                    <Search size={13} strokeWidth={1.5} />
                     <span>{t('updates.check_updates')}</span>
                   </>
                 )}
@@ -275,11 +275,11 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
             {updates.length > 0 && (
               <button
                 type="button"
-                className="btn-fluent btn-primary btn-sm"
+                className="btn-fluent btn-primary btn-compact"
                 onClick={handleUpdateAll}
                 disabled={isUpdatingAll || isChecking}
               >
-                <DownloadCloud size={14} strokeWidth={1.5} />
+                <DownloadCloud size={13} strokeWidth={1.5} />
                 <span>
                   {isUpdatingAll
                     ? t('updates.updating_all')
@@ -415,7 +415,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       {onDismissWatch && (
                         <button
                           type="button"
-                          className="btn-fluent btn-ghost btn-sm"
+                          className="btn-fluent btn-ghost btn-compact"
                           onClick={() => onDismissWatch(n.app_id)}
                         >
                           {t('updates.dismiss_watch')}
@@ -535,7 +535,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                       <div className="manage-row-actions">
                         <button
                           type="button"
-                          className="btn-fluent btn-ghost btn-sm"
+                          className="btn-fluent btn-ghost btn-compact"
                           aria-expanded={isExpanded}
                           onClick={() => setExpandedId(isExpanded ? null : item.app_id)}
                         >

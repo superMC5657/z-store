@@ -8,6 +8,7 @@ import {
   Terminal,
   Folder,
   Info,
+  X,
 } from 'lucide-react';
 import { AppMatchResult, ImportAppRequest } from '../types';
 import { tauriApi } from '../services/api';
@@ -168,16 +169,13 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
             disabled={isImporting}
-            className="modal-close-btn"
+            className="modal-header-btn modal-close-btn"
             aria-label={t('import_modal.close')}
-            style={{ position: 'relative', top: 'auto', right: 'auto' }}
           >
-            <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
-              <line x1="1" y1="1" x2="9" y2="9" />
-              <line x1="9" y1="1" x2="1" y2="9" />
-            </svg>
+            <X size={14} strokeWidth={1.5} />
           </button>
         </div>
 
@@ -412,32 +410,22 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           </span>
           <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
             <button
+              type="button"
               className="btn-fluent btn-secondary"
               onClick={onClose}
               disabled={isImporting}
-              style={{ padding: '6px 16px', fontSize: 'var(--font-base)' }}
             >
               {t('import_modal.cancel')}
             </button>
             <button
+              type="button"
               className="btn-fluent btn-primary"
               onClick={handleImport}
               disabled={selectedIds.size === 0 || isImporting || isLoading}
-              style={{ padding: '6px 20px', fontSize: 'var(--font-base)', fontWeight: 510, display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               {isImporting ? (
                 <>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      width: '12px',
-                      height: '12px',
-                      borderRadius: '50%',
-                      border: '2px solid rgba(255,255,255,0.3)',
-                      borderTopColor: '#fff',
-                      animation: 'spin 1s linear infinite',
-                    }}
-                  />
+                  <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
                   <span>{t('import_modal.importing')}</span>
                 </>
               ) : (

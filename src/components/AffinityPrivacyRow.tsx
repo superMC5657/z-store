@@ -148,12 +148,11 @@ export const AffinityPrivacyRow: React.FC = () => {
             role="switch"
             aria-checked={summary.enabled}
             data-testid="affinity-toggle-btn"
-            className={`btn-fluent ${summary.enabled ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn-fluent btn-compact ${summary.enabled ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => void handleToggleEnabled()}
             disabled={busyAction !== null}
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <Sparkles size={14} strokeWidth={1.5} />
+            <Sparkles size={13} strokeWidth={1.5} />
             <span>
               {summary.enabled
                 ? t('affinity_privacy.toggle_on')
@@ -164,13 +163,12 @@ export const AffinityPrivacyRow: React.FC = () => {
           <button
             type="button"
             data-testid="affinity-sync-btn"
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={() => void handleSyncNow()}
             disabled={busyAction !== null}
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <RefreshCw
-              size={14}
+              size={13}
               strokeWidth={1.5}
               className={busyAction === 'sync' ? 'icon-spin' : undefined}
             />
@@ -184,12 +182,11 @@ export const AffinityPrivacyRow: React.FC = () => {
           <button
             type="button"
             data-testid="affinity-reset-btn"
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={() => void handleResetProfile()}
             disabled={busyAction !== null}
-            style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <Trash2 size={14} strokeWidth={1.5} />
+            <Trash2 size={13} strokeWidth={1.5} />
             <span>{t('affinity_privacy.reset_btn')}</span>
           </button>
         </div>

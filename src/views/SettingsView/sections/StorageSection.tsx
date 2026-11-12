@@ -47,7 +47,7 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
           />
           <button
             type="button"
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={async () => {
               try {
                 const picked = await tauriApi.selectFolder(downloadDir, t('settings.select_download_dir'));
@@ -88,7 +88,7 @@ export const StorageSection: React.FC<StorageSectionProps> = ({
           />
           <button
             type="button"
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={async () => {
               try {
                 const picked = await tauriApi.selectFolder(portableDir, t('settings.select_portable_dir'));

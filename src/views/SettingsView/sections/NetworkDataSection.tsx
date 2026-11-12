@@ -118,16 +118,16 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
           />
           <button
             type="button"
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={handleTestProxy}
             disabled={isTestingProxy}
           >
-            {isTestingProxy ? <RotateCcw size={12} className="icon-spin" /> : <Zap size={12} />}
+            {isTestingProxy ? <RotateCcw size={13} className="icon-spin" /> : <Zap size={13} />}
             <span>{isTestingProxy ? t('settings.testing_speed') : t('settings.test_speed')}</span>
           </button>
           <button
             type="button"
-            className="btn-fluent btn-secondary"
+            className="btn-fluent btn-secondary btn-compact"
             onClick={handleSaveProxy}
           >
             {t('settings.save_proxy')}
@@ -151,21 +151,19 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button
               type="button"
-              className="btn-fluent btn-secondary"
-              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              className="btn-fluent btn-secondary btn-compact"
               onClick={() => setShowAdvancedSource(!showAdvancedSource)}
             >
-              {showAdvancedSource ? <ChevronUp size={14} strokeWidth={1.5} /> : <ChevronDown size={14} strokeWidth={1.5} />}
+              {showAdvancedSource ? <ChevronUp size={13} strokeWidth={1.5} /> : <ChevronDown size={13} strokeWidth={1.5} />}
               <span>{showAdvancedSource ? t('settings.catalog_collapse_btn') : t('settings.catalog_custom_btn')}</span>
             </button>
             <button
               type="button"
-              className="btn-fluent btn-primary"
+              className="btn-fluent btn-primary btn-compact"
               onClick={handleSyncCatalog}
               disabled={isSyncingCatalog}
-              style={{ fontSize: 'var(--font-sm)', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              {isSyncingCatalog ? <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" /> : <RefreshCw size={14} strokeWidth={1.5} />}
+              {isSyncingCatalog ? <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" /> : <RefreshCw size={13} strokeWidth={1.5} />}
               <span>{isSyncingCatalog ? t('settings.catalog_syncing') : t('settings.catalog_sync_now')}</span>
             </button>
           </div>
@@ -198,16 +196,14 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
               <>
                 <button
                   type="button"
-                  className="btn-fluent"
-                  style={{ fontSize: 'var(--font-sm)', padding: '0 12px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', background: '#ef4444', color: '#fff', fontWeight: 510, whiteSpace: 'nowrap' }}
+                  className="btn-fluent btn-danger-solid btn-compact"
                   onClick={handleSaveCatalogSource}
                 >
                   <span>{t('settings.catalog_confirm_switch')}</span>
                 </button>
                 <button
                   type="button"
-                  className="btn-fluent btn-secondary"
-                  style={{ fontSize: 'var(--font-sm)', padding: '0 12px', height: '32px', whiteSpace: 'nowrap' }}
+                  className="btn-fluent btn-secondary btn-compact"
                   onClick={() => setIsCatalogSourceConfirming(false)}
                 >
                   <span>{t('common.cancel')}</span>
@@ -216,11 +212,10 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
             ) : (
               <button
                 type="button"
-                className="btn-fluent btn-secondary"
-                style={{ fontSize: 'var(--font-sm)', padding: '0 14px', height: '32px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}
+                className="btn-fluent btn-secondary btn-compact"
                 onClick={handleSaveCatalogSource}
               >
-                {catalogUrlSaved && <Check size={12} />}
+                {catalogUrlSaved && <Check size={13} />}
                 <span>{catalogUrlSaved ? t('common.save') : t('settings.catalog_save_btn')}</span>
               </button>
             )}

@@ -173,13 +173,13 @@
   --bg-input: rgba(255, 255, 255, 0.03);
   --bg-card: var(--bg-acrylic-card);
 
-  /* 去彩单色按钮系统（Dark） */
-  --btn-primary-bg: #F7F8F8;
+  /* 去彩单色按钮系统（Dark）：微收实底亮度并配合 padding-box 收敛白色辐射膨胀 */
+  --btn-primary-bg: #ECEEEF;
   --btn-primary-text: #08090A;
-  --btn-primary-border: rgba(255, 255, 255, 0.12);
-  --btn-primary-hover: #FFFFFF;
-  --btn-primary-active: #E5E7EB;
-  --btn-primary-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --btn-primary-border: rgba(255, 255, 255, 0.08);
+  --btn-primary-hover: #F7F8F8;
+  --btn-primary-active: #DFE2E6;
+  --btn-primary-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 
   --btn-secondary-bg: transparent;
   --btn-secondary-text: var(--text-secondary);

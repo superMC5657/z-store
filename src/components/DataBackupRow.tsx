@@ -231,19 +231,19 @@ export const DataBackupRow: React.FC = () => {
       </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         <button
-          className="btn-fluent btn-secondary"
+          type="button"
+          className="btn-fluent btn-secondary btn-compact"
           onClick={handleExport}
           disabled={isExporting}
-          style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           {isExporting ? <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" /> : <Upload size={13} strokeWidth={1.5} />}
           <span>{isExporting ? t('backup.exporting') : t('backup.export')}</span>
         </button>
         <button
-          className="btn-fluent btn-secondary"
+          type="button"
+          className="btn-fluent btn-secondary btn-compact"
           onClick={() => fileInputRef.current?.click()}
           disabled={isImporting}
-          style={{ fontSize: 'var(--font-sm)', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           {isImporting ? <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" /> : <Download size={13} strokeWidth={1.5} />}
           <span>{isImporting ? t('backup.importing') : t('backup.import')}</span>

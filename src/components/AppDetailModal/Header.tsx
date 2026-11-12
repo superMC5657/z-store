@@ -5,6 +5,7 @@ import {
   Monitor,
   Clock,
   AlertTriangle,
+  X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
@@ -14,7 +15,7 @@ import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../useToasts';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
 import { formatBytes, isCatalogedFailClosed } from '../../utils/appHelper';
-import { PlatformIcon, ForgeIcon } from '../icons/PlatformIcons';
+import { PlatformIcon, ForgeIcon, WatchEyeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
@@ -312,6 +313,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
         {onToggleFavorite && (
           <button
+            type="button"
             className="modal-header-btn"
             onClick={() => onToggleFavorite(app.id)}
             aria-label={isFavorite ? t('detail.fav_aria_active') : t('detail.fav_aria_inactive')}
@@ -325,19 +327,18 @@ export const Header: React.FC<HeaderProps> = ({
         )}
         {onToggleWatch && (
           <button
+            type="button"
             className="modal-header-btn"
             onClick={() => onToggleWatch(app.id)}
             aria-label={isWatched ? t('detail.watch_aria_active') : t('detail.watch_aria_inactive')}
             style={{ color: isWatched ? 'var(--brand-primary)' : 'var(--text-secondary)' }}
             title={isWatched ? t('detail.watch_title_active') : t('detail.watch_title_inactive')}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill={isWatched ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <WatchEyeIcon isWatched={isWatched} />
           </button>
         )}
         <button
+          type="button"
           className="modal-header-btn"
           onClick={handleToggleStar}
           disabled={isStarring}
@@ -367,15 +368,12 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </button>
         <button
-          className="modal-close-btn"
+          type="button"
+          className="modal-header-btn modal-close-btn"
           onClick={onClose}
           aria-label={t('detail.close_aria')}
-          style={{ position: 'relative', top: 'auto', right: 'auto' }}
         >
-          <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
-            <line x1="1" y1="1" x2="9" y2="9" />
-            <line x1="9" y1="1" x2="1" y2="9" />
-          </svg>
+          <X size={14} strokeWidth={1.5} />
         </button>
       </div>
 
@@ -406,18 +404,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={() => onOpenDeveloperProfile(app.owner)}
-              className="btn-fluent btn-secondary"
+              className="btn-fluent btn-secondary btn-sm"
               style={{
-                padding: '2px 8px',
-                fontSize: 'var(--font-sm)',
-                fontWeight: 510,
                 borderRadius: 'var(--radius-xs)',
                 color: 'var(--brand-primary)',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                lineHeight: '1.4',
               }}
               title={t('detail.owner_profile_title', { owner: app.owner })}
             >
