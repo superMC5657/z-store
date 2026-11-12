@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { CountBadge } from './CountBadge';
 import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { DeveloperProfile } from '../types';
@@ -220,7 +221,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h4 style={{ margin: 0, fontSize: 'calc(15px * var(--font-scale))', fontWeight: 590, display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
               <FolderOpen size={15} strokeWidth={1.5} />
-              <span>{t('developer_profile.projects_matrix', { count: profile?.repos.length || 0 })}</span>
+              <span>{t('developer_profile.projects_matrix')}</span>
+              <CountBadge value={profile?.repos.length ?? 0} />
               {/* 截断明示：仓库列表单次拉取无翻页，public_repos > 行数即标注，不伪装全量 */}
               {profile?.repos_truncated && (
                 <span style={{ fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--text-tertiary)' }}>

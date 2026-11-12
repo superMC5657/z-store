@@ -209,10 +209,10 @@ describe('Sidebar: updates and favorites numerical badges', () => {
     const installedItem = container.querySelector('[data-view-id="installed"]');
     const pendingItem = container.querySelector('[data-view-id="pending"]');
 
-    expect(updatesItem?.querySelector('.nav-badge')?.textContent).toBe('7');
-    expect(favoritesItem?.querySelector('.nav-badge')?.textContent).toBe('15');
-    expect(installedItem?.querySelector('.nav-badge')?.textContent).toBe('13');
-    expect(pendingItem?.querySelector('.nav-badge')?.textContent).toBe('5');
+    expect(updatesItem?.querySelector('.count-badge')?.textContent).toBe('7');
+    expect(favoritesItem?.querySelector('.count-badge')?.textContent).toBe('15');
+    expect(installedItem?.querySelector('.count-badge')?.textContent).toBe('13');
+    expect(pendingItem?.querySelector('.count-badge')?.textContent).toBe('5');
 
     // 验证不渲染圆点指示器
     expect(container.querySelector('.nav-badge-dot')).toBeNull();
@@ -228,8 +228,8 @@ describe('Sidebar: updates and favorites numerical badges', () => {
     const updatesItem = container.querySelector('[data-view-id="updates"]');
     const favoritesItem = container.querySelector('[data-view-id="favorites"]');
 
-    expect(updatesItem?.querySelector('.nav-badge')).toBeNull();
-    expect(favoritesItem?.querySelector('.nav-badge')).toBeNull();
+    expect(updatesItem?.querySelector('.count-badge')).toBeNull();
+    expect(favoritesItem?.querySelector('.count-badge')).toBeNull();
     expect(container.querySelector('.nav-badge-dot')).toBeNull();
   });
 });

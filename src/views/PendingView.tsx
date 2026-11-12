@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CountBadge, CountLabel } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-pending.css';
@@ -837,13 +838,12 @@ export const PendingView: React.FC<PendingViewProps> = ({
             className={`segmented-item ${activeGroup === id ? 'active' : ''}`}
             onClick={() => handleGroupChange(id)}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <Icon size={13} strokeWidth={1.5} aria-hidden="true" />
-              <span>
-                <span>{t(`pending.groups.${id}`)}</span>{' '}
-                <span className="segmented-count">({counts[id]})</span>
-              </span>
-            </span>
+            <CountLabel
+              icon={<Icon size={13} strokeWidth={1.5} aria-hidden="true" />}
+              label={t(`pending.groups.${id}`)}
+              count={counts[id]}
+              active={activeGroup === id}
+            />
           </button>
         ))}
       </div>
@@ -864,8 +864,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
               className={`pending-segment ${activeSegment === id ? 'active' : ''}`}
               onClick={() => handleSegmentChange(id)}
             >
-              <span>{t(`pending.segments.${id}`)}</span>{' '}
-              <span className="pending-segment-count">({segmentCounts[id]})</span>
+              <span>{t(`pending.segments.${id}`)}</span>
+              <CountBadge value={segmentCounts[id]} active={activeSegment === id} />
             </button>
           ))}
         </div>

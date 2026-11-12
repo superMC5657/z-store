@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CountLabel } from '../components/CountBadge';
 import { Bookmark, Eye, Star, RotateCcw, Zap, BookmarkPlus, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -137,19 +138,23 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
             {
               value: 'local',
               label: (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <Bookmark size={13} strokeWidth={1.5} />
-                  <span>{t('favorites.tab_local', { count: favoriteIds.size })}</span>
-                </span>
+                <CountLabel
+                  icon={<Bookmark size={13} strokeWidth={1.5} />}
+                  label={t('favorites.tab_local')}
+                  count={favoriteIds.size}
+                  active={activeTab === 'local'}
+                />
               ),
             },
             {
               value: 'watched',
               label: (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <Eye size={13} strokeWidth={1.5} />
-                  <span>{t('favorites.tab_watched', { count: watchedSet.size })}</span>
-                </span>
+                <CountLabel
+                  icon={<Eye size={13} strokeWidth={1.5} />}
+                  label={t('favorites.tab_watched')}
+                  count={watchedSet.size}
+                  active={activeTab === 'watched'}
+                />
               ),
             },
             {

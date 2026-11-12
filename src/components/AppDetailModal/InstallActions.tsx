@@ -1,4 +1,5 @@
 import React from 'react';
+import { CountBadge } from '../CountBadge';
 import {
   RotateCcw,
   CheckCircle2,
@@ -210,7 +211,14 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
             className="btn-fluent btn-secondary"
             onClick={onToggleShowAllAssets}
           >
-            {showAllAssets ? t('detail.install.collapse_assets') : t('detail.install.all_assets', { count: releases.length })}
+            {showAllAssets ? (
+              t('detail.install.collapse_assets')
+            ) : (
+              <>
+                <span>{t('detail.install.all_assets')}</span>
+                <CountBadge value={releases.length} />
+              </>
+            )}
           </button>
         )}
 

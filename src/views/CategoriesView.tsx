@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { queueAssembledRowIcons } from '../services/iconStore';
@@ -232,14 +233,14 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 strokeWidth={1.5}
                 style={{ color: currentCategoryMeta.color }}
               />
-              <span>
-                {t(currentCategoryMeta.nameKey)} ({visibleApps.length})
-              </span>
+              <span>{t(currentCategoryMeta.nameKey)}</span>
+              <CountBadge value={visibleApps.length} />
             </>
           ) : (
             <>
               <Tag size={18} strokeWidth={1.5} />
               <span>{t('categories.title')}</span>
+              <CountBadge value={categoryStats.totalCount} />
             </>
           )}
         </h3>
@@ -271,7 +272,6 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     />
                   ))}
               </div>
-              <span className="categories-spectrum-total">{categoryStats.totalCount}</span>
             </div>
           )
         )}
@@ -328,7 +328,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       </div>
                     </div>
                     <div className="category-card-meta-right">
-                      <span className="category-count-pill">
+                      <span className="category-card-count">
                         {count > 0
                           ? t('categories.apps_available', { count })
                           : t('categories.no_apps_for_platform')}

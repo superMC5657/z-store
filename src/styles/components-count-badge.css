@@ -1,0 +1,43 @@
+/* components-count-badge.css · 数量角标（规范：docs/count-display.md） */
+
+/* 数量角标：灰底 4px 圆角矩形，表格数字，紧跟标签文本。全站唯一的数量容器。 */
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-acrylic-hover);
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: var(--font-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+  transition:
+    color 0.15s var(--ease-smooth),
+    background 0.15s var(--ease-smooth),
+    border-color 0.15s var(--ease-smooth);
+}
+
+/* 所属控件选中：数字用 --color-nav-active 提亮，底色叠 --brand-subtle，描边换 --border-nav-active */
+.count-badge.is-active {
+  color: var(--color-nav-active);
+  background: var(--brand-subtle);
+  border-color: var(--border-nav-active);
+}
+
+/* CountLabel：tab / 分段内的「图标 + 文本 + 角标」行 */
+.count-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

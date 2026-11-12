@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CountLabel } from './CountBadge';
 import {
   Shield,
   Plus,
@@ -157,7 +158,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Shield size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
               <h3 style={{ margin: 0, fontSize: 'calc(17px * var(--font-scale))', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
-                {t('rules.title', { count: updateRules.length })}
+                {t('rules.title')}
               </h3>
             </div>
           </div>
@@ -362,36 +363,44 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               {
                 value: 'all',
                 label: (
-                  <span>
-                    {t('rules.tab_all_short')} ({updateRules.length})
-                  </span>
+                  <CountLabel
+                    label={t('rules.tab_all_short')}
+                    count={updateRules.length}
+                    active={rulesTab === 'all'}
+                  />
                 ),
               },
               {
                 value: 'skipped',
                 label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <SkipForward size={11} strokeWidth={1.5} />
-                    <span>{t('rules.tab_skipped_short')} ({updateRules.filter((r) => Boolean(r.skipped_version)).length})</span>
-                  </span>
+                  <CountLabel
+                    icon={<SkipForward size={11} strokeWidth={1.5} />}
+                    label={t('rules.tab_skipped_short')}
+                    count={updateRules.filter((r) => Boolean(r.skipped_version)).length}
+                    active={rulesTab === 'skipped'}
+                  />
                 ),
               },
               {
                 value: 'frozen',
                 label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <Lock size={11} strokeWidth={1.5} />
-                    <span>{t('rules.tab_frozen_short')} ({updateRules.filter((r) => r.is_frozen).length})</span>
-                  </span>
+                  <CountLabel
+                    icon={<Lock size={11} strokeWidth={1.5} />}
+                    label={t('rules.tab_frozen_short')}
+                    count={updateRules.filter((r) => r.is_frozen).length}
+                    active={rulesTab === 'frozen'}
+                  />
                 ),
               },
               {
                 value: 'hidden',
                 label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <EyeOff size={11} strokeWidth={1.5} />
-                    <span>{t('rules.tab_hidden_short')} ({updateRules.filter((r) => r.is_hidden).length})</span>
-                  </span>
+                  <CountLabel
+                    icon={<EyeOff size={11} strokeWidth={1.5} />}
+                    label={t('rules.tab_hidden_short')}
+                    count={updateRules.filter((r) => r.is_hidden).length}
+                    active={rulesTab === 'hidden'}
+                  />
                 ),
               },
             ]}

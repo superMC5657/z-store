@@ -105,23 +105,6 @@
   padding: 0;
 }
 
-/* 胶囊计数徽章（Capsule Badge） */
-.badge-capsule {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 5px;
-  font-size: calc(10px * var(--font-scale));
-  font-weight: 590;
-  line-height: 1;
-  border-radius: var(--radius-pill);
-  background: var(--brand-primary);
-  color: #ffffff;
-  box-sizing: border-box;
-}
-
 /* 主按钮：去彩单色（Light: #08090A 白字 / Dark: #ECEEEF 黑字）；
    使用 padding-box + 纯内高光（无外扩阴影）消除并列剪影高差与辐射膨胀 */
 .btn-primary {

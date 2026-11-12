@@ -62,14 +62,6 @@
   flex-shrink: 0;
 }
 
-.trends-count {
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 /* 刷新按钮：与分段 tab 同高 28px，图标描边风 + hover 染金色涨星徽标色 */
 .trends-refresh-btn {
   display: inline-flex;

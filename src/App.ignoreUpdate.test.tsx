@@ -142,7 +142,8 @@ describe('ignore-update persistence (real App path)', () => {
 
     // ...且规则管理器弹窗列出跳过的应用及其版本号。
     fireEvent.click(rulesBtn);
-    expect(await screen.findByText(/规则管理 \(1\)/)).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '规则管理' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '全部 1' })).toBeTruthy();
     expect(screen.getByText(APP_ID)).toBeTruthy();
     expect(screen.getByText(`跳过 ${LATEST}`)).toBeTruthy();
   });

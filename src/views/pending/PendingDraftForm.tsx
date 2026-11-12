@@ -262,7 +262,6 @@ function CoreSection({
         <div className="pending-section-title-wrap">
           <FileText size={13} strokeWidth={1.5} aria-hidden="true" />
           <span>{t('pending.sections.core')}</span>
-          <span className="pending-section-count">6</span>
         </div>
       </div>
 
@@ -414,7 +413,6 @@ function SupplementalSection({
         <div className="pending-section-title-wrap">
           <AlignLeft size={13} strokeWidth={1.5} aria-hidden="true" />
           <span>{t('pending.sections.supplemental')}</span>
-          <span className="pending-section-count">4</span>
         </div>
         {openSections.supplemental ? (
           <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />
@@ -498,7 +496,6 @@ function RuntimeSection({
         <div className="pending-section-title-wrap">
           <Sliders size={13} strokeWidth={1.5} aria-hidden="true" />
           <span>{t('pending.sections.runtime')}</span>
-          <span className="pending-section-count">2</span>
         </div>
         {openSections.runtime ? (
           <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />

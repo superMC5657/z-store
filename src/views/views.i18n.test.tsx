@@ -110,7 +110,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('已安装')).toBeTruthy();
-      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
+      expect(document.querySelector('.manage-title .count-badge')).toBeNull();
       expect(screen.getByText('规则')).toBeTruthy();
       expect(screen.getByText('导出清单')).toBeTruthy();
       expect(screen.getByText('扫描本地')).toBeTruthy();
@@ -130,7 +130,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('Installed')).toBeTruthy();
-      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
+      expect(document.querySelector('.manage-title .count-badge')).toBeNull();
       expect(screen.getByText('Rules')).toBeTruthy();
       expect(screen.getByText('Export List')).toBeTruthy();
       expect(screen.getByText('Scan Local')).toBeTruthy();
@@ -202,8 +202,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('收藏 (0)')).toBeTruthy();
-      expect(screen.getByText('关注 (0)')).toBeTruthy();
+      expect(screen.getByRole('tab', { name: '收藏 0' })).toBeTruthy();
+      expect(screen.getByRole('tab', { name: '关注 0' })).toBeTruthy();
       expect(screen.getByText('Star 同步')).toBeTruthy();
       expect(screen.getByPlaceholderText('搜索应用或仓库...')).toBeTruthy();
       expect(screen.getByText('收藏夹还是空的')).toBeTruthy();
@@ -221,8 +221,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('Favorites (0)')).toBeTruthy();
-      expect(screen.getByText('Watched (0)')).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'Favorites 0' })).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'Watched 0' })).toBeTruthy();
       expect(screen.getByText('Star Sync')).toBeTruthy();
       expect(screen.getByPlaceholderText('Search apps or repos...')).toBeTruthy();
       expect(screen.getByText('Favorites list is empty')).toBeTruthy();
@@ -245,9 +245,9 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('规则管理 (1)')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: '规则管理' })).toBeTruthy();
       expect(screen.getByText('新建规则')).toBeTruthy();
-      expect(screen.getByText(/全部.*\(1\)/)).toBeTruthy();
+      expect(screen.getByRole('tab', { name: '全部 1' })).toBeTruthy();
       expect(screen.getByText('跳过 1.3.0')).toBeTruthy();
       expect(screen.getByText('已锁定版本')).toBeTruthy();
       expect(screen.getByText(/生效于: 2023/)).toBeTruthy();
@@ -271,9 +271,9 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText('Rules (1)')).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'Rules' })).toBeTruthy();
       expect(screen.getByText('New Rule')).toBeTruthy();
-      expect(screen.getByText(/All.*\(1\)/)).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'All 1' })).toBeTruthy();
       expect(screen.getByText('Skip 1.3.0')).toBeTruthy();
       expect(screen.getByText('Version Pinned')).toBeTruthy();
       expect(screen.getByText(/Effective from: .*2023/)).toBeTruthy();
@@ -298,7 +298,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('应用更新')).toBeTruthy();
-      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
+      expect(document.querySelector('.manage-title .count-badge')?.textContent).toBe('0');
       expect(screen.getByText('检查更新')).toBeTruthy();
       expect(screen.getByText('已是最新版本')).toBeTruthy();
       unmount();
@@ -315,12 +315,12 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('App Updates')).toBeTruthy();
-      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
+      expect(document.querySelector('.manage-title .count-badge')?.textContent).toBe('0');
       expect(screen.getByText('Check Updates')).toBeTruthy();
       expect(screen.getByText('Up to Date')).toBeTruthy();
     });
 
-    it('renders updateRulesCount in badge-capsule without parentheses consistent with InstalledView', () => {
+    it('renders updateRulesCount as a CountBadge on the rules button, consistent with InstalledView', () => {
       const { container } = render(
         <UpdatesView
           updates={[]}
@@ -331,7 +331,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      const badge = container.querySelector('.badge-capsule');
+      const badge = container.querySelector('.manage-actions-cluster .count-badge');
       expect(badge).toBeTruthy();
       expect(badge?.textContent).toBe('2');
     });

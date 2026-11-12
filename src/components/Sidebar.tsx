@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { CountBadge } from './CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { OAuthUser, VIEW_TYPES, ViewType } from '../types';
@@ -289,8 +290,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </span>
                       <span className="nav-label">{item.label}</span>
 
-                      {typeof item.badge === 'number' && item.badge > 0 && (
-                        <span className="nav-badge">{item.badge}</span>
+                      {typeof item.badge === 'number' && (
+                        <CountBadge value={item.badge} active={isSelected} hideZero />
                       )}
                     </button>
                   );

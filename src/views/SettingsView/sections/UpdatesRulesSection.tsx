@@ -1,4 +1,5 @@
 import React from 'react';
+import { CountBadge } from '../../../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import { Check, Shield } from 'lucide-react';
 import { SegmentedControl } from '../../../components/SegmentedControl';
@@ -99,9 +100,7 @@ export const UpdatesRulesSection: React.FC<UpdatesRulesSectionProps> = ({
         >
           <Shield size={13} strokeWidth={1.5} />
           <span>{t('settings.rules_btn')}</span>
-          {updateRulesCount > 0 && (
-            <span className="badge-capsule">{updateRulesCount}</span>
-          )}
+          <CountBadge value={updateRulesCount} hideZero />
         </button>
       </div>
     </>

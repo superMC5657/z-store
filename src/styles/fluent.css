@@ -13,6 +13,8 @@
 @import "./components-feedback.css";
 @import "./components-inputs.css";
 @import "./components-buttons.css";
+@import "./components-count-badge.css";
+@import "./components-status-tag.css";
 @import "./components-hero.css";
 @import "./components-modal.css";
 @import "./components-segmented.css";

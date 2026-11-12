@@ -1,4 +1,5 @@
 import React from 'react';
+import { CountBadge } from '../../components/CountBadge';
 import { Search, X } from 'lucide-react';
 
 export interface ManageFilterTab<T extends string = string> {
@@ -53,9 +54,7 @@ export function ManageFilterBar<T extends string = string>({
                 onClick={() => onTabChange(tab.id)}
               >
                 <span>{tab.label}</span>
-                {typeof tab.count === 'number' && (
-                  <span className="manage-filter-tab-count">{tab.count}</span>
-                )}
+                {typeof tab.count === 'number' && <CountBadge value={tab.count} active={isActive} />}
               </button>
             );
           })}

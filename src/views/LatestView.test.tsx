@@ -39,6 +39,11 @@ function makeSummary(id: string, name: string, addedAt?: string, stars: number =
   };
 }
 
+/** 标题上的数量角标文本（总数取后端 total，而非已加载页长） */
+function titleCount(): string | undefined {
+  return document.querySelector('.section-title .count-badge')?.textContent ?? undefined;
+}
+
 describe('LatestView component', () => {
   const onOpenDetail = vi.fn();
   const onQuickInstall = vi.fn();
@@ -285,7 +290,7 @@ describe('LatestView component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('42 款可用')).toBeDefined();
+      expect(titleCount()).toBe('42');
     });
   });
 
@@ -312,7 +317,7 @@ describe('LatestView component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('35 款可用')).toBeDefined();
+      expect(titleCount()).toBe('35');
     });
 
     // Switch to 7d window with total 5
@@ -327,7 +332,7 @@ describe('LatestView component', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('5 款可用')).toBeDefined();
+      expect(titleCount()).toBe('5');
     });
   });
 });

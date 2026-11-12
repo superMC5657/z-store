@@ -152,22 +152,22 @@ describe('PendingView grouping and empty states', () => {
     ];
     const { container } = render(<PendingView initialEntries={entries} />);
     // 三态分组：草稿 / 本地收录 / 已归档；Issue 进度降为本地收录内部分段
-    expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
+    expect(container.querySelector('.pending-header .count-badge')).toBeNull();
     expect(screen.getByText('草稿')).toBeTruthy();
     expect(screen.getByText('本地收录')).toBeTruthy();
     expect(screen.getByText('已归档')).toBeTruthy();
     expect(screen.queryByText('已提交')).toBeNull();
     // Tab 计数按分区：1 草稿 + 3 本地收录（collected/local_collected/submitted）+ 1 归档
-    const counts = Array.from(container.querySelectorAll('.segmented-count')).map((el) => el.textContent ?? '');
-    expect(counts).toEqual(['(1)', '(3)', '(1)']);
+    const counts = Array.from(container.querySelectorAll('.segmented-item .count-badge')).map((el) => el.textContent ?? '');
+    expect(counts).toEqual(['1', '3', '1']);
     // tab 顺序：草稿 → 本地收录 → 已归档；分段不占顶层 Tab
     const tabs = Array.from(container.querySelectorAll('.segmented-item')).map((el) =>
       el.textContent ?? '',
     );
     expect(tabs).toHaveLength(3);
-    expect(tabs[0]).toContain('草稿 (1)');
-    expect(tabs[1]).toContain('本地收录 (3)');
-    expect(tabs[2]).toContain('已归档 (1)');
+    expect(tabs[0]).toBe('草稿 1');
+    expect(tabs[1]).toBe('本地收录 3');
+    expect(tabs[2]).toBe('已归档 1');
     // 默认草稿分组仅见 o/a
     const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
     expect(listText()).toContain('o/a');
@@ -181,8 +181,8 @@ describe('PendingView grouping and empty states', () => {
     expect(screen.queryByTestId('pending-segment-all')).toBeNull();
     expect(screen.getByTestId('pending-segment-to_submit')).toBeTruthy();
     expect(screen.getByTestId('pending-segment-submitted')).toBeTruthy();
-    expect(screen.getByTestId('pending-segment-to_submit').textContent).toBe('待提交 (2)');
-    expect(screen.getByTestId('pending-segment-submitted').textContent).toBe('已提交 (1)');
+    expect(screen.getByTestId('pending-segment-to_submit').textContent).toBe('待提交 2');
+    expect(screen.getByTestId('pending-segment-submitted').textContent).toBe('已提交 1');
     // 选中已收录行：编辑头显已收录徽标，收录按钮隐藏（仅 draft 显示）
     fireEvent.click(screen.getByText('o/col'));
     expect(screen.getAllByText('本地收录').length).toBeGreaterThanOrEqual(2);
@@ -657,10 +657,10 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     const { container } = render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
     // 页头无新建入口、无计数徽标
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
-    expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
+    expect(container.querySelector('.pending-header .count-badge')).toBeNull();
     // Tab 自带草稿/收录计数保留
     expect(container.querySelector('.segmented-group')?.textContent).toContain('草稿');
-    expect(container.querySelectorAll('.segmented-count')).toHaveLength(3);
+    expect(container.querySelectorAll('.segmented-item .count-badge')).toHaveLength(3);
     fireEvent.click(screen.getByText('o/draft'));
     // 表单态：保存草稿 + 收录主按钮，无提交 Issue，无富卡黄标
     expect(screen.getByText('保存草稿')).toBeTruthy();
@@ -786,7 +786,7 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     );
     // 页头无计数徽标、无新建入口
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
-    expect(container.querySelector('.pending-header .nav-badge')).toBeNull();
+    expect(container.querySelector('.pending-header .count-badge')).toBeNull();
     fireEvent.click(screen.getByText('o/draft'));
     expect(screen.getByTestId('pending-collect-local')).toBeTruthy();
     // 切到本地收录：旧选中清空，右侧回空态
@@ -822,7 +822,7 @@ describe('PendingView 3 tabs + 本地收录内部分段（计数分区 / 批量�
     await i18n.changeLanguage('zh-CN');
     const entries = libraryEntries();
     const { container } = render(<PendingView entries={entries} onGetLicenseAllowlist={gateProvider} />);
-    const counts = Array.from(container.querySelectorAll('.segmented-count')).map((el) =>
+    const counts = Array.from(container.querySelectorAll('.segmented-item .count-badge')).map((el) =>
       Number((el.textContent ?? '0').replace(/\D/g, '')),
     );
     expect(counts).toEqual([1, 3, 1]);

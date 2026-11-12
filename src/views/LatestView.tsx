@@ -4,6 +4,7 @@ import '../i18n';
 import { Sparkles, Calendar } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { SegmentedControl } from '../components/SegmentedControl';
+import { CountBadge } from '../components/CountBadge';
 import {
   FilterEmptyState,
   RequiredPlatformReset,
@@ -182,6 +183,9 @@ export const LatestView: React.FC<LatestViewProps> = ({
           <h3 className="section-title">
             <Sparkles size={18} />
             <span>{t('latest.title')}</span>
+            {!loading && !error && totalCount !== null && (
+              <CountBadge value={visibleApps.length > 0 ? totalCount : 0} />
+            )}
           </h3>
           {t('latest.subtitle') ? (
             <p className="trends-subtitle" style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '13px' }}>
@@ -198,11 +202,6 @@ export const LatestView: React.FC<LatestViewProps> = ({
           options={windowOptions}
           ariaLabel={t('latest.title')}
         />
-        {!loading && visibleApps.length > 0 && totalCount !== null && totalCount > 0 && (
-          <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-            {t('latest.apps_available', { count: totalCount })}
-          </span>
-        )}
       </div>
 
       {apps.length === 0 ? (

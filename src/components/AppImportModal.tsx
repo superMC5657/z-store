@@ -424,7 +424,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                   <span>{t('import_modal.importing')}</span>
                 </>
               ) : (
-                <span>{t('import_modal.import_btn', { count: selectedIds.size })}</span>
+                <span>{t('import_modal.import_btn')}</span>
               )}
             </button>
           </div>

@@ -23,10 +23,10 @@ describe('i18n core configuration and language switching', () => {
   });
 
   it('handles interpolation parameters correctly in both languages', async () => {
-    expect(i18n.t('installed.title', { count: 5 })).toBe('已安装 (5)');
+    expect(i18n.t('trends.stars_gained_today', { count: 5 })).toBe('今日 +5');
 
     await i18n.changeLanguage('en-US');
-    expect(i18n.t('installed.title', { count: 5 })).toBe('Installed (5)');
+    expect(i18n.t('trends.stars_gained_today', { count: 5 })).toBe('+5 today');
   });
 
   it('falls back to zh-CN when key exists in fallback', async () => {

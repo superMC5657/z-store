@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
@@ -172,23 +173,13 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   ];
 
   const subtitle =
-    stats.updatableCount > 0
-      ? t('installed.subtitle_with_updates', {
-          total: installedApps.length,
-          updatable: stats.updatableCount,
-        })
-      : t('installed.subtitle_summary', {
-          total: installedApps.length,
-          frozen: stats.frozenCount,
-          hidden: stats.hiddenCount,
-        });
+    stats.updatableCount > 0 ? t('installed.subtitle_updatable', { count: stats.updatableCount }) : undefined;
 
   return (
     <ViewShell viewClass="installed-view manage-view">
       <ManageHeader
         icon={<Package size={16} strokeWidth={1.5} />}
         title={t('installed.title_label')}
-        count={installedApps.length}
         subtitle={subtitle}
         actions={
           <>
@@ -201,9 +192,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               >
                 <Shield size={13} strokeWidth={1.5} />
                 <span>{t('installed.rules')}</span>
-                {updateRules.length > 0 && (
-                  <span className="badge-capsule">{updateRules.length}</span>
-                )}
+                <CountBadge value={updateRules.length} hideZero />
               </button>
             )}
 

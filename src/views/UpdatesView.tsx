@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { marked } from 'marked';
@@ -215,18 +216,14 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   const showUpdatesSection =
     !isSearchFilteredOut && (activeTab === 'all' || activeTab === 'updates');
 
-  const rulesCount = updateRulesCount ?? 0;
-  const subtitle =
-    updates.length > 0
-      ? t('updates.subtitle_summary', { count: updates.length, rules: rulesCount })
-      : t('updates.subtitle_all_latest', { rules: rulesCount });
+  const subtitle = updates.length > 0 ? undefined : t('updates.subtitle_all_latest');
 
   return (
     <ViewShell viewClass="updates-view manage-view">
       <ManageHeader
         icon={<RotateCcw size={16} strokeWidth={1.5} />}
         title={t('updates.title_label')}
-        count={updates.length}
+        count={filterTabs ? undefined : updates.length}
         subtitle={subtitle}
         actions={
           <>
@@ -239,9 +236,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
               >
                 <Shield size={13} strokeWidth={1.5} />
                 <span>{t('updates.rules_btn')}</span>
-                {typeof updateRulesCount === 'number' && updateRulesCount > 0 && (
-                  <span className="badge-capsule">{updateRulesCount}</span>
-                )}
+                {typeof updateRulesCount === 'number' && <CountBadge value={updateRulesCount} hideZero />}
               </button>
             )}
             {onCheckUpdates && (
@@ -283,7 +278,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
                 <span>
                   {isUpdatingAll
                     ? t('updates.updating_all')
-                    : t('updates.update_all', { count: updates.length })}
+                    : t('updates.update_all')}
                 </span>
               </button>
             )}
@@ -360,12 +355,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
       {showWatchSection && (
         <section
           className="manage-section"
-          aria-label={t('updates.watch_updates_title', { count: filteredWatches.length })}
+          aria-label={t('updates.watch_updates_title')}
         >
           <div className="manage-section-eyebrow">
             <span className="manage-section-eyebrow-title">
               <Eye size={13} strokeWidth={1.5} />
-              <span>{t('updates.watch_updates_title', { count: filteredWatches.length })}</span>
+              <span>{t('updates.watch_updates_title')}</span>
             </span>
           </div>
           <div className="manage-panel">

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
@@ -536,7 +537,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" data-testid="search-local-section">
             <h3 className="section-title">
               <Package size={16} />
-              <span>{t('search.local_results', { count: apps.length })}</span>
+              <span>{t('search.local_results')}</span>
+              <CountBadge value={apps.length} />
             </h3>
           </div>
           {annotatedDisplayedFeed.length > 0 ? (
@@ -579,7 +581,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="section-header" style={{ marginTop: '28px' }} data-testid="search-online-section">
             <h3 className="section-title">
               <Globe size={16} />
-              <span>{t('search.online_results', { count: annotatedOnlineApps.length })}</span>
+              <span>{t('search.online_results')}</span>
+              <CountBadge value={annotatedOnlineApps.length} />
             </h3>
           </div>
           {annotatedOnlineApps.length > 0 ? (

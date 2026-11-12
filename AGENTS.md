@@ -26,6 +26,7 @@ Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `doc
 - Don't use `find` on Windows; where you would use `find`, use `fd` instead.
 - Always pass an explicit path to `rg` (e.g., `rg -n "pattern" .`).
 - Docs and comments: describe what it does now, not change history; explain why only when non-obvious.
+- Counts in the UI follow `docs/count-display.md`: a number attached to a label is `<CountBadge>`; never `Label ({{count}})` copy or a per-view count class. `countDisplay.test.ts` enforces this.
 
 ### IPC Naming Convention
 

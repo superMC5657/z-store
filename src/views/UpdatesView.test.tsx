@@ -88,10 +88,10 @@ describe('UpdatesView redesigned workbench', () => {
     expect(imgs.length).toBe(2);
     expect(imgs[0].style.objectFit).toBe('contain');
 
-    // 仅顶部「全部更新 (2)」为 btn-primary，行内升级按钮使用 outline 样式（无白块墙）
+    // 仅顶部「全部更新」为 btn-primary，行内升级按钮使用 outline 样式（无白块墙）
     const primaryButtons = container.querySelectorAll('button.btn-primary');
     expect(primaryButtons.length).toBe(1);
-    expect(primaryButtons[0].textContent).toContain('全部更新 (2)');
+    expect(primaryButtons[0].textContent).toBe('全部更新');
     expect(container.querySelectorAll('button.manage-btn-action').length).toBe(2);
   });
 

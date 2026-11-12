@@ -147,7 +147,7 @@ describe('HomeView online search armed boundary', () => {
       onSearchOnline,
     });
     expect(queryByTestId('search-online-grid')).toBeNull();
-    expect(getByTestId('search-online-section').textContent).toContain('在线结果 (0)');
+    expect(getByTestId('search-online-section').textContent).toBe('在线结果 0');
     const triggerBtn = getByTestId('search-online-trigger');
     expect(triggerBtn.textContent).toContain('在线搜索');
     fireEvent.click(triggerBtn);

@@ -74,6 +74,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   justify-content: center;
   flex: 0 0 auto;
   height: 26px;
@@ -104,22 +105,6 @@
   border-radius: 1px;
   background: transparent;
   transition: background 0.15s var(--ease-smooth);
-}
-
-/* 计数只作数据注脚：等宽数字、无底色，不抢选中态的下划线 */
-.pending-segment-count {
-  margin-left: 5px;
-  font-family: var(--font-mono);
-  font-size: calc(10.5px * var(--font-scale));
-  font-weight: var(--font-weight-regular);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-  line-height: 1;
-  color: var(--text-tertiary);
-}
-
-.pending-segment.active .pending-segment-count {
-  color: var(--text-secondary);
 }
 
 .pending-segment:hover {
@@ -781,18 +766,6 @@
   font-size: var(--font-sm);
   font-weight: var(--font-weight-semibold);
   color: var(--text-primary);
-}
-
-.pending-section-count {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  font-weight: var(--font-weight-regular);
-  color: var(--text-tertiary);
-  padding: 1px 6px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  margin-left: 2px;
 }
 
 /* 固定底部操作栏 */

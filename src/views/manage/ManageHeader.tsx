@@ -1,4 +1,5 @@
 import React from 'react';
+import { CountBadge } from '../../components/CountBadge';
 
 interface ManageHeaderProps {
   icon: React.ReactNode;
@@ -10,7 +11,7 @@ interface ManageHeaderProps {
 
 /**
  * 管理工作台统一顶栏：
- * 左侧呈现统一尺寸线性图标 + 标题 + 等宽计数胶囊 + 摘要副标题，右侧呈现主次分离的动作按钮簇。
+ * 左侧呈现统一尺寸线性图标 + 标题 + 数量角标 + 摘要副标题，右侧呈现主次分离的动作按钮簇。
  */
 export const ManageHeader: React.FC<ManageHeaderProps> = ({
   icon,
@@ -28,9 +29,7 @@ export const ManageHeader: React.FC<ManageHeaderProps> = ({
           </span>
           <h3 className="manage-title">
             <span>{title}</span>
-            {typeof count === 'number' && (
-              <span className="manage-count-pill">{count}</span>
-            )}
+            {typeof count === 'number' && <CountBadge value={count} />}
           </h3>
         </div>
         {subtitle ? <p className="manage-subtitle">{subtitle}</p> : null}

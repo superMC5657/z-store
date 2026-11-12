@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-trends.css';
@@ -295,6 +296,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
         <h3 className="section-title">
           <TrendingUp size={18} />
           <span>{t('trends.title')}</span>
+          {!isLoading && !errorKind && <CountBadge value={displayItems.length} />}
         </h3>
         {t('trends.subtitle') ? <p className="trends-subtitle">{t('trends.subtitle')}</p> : null}
       </div>
@@ -316,11 +318,6 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       <div className="trends-meta">
         <span className="trends-board-desc">{t(`trends.board_${activeBoard}_desc`)}</span>
         <span className="trends-meta-right">
-          {displayItems.length > 0 && (
-            <span className="trends-count">
-              {t('trends.results_count', { count: displayItems.length })}
-            </span>
-          )}
           <button
             type="button"
             className="trends-refresh-btn"

@@ -278,11 +278,11 @@ describe('CategoriesView: paginated detail via get_category_apps', () => {
     expect(container.querySelector('.categories-bento-grid')).toBeTruthy();
     expect(container.querySelectorAll('.category-bento-card.is-featured')).toHaveLength(2);
 
-    // 光谱条：纯展示 span（无 aria-hidden 内部 button），总数仅计入 10 个预设分类（3，不含 external）。
+    // 光谱条：纯展示 span（无 aria-hidden 内部 button）；标题角标总数仅计入 10 个预设分类（3，不含 external）。
     const spectrum = container.querySelector('.categories-spectrum-bar');
     expect(spectrum).toBeTruthy();
     expect(spectrum?.querySelectorAll('button')).toHaveLength(0);
-    expect(spectrum?.querySelector('.categories-spectrum-total')?.textContent).toBe('3');
+    expect(container.querySelector('.categories-hall-header .section-title .count-badge')?.textContent).toBe('3');
 
     // 代表作图标坞：无图时保留 AppIcon 的 icon_bg 兜底背景，不被卡片底色覆盖。
     const iconContainer = container.querySelector('.category-dock-item .app-icon-container') as HTMLElement | null;

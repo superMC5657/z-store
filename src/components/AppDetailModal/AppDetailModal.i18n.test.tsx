@@ -340,7 +340,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     await i18n.changeLanguage('zh-CN');
     const { unmount: unmount1 } = render(<InstallActions {...baseInstallProps} />);
     expect(screen.getByText('推荐版本 · Windows x64')).toBeTruthy();
-    expect(screen.getByText('全部资产 (2)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '全部资产 2' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '安装' })).toBeTruthy();
     unmount1();
 
@@ -348,7 +348,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     await i18n.changeLanguage('en-US');
     const { unmount: unmount2 } = render(<InstallActions {...baseInstallProps} />);
     expect(screen.getByText('Recommended · Windows x64')).toBeTruthy();
-    expect(screen.getByText('All assets (2)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'All assets 2' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy();
     unmount2();
 

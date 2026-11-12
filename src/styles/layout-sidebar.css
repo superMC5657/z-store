@@ -197,29 +197,12 @@
   display: none !important;
 }
 
-/* 计数徽标：微型 4px 圆角矩形 */
-.nav-badge {
+/* 数量角标在导航项内右对齐；折叠侧栏时隐藏 */
+.nav-item .count-badge {
   margin-left: auto;
-  font-size: var(--font-xs);
-  padding: 1px 5px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-acrylic-hover);
-  color: var(--text-tertiary);
-  font-weight: 510;
-  line-height: 1.2;
-  border: 1px solid var(--border-subtle);
-  box-shadow: none;
-  white-space: nowrap;
-  opacity: 1;
 }
 
-.nav-item.active .nav-badge {
-  color: var(--color-nav-active);
-  background: var(--brand-subtle);
-  border-color: var(--border-nav-active);
-}
-
-.sidebar.collapsed .nav-badge {
+.sidebar.collapsed .nav-item .count-badge {
   display: none !important;
 }
 

@@ -85,15 +85,15 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
             {entry.id}
           </strong>
           {entry.archived ? (
-            <span className="nav-badge" title={t('pending.archived_badge')}>
+            <span className="status-tag" title={t('pending.archived_badge')}>
               {t('pending.archived_badge')}
             </span>
           ) : isSubmittedEntry(entry) ? (
-            <span className="nav-badge" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
+            <span className="status-tag" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
               {t('pending.segments.submitted')}
             </span>
           ) : (
-            <span className="nav-badge" title={t('pending.groups.library')}>
+            <span className="status-tag" title={t('pending.groups.library')}>
               {t('pending.groups.library')}
             </span>
           )}

@@ -46,15 +46,6 @@
   opacity: 0.78;
 }
 
-.categories-spectrum-total {
-  font-family: var(--font-mono);
-  font-size: var(--font-xs);
-  font-weight: var(--font-weight-medium);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-  letter-spacing: var(--letter-spacing-tight);
-  white-space: nowrap;
-}
 
 /* 12 列 Bento 矩阵网格：
  * 桌面端首行 2 张旗舰大卡（各跨 6 列）+ 下方 2 行标准卡（每行 4 张，各跨 3 列），
@@ -239,34 +230,20 @@
   gap: 6px;
 }
 
-.category-count-pill {
-  font-family: var(--font-mono);
+.category-card-count {
   font-size: var(--font-xs);
-  font-weight: var(--font-weight-medium);
   font-variant-numeric: tabular-nums;
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-acrylic-hover);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-inline-size: 0;
-  transition:
-    color 0.16s var(--ease-smooth),
-    background 0.16s var(--ease-smooth),
-    border-color 0.16s var(--ease-smooth);
+  transition: color 0.16s var(--ease-smooth);
 }
 
-.category-bento-card.is-featured .category-count-pill {
-  padding: 2px 8px;
-}
 
-.category-bento-card:hover .category-count-pill {
-  background: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 12%, transparent);
-  border-color: color-mix(in srgb, var(--cat-accent, var(--brand-primary)) 28%, transparent);
-  color: var(--cat-accent, var(--brand-primary));
+.category-bento-card:hover .category-card-count {
+  color: var(--text-secondary);
 }
 
 .category-arrow-icon {
@@ -424,10 +401,6 @@
 
   .category-bento-card.is-featured .category-card-meta-right {
     gap: 4px;
-  }
-
-  .category-bento-card.is-featured .category-count-pill {
-    padding: 2px 6px;
   }
 }
 

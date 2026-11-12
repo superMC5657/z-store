@@ -1,0 +1,17 @@
+/* components-status-tag.css · 状态标签：文字型标记（已归档、本地收录等），不承载数量 */
+.status-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-acrylic-hover);
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+}
