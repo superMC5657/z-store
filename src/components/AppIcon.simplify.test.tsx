@@ -185,7 +185,7 @@ describe('<AppIcon/> 展示分支', () => {
     expect(container.querySelector('.app-icon-fallback-badge')).toBeNull();
   });
 
-  it('支持 fit="contain" 与 imgPadding 光学留白（默认仍为 cover）', () => {
+  it('支持 fit="contain" 与 insetPadding 光学留白（默认仍为 cover）', () => {
     const { container: defaultContainer } = render(
       <AppIcon icon="https://cdn.simpleicons.org/r" name="DefaultFit" appId="o/d" />,
     );
@@ -198,12 +198,46 @@ describe('<AppIcon/> 展示分支', () => {
         name="ContainFit"
         appId="o/c"
         fit="contain"
-        imgPadding={4}
+        insetPadding={4}
       />,
     );
     const containImg = containContainer.querySelector('img') as HTMLImageElement;
     expect(containImg.style.objectFit).toBe('contain');
     const box = containContainer.querySelector('.app-icon-container') as HTMLElement;
     expect(box.style.padding).toBe('4px');
+  });
+
+  it('insetPadding 下首字母徽章同样内缩为铺回退色的内块，容器不铺底色', () => {
+    const { container } = render(
+      <AppIcon icon="" name="tensorfold" appId="o/t" iconBg="rgb(1, 2, 3)" insetPadding={3} />,
+    );
+    const box = container.querySelector('.app-icon-container') as HTMLElement;
+    const badge = container.querySelector('.app-icon-fallback-badge') as HTMLElement;
+    expect(box.style.padding).toBe('3px');
+    expect(box.style.background).toBe('transparent');
+    expect(badge.style.background).toBe('rgb(1, 2, 3)');
+    expect(badge.style.width).toBe('100%');
+  });
+
+  it('insetPadding 下 emoji 兜底同样内缩为铺回退色的内块', () => {
+    const { container } = render(
+      <AppIcon icon="📦" name="Box" appId="o/b" iconBg="rgb(1, 2, 3)" insetPadding={3} />,
+    );
+    const box = container.querySelector('.app-icon-container') as HTMLElement;
+    const emoji = container.querySelector('.app-icon-emoji') as HTMLElement;
+    expect(box.style.background).toBe('transparent');
+    expect(emoji.style.background).toBe('rgb(1, 2, 3)');
+    expect(emoji.style.width).toBe('100%');
+  });
+
+  it('未设 insetPadding 时首字母徽章仍满框铺回退色', () => {
+    const { container } = render(
+      <AppIcon icon="" name="tensorfold" appId="o/t" iconBg="rgb(1, 2, 3)" />,
+    );
+    const box = container.querySelector('.app-icon-container') as HTMLElement;
+    const badge = container.querySelector('.app-icon-fallback-badge') as HTMLElement;
+    expect(box.style.padding).toBe('');
+    expect(box.style.background).toBe('rgb(1, 2, 3)');
+    expect(badge.style.background).toBe('');
   });
 });

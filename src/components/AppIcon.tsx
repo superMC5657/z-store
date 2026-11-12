@@ -20,8 +20,11 @@ interface AppIconProps {
   iconOverride?: string;
   /** 图标缩放策略：默认 `'cover'` 保持卡片铺满；管理列表可传 `'contain'` 防异形图切边。 */
   fit?: 'cover' | 'contain';
-  /** 仅图片激活时应用的光学安全区内边距，回退徽章与 emoji 仍满框填充。 */
-  imgPadding?: number | string;
+  /**
+   * 光学安全区内边距：设置后图片、首字母徽章与 emoji 一律内缩为同尺寸的小圆角内块，
+   * 容器自身不铺底色（由外层框提供）；不设置则内容满框填充。
+   */
+  insetPadding?: number | string;
   /** 首屏以上 eager，其余一律 lazy（默认 lazy，避免全网格同时抢带宽）。 */
   loading?: 'eager' | 'lazy';
 }
@@ -103,7 +106,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
   size,
   iconOverride,
   fit = 'cover',
-  imgPadding,
+  insetPadding,
   loading = 'lazy',
 }) => {
   // 图标读侧订阅：店内 `admitIconHit` 受理后经 `subscribeIconWrites` 扇出，
@@ -187,18 +190,32 @@ export const AppIcon: React.FC<AppIconProps> = ({
       (isUrl && !isDisplaySrcRenderable) ||
       (iconOverride !== undefined && !isUrl));
 
+  const isInset = insetPadding !== undefined;
   const containerStyle: React.CSSProperties = {
-    background: isImageActive ? (style?.background ?? 'transparent') : iconBg,
+    // 内缩模式下底板由外层框提供，回退色改铺在内块上。
+    background: isImageActive || isInset ? (style?.background ?? 'transparent') : iconBg,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
     boxSizing: 'border-box',
-    ...(showImg && imgPadding !== undefined ? { padding: imgPadding } : {}),
+    ...(isInset ? { padding: insetPadding } : {}),
     ...(size ? { width: size, height: size } : {}),
     ...style,
   };
+  // 内缩模式下徽章与 emoji 与图片同为一块小圆角内块，铺回退色。
+  const fallbackTileStyle: React.CSSProperties = isInset
+    ? {
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: iconBg,
+        borderRadius: 'var(--radius-xs, 4px)',
+      }
+    : {};
 
   return (
     <div className={`app-icon-container ${className}`} style={containerStyle}>
@@ -214,7 +231,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
             width: '100%',
             height: '100%',
             objectFit: fit,
-            borderRadius: imgPadding !== undefined ? 'var(--radius-xs, 4px)' : 'inherit',
+            borderRadius: isInset ? 'var(--radius-xs, 4px)' : 'inherit',
             display: 'block',
             opacity: 1,
           }}
@@ -223,6 +240,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
         <span
           className="app-icon-fallback-badge"
           style={{
+            ...fallbackTileStyle,
             // 容器可经 `--app-icon-badge-font` 指定徽章字号（如 AppIconFrame 各档），缺省随容器字号。
             fontSize: 'var(--app-icon-badge-font, 0.45em)',
             fontWeight: 590,
@@ -235,7 +253,9 @@ export const AppIcon: React.FC<AppIconProps> = ({
           {getInitials(name)}
         </span>
       ) : (
-        <span className="app-icon-emoji">{activeIcon || '📦'}</span>
+        <span className="app-icon-emoji" style={fallbackTileStyle}>
+          {activeIcon || '📦'}
+        </span>
       )}
     </div>
   );

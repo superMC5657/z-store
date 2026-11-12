@@ -59,10 +59,12 @@
 }
 
 /* 统一应用图标框（AppIconFrame）：sm 28 / md 36 / lg 48 三档，圆角取 token；
+ * --icon-frame-inset 为内容安全留白（经 AppIcon insetPadding 应用）；
  * 徽章约 0.4×、emoji 约 0.5× 框边长，保证兜底态可读 */
 .app-icon-frame {
   --icon-frame-size: 36px;
   --icon-frame-radius: var(--radius-lg);
+  --icon-frame-inset: 3px;
   --icon-frame-badge-font: calc(14px * var(--font-scale));
   --icon-frame-emoji-font: 18px;
   width: var(--icon-frame-size);
@@ -84,12 +86,14 @@
 .app-icon-frame.size-sm {
   --icon-frame-size: 28px;
   --icon-frame-radius: var(--radius-sm);
+  --icon-frame-inset: 2px;
   --icon-frame-badge-font: calc(11px * var(--font-scale));
   --icon-frame-emoji-font: 14px;
 }
 
 .app-icon-frame.size-lg {
   --icon-frame-size: 48px;
+  --icon-frame-inset: 4px;
   --icon-frame-badge-font: calc(19px * var(--font-scale));
   --icon-frame-emoji-font: 24px;
 }
@@ -108,12 +112,11 @@
   outline-offset: 1px;
 }
 
-/* 内框位于 1px 描边之内，圆角相应收 1px 才与外框同心 */
+/* 内层容器透明，圆角裁切由外框 overflow 负责，可见内块自带 radius-xs */
 .app-icon-frame-inner {
   --app-icon-badge-font: var(--icon-frame-badge-font);
   width: 100%;
   height: 100%;
-  border-radius: calc(var(--icon-frame-radius) - 1px);
   font-size: var(--icon-frame-emoji-font);
 }
 

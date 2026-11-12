@@ -2,13 +2,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppIcon } from './AppIcon';
 
+/** 各档外框尺寸、圆角、安全留白与徽章/emoji 字号统一在 `.app-icon-frame.size-*` 中定义。 */
 export type AppIconFrameSize = 'sm' | 'md' | 'lg';
-
-/**
- * 各档图片安全留白（px）。`AppIcon` 仅在图片激活时以 inline 方式应用留白，
- * 故此值留在 TS；外框尺寸、圆角与徽章/emoji 字号在 `.app-icon-frame.size-*` 中定义。
- */
-const IMG_PADDING: Record<AppIconFrameSize, number> = { sm: 2, md: 3, lg: 4 };
 
 interface AppIconFrameProps {
   icon: string;
@@ -29,9 +24,9 @@ interface AppIconFrameProps {
 /**
  * 全站统一的应用图标框：
  * - 外框是带 `--bg-input` 底色与 `--border-subtle` 描边的中性容器；
- * - 内图走 `fit="contain"` + 光学安全留白，避免非方形/满幅图标被圆角裁切；
- * - 回退首字母徽章与 emoji 铺满外框。
- * 底色挂在外框上，因为 `AppIcon` 有图时会用 inline 透明背景覆盖自身 class 背景。
+ * - 内容按光学安全留白内缩：图片走 `fit="contain"` 防非方形/满幅图标被圆角裁切，
+ *   首字母徽章与 emoji 内缩为同尺寸、铺 `iconBg` 的小圆角内块；
+ * - `AppIcon` 在内缩模式下容器透明，中性底板只由外框提供。
  */
 export const AppIconFrame: React.FC<AppIconFrameProps> = ({
   icon,
@@ -67,7 +62,7 @@ export const AppIconFrame: React.FC<AppIconFrameProps> = ({
       loading={loading}
       className="app-icon-frame-inner"
       fit="contain"
-      imgPadding={IMG_PADDING[size]}
+      insetPadding="var(--icon-frame-inset)"
     />
   );
 
