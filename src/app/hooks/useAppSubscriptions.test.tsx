@@ -271,7 +271,7 @@ describe('useAppSubscriptions：初始加载扇出', () => {
     expect(mocks.checkForUpdates).not.toHaveBeenCalled();
   });
 
-  it('启动后台静默同步清单：ETag 增量同步有更新才派发刷新，失败静默不弹错', async () => {
+  it('启动后台按天增量同步清单：有更新派发刷新，冷却/304 与离线失败静默不弹错', async () => {
     mocks.syncCatalog.mockResolvedValueOnce({ updated: true, count: 2, message: 'updated' });
     const syncedEvents: string[] = [];
     const onSynced = () => syncedEvents.push('catalog');

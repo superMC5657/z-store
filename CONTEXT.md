@@ -69,7 +69,7 @@
 2. **D2 零服务器成本与解耦清单同步 (Serverless Direct API & Decoupled Manifest Sync)**:
    - 客户端从独立开源清单仓库（`superMC5657/z-store-catalog`）增量同步精选应用元数据（包含分类、英文原名、图标、多端标识符与仓库坐标等）；本地预置 `catalog.json` 种子清单兜底（详见 ADR-0009）。
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
-   - 后端统一目录模块 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）结合仓储层（`src-tauri/src/repositories/`）持有远端精选目录（`catalog_apps` 表持久化，首次启动由 `catalog.json` 播种，清单同步权威覆盖，详情刷新同步回写最新统计、版本、平台、协议、主页与图标）+ 本地收录 overlay（`custom_apps` 表）；收录检索、坐标解析、搜索、首页/分类、详情投影统一经该模块，并在 `AppSummary` / `AppDetail` 上盖章 `source`（`remote`/`local`）与 `is_cataloged`；
+   - 后端统一目录模块 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）结合仓储层（`src-tauri/src/repositories/`）持有远端精选目录（`catalog_apps` 表持久化，首次启动由 `catalog.json` 播种，启动后台按北京时间 14:00 / 06:00 UTC 切日每日增量同步并支持手动强制覆盖，详情刷新同步回写最新统计、版本、平台、协议、主页与图标）+ 本地收录 overlay（`custom_apps` 表）；收录检索、坐标解析、搜索、首页/分类、详情投影统一经该模块，并在 `AppSummary` / `AppDetail` 上盖章 `source`（`remote`/`local`）与 `is_cataloged`；
    - 本地 SQLite (`z_store.db`) 维护 TTL 缓存（基线 60 分钟）配合 HTTP ETag 304 条件请求；分面策略与挡位归一化详见 ADR-0007。
    - 网络层自动继承操作系统代理；Release 大文件下载走下载加速代理（正交可叠加，详见 ADR-0002）。
    - 所有已安装记录、用户设置、主机速率快照与只读令牌记录（`host_tokens`）、更新规则、关注应用、仓库特征信号（`user_repo_signals`）与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字（令牌威胁模型与风险接受见 ADR-0020）。

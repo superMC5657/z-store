@@ -185,7 +185,7 @@ export function useAppSubscriptions({
 
     // 初始数据拉取（DB/local 直读，保持自动）
     reloadCatalogApps(false);
-    // 每次启动后台静默同步远端收录清单（ETag 304 零开销跳过，有更新才覆盖 catalog_apps 并通知视图刷新）
+    // 启动后台按北京时间下午 14:00（06:00 UTC）切日静默增量同步远端收录清单：同周期内跳过网络，跨边界后走 ETag 条件请求，有更新才覆盖 catalog_apps 并通知视图刷新
     tauriApi.syncCatalog(false).then((res) => {
       if (!startupCtx.mounted) return;
       if (res?.updated) {
