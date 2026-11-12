@@ -32,7 +32,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             if let Ok(Some((latest, changelog))) = db.get_cached_update_version(&clean_id) {
                 return Ok((latest, changelog));
             }
-            if let Ok(Some(cached)) = db.get_cached_app_detail(&clean_id, None) {
+            if let Ok(Some(cached)) = db.get_app_detail(&clean_id, None) {
                 return Ok((cached.core.latest_version, cached.changelog));
             }
         }
@@ -65,7 +65,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         Ok(c) => c,
         Err(_) => {
             if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_cached_app_detail(&clean_id, None) {
+                if let Ok(Some(fallback)) = db.get_app_detail(&clean_id, None) {
                     return Ok((fallback.core.latest_version, fallback.changelog));
                 }
             }
@@ -118,7 +118,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             let row = state
                 .db()
                 .ok()
-                .and_then(|db| db.get_cached_app_detail(&clean_id, None).ok().flatten());
+                .and_then(|db| db.get_app_detail(&clean_id, None).ok().flatten());
             let cat = state
                 .catalog
                 .get_catalog_item(&clean_id)
@@ -158,7 +158,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             // 304 命中时 touch 延长详情缓存保鲜期；Fresh 保存新 ETag。
             if rel.touch {
                 if let Ok(db) = state.db() {
-                    let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
+                    let _ = db.touch_app_detail(&clean_id, crate::now_secs());
                 }
             }
             if let Some((etag_val, payload_text)) = rel.cache_to_save {

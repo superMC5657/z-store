@@ -3,7 +3,7 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 1;
+const CURRENT_USER_VERSION: i64 = 2;
 
 impl Database {
     pub(crate) fn init_schema(&self) -> Result<()> {
@@ -28,13 +28,69 @@ impl Database {
                 last_checked_at INTEGER NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS app_details_cache (
+            CREATE TABLE IF NOT EXISTS catalog_apps (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                icon TEXT NOT NULL DEFAULT '',
+                icon_bg TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                description_en TEXT,
+                category TEXT NOT NULL,
+                category_name TEXT NOT NULL,
+                aliases_json TEXT NOT NULL DEFAULT '[]',
+                default_version TEXT NOT NULL DEFAULT '',
+                added_at TEXT,
+                license TEXT NOT NULL DEFAULT '',
+                stars INTEGER NOT NULL DEFAULT 0,
+                forks INTEGER NOT NULL DEFAULT 0,
+                is_verified INTEGER NOT NULL DEFAULT 0,
+                homepage TEXT,
+                platforms_json TEXT NOT NULL DEFAULT '[]',
+                identifiers_json TEXT NOT NULL DEFAULT '{}',
+                install_dirs_json TEXT NOT NULL DEFAULT '[]',
+                search_subdirs_json TEXT NOT NULL DEFAULT '[]',
+                publishers_json TEXT NOT NULL DEFAULT '[]',
+                forge TEXT NOT NULL DEFAULT 'github',
+                forge_host TEXT NOT NULL DEFAULT 'github.com',
+                manifest_synced_at INTEGER NOT NULL DEFAULT 0,
+                detail_synced_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_catalog_apps_category ON catalog_apps(category);
+            CREATE INDEX IF NOT EXISTS idx_catalog_apps_stars ON catalog_apps(stars DESC);
+            CREATE INDEX IF NOT EXISTS idx_catalog_apps_added_at ON catalog_apps(added_at DESC, stars DESC);
+            CREATE INDEX IF NOT EXISTS idx_catalog_apps_owner_repo ON catalog_apps(owner, repo);
+
+            CREATE TABLE IF NOT EXISTS app_details (
                 app_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                latest_version TEXT NOT NULL,
-                detail_json TEXT NOT NULL,
-                cached_at INTEGER NOT NULL
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                description_en TEXT,
+                icon TEXT NOT NULL DEFAULT '',
+                icon_bg TEXT NOT NULL DEFAULT '',
+                stars INTEGER NOT NULL DEFAULT 0,
+                forks INTEGER NOT NULL DEFAULT 0,
+                license TEXT NOT NULL DEFAULT '',
+                latest_version TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'external',
+                category_name TEXT NOT NULL DEFAULT '跨平台开源',
+                forge TEXT NOT NULL DEFAULT 'github',
+                forge_host TEXT NOT NULL DEFAULT 'github.com',
+                homepage TEXT,
+                platforms_json TEXT NOT NULL DEFAULT '[]',
+                changelog TEXT NOT NULL DEFAULT '',
+                readme_markdown TEXT NOT NULL DEFAULT '',
+                readme_variants_json TEXT,
+                releases_json TEXT NOT NULL DEFAULT '[]',
+                cached_at INTEGER NOT NULL DEFAULT 0
             );
+
+            CREATE INDEX IF NOT EXISTS idx_app_details_cached_at ON app_details(cached_at DESC);
 
             CREATE TABLE IF NOT EXISTS user_settings (
                 key TEXT PRIMARY KEY,
@@ -245,6 +301,7 @@ impl Database {
         for v in version..CURRENT_USER_VERSION {
             match v {
                 0 => self.migrate_v0_to_v1()?,
+                1 => self.migrate_v1_to_v2()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -262,9 +319,15 @@ impl Database {
         Ok(())
     }
 
-    /// v0 → v1 基线版本标记迁移（18 张表与 `is_cataloged` 列由基底 DDL 保证）。
-    /// 后续破坏性迁移按 `migrate_vN_to_vN+1` 命名续链。
+    /// v0 → v1 基线版本标记迁移。
     fn migrate_v0_to_v1(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// v1 → v2：直接切换至 `catalog_apps` + `app_details` 双表体系，清理旧 `app_details_cache`。
+    fn migrate_v1_to_v2(&self) -> Result<()> {
+        self.conn
+            .execute_batch("DROP TABLE IF EXISTS app_details_cache;")?;
         Ok(())
     }
 
@@ -361,11 +424,11 @@ mod schema_migration_tests {
         // 幂等基底照常执行：新表可建、查询可用。
         let tables: i64 = db
             .query_scalar_opt(
-                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='update_results'",
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('update_results', 'catalog_apps', 'app_details')",
                 [],
             )
             .unwrap()
             .unwrap_or(0);
-        assert_eq!(tables, 1, "幂等基底在高版本库上仍应补齐表结构");
+        assert_eq!(tables, 3, "幂等基底在高版本库上仍应补齐表结构");
     }
 }

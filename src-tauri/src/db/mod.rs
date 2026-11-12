@@ -1,7 +1,10 @@
 pub mod affinity;
 pub mod apps;
 pub mod cache;
+pub mod catalog;
 pub mod custom_apps;
+pub mod details;
+pub mod etag;
 pub mod history;
 pub mod icon_cycle;
 pub mod rules;
@@ -13,6 +16,8 @@ pub mod watch;
 pub use affinity::{RawAffinitySignals, RepoRelation, UserRepoSignal};
 pub use cache::AssetCacheRecord;
 pub use custom_apps::CustomAppEntry;
+pub use details::APP_DETAILS_CACHE_MAX_ROWS;
+pub use etag::API_ETAG_CACHE_MAX_ROWS;
 pub use icon_cycle::AppIconCycle;
 pub use settings::*;
 pub use update_results::UpdateCheckRow;
@@ -25,18 +30,6 @@ use std::path::Path;
 
 pub struct Database {
     pub(crate) conn: Connection,
-}
-
-impl Database {
-    /// 打开默认数据目录下的 `z_store.db`（文件不存在时返回 `None`）。
-    pub(crate) fn open_default_opt() -> Option<Self> {
-        let db_path = crate::get_app_data_dir().join("z_store.db");
-        if db_path.is_file() {
-            Self::open(&db_path).ok()
-        } else {
-            None
-        }
-    }
 }
 
 /// 输入清洗唯一落点：去首尾空白（db 内统一使用，避免 trim() 散写）。

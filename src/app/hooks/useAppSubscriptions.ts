@@ -147,18 +147,53 @@ export function useAppSubscriptions({
   const localAppsRef = useRef(localApps);
   localAppsRef.current = localApps;
 
-  // 初始加载
+    // 初始加载
   useEffect(() => {
+    const startupCtx = newMountCtx();
     const initialFilter = initialFilterRef.current;
+    // 单调代际计数：防止初始 searchApps('') 晚于 zstore:catalog-synced 返回时用旧列表覆盖新目录。
+    let catalogLoadSeq = 0;
+    const reloadCatalogApps = (restampRecents: boolean) => {
+      const seq = ++catalogLoadSeq;
+      tauriApi.searchApps('').then((nextApps) => {
+        if (!startupCtx.mounted || seq !== catalogLoadSeq) return;
+        setApps(nextApps);
+        if (restampRecents) {
+          // 目录后到即重标最近浏览（蓝优先、不改排序；无论 localApps 为空[]还是非空均校准转正/收录态）。
+          const catalogIds = buildCatalogIdSet(nextApps);
+          const currentLocal = localAppsRef.current;
+          setRecentlyViewedApps((prev) => {
+            if (prev.length === 0) return prev;
+            let changed = false;
+            const next = prev.map((r) => {
+              const n = annotateIsCataloged(r, catalogIds, currentLocal);
+              if (n !== r) changed = true;
+              return n;
+            });
+            return changed ? next : prev;
+          });
+        }
+        // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
+        preloadTop30Icons(
+          nextApps
+            .slice(0, 30)
+            .filter((a) => a.icon)
+            .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
+        );
+      });
+    };
+
     // 初始数据拉取（DB/local 直读，保持自动）
-    tauriApi.searchApps('').then((loadedApps) => {
-      setApps(loadedApps);
-      // 预解码热门应用图标，若本地配置目录已缓存则秒读，未缓存则后台下载并缓存
-      preloadTop30Icons(
-        loadedApps
-          .slice(0, 30)
-          .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
-      );
+    reloadCatalogApps(false);
+    // 每次启动后台静默同步远端收录清单（ETag 304 零开销跳过，有更新才覆盖 catalog_apps 并通知视图刷新）
+    tauriApi.syncCatalog(false).then((res) => {
+      if (!startupCtx.mounted) return;
+      if (res?.updated) {
+        window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
+        window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed'));
+      }
+    }).catch(() => {
+      // 启动静默同步失败（如离线/超时）不提示错误，保留本地 catalog_apps 既有数据
     });
     tauriApi.getInstalledApps().then(setInstalledApps);
     tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
@@ -187,30 +222,7 @@ export function useAppSubscriptions({
     });
 
     const handleCatalogSynced = () => {
-      tauriApi.searchApps('').then((updatedApps) => {
-        setApps(updatedApps);
-        // 目录后到即重标最近浏览（蓝优先、不改排序；图标经店内写口，不在此拉取）。
-        const currentLocal = localAppsRef.current;
-        if (currentLocal && currentLocal.length > 0) {
-          const catalogIds = buildCatalogIdSet(updatedApps);
-          setRecentlyViewedApps((prev) => {
-            if (prev.length === 0) return prev;
-            let changed = false;
-            const next = prev.map((r) => {
-              const n = annotateIsCataloged(r, catalogIds, currentLocal);
-              if (n !== r) changed = true;
-              return n;
-            });
-            return changed ? next : prev;
-          });
-        }
-        preloadTop30Icons(
-          updatedApps
-            .slice(0, 30)
-            .filter((a) => a.icon)
-            .map((a) => ({ id: a.id, owner: a.owner, repo: a.repo, icon: a.icon }))
-        );
-      });
+      reloadCatalogApps(true);
     };
     window.addEventListener('zstore:catalog-synced', handleCatalogSynced);
 
@@ -282,6 +294,7 @@ export function useAppSubscriptions({
       });
 
     return () => {
+      releaseMountCtx(startupCtx);
       window.removeEventListener('zstore:catalog-synced', handleCatalogSynced);
       unsubIconWrites();
       if (unlistenSearchIcons) unlistenSearchIcons();

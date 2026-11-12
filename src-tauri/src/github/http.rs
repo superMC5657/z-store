@@ -342,11 +342,6 @@ pub(crate) fn guess_category(
     }
 }
 
-/// 打开默认数据目录下的 z_store.db（不存在返回 None）。
-pub(crate) fn open_db_opt() -> Option<crate::db::Database> {
-    crate::db::Database::open_default_opt()
-}
-
 /// 目录外仓库 `AppSummary` 兜底构造。
 /// 图标：若 probe 为 true，经统一同步适配器 `icons::probe_single_live`（L2→L3，
 /// 经 `resolve_probe_branches` 取默认分支，与流式核同源）；
@@ -372,20 +367,7 @@ pub(crate) async fn fallback_summary(
     token: Option<&str>,
 ) -> AppSummary {
     let cat = guess_category(Some(&description), description_en.as_deref(), topics);
-    // Top1 灭 N+1：`probe=false` 搜索首屏直接置空零直连（确认图标由调用方 `state.db()` 单锁批量 enrich 回填）；
-    // `probe=true` 单仓直查才回退本地直连（`ok()` 吞错不 panic，单条非 N+1，`Send` 安全因直连为 owned 短命）。
-    let confirmed = match confirmed_icon {
-        Some(ci) => Some(ci),
-        None => {
-            if probe {
-                open_db_opt().and_then(|odb| {
-                    crate::icons::resolve_confirmed_icon_from_db(&odb, &id, &owner, &repo)
-                })
-            } else {
-                None
-            }
-        }
-    };
+    let confirmed = confirmed_icon;
     let icon = if let Some(ci) = confirmed {
         ci
     } else if probe {

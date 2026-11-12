@@ -13,6 +13,7 @@ pub mod mirror;
 pub mod models;
 pub mod oauth;
 pub mod proxy;
+pub mod repositories;
 pub mod scanner;
 pub mod userdata;
 pub mod z_log;
@@ -31,6 +32,8 @@ pub struct AppState {
     pub mirror: Mutex<MirrorManager>,
     pub github_token: Mutex<Option<String>>,
     pub http: reqwest::Client,
+    /// 清单同步串行互斥锁：防止启动后台增量同步与设置页手动同步并发交叉写库。
+    pub sync_lock: tokio::sync::Mutex<()>,
 }
 
 /// 集中统一秒级 Unix 时间戳，替换各模块手写 SystemTime::now() 样板。
@@ -523,12 +526,12 @@ pub fn run() {
                 });
             let saved_mirror = db.get_setting("active_mirror").ok().flatten();
 
-            let catalog = CatalogService::new();
-            // 本地收录 overlay 启动同步：目录模块启动即持有远端 + 本地收录合并视图，
-            // 收藏/关注收录标记回填与详情/安装/更新读路径同源（零网络）。
-            catalog.sync_collected_from_db(&db);
-            // 启动时从 SQLite app_details_cache 水合已刷新过的应用详情（星数、版本、平台、协议、主页、图标）
-            catalog.hydrate_from_details_cache(&db);
+            // 首次启动且 catalog_apps 为空时从 catalog.json 播种写入；此后目录权威完全归 SQLite catalog_apps 维护。
+            let _ = crate::repositories::CatalogRepository::seed_from_config_if_empty(&db);
+
+            let catalog = CatalogService::new_empty();
+            // 启动即从 SQLite catalog_apps + custom_apps 装载远端精选与本地收录 overlay（零网络）。
+            catalog.sync_from_db(&db);
             let mut mirror = MirrorManager::new();
             if let Some(ref m_id) = saved_mirror {
                 mirror.apply_initial_mirror(m_id);
@@ -554,6 +557,7 @@ pub fn run() {
                 mirror: Mutex::new(mirror),
                 github_token: Mutex::new(saved_token.clone()),
                 http,
+                sync_lock: tokio::sync::Mutex::new(()),
             };
             app.manage(state);
 

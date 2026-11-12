@@ -44,9 +44,20 @@ impl Default for CatalogService {
 }
 
 impl CatalogService {
+    /// 构建纯内存默认实例（种子夹具/单元测试用；运行时主路径请用 `new_empty` + `sync_from_db`）。
     pub fn new() -> Self {
         let cfg = crate::config::get_project_config();
         let items: Vec<CatalogItem> = cfg.catalog.load_catalog_items().unwrap_or_default();
+        Self::with_items(items)
+    }
+
+    /// 构建空目录实例（生产启动路径：先完成 DB 播种与迁移，再经 `sync_from_db` 从 SQLite 装载）。
+    pub fn new_empty() -> Self {
+        Self::with_items(Vec::new())
+    }
+
+    fn with_items(items: Vec<CatalogItem>) -> Self {
+        let cfg = crate::config::get_project_config();
         // 清单跟随系统代理：per-client no_proxy 不预置默认源 host，
         // 有代理走代理、无代理直连（与图标通道一致）。
         let catalog_extra: Vec<String> = Vec::new();
@@ -88,6 +99,14 @@ impl CatalogService {
     pub fn set_collected_items(&self, items: Vec<CatalogItem>) {
         if let Ok(mut lock) = self.collected.write() {
             *lock = items;
+        }
+    }
+
+    /// 从 SQLite 同步远端精选目录（`catalog_apps`）与本地库 overlay（`custom_apps`）到内存热读索引。
+    pub fn sync_from_db(&self, db: &crate::db::Database) {
+        if let Ok((remote, local)) = crate::repositories::CatalogRepository::load_remote_and_local(db) {
+            self.update_items(remote);
+            self.set_collected_items(local);
         }
     }
 
@@ -236,26 +255,6 @@ impl CatalogService {
         }
     }
 
-    /// 判定版本号是否为非空且非 `"latest"` 占位的真实版本号。
-    pub(crate) fn is_concrete_version(v: &str) -> bool {
-        let t = v.trim();
-        !t.is_empty() && !t.eq_ignore_ascii_case("latest")
-    }
-
-    /// 判定开源协议是否为非空且非 `"unknown"` / `"opensource"` 占位的真实协议。
-    pub(crate) fn is_concrete_license(l: &str) -> bool {
-        let t = l.trim();
-        !t.is_empty()
-            && !t.eq_ignore_ascii_case("unknown")
-            && !t.eq_ignore_ascii_case("opensource")
-    }
-
-    /// 判定图标是否为远端 `http(s)://` URL（排除空串与 `data:`）。
-    pub(crate) fn is_remote_http_icon(ic: &str) -> bool {
-        let t = ic.trim();
-        t.starts_with("http://") || t.starts_with("https://")
-    }
-
     /// 将本地缓存详情（`AppDetail`）的非占位字段合并回填至未收录卡片摘要（`AppCore`）（SSOT）。
     pub(crate) fn apply_detail_to_summary_core(
         core: &mut crate::models::AppCore,
@@ -264,8 +263,8 @@ impl CatalogService {
         if !detail.core.platforms.is_empty() {
             core.platforms = detail.core.platforms.clone();
         }
-        if !Self::is_concrete_version(&core.latest_version)
-            && Self::is_concrete_version(&detail.core.latest_version)
+        if !CatalogItem::is_concrete_version(&core.latest_version)
+            && CatalogItem::is_concrete_version(&detail.core.latest_version)
         {
             core.latest_version = detail.core.latest_version.clone();
         }
@@ -293,8 +292,8 @@ impl CatalogService {
                 }
             }
         }
-        if !Self::is_concrete_license(&core.license)
-            && Self::is_concrete_license(&detail.core.license)
+        if !CatalogItem::is_concrete_license(&core.license)
+            && CatalogItem::is_concrete_license(&detail.core.license)
         {
             core.license = detail.core.license.clone();
         }
@@ -310,7 +309,7 @@ impl CatalogService {
                 }
             }
         }
-        if core.icon.trim().is_empty() && Self::is_remote_http_icon(&detail.core.icon) {
+        if core.icon.trim().is_empty() && CatalogItem::is_remote_http_icon(&detail.core.icon) {
             core.icon = detail.core.icon.trim().to_string();
         }
     }
@@ -335,7 +334,7 @@ impl CatalogService {
                     item.forks = f;
                 }
                 if let Some(v) = version {
-                    if Self::is_concrete_version(v) {
+                    if CatalogItem::is_concrete_version(v) {
                         item.default_version = v.trim().to_string();
                     }
                 }
@@ -360,30 +359,7 @@ impl CatalogService {
         };
         let apply = |list: &mut Vec<CatalogItem>| {
             if let Some(item) = list.iter_mut().find(|i| i.id == key) {
-                if detail.core.stars > 0 {
-                    item.stars = detail.core.stars;
-                }
-                if detail.core.forks > 0 {
-                    item.forks = detail.core.forks;
-                }
-                if Self::is_concrete_version(&detail.core.latest_version) {
-                    item.default_version = detail.core.latest_version.trim().to_string();
-                }
-                if !detail.core.platforms.is_empty() {
-                    item.platforms = detail.core.platforms.clone();
-                }
-                if Self::is_concrete_license(&detail.core.license) {
-                    item.license = detail.core.license.trim().to_string();
-                }
-                if let Some(ref hp) = detail.core.homepage {
-                    if !hp.trim().is_empty() {
-                        item.homepage = Some(hp.clone());
-                    }
-                }
-                // 目录原为空且详情探出合法 http(s) 时补齐，不覆盖目录已有官方图标
-                if item.icon.trim().is_empty() && Self::is_remote_http_icon(&detail.core.icon) {
-                    item.icon = detail.core.icon.trim().to_string();
-                }
+                item.merge_from_detail(detail);
             }
         };
         if let Ok(mut items) = self.items.write() {
@@ -394,13 +370,26 @@ impl CatalogService {
         }
     }
 
-    /// 启动或同步清单后从 SQLite `app_details_cache` 水合内存目录项，
-    /// 使 `get_home_feed` / `get_category_apps` / `search_apps` 跨重启立即呈现详情已刷新过的最新数据。
-    pub fn hydrate_from_details_cache(&self, db: &crate::db::Database) {
-        if let Ok(rows) = db.get_all_cached_app_details() {
-            for (_, detail) in rows {
-                self.update_catalog_item_from_detail(&detail);
+    /// 平台懒回填同步内存目录项（与 `db.update_catalog_app_platforms` 保持一致）。
+    pub fn update_catalog_item_platforms(&self, id: &str, platforms: &[String]) {
+        if platforms.is_empty() {
+            return;
+        }
+        let Some(key) = crate::forge::canonical_app_id(id) else {
+            return;
+        };
+        let apply = |list: &mut Vec<CatalogItem>| {
+            if let Some(item) = list.iter_mut().find(|i| i.id == key) {
+                if item.platforms != platforms {
+                    item.platforms = platforms.to_vec();
+                }
             }
+        };
+        if let Ok(mut items) = self.items.write() {
+            apply(&mut items);
+        }
+        if let Ok(mut collected) = self.collected.write() {
+            apply(&mut collected);
         }
     }
 
@@ -451,7 +440,6 @@ impl CatalogService {
                 .map_err(|e| format!("读取本地清单内容失败 ({}): {}", clean_path, e))?;
             let items: Vec<CatalogItem> = serde_json::from_str(&text)
                 .map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
-            self.update_items(items.clone());
             return Ok((Some(items), Some(local_etag)));
         }
 
@@ -485,7 +473,6 @@ impl CatalogService {
             .map_err(|e| format!("读取清单内容失败: {}", e))?;
         let items: Vec<CatalogItem> =
             serde_json::from_str(&text).map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
-        self.update_items(items.clone());
         Ok((Some(items), new_etag))
     }
 

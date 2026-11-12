@@ -68,6 +68,7 @@ const mocks = vi.hoisted(() => ({
   getWatchedApps: vi.fn(),
   getOAuthUser: vi.fn(),
   getFavoriteEntries: vi.fn(),
+  syncCatalog: vi.fn(),
 }));
 
 vi.mock('../../services/api', async () => {
@@ -88,6 +89,7 @@ vi.mock('../../services/api', async () => {
           checkForUpdates: mocks.checkForUpdates,
           getWatchedApps: mocks.getWatchedApps,
           getOAuthUser: mocks.getOAuthUser,
+          syncCatalog: mocks.syncCatalog,
           onIconReady: subs.searchIconUpgraded.on,
           onWatchUpdated: subs.watchUpdated.on,
           onUpdateItemFound: subs.updateItemFound.on,
@@ -230,6 +232,7 @@ beforeEach(() => {
   mocks.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, update_frequency: 'manual' });
   mocks.getOAuthUser.mockResolvedValue(null);
   mocks.checkForUpdates.mockResolvedValue([]);
+  mocks.syncCatalog.mockResolvedValue({ updated: false, count: 0, message: '' });
 });
 
 describe('useAppSubscriptions：初始加载扇出', () => {
@@ -267,6 +270,30 @@ describe('useAppSubscriptions：初始加载扇出', () => {
     await flush();
     expect(mocks.checkForUpdates).not.toHaveBeenCalled();
   });
+
+  it('启动后台静默同步清单：ETag 增量同步有更新才派发刷新，失败静默不弹错', async () => {
+    mocks.syncCatalog.mockResolvedValueOnce({ updated: true, count: 2, message: 'updated' });
+    const syncedEvents: string[] = [];
+    const onSynced = () => syncedEvents.push('catalog');
+    const onCustom = () => syncedEvents.push('custom');
+    window.addEventListener('zstore:catalog-synced', onSynced);
+    window.addEventListener('zstore:custom-apps-changed', onCustom);
+    try {
+      const { deps } = renderSubs();
+      await flush();
+      expect(mocks.syncCatalog).toHaveBeenCalledWith(false);
+      expect(syncedEvents).toEqual(['catalog', 'custom']);
+      expect(deps.showToast).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('zstore:catalog-synced', onSynced);
+      window.removeEventListener('zstore:custom-apps-changed', onCustom);
+    }
+
+    mocks.syncCatalog.mockRejectedValueOnce(new Error('offline'));
+    const { deps: depsOffline } = renderSubs();
+    await flush();
+    expect(depsOffline.showToast).not.toHaveBeenCalled();
+  });
 });
 
 describe('useAppSubscriptions：目录同步与图标升级', () => {
@@ -287,6 +314,53 @@ describe('useAppSubscriptions：目录同步与图标升级', () => {
     const restamped = applySetter<AppSummary[]>(deps.setRecentlyViewedApps, [makeRow('acme/atlas')]);
     expect(restamped[0].is_cataloged).toBe(true);
     expect(restamped[0].source).toBe('local');
+  });
+
+  it('zstore:catalog-synced：localApps 因转正归档清空([])时也应校准最近浏览为 remote 蓝标', async () => {
+    const emptyLocal: AppSummary[] = [];
+    mocks.getRecentlyViewedApps.mockResolvedValue([
+      makeRow('acme/graduated', { source: 'local', status: 'collected', is_cataloged: true }),
+    ]);
+    const { deps } = renderSubs({ localApps: emptyLocal });
+    await flush();
+    deps.setRecentlyViewedApps.mockClear();
+
+    mocks.searchApps.mockResolvedValue([makeRow('acme/graduated')]);
+    await act(async () => {
+      window.dispatchEvent(new Event('zstore:catalog-synced'));
+      await flush();
+    });
+
+    const restamped = applySetter<AppSummary[]>(deps.setRecentlyViewedApps, [
+      makeRow('acme/graduated', { source: 'local', status: 'collected', is_cataloged: true }),
+    ]);
+    expect(restamped[0].is_cataloged).toBe(true);
+    expect(restamped[0].source).toBe('remote');
+    expect(restamped[0].status).toBeUndefined();
+  });
+
+  it('初始 searchApps 晚于 zstore:catalog-synced 返回时不得覆盖同步后新目录', async () => {
+    let resolveInitial!: (rows: AppSummary[]) => void;
+    const initialPromise = new Promise<AppSummary[]>((r) => {
+      resolveInitial = r;
+    });
+    const staleRows = [makeRow('acme/old')];
+    const freshRows = [makeRow('acme/fresh')];
+    mocks.searchApps.mockReturnValueOnce(initialPromise).mockResolvedValueOnce(freshRows);
+
+    const { deps } = renderSubs();
+    await act(async () => {
+      window.dispatchEvent(new Event('zstore:catalog-synced'));
+      await flush();
+    });
+    expect(deps.setApps).toHaveBeenLastCalledWith(freshRows);
+
+    deps.setApps.mockClear();
+    await act(async () => {
+      resolveInitial(staleRows);
+      await flush();
+    });
+    expect(deps.setApps).not.toHaveBeenCalled();
   });
 
   it('onIconReady：回声窗立期望 + 图标四列表写透', async () => {

@@ -208,15 +208,12 @@ fn test_host_rate_limit_and_token_read() {
 #[test]
 fn test_app_details_cache_crud() {
     let db = fixtures::test_db();
-    db.clear_app_details_cache().unwrap();
+    db.clear_app_details().unwrap();
 
     // 1. 初始状态：为空
+    assert!(db.get_app_detail("rustdesk", None).unwrap().is_none());
     assert!(db
-        .get_cached_app_detail("rustdesk", None)
-        .unwrap()
-        .is_none());
-    assert!(db
-        .get_cached_app_detail("github.com/rustdesk/rustdesk", None)
+        .get_app_detail("github.com/rustdesk/rustdesk", None)
         .unwrap()
         .is_none());
 
@@ -255,12 +252,11 @@ fn test_app_details_cache_crud() {
         is_stale: None,
     };
 
-    db.save_cached_app_detail("rustdesk/rustdesk", &detail)
-        .unwrap();
+    db.save_app_detail("rustdesk/rustdesk", &detail).unwrap();
 
     // 3. 在 TTL 有效期内通过规范化 ID 命中缓存
     let cached_by_id = db
-        .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
+        .get_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
         .expect("hit by id");
     assert_eq!(cached_by_id.core.name, "RustDesk");
@@ -273,33 +269,32 @@ fn test_app_details_cache_crud() {
 
     // 4. 缓存键精确匹配：非 canonical 形态（裸名 /  host 前缀变体）一律不命中（ADR-0010 单键语义）
     assert!(db
-        .get_cached_app_detail("rustdesk", Some(1800))
+        .get_app_detail("rustdesk", Some(1800))
         .unwrap()
         .is_none());
     assert!(db
-        .get_cached_app_detail("github.com/rustdesk/rustdesk", Some(1800))
+        .get_app_detail("github.com/rustdesk/rustdesk", Some(1800))
         .unwrap()
         .is_none());
 
     // 5. 测试 TTL 过期机制
     // 使用 ttl = 0 表示已过期 / 必须重新验证
     assert!(db
-        .get_cached_app_detail("rustdesk/rustdesk", Some(0))
+        .get_app_detail("rustdesk/rustdesk", Some(0))
         .unwrap()
         .is_none());
     // 不传 TTL 时返回已存储副本
     let fallback = db
-        .get_cached_app_detail("rustdesk/rustdesk", None)
+        .get_app_detail("rustdesk/rustdesk", None)
         .unwrap()
         .expect("fallback hit");
     assert_eq!(fallback.core.name, "RustDesk");
 
-    // 6. 测试 touch_cached_app_detail 刷新缓存时间
+    // 6. 测试 touch_app_detail 刷新缓存时间
     let fresh_now = now_secs() + 100;
-    db.touch_cached_app_detail("rustdesk/rustdesk", fresh_now)
-        .unwrap();
+    db.touch_app_detail("rustdesk/rustdesk", fresh_now).unwrap();
     let touched = db
-        .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
+        .get_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
         .expect("touched hit");
     assert_eq!(touched.cached_at, Some(fresh_now));
@@ -307,18 +302,18 @@ fn test_app_details_cache_crud() {
     // 7. 更新缓存
     let mut updated_detail = detail.clone();
     updated_detail.core.latest_version = "v1.3.2".to_string();
-    db.save_cached_app_detail("rustdesk/rustdesk", &updated_detail)
+    db.save_app_detail("rustdesk/rustdesk", &updated_detail)
         .unwrap();
     let cached_updated = db
-        .get_cached_app_detail("rustdesk/rustdesk", Some(1800))
+        .get_app_detail("rustdesk/rustdesk", Some(1800))
         .unwrap()
         .unwrap();
     assert_eq!(cached_updated.core.latest_version, "v1.3.2");
 
     // 8. 清除缓存
-    db.clear_app_details_cache().unwrap();
+    db.clear_app_details().unwrap();
     assert!(db
-        .get_cached_app_detail("rustdesk/rustdesk", None)
+        .get_app_detail("rustdesk/rustdesk", None)
         .unwrap()
         .is_none());
 }
@@ -1424,30 +1419,25 @@ fn test_prune_bounded_caches_lru_and_asset_protection() {
         cached_at: None,
     };
 
-    db.save_cached_app_detail("o/protected", &mk_detail("o/protected"))
+    db.save_app_detail("o/protected", &mk_detail("o/protected"))
         .unwrap();
-    db.touch_cached_app_detail("o/protected", 10).unwrap();
+    db.touch_app_detail("o/protected", 10).unwrap();
     db.add_favorite("o/protected", false).unwrap();
 
-    db.save_cached_app_detail("o/evict", &mk_detail("o/evict"))
-        .unwrap();
-    db.touch_cached_app_detail("o/evict", 20).unwrap();
+    db.save_app_detail("o/evict", &mk_detail("o/evict")).unwrap();
+    db.touch_app_detail("o/evict", 20).unwrap();
 
-    db.save_cached_app_detail("o/keep", &mk_detail("o/keep"))
-        .unwrap();
-    db.touch_cached_app_detail("o/keep", 30).unwrap();
+    db.save_app_detail("o/keep", &mk_detail("o/keep")).unwrap();
+    db.touch_app_detail("o/keep", 30).unwrap();
 
     let (etag_del, detail_del) = db.prune_bounded_caches(2, 1).unwrap();
     assert_eq!(etag_del, 1);
     assert_eq!(detail_del, 1);
     assert!(db.get_etag("https://api.github.com/1").unwrap().is_none());
     assert!(db.get_etag("https://api.github.com/2").unwrap().is_some());
-    assert!(db.get_cached_app_detail("o/evict", None).unwrap().is_none());
-    assert!(db
-        .get_cached_app_detail("o/protected", None)
-        .unwrap()
-        .is_some());
-    assert!(db.get_cached_app_detail("o/keep", None).unwrap().is_some());
+    assert!(db.get_app_detail("o/evict", None).unwrap().is_none());
+    assert!(db.get_app_detail("o/protected", None).unwrap().is_some());
+    assert!(db.get_app_detail("o/keep", None).unwrap().is_some());
 }
 
 #[test]

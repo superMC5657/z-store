@@ -345,7 +345,7 @@ pub(crate) fn apply_release_cache_effects(
     now_secs: i64,
 ) {
     if touch {
-        let _ = db.touch_cached_app_detail(app_id, now_secs);
+        let _ = db.touch_app_detail(app_id, now_secs);
     }
     if let Some((etag, payload)) = cache_to_save {
         let _ = db.save_etag(release_endpoint, &etag, &payload, now_secs);

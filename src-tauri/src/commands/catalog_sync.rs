@@ -9,6 +9,8 @@ pub async fn sync_catalog(
     state: State<'_, AppState>,
     force: Option<bool>,
 ) -> crate::AppResult<SyncCatalogResult> {
+    // 串行化清单同步：避免启动静默同步与设置页手动同步并发交叉写库或乱序覆盖 ETag。
+    let _sync_guard = state.sync_lock.lock().await;
     let start = std::time::Instant::now();
     let (url, cached_etag) = {
         let db = state.db()?;
@@ -44,17 +46,23 @@ pub async fn sync_catalog(
     let (new_items, new_etag) = match res {
         Ok(val) => val,
         Err(err) => {
-            let strict_errors = state
+            let (strict_errors, catalog_has_rows) = state
                 .db()
-                .map(|db| db.is_strict_errors())
-                .unwrap_or_else(|_| crate::config::is_strict_errors());
-            if !should_use_local_fallback(strict_errors) {
+                .map(|db| {
+                    (
+                        db.is_strict_errors(),
+                        db.count_catalog_apps().map(|c| c > 0).unwrap_or(false),
+                    )
+                })
+                .unwrap_or_else(|_| (crate::config::is_strict_errors(), false));
+            if !should_use_local_fallback(strict_errors, catalog_has_rows) {
                 let mut ev =
                     crate::z_log::WideEvent::new("catalog", "sync failed").with_started(start);
                 ev.field("source", source_kind)
-                    .field("strict", true)
+                    .field("strict", strict_errors)
                     .field("reason", crate::log_support::short_reason(&err))
                     .dev("force", is_force)
+                    .dev("has_rows", catalog_has_rows)
                     .dev_url("url", &url);
                 ev.error();
                 return Err(err.into());
@@ -72,10 +80,7 @@ pub async fn sync_catalog(
 
             if let Some((items, candidate)) = local_fallback {
                 let count = items.len();
-                if let Ok(db) = state.db() {
-                    state.catalog.hydrate_from_details_cache(&db);
-                }
-                let graduated = retire_graduated_drafts(&state, &items);
+                let graduated = apply_manifest_to_db(&state, &items, None)?;
                 let mut ev =
                     crate::z_log::WideEvent::new("catalog", "sync fallback").with_started(start);
                 ev.field("source", "local")
@@ -111,16 +116,10 @@ pub async fn sync_catalog(
 
     if let Some(items) = new_items {
         let count = items.len();
-        if let Ok(db) = state.db() {
-            if let Some(etag) = new_etag {
-                let now = crate::now_secs();
-                let json_str = serde_json::to_string(&items).unwrap_or_default();
-                let _ = db.save_etag(&url, &etag, &json_str, now);
-            }
-            state.catalog.hydrate_from_details_cache(&db);
-        }
-        let graduated = retire_graduated_drafts(&state, &items);
-        crate::commands::history::backfill_cataloged_flags(&state);
+        let now = crate::now_secs();
+        let etag_entry = new_etag.as_deref().map(|et| (url.as_str(), et, now));
+        // ETag 与目录写入同一事务提交：只有 catalog_apps 成功落库后才保存新 ETag 并刷新内存索引。
+        let graduated = apply_manifest_to_db(&state, &items, etag_entry)?;
         let mut ev = crate::z_log::WideEvent::new("catalog", "sync ok").with_started(start);
         ev.field("source", source_kind)
             .field("updated", true)
@@ -163,25 +162,28 @@ pub async fn sync_catalog(
     }
 }
 
-/// 远端失败是否允许本地降级：严格模式直接抛错。
-pub(crate) fn should_use_local_fallback(strict_errors: bool) -> bool {
-    !strict_errors
+/// 远端失败是否允许本地种子降级：严格模式或数据库已有目录行时禁止用静态种子覆盖。
+pub(crate) fn should_use_local_fallback(strict_errors: bool, catalog_has_rows: bool) -> bool {
+    !strict_errors && !catalog_has_rows
 }
 
-/// 转正退役（ADR-0017）：同步成功后以远端 id 集合命中未归档草稿，
-/// 命中即 `archived=1`；失败吞错（best-effort，不阻塞同步主路径）。
-/// 退役后重读本地收录 overlay，归档行即刻退出合并视图与收藏/关注收录态。
-fn retire_graduated_drafts(
+/// 清单同步落库（Repository 收口）：单事务内权威覆盖 `catalog_apps` + 转正归档 `custom_apps` +
+/// 回填收藏/关注收录标记（+ 可选同事务落盘新 ETag）；提交成功后同步刷新 `CatalogService` 内存热读索引。
+fn apply_manifest_to_db(
     state: &tauri::State<'_, AppState>,
     items: &[crate::github::models::CatalogItem],
-) -> Vec<String> {
-    let Ok(db) = state.db() else {
-        return Vec::new();
-    };
-    let ids: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
-    let graduated: Vec<String> = db.retire_custom_apps_on_sync(&ids).unwrap_or_default();
-    state.catalog.sync_collected_from_db(&db);
-    graduated
+    etag_entry: Option<(&str, &str, i64)>,
+) -> Result<Vec<String>, String> {
+    let db = state.db()?;
+    let graduated =
+        crate::repositories::CatalogRepository::apply_remote_manifest_with_etag(
+            &db,
+            items,
+            etag_entry,
+        )
+        .map_err(|e| format!("保存收录清单到数据库失败: {}", e))?;
+    state.catalog.sync_from_db(&db);
+    Ok(graduated)
 }
 
 /// 转正提示拼接到同步消息尾部（无转正原样返回）。
@@ -204,12 +206,14 @@ mod tests {
 
     #[test]
     fn strict_mode_skips_local_fallback() {
-        assert!(!should_use_local_fallback(true));
+        assert!(!should_use_local_fallback(true, false));
+        assert!(!should_use_local_fallback(true, true));
     }
 
     #[test]
-    fn graceful_mode_uses_local_fallback() {
-        assert!(should_use_local_fallback(false));
+    fn graceful_mode_uses_local_fallback_only_when_catalog_empty() {
+        assert!(should_use_local_fallback(false, false));
+        assert!(!should_use_local_fallback(false, true));
     }
 
     #[test]

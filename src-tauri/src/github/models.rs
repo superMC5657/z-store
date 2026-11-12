@@ -159,6 +159,74 @@ impl CatalogItem {
             core.added_at = self.added_at.clone();
         }
     }
+
+    /// 判定版本号是否为非空且非 `"latest"` 占位的真实版本号。
+    pub(crate) fn is_concrete_version(v: &str) -> bool {
+        let t = v.trim();
+        !t.is_empty() && !t.eq_ignore_ascii_case("latest")
+    }
+
+    /// 判定开源协议是否为非空且非 `"unknown"` / `"opensource"` 占位的真实协议。
+    pub(crate) fn is_concrete_license(l: &str) -> bool {
+        let t = l.trim();
+        !t.is_empty()
+            && !t.eq_ignore_ascii_case("unknown")
+            && !t.eq_ignore_ascii_case("opensource")
+    }
+
+    /// 判定图标是否为远端 `http(s)://` URL（排除空串与 `data:`）。
+    pub(crate) fn is_remote_http_icon(ic: &str) -> bool {
+        let t = ic.trim();
+        t.starts_with("http://") || t.starts_with("https://")
+    }
+
+    /// 将应用详情中的保鲜字段合并回目录项（`stars`/`forks`/`default_version`/`platforms`/`license`/`homepage` 及缺失时 `http(s)` 图标）。
+    /// stale 详情或未发生任何变化时返回 `false`。
+    pub(crate) fn merge_from_detail(&mut self, detail: &crate::models::AppDetail) -> bool {
+        if detail.is_stale == Some(true) {
+            return false;
+        }
+        let mut changed = false;
+        if detail.core.stars > 0 && self.stars != detail.core.stars {
+            self.stars = detail.core.stars;
+            changed = true;
+        }
+        if detail.core.forks > 0 && self.forks != detail.core.forks {
+            self.forks = detail.core.forks;
+            changed = true;
+        }
+        if Self::is_concrete_version(&detail.core.latest_version) {
+            let trimmed = detail.core.latest_version.trim();
+            if self.default_version != trimmed {
+                self.default_version = trimmed.to_string();
+                changed = true;
+            }
+        }
+        if !detail.core.platforms.is_empty() && self.platforms != detail.core.platforms {
+            self.platforms = detail.core.platforms.clone();
+            changed = true;
+        }
+        if Self::is_concrete_license(&detail.core.license) {
+            let trimmed = detail.core.license.trim();
+            if self.license != trimmed {
+                self.license = trimmed.to_string();
+                changed = true;
+            }
+        }
+        if let Some(ref hp) = detail.core.homepage {
+            let trimmed = hp.trim();
+            if !trimmed.is_empty() && self.homepage.as_deref() != Some(trimmed) {
+                self.homepage = Some(trimmed.to_string());
+                changed = true;
+            }
+        }
+        // 目录原为空且详情探出合法 http(s) 时补齐，不覆盖目录已有官方图标
+        if self.icon.trim().is_empty() && Self::is_remote_http_icon(&detail.core.icon) {
+            self.icon = detail.core.icon.trim().to_string();
+            changed = true;
+        }
+        changed
+    }
 }
 
 #[derive(Debug, Deserialize)]

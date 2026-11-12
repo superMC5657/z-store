@@ -24,8 +24,8 @@ fn log_backfill_warn(op: &str, id: Option<&str>, reason: impl std::fmt::Display)
     ev.warn();
 }
 
-/// 收录标记全量回填（启动 + 清单同步完成后）：收藏/关注逐行按内存目录校准，零网络；
-/// 最佳努力，不阻塞调用方（行级失败记 warn 日志，由下次启动/同步重试）。
+/// 收录标记全量回填（启动 + 清单同步/本地收录变更后）：收藏/关注逐行按数据库目录校准，零网络；
+/// 最佳努力，不阻塞调用方（失败记 warn 日志，由下次启动/同步重试）。
 pub(crate) fn backfill_cataloged_flags(state: &AppState) {
     let db = match state.db() {
         Ok(db) => db,
@@ -34,31 +34,8 @@ pub(crate) fn backfill_cataloged_flags(state: &AppState) {
             return;
         }
     };
-    match db.get_favorites() {
-        Ok(ids) => {
-            for id in &ids {
-                if let Err(e) = db.set_favorite_cataloged(id, state.catalog.is_cataloged(id)) {
-                    log_backfill_warn("backfill favorite flag failed", Some(id.as_str()), &e);
-                }
-            }
-        }
-        Err(e) => {
-            log_backfill_warn("backfill favorites skipped", None, &e);
-        }
-    }
-    match db.get_watched_apps() {
-        Ok(watched) => {
-            for w in &watched {
-                if let Err(e) =
-                    db.set_watched_cataloged(&w.app_id, state.catalog.is_cataloged(&w.app_id))
-                {
-                    log_backfill_warn("backfill watched flag failed", Some(w.app_id.as_str()), &e);
-                }
-            }
-        }
-        Err(e) => {
-            log_backfill_warn("backfill watched skipped", None, &e);
-        }
+    if let Err(e) = crate::repositories::CatalogRepository::backfill_cataloged_flags(&db) {
+        log_backfill_warn("backfill cataloged flags failed", None, &e);
     }
 }
 
@@ -161,7 +138,7 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
         }
     }
     for key in keys {
-        if let Ok(Some(detail)) = db.get_cached_app_detail(&key, None) {
+        if let Ok(Some(detail)) = db.get_app_detail(&key, None) {
             let mut summary = detail_to_summary(&detail);
             // 最近浏览简介占位根治：占位回填 ETag repo 真值，无真值置空（前端走“暂无简介”）。
             heal_recent_summary(db, &mut summary);
@@ -337,7 +314,7 @@ mod recent_uncataloged_tests {
     #[test]
     fn test_uncataloged_detail_falls_back_to_summary() {
         let db = Database::open_in_memory().expect("内存数据库应当可用");
-        db.save_cached_app_detail(
+        db.save_app_detail(
             "oh-my-pi/oh-my-pi",
             &uncataloged_detail("oh-my-pi/oh-my-pi", "https://example.com/icon.png"),
         )
@@ -360,7 +337,7 @@ mod recent_uncataloged_tests {
     #[test]
     fn test_uncataloged_icon_and_case_alias_hit() {
         let db = Database::open_in_memory().expect("内存数据库应当可用");
-        db.save_cached_app_detail(
+        db.save_app_detail(
             "oh-my-pi/oh-my-pi",
             &uncataloged_detail(
                 "oh-my-pi/oh-my-pi",
@@ -391,7 +368,7 @@ mod recent_uncataloged_tests {
     fn test_placeholder_summary_blanked_when_no_repo_real() {
         // 无 ETag repo 真值时，占位必须转空（前端走“暂无简介”而不显示占位文案）。
         let db = Database::open_in_memory().expect("内存数据库应当可用");
-        db.save_cached_app_detail("demo/placeholder", &placeholder_detail("demo/placeholder"))
+        db.save_app_detail("demo/placeholder", &placeholder_detail("demo/placeholder"))
             .unwrap();
         let summary =
             super::cached_detail_summary(&db, "demo/placeholder").expect("占位详情应当回退命中");
@@ -407,7 +384,7 @@ mod recent_uncataloged_tests {
     fn test_placeholder_summary_backfilled_from_etag_repo_real() {
         // ETag 有 repo 真值时，占位应当回填真值而非置空。
         let db = Database::open_in_memory().expect("内存数据库应当可用");
-        db.save_cached_app_detail("demo/placeholder", &placeholder_detail("demo/placeholder"))
+        db.save_app_detail("demo/placeholder", &placeholder_detail("demo/placeholder"))
             .unwrap();
         db.save_etag(
             "https://api.github.com/repos/oh-my-pi/oh-my-pi",
@@ -431,7 +408,7 @@ mod recent_uncataloged_tests {
     fn test_non_placeholder_description_preserved() {
         // 非占位人工简介不得被覆盖。
         let db = Database::open_in_memory().expect("内存数据库应当可用");
-        db.save_cached_app_detail(
+        db.save_app_detail(
             "oh-my-pi/oh-my-pi",
             &uncataloged_detail("oh-my-pi/oh-my-pi", "https://example.com/icon.png"),
         )

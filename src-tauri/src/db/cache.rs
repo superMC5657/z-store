@@ -1,197 +1,8 @@
 use super::{clean, now_secs, Database};
-use crate::models::AppDetail;
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
 
 impl Database {
-    pub fn get_etag(&self, endpoint_url: &str) -> Result<Option<String>> {
-        self.query_scalar_opt(
-            "SELECT etag FROM api_etag_cache WHERE endpoint_url = ?1",
-            params![endpoint_url],
-        )
-    }
-
-    pub fn get_cached_payload(&self, endpoint_url: &str) -> Result<Option<String>> {
-        self.query_scalar_opt(
-            "SELECT payload_json FROM api_etag_cache WHERE endpoint_url = ?1",
-            params![endpoint_url],
-        )
-    }
-
-    pub fn save_etag(
-        &self,
-        endpoint_url: &str,
-        etag: &str,
-        payload_json: &str,
-        timestamp: i64,
-    ) -> Result<()> {
-        self.exec_write(
-            r#"
-            INSERT INTO api_etag_cache (endpoint_url, etag, payload_json, last_checked_at)
-            VALUES (?1, ?2, ?3, ?4)
-            ON CONFLICT(endpoint_url) DO UPDATE SET
-                etag = excluded.etag,
-                payload_json = excluded.payload_json,
-                last_checked_at = excluded.last_checked_at;
-            "#,
-            params![endpoint_url, etag, payload_json, timestamp],
-        )?;
-        Ok(())
-    }
-
-    pub fn get_cached_app_detail(
-        &self,
-        app_id: &str,
-        ttl_seconds: Option<i64>,
-    ) -> Result<Option<AppDetail>> {
-        let cleaned = clean(app_id);
-        if cleaned.is_empty() {
-            return Ok(None);
-        }
-
-        let mut stmt = self.conn.prepare(
-            "SELECT detail_json, cached_at FROM app_details_cache WHERE app_id = ?1 LIMIT 1",
-        )?;
-        let mut rows = stmt.query(params![cleaned])?;
-        if let Some(row) = rows.next()? {
-            let json_str: String = row.get(0)?;
-            let cached_at: i64 = row.get(1)?;
-            if let Some(ttl) = ttl_seconds {
-                if ttl > 0 {
-                    let now = now_secs();
-                    if now.saturating_sub(cached_at) >= ttl {
-                        // 缓存已过期，返回 None 以促使远端触发 ETag 条件校验
-                        return Ok(None);
-                    }
-                } else if ttl == 0 {
-                    // ttl == 0 代表每次打开均需要向远端校验
-                    return Ok(None);
-                }
-            }
-            if let Ok(mut detail) = serde_json::from_str::<AppDetail>(&json_str) {
-                detail.cached_at = Some(cached_at);
-                return Ok(Some(detail));
-            }
-        }
-        Ok(None)
-    }
-
-    /// 读取全部本地已缓存的应用详情（供启动与目录同步后水合内存目录统计、版本、平台、协议、主页与图标）。
-    pub fn get_all_cached_app_details(&self) -> Result<Vec<(String, AppDetail)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT app_id, detail_json, cached_at FROM app_details_cache")?;
-        let mut rows = stmt.query([])?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next()? {
-            let app_id: String = row.get(0)?;
-            let json_str: String = row.get(1)?;
-            let cached_at: i64 = row.get(2)?;
-            if let Ok(mut detail) = serde_json::from_str::<AppDetail>(&json_str) {
-                detail.cached_at = Some(cached_at);
-                out.push((app_id, detail));
-            }
-        }
-        Ok(out)
-    }
-
-    /// 当远端返回 304 Not Modified 时，快速刷新 cached_at 时间戳，零开销延长保鲜期
-    pub fn touch_cached_app_detail(&self, app_id: &str, new_cached_at: i64) -> Result<()> {
-        self.exec_write(
-            "UPDATE app_details_cache SET cached_at = ?1 WHERE app_id = ?2",
-            params![new_cached_at, clean(app_id)],
-        )?;
-        Ok(())
-    }
-
-    pub fn save_cached_app_detail(&self, app_id: &str, detail: &AppDetail) -> Result<()> {
-        let clean_id = clean(app_id);
-        let now = now_secs();
-        let json_str = serde_json::to_string(detail)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-
-        self.exec_write(
-            r#"
-            INSERT INTO app_details_cache (app_id, name, latest_version, detail_json, cached_at)
-            VALUES (?1, ?2, ?3, ?4, ?5)
-            ON CONFLICT(app_id) DO UPDATE SET
-                name = excluded.name,
-                latest_version = excluded.latest_version,
-                detail_json = excluded.detail_json,
-                cached_at = excluded.cached_at;
-            "#,
-            params![
-                clean_id,
-                detail.core.name,
-                detail.core.latest_version,
-                json_str,
-                now,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// 详情 + 图标原子落库（单提交）：
-    /// 事务内先写详情再写可选图标行，失败整体回滚，调用方保持 `let _ =` 吞错并可回退逐条。
-    /// 不改 TTL/ETag 逻辑（`cached_at` 仍取 `now_secs()`）。
-    pub fn save_detail_with_cycle_row(
-        &self,
-        app_id: &str,
-        detail: &AppDetail,
-        cycle: Option<&super::AppIconCycle>,
-    ) -> Result<()> {
-        self.with_immediate_transaction(|| {
-            self.save_cached_app_detail(app_id, detail)?;
-            if let Some(c) = cycle {
-                self.upsert_icon_cycle(c)?;
-            }
-            Ok(())
-        })
-    }
-
-    /// 图标轮换写侧补齐：`cycle_app_icon` 选中态落库后同步 `detail_json.icon`
-    ///（读侧经轮换表 join 读确认图标，此处保持一致）。
-    /// - 无详情行则跳过不建行（返回 `Ok(false)`）；
-    /// - 仅重写 `detail_json.icon`，`cached_at` 保持不动（轮换是本地用户偏好，不延长 TTL）；
-    /// - 调用方保证传入已归一化的 remote_url（`data:` 永不进盘）。
-    pub fn sync_detail_icon(&self, app_id: &str, new_icon: &str) -> Result<bool> {
-        let clean_id = clean(app_id);
-        if clean_id.is_empty() {
-            return Ok(false);
-        }
-        let existing: Option<String> = self.query_scalar_opt(
-            "SELECT detail_json FROM app_details_cache WHERE app_id = ?1",
-            params![clean_id],
-        )?;
-        let Some(json_str) = existing else {
-            return Ok(false);
-        };
-        let mut v: serde_json::Value = serde_json::from_str(&json_str)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        let Some(obj) = v.as_object_mut() else {
-            return Ok(false);
-        };
-        obj.insert(
-            "icon".to_string(),
-            serde_json::Value::String(new_icon.to_string()),
-        );
-        let new_json = serde_json::to_string(&v)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        // 注意：只碰 detail_json，cached_at 不动（见上）。
-        let rows = self.exec_write(
-            "UPDATE app_details_cache SET detail_json = ?1 WHERE app_id = ?2",
-            params![new_json, clean_id],
-        )?;
-        Ok(rows > 0)
-    }
-
-    /// 测试专用：清空详情缓存（生产路径只增量写入，从不全清）。
-    #[cfg(test)]
-    pub fn clear_app_details_cache(&self) -> Result<()> {
-        self.exec_write("DELETE FROM app_details_cache", [])?;
-        Ok(())
-    }
-
     pub fn get_icon_cache_url(&self, cache_key: &str) -> Result<Option<String>> {
         let cleaned = clean(cache_key);
         if cleaned.is_empty() {
@@ -234,62 +45,18 @@ impl Database {
 
 /// 榜缓存二级落盘单条至多 512 KiB，超限拒绝。
 pub const TREND_BOARD_CACHE_MAX_BYTES: usize = 512 * 1024;
-/// API ETag 缓存表最大保留行数（按 `last_checked_at DESC` LRU 淘汰）。
-pub const API_ETAG_CACHE_MAX_ROWS: usize = 1000;
-/// 应用详情缓存表最大保留行数（按 `cached_at DESC` LRU 淘汰，资产关联行豁免）。
-pub const APP_DETAILS_CACHE_MAX_ROWS: usize = 500;
+pub use super::details::APP_DETAILS_CACHE_MAX_ROWS;
+pub use super::etag::API_ETAG_CACHE_MAX_ROWS;
 
 impl Database {
-    /// 按 `last_checked_at DESC` 保留最新 `max_rows` 条 ETag 缓存，清理超限陈旧行。
-    pub fn prune_api_etag_cache(&self, max_rows: usize) -> Result<usize> {
-        if max_rows == 0 {
-            return Ok(0);
-        }
-        let deleted = self.conn.execute(
-            r#"
-            DELETE FROM api_etag_cache
-            WHERE endpoint_url NOT IN (
-                SELECT endpoint_url FROM api_etag_cache
-                ORDER BY last_checked_at DESC, endpoint_url ASC
-                LIMIT ?1
-            )
-            "#,
-            params![max_rows as i64],
-        )?;
-        Ok(deleted)
-    }
-
-    /// 按 `cached_at DESC` 保留最新 `max_rows` 条应用详情缓存；
-    /// 已安装、收藏或关注的 `app_id` 永不淘汰，确保未收录资产的离线富卡可用。
-    pub fn prune_app_details_cache(&self, max_rows: usize) -> Result<usize> {
-        if max_rows == 0 {
-            return Ok(0);
-        }
-        let deleted = self.conn.execute(
-            r#"
-            DELETE FROM app_details_cache
-            WHERE app_id NOT IN (
-                SELECT app_id FROM app_details_cache
-                ORDER BY cached_at DESC, app_id ASC
-                LIMIT ?1
-            )
-            AND app_id NOT IN (SELECT app_id FROM installed_apps)
-            AND app_id NOT IN (SELECT app_id FROM user_favorites)
-            AND app_id NOT IN (SELECT app_id FROM watched_apps)
-            "#,
-            params![max_rows as i64],
-        )?;
-        Ok(deleted)
-    }
-
-    /// 统一裁剪 `api_etag_cache` 与 `app_details_cache` 容量上限，返回 `(etag_deleted, detail_deleted)`。
+    /// 统一裁剪 `api_etag_cache` 与 `app_details` 容量上限，返回 `(etag_deleted, detail_deleted)`。
     pub fn prune_bounded_caches(
         &self,
         max_etag_rows: usize,
         max_detail_rows: usize,
     ) -> Result<(usize, usize)> {
         let etag_deleted = self.prune_api_etag_cache(max_etag_rows)?;
-        let detail_deleted = self.prune_app_details_cache(max_detail_rows)?;
+        let detail_deleted = self.prune_app_details(max_detail_rows)?;
         Ok((etag_deleted, detail_deleted))
     }
 
@@ -820,31 +587,31 @@ mod cache_quota_tests {
             cached_at: None,
         };
 
-        db.save_cached_app_detail("o/old-protected", &mk_detail("o/old-protected"))
+        db.save_app_detail("o/old-protected", &mk_detail("o/old-protected"))
             .unwrap();
-        db.touch_cached_app_detail("o/old-protected", 10).unwrap();
+        db.touch_app_detail("o/old-protected", 10).unwrap();
         db.add_favorite("o/old-protected", false).unwrap();
 
-        db.save_cached_app_detail("o/old-evict", &mk_detail("o/old-evict"))
+        db.save_app_detail("o/old-evict", &mk_detail("o/old-evict"))
             .unwrap();
-        db.touch_cached_app_detail("o/old-evict", 20).unwrap();
+        db.touch_app_detail("o/old-evict", 20).unwrap();
 
-        db.save_cached_app_detail("o/newest", &mk_detail("o/newest"))
+        db.save_app_detail("o/newest", &mk_detail("o/newest"))
             .unwrap();
-        db.touch_cached_app_detail("o/newest", 30).unwrap();
+        db.touch_app_detail("o/newest", 30).unwrap();
 
-        let deleted_details = db.prune_app_details_cache(1).unwrap();
+        let deleted_details = db.prune_app_details(1).unwrap();
         assert_eq!(deleted_details, 1);
         assert!(db
-            .get_cached_app_detail("o/old-evict", None)
+            .get_app_detail("o/old-evict", None)
             .unwrap()
             .is_none());
         assert!(db
-            .get_cached_app_detail("o/old-protected", None)
+            .get_app_detail("o/old-protected", None)
             .unwrap()
             .is_some());
         assert!(db
-            .get_cached_app_detail("o/newest", None)
+            .get_app_detail("o/newest", None)
             .unwrap()
             .is_some());
     }

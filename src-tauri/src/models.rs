@@ -327,7 +327,7 @@ pub struct WatchedApp {
     pub added_at: i64,
     pub last_notified_version: Option<String>,
     /// 收录标记：写入时按内存目录判定并持久化，缺省按启动回填校准；
-    /// 前端据此决定走收录库还是 `app_details_cache` 读卡（`default` 兼容缺省该字段的快照）。
+    /// 前端据此决定走收录库还是 `app_details` 读卡（`default` 兼容缺省该字段的快照）。
     #[serde(default)]
     pub is_cataloged: bool,
 }

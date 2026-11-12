@@ -553,6 +553,7 @@ fn ensure_icons_dir() -> std::path::PathBuf {
 
 /// 后台异步拉取选中图标并补齐磁盘 `icons/` 与 `cache_file`（详情落盘后自愈用）。
 pub(crate) fn spawn_cache_selected_icon(
+    db_arc: std::sync::Arc<std::sync::Mutex<crate::db::Database>>,
     app_id: String,
     level: i32,
     selected_url: String,
@@ -563,16 +564,15 @@ pub(crate) fn spawn_cache_selected_icon(
         if let Ok(bytes) = download_icon_bytes(&client, &selected_url).await {
             let icons_dir = ensure_icons_dir();
             let ext = infer_ext_from_url(&selected_url).unwrap_or("png");
-            let db_opt = crate::db::Database::open_default_opt();
-            let fname = write_icon_file(
-                &icons_dir,
-                db_opt.as_ref(),
-                &IconRef::new(&selected_url, ext),
-                is_cataloged,
-                &bytes,
-            );
-            if !fname.is_empty() {
-                if let Some(db) = db_opt {
+            if let Ok(db) = db_arc.lock() {
+                let fname = write_icon_file(
+                    &icons_dir,
+                    Some(&db),
+                    &IconRef::new(&selected_url, ext),
+                    is_cataloged,
+                    &bytes,
+                );
+                if !fname.is_empty() {
                     let _ = db.set_icon_cycle_selected(&app_id, level, &selected_url, &fname);
                 }
             }
@@ -620,7 +620,7 @@ async fn probe_readme(
     app_id: &str,
 ) -> String {
     if let Ok(db) = state.db() {
-        if let Ok(Some(detail)) = db.get_cached_app_detail(app_id, None) {
+        if let Ok(Some(detail)) = db.get_app_detail(app_id, None) {
             if !detail.readme_markdown.trim().is_empty() {
                 let (logo, _) = crate::github::CatalogService::extract_and_strip_logo_from_readme(
                     &detail.readme_markdown,

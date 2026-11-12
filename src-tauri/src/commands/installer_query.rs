@@ -17,6 +17,13 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
             if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
                 app.icon = Some(item.icon);
                 app.icon_bg = Some(item.icon_bg);
+            } else if let Ok(Some(detail)) = db.get_app_detail(&app.app_id, None) {
+                if !detail.core.icon.trim().is_empty() {
+                    app.icon = Some(detail.core.icon);
+                }
+                if !detail.core.icon_bg.trim().is_empty() {
+                    app.icon_bg = Some(detail.core.icon_bg);
+                }
             }
         }
         let is_empty = app.install_path.trim().is_empty();

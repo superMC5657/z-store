@@ -54,7 +54,7 @@ pub async fn get_app_details(
 ///   避免把过期 stale 洗成 fresh）；
 /// - 空 platforms 明确返回空向量，不 stamp `["other"]`/`["windows"]`；
 ///   `other` 仍为纯前端虚拟概念，永不过 IPC。
-/// 本命令永不写入 `app_details_cache`（不构造全量 `AppDetail`，避免污染详情缓存），
+/// 本命令永不写入 `app_details`（不构造全量 `AppDetail`，避免污染详情表），
 /// 仅读写 `api_etag_cache`（条件请求键）与详情 `cached_at` touch。
 /// - 网络默认允许：TTL 命中直返缓存，否则走 forge 直拉 / ETag 条件请求；
 ///   `force_refresh` 为手动刷新按钮透传位，`Some(true)` 时跳过 TTL 快径直探远端。
@@ -98,7 +98,7 @@ fn platforms_lite_from_cache(
     let db = state.db().ok()?;
     let ttl_seconds = detail_ttl_secs(&db);
     let cached = db
-        .get_cached_app_detail(clean_id, Some(ttl_seconds))
+        .get_app_detail(clean_id, Some(ttl_seconds))
         .ok()
         .flatten()?;
     Some(PlatformsLiteResult {
@@ -175,7 +175,7 @@ async fn platforms_lite_from_github(
     let (release_endpoint, cached_etag, cached_payload) = {
         if let Err(e) = state.catalog.get_repo_coordinates(&clean_id) {
             if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_cached_app_detail(&clean_id, None) {
+                if let Ok(Some(fallback)) = db.get_app_detail(&clean_id, None) {
                     let mut ev = crate::z_log::WideEvent::new("detail", "platforms-lite stale")
                         .with_started(start);
                     ev.field("id", &clean_id)
@@ -225,7 +225,7 @@ async fn platforms_lite_from_github(
         _ => state
             .db()
             .ok()
-            .and_then(|db| db.get_cached_app_detail(&clean_id, None).ok().flatten()),
+            .and_then(|db| db.get_app_detail(&clean_id, None).ok().flatten()),
     };
     match crate::github::release_fetch::decide_shallow_release(
         &outcome,
@@ -234,6 +234,10 @@ async fn platforms_lite_from_github(
         None,
     ) {
         Ok(rel) => {
+            let platforms = match rel.row_platforms {
+                Some(p) => p,
+                None => state.catalog.deduce_lite_platforms(&clean_id, &rel.assets),
+            };
             if let Ok(db) = state.db() {
                 crate::github::release_fetch::apply_release_cache_effects(
                     &db,
@@ -243,11 +247,14 @@ async fn platforms_lite_from_github(
                     rel.cache_to_save,
                     crate::now_secs(),
                 );
+                if rel.stale != Some(true) && !platforms.is_empty() {
+                    if let Ok(true) = db.update_catalog_app_platforms(&clean_id, &platforms) {
+                        state
+                            .catalog
+                            .update_catalog_item_platforms(&clean_id, &platforms);
+                    }
+                }
             }
-            let platforms = match rel.row_platforms {
-                Some(p) => p,
-                None => state.catalog.deduce_lite_platforms(&clean_id, &rel.assets),
-            };
             if rel.stale == Some(true) {
                 let mut ev = crate::z_log::WideEvent::new("detail", "platforms-lite stale")
                     .with_started(start);
@@ -280,7 +287,7 @@ async fn platforms_lite_from_github(
         }
         Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(e)) => {
             if let Ok(db) = state.db() {
-                let _ = db.touch_cached_app_detail(&clean_id, crate::now_secs());
+                let _ = db.touch_app_detail(&clean_id, crate::now_secs());
             }
             warn_platforms_lite_failed(
                 &clean_id,
@@ -346,35 +353,8 @@ pub fn get_cached_app_details_batch(
 }
 
 /// 单 id 的 DB-only 投影：`AppDetail` 子集转 `AppSummary`，无网络、无写盘。
-/// changelog/readme/releases 不进卡；`is_stale` 不进卡（前端小行不黄，详情黄标另行）。
-/// `data:` 详情图标置空兜底（确认图标随后覆盖，M2 `data:` 仍可呈现）。
 fn cached_detail_summary(db: &crate::db::Database, raw_id: &str) -> Option<AppSummary> {
-    let clean_id = crate::commands::require_app_id(raw_id).ok()?;
-    let detail = db.get_cached_app_detail(&clean_id, None).ok().flatten()?;
-    let icon_trimmed = detail.core.icon.trim();
-    let mut summary = AppSummary {
-        core: AppCore {
-            icon: if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
-                String::new()
-            } else {
-                detail.core.icon.clone()
-            },
-            // 卡片不携带收录标记/来源/状态，恒为 None。
-            is_cataloged: None,
-            source: None,
-            status: None,
-            ..detail.core.clone()
-        },
-    };
-    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-        db,
-        &summary.core.id,
-        &summary.core.owner,
-        &summary.core.repo,
-    ) {
-        summary.core.icon = ci;
-    }
-    Some(summary)
+    crate::repositories::DetailRepository::cached_detail_summary(db, raw_id)
 }
 
 /// DB-only 确认图标批量回填（趋势榜重挂图标自愈专用）：零网络、零 ETag、零写盘、不 spawn 后台任务。
@@ -457,7 +437,7 @@ pub async fn get_app_details_impl(
     fetch_detail_from_github(state, &clean_id, is_force, start).await
 }
 
-/// 「读缓存行 → id 回写 → 盖章 → 返回」共享投影。
+/// 「读 app_details → 叠加目录精校 → 盖章 → 返回」共享投影。
 fn project_from_cache(state: &AppState, clean_id: &str, ttl_gated: bool) -> Option<AppDetail> {
     let db = state.db().ok()?;
     let ttl_seconds = if ttl_gated {
@@ -465,19 +445,13 @@ fn project_from_cache(state: &AppState, clean_id: &str, ttl_gated: bool) -> Opti
     } else {
         None
     };
-    let mut detail = db
-        .get_cached_app_detail(clean_id, ttl_seconds)
-        .ok()
-        .flatten()?;
-    detail.core.id = clean_id.to_string();
-    if !ttl_gated {
-        detail.is_stale = Some(true);
-    }
-    if let Some(cat_item) = state.catalog.get_catalog_item(clean_id) {
-        cat_item.overlay_detail_core(&mut detail.core);
-    }
-    state.catalog.stamp_detail(&mut detail);
-    Some(detail)
+    crate::repositories::DetailRepository::project_detail(
+        &db,
+        &state.catalog,
+        clean_id,
+        ttl_seconds,
+        !ttl_gated,
+    )
 }
 
 /// 多源 forge lite 段：repo + latest release 并发拉取合成详情。
@@ -560,13 +534,6 @@ async fn fetch_detail_from_forge(
         is_stale: None,
     };
 
-    state.catalog.update_catalog_item_stats(
-        &clean_id,
-        Some(repo_info.stars),
-        Some(repo_info.forks),
-        Some(&detail.core.latest_version),
-    );
-
     let mut db_ms: Option<u128> = None;
     if let Ok(db) = state.db() {
         let start_db = std::time::Instant::now();
@@ -588,14 +555,27 @@ async fn fetch_detail_from_forge(
         } else {
             None
         };
-        if db
-            .save_detail_with_cycle_row(&clean_id, &detail, staged_cycle.as_ref())
-            .is_err()
+        if crate::repositories::DetailRepository::persist_detail_bundle(
+            &db,
+            &clean_id,
+            &detail,
+            staged_cycle.as_ref(),
+            &[],
+        )
+        .is_ok()
         {
-            let _ = db.save_cached_app_detail(&clean_id, &detail);
-            if let Some(c) = staged_cycle.as_ref() {
-                let _ = db.upsert_icon_cycle(c);
-            }
+            state.catalog.update_catalog_item_stats(
+                &clean_id,
+                Some(repo_info.stars),
+                Some(repo_info.forks),
+                Some(&detail.core.latest_version),
+            );
+        } else {
+            log::warn!(
+                target: "detail",
+                "persist_detail_bundle failed forge id={}; keeping in-memory catalog unchanged",
+                clean_id
+            );
         }
         db_ms = Some(start_db.elapsed().as_millis());
     }
@@ -622,7 +602,7 @@ async fn fetch_detail_from_github(
     is_force: bool,
     start: std::time::Instant,
 ) -> Result<AppDetail, String> {
-    let (release_endpoint, cached_etag, cached_payload, token, cached_detail_opt) = {
+    let (release_endpoint, prefetch, token, cached_detail_opt) = {
         let token = crate::commands::resolve_active_github_token(state);
         let coords = match state.catalog.get_repo_coordinates(clean_id) {
             Ok(c) => c,
@@ -647,67 +627,65 @@ async fn fetch_detail_from_github(
             "https://api.github.com/repos/{}/{}/releases/latest",
             coords.owner, coords.repo
         );
+        let repo_ep = format!(
+            "https://api.github.com/repos/{}/{}",
+            urlencoding::encode(&coords.owner),
+            urlencoding::encode(&coords.repo)
+        );
+        let readme_ep = format!(
+            "https://api.github.com/repos/{}/{}/readme",
+            urlencoding::encode(&coords.owner),
+            urlencoding::encode(&coords.repo)
+        );
         let db = state.db()?;
-        let (etag, payload) = if is_force {
-            (None, None)
-        } else {
-            let etag = db.get_etag(&ep).ok().flatten();
-            let payload = db.get_cached_payload(&ep).ok().flatten();
-            (etag, payload)
-        };
         let cached_detail = if is_force {
             None
         } else {
-            db.get_cached_app_detail(clean_id, None).ok().flatten()
+            db.get_app_detail(clean_id, None).ok().flatten()
         };
-        (ep, etag, payload, token, cached_detail)
+        let prefetch = if is_force {
+            crate::github::detail_fetch::DetailEtagPrefetch::default()
+        } else {
+            crate::github::detail_fetch::DetailEtagPrefetch {
+                release_etag: db.get_etag(&ep).ok().flatten(),
+                release_payload: db.get_cached_payload(&ep).ok().flatten(),
+                repo_etag: db.get_etag(&repo_ep).ok().flatten(),
+                repo_payload: db.get_cached_payload(&repo_ep).ok().flatten(),
+                readme_etag: db.get_etag(&readme_ep).ok().flatten(),
+                readme_payload: db.get_cached_payload(&readme_ep).ok().flatten(),
+            }
+        };
+        (ep, prefetch, token, cached_detail)
     };
 
     let fetch_result = state
         .catalog
-        .fetch_app_detail(
-            clean_id,
-            cached_etag,
-            cached_payload,
-            cached_detail_opt,
-            token.as_deref(),
-        )
+        .fetch_app_detail(clean_id, prefetch, cached_detail_opt, token.as_deref())
         .await;
 
     match fetch_result {
-        Ok((mut detail, to_cache, icon_resolution, mut diag)) => {
+        Ok(mut out) => {
             let now = crate::now_secs();
-            detail.cached_at = Some(now);
-
-            if let Ok(db) = state.db() {
-                let touch_on_304 = to_cache.is_none() && detail.is_stale != Some(true);
-                crate::github::release_fetch::apply_release_cache_effects(
-                    &db,
-                    &release_endpoint,
-                    clean_id,
-                    touch_on_304,
-                    to_cache.clone(),
-                    now,
-                );
-            }
+            out.detail.cached_at = Some(now);
 
             let (persisted, db_ms) = persist_github_detail(
                 state,
                 clean_id,
-                &mut detail,
-                icon_resolution.as_ref(),
+                &mut out.detail,
+                out.icon_resolution.as_ref(),
+                &out.etag_writes,
                 now,
             );
-            diag.steps.push(if persisted {
+            out.diag.steps.push(if persisted {
                 format!("db:{}ms", db_ms)
             } else {
                 "db:skip(stale)".to_string()
             });
 
-            state.catalog.stamp_detail(&mut detail);
+            state.catalog.stamp_detail(&mut out.detail);
 
-            let is_stale = detail.is_stale == Some(true);
-            let via = if to_cache.is_some() {
+            let is_stale = out.detail.is_stale == Some(true);
+            let via = if out.release_cache_written {
                 "network"
             } else if is_stale {
                 "cache:stale"
@@ -719,10 +697,10 @@ async fn fetch_detail_from_github(
             ev.field("id", clean_id)
                 .field("via", via)
                 .dev("force", is_force)
-                .dev_opt("rate", diag.rate_summary.as_deref())
-                .dev_opt("chk", diag.checksum_why.as_deref())
+                .dev_opt("rate", out.diag.rate_summary.as_deref())
+                .dev_opt("chk", out.diag.checksum_why.as_deref())
                 .dev_url("url", &release_endpoint);
-            for s in diag.steps {
+            for s in out.diag.steps {
                 ev.step(s);
             }
             if is_stale {
@@ -730,7 +708,7 @@ async fn fetch_detail_from_github(
             } else {
                 ev.info();
             }
-            Ok(detail)
+            Ok(out.detail)
         }
         Err(err) => {
             let reason = crate::log_support::short_reason(&err);
@@ -760,13 +738,14 @@ fn persist_github_detail(
     clean_id: &str,
     detail: &mut AppDetail,
     icon_resolution: Option<&crate::icons::DetailIconResolution>,
+    etag_writes: &[crate::repositories::EtagWrite],
     now: i64,
 ) -> (bool, u128) {
     let start_db = std::time::Instant::now();
     let mut persisted = false;
     if let Ok(db) = state.db() {
         if detail.releases.is_empty() {
-            if let Ok(Some(old)) = db.get_cached_app_detail(clean_id, None) {
+            if let Ok(Some(old)) = db.get_app_detail(clean_id, None) {
                 if !old.releases.is_empty() {
                     detail.releases = old.releases.clone();
                 }
@@ -777,7 +756,6 @@ fn persist_github_detail(
                 crate::github::detail_assets::platforms_from_assets(&detail.releases);
         }
         if !should_skip_persist(detail.is_stale) {
-            persisted = true;
             if state.catalog.get_catalog_item(clean_id).is_none() {
                 let need_desc = crate::github::detail_fetch::is_placeholder_description(
                     &detail.core.description,
@@ -865,28 +843,41 @@ fn persist_github_detail(
                 }
                 None
             };
-            state.catalog.update_catalog_item_from_detail(detail);
-            if db
-                .save_detail_with_cycle_row(clean_id, detail, staged_cycle.as_ref())
-                .is_err()
+            if crate::repositories::DetailRepository::persist_detail_bundle(
+                &db,
+                clean_id,
+                detail,
+                staged_cycle.as_ref(),
+                etag_writes,
+            )
+            .is_ok()
             {
-                let _ = db.save_cached_app_detail(clean_id, detail);
-                if let Some(c) = staged_cycle.as_ref() {
-                    let _ = db.upsert_icon_cycle(c);
+                persisted = true;
+                state.catalog.update_catalog_item_from_detail(detail);
+                if let Some(ref c) = staged_cycle {
+                    let sel = c.selected_url.trim().to_string();
+                    if c.cache_file.trim().is_empty()
+                        && (sel.starts_with("http://") || sel.starts_with("https://"))
+                    {
+                        crate::icons::spawn_cache_selected_icon(
+                            std::sync::Arc::clone(&state.db),
+                            clean_id.to_string(),
+                            c.level,
+                            sel,
+                            c.is_cataloged,
+                        );
+                    }
                 }
+            } else {
+                log::warn!(
+                    target: "detail",
+                    "persist_detail_bundle failed id={}; keeping in-memory catalog unchanged",
+                    clean_id
+                );
             }
-            if let Some(ref c) = staged_cycle {
-                let sel = c.selected_url.trim().to_string();
-                if c.cache_file.trim().is_empty()
-                    && (sel.starts_with("http://") || sel.starts_with("https://"))
-                {
-                    crate::icons::spawn_cache_selected_icon(
-                        clean_id.to_string(),
-                        c.level,
-                        sel,
-                        c.is_cataloged,
-                    );
-                }
+        } else if !etag_writes.is_empty() {
+            for w in etag_writes {
+                let _ = db.save_etag(&w.url, &w.etag, &w.payload, w.timestamp);
             }
         }
     }
@@ -911,11 +902,28 @@ pub async fn get_readme_variants(
     // ADR-0010：入站 id 统一归一化为 canonical；未知标识直接拒绝，不触碰网络。
     // token 经服务端鉴权头透传（token_headers），永不回传前端。
     let clean_id = crate::commands::require_app_id(&app_id)?;
+    if let Ok(db) = state.db() {
+        let ttl_secs = detail_ttl_secs(&db);
+        if ttl_secs > 0 {
+            if let Ok(Some(cached)) = db.get_app_detail(&clean_id, Some(ttl_secs)) {
+                if let Some(variants) = cached.readme_variants {
+                    if !variants.is_empty() {
+                        return Ok(ReadmeVariantsResponse { variants });
+                    }
+                }
+            }
+        }
+    }
     let token = crate::commands::resolve_active_github_token(&state);
     let variants = state
         .catalog
         .fetch_readme_variants(&clean_id, token.as_deref(), None)
         .await?;
+    if !variants.is_empty() {
+        if let Ok(db) = state.db() {
+            let _ = db.update_detail_readme_variants(&clean_id, &variants);
+        }
+    }
     Ok(ReadmeVariantsResponse { variants })
 }
 
@@ -1079,7 +1087,7 @@ mod catalog_platform_tests {
     #[test]
     fn cached_batch_hit_projects_detail_with_platforms() {
         let db = crate::db::Database::open_in_memory().unwrap();
-        db.save_cached_app_detail(
+        db.save_app_detail(
             "demo/app",
             &batch_detail("demo/app", "https://example.com/icon.png"),
         )
@@ -1103,7 +1111,7 @@ mod catalog_platform_tests {
     #[test]
     fn cached_batch_blanks_data_icon_without_confirmed() {
         let db = crate::db::Database::open_in_memory().unwrap();
-        db.save_cached_app_detail(
+        db.save_app_detail(
             "demo/app",
             &batch_detail("demo/app", "data:image/png;base64,AAA"),
         )

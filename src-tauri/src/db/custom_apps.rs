@@ -532,10 +532,8 @@ impl Database {
             .filter(|e| is_local_library_status(&e.status) && !e.archived))
     }
 
-    /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回归档的 canonical id 列表。
-    /// `draft`/`collected`/`submitted` 未归档行均命中归档（`submitted` 转正同样归档，
-    /// `status`/`pr_url` 保留可查）；远端 id 经 `canonical_app_id` 归一后比对（大小写漂移行治愈）。
-    pub fn retire_custom_apps_on_sync(&self, remote_ids: &[String]) -> Result<Vec<String>> {
+    /// 在调用方已开启的事务内执行转正归档（供 `CatalogRepository` 组合事务复用）。
+    pub(crate) fn retire_custom_apps_in_tx(&self, remote_ids: &[String]) -> Result<Vec<String>> {
         let mut remote_set = std::collections::HashSet::new();
         for raw in remote_ids {
             if let Some(canon) = crate::forge::canonical_app_id(raw) {
@@ -561,16 +559,20 @@ impl Database {
             return Ok(Vec::new());
         }
         let now = now_secs();
-        self.with_immediate_transaction(|| {
-            for id in &staged_ids {
-                self.exec_write(
-                    "UPDATE custom_apps SET archived = 1, updated_at = ?1 WHERE id = ?2",
-                    params![now, id],
-                )?;
-            }
-            Ok(())
-        })?;
+        for id in &staged_ids {
+            self.exec_write(
+                "UPDATE custom_apps SET archived = 1, updated_at = ?1 WHERE id = ?2",
+                params![now, id],
+            )?;
+        }
         Ok(staged_ids)
+    }
+
+    /// 转正退役：远端 id 集合命中未归档草稿即 `archived=1`，返回归档的 canonical id 列表。
+    /// `draft`/`collected`/`submitted` 未归档行均命中归档（`submitted` 转正同样归档，
+    /// `status`/`pr_url` 保留可查）；远端 id 经 `canonical_app_id` 归一后比对（大小写漂移行治愈）。
+    pub fn retire_custom_apps_on_sync(&self, remote_ids: &[String]) -> Result<Vec<String>> {
+        self.with_immediate_transaction(|| self.retire_custom_apps_in_tx(remote_ids))
     }
 }
 

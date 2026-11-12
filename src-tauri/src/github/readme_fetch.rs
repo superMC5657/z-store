@@ -25,13 +25,6 @@ fn encode_path_segments(path: &str) -> String {
 }
 
 fn readme_list_ttl_secs() -> i64 {
-    if let Some(db) = crate::github::http::open_db_opt() {
-        let minutes = db.get_detail_cache_ttl_minutes();
-        if minutes <= 0 {
-            return 0;
-        }
-        return minutes * 60;
-    }
     let d = crate::config::get_project_config().cache.detail_ttl_minutes;
     if d <= 0 {
         return 0;
@@ -101,64 +94,6 @@ fn store_root_paths(owner: &str, repo: &str, branch: &str, paths: &[String]) {
     if let Ok(mut guard) = ROOT_PATHS_CACHE.lock() {
         guard.insert(key, (paths.to_vec(), crate::github::http::now_secs()));
     }
-}
-
-/// AppDetail 缓存快查：`detail_json.readme_variants` 非空且 TTL 内直接复用。
-/// 测试覆写 `api_base` 时由调用方跳过，避免 mock 污染。
-fn try_cached_readme_variants(
-    app_id: &str,
-    owner: &str,
-    repo: &str,
-    ttl_secs: i64,
-) -> Option<Vec<ReadmeVariant>> {
-    if ttl_secs <= 0 {
-        return None;
-    }
-    let db = crate::github::http::open_db_opt()?;
-    let key = crate::forge::canonical_app_id(app_id).unwrap_or_else(|| {
-        format!(
-            "{}/{}",
-            owner.trim().to_lowercase(),
-            repo.trim().to_lowercase()
-        )
-    });
-    let detail = db
-        .get_cached_app_detail(&key, Some(ttl_secs))
-        .ok()
-        .flatten()?;
-    let variants = detail.readme_variants?;
-    if variants.is_empty() {
-        return None;
-    }
-    Some(variants)
-}
-
-/// 变体回填 `detail_json`：有落库详情时原地补 `readme_variants`，无则跳过。
-/// 全部静默降级（`ok()` 吞错），不改 API 形状、不改 ETag 语义。
-fn persist_readme_variants_silent(
-    app_id: &str,
-    owner: &str,
-    repo: &str,
-    variants: &[ReadmeVariant],
-) {
-    if variants.is_empty() {
-        return;
-    }
-    let Some(db) = crate::github::http::open_db_opt() else {
-        return;
-    };
-    let key = crate::forge::canonical_app_id(app_id).unwrap_or_else(|| {
-        format!(
-            "{}/{}",
-            owner.trim().to_lowercase(),
-            repo.trim().to_lowercase()
-        )
-    });
-    let Ok(Some(mut detail)) = db.get_cached_app_detail(&key, None) else {
-        return;
-    };
-    detail.readme_variants = Some(variants.to_vec());
-    let _ = db.save_cached_app_detail(&key, &detail);
 }
 
 async fn fetch_repo_default_branch(
@@ -353,13 +288,6 @@ impl CatalogService {
         let use_cache = !api_base.is_some_and(|b| !b.trim().is_empty());
         let list_ttl = if use_cache { readme_list_ttl_secs() } else { 0 };
 
-        // 快查 AppDetail 缓存：detail_json.readme_variants 未过期直接返回。
-        if use_cache && list_ttl > 0 {
-            if let Some(cached) = try_cached_readme_variants(app_id, &owner, &repo, list_ttl) {
-                return Ok(cached);
-            }
-        }
-
         let api_timeout = crate::github::http::api_timeout();
         let client = crate::forge::http::new_api_client(api_timeout.as_secs())
             .unwrap_or_else(|_| self.client.clone());
@@ -511,10 +439,6 @@ impl CatalogService {
                 path,
                 markdown,
             });
-        }
-        // 回填 detail_json 供下次快查复用（无落库详情时跳过，吞错）。
-        if use_cache && !out.is_empty() {
-            persist_readme_variants_silent(app_id, &owner, &repo, &out);
         }
         Ok(out)
     }

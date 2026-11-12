@@ -6,20 +6,27 @@ use crate::models::{AppCore, AppDetail, ReleaseAsset};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, IF_NONE_MATCH};
 use std::collections::HashMap;
 
-/// repo/readme ETag 预读统一经此 helper（force 时跳过 DB；
-/// 冷启动 DB 无行亦为 None）。release 的调用方传入缓存不在此读 DB，三处调用指
-/// repo 预读 + readme 预读（+ release 调用方同模式，见 commands::catalog_detail）。
-fn cached_etag_payload(url: &str, is_force_like: bool) -> (Option<String>, Option<String>) {
-    if is_force_like {
-        return (None, None);
-    }
-    if let Some(db) = crate::github::http::open_db_opt() {
-        let et = db.get_etag(url).ok().flatten();
-        let pl = db.get_cached_payload(url).ok().flatten();
-        (et, pl)
-    } else {
-        (None, None)
-    }
+use crate::repositories::EtagWrite;
+
+/// 预读的 ETag 条件请求缓存束（由调用方短锁预读传入，彻底消除底层 DB 直连）。
+#[derive(Debug, Clone, Default)]
+pub struct DetailEtagPrefetch {
+    pub release_etag: Option<String>,
+    pub release_payload: Option<String>,
+    pub repo_etag: Option<String>,
+    pub repo_payload: Option<String>,
+    pub readme_etag: Option<String>,
+    pub readme_payload: Option<String>,
+}
+
+/// 详情抓取输出：组装后的 `AppDetail` + 待落盘 ETag 列表 + 图标解析 + 诊断信息。
+#[derive(Debug, Clone)]
+pub struct DetailFetchOutput {
+    pub detail: AppDetail,
+    pub etag_writes: Vec<EtagWrite>,
+    pub release_cache_written: bool,
+    pub icon_resolution: Option<crate::icons::DetailIconResolution>,
+    pub diag: DetailFetchDiag,
 }
 
 fn parse_repo_payload(payload: Option<&String>) -> Option<GitHubRepoResponse> {
@@ -141,7 +148,7 @@ pub struct DetailFetchDiag {
     pub icon_source: Option<String>,
 }
 
-/// repo 抓取 seam：ETag 条件请求 + 限流上报 + 缓存回退解析（返回 `HttpDiag` 供宽事件汇总）。
+/// repo 抓取 seam：ETag 条件请求 + 限流上报 + 缓存回退解析（返回待写 ETag 与 `HttpDiag`）。
 async fn fetch_repo_info(
     client: &reqwest::Client,
     base_headers: &HeaderMap,
@@ -149,19 +156,25 @@ async fn fetch_repo_info(
     repo_etag: Option<&str>,
     repo_payload: Option<String>,
     id: &str,
-) -> (Option<GitHubRepoResponse>, crate::log_support::HttpDiag) {
+) -> (
+    Option<GitHubRepoResponse>,
+    Option<EtagWrite>,
+    crate::log_support::HttpDiag,
+) {
     let (outcome, diag) =
         crate::github::http::get_with_etag_diag(client, repo_url, None, base_headers, repo_etag)
             .await;
     match outcome {
         EtagGetOutcome::Fresh { text, etag } => {
-            if let Some(et) = etag {
-                if let Some(db) = crate::github::http::open_db_opt() {
-                    let _ = db.save_etag(repo_url, &et, &text, crate::github::http::now_secs());
-                }
-            }
+            let etag_write = etag.map(|et| EtagWrite {
+                url: repo_url.to_string(),
+                etag: et,
+                payload: text.clone(),
+                timestamp: crate::github::http::now_secs(),
+            });
             (
                 serde_json::from_str::<GitHubRepoResponse>(&text).ok(),
+                etag_write,
                 diag,
             )
         }
@@ -169,7 +182,7 @@ async fn fetch_repo_info(
             if matches!(other, EtagGetOutcome::Unauthorized) {
                 crate::check_auth_expired(401, &format!("op=detail-repo id={}", id));
             }
-            (parse_repo_payload(repo_payload.as_ref()), diag)
+            (parse_repo_payload(repo_payload.as_ref()), None, diag)
         }
     }
 }
@@ -212,24 +225,26 @@ struct ReadmeFetch<'a> {
     log_id: &'a str,
 }
 
-/// readme 抓取 seam：版本未变 + 有缓存直接复用；否则 ETag 条件请求，返回 `(markdown, step_label)`。
-async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> (String, String) {
+/// readme 抓取 seam：版本未变 + 有缓存直接复用；否则 ETag 条件请求，返回 `(markdown, etag_write, step_label)`。
+async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> (String, Option<EtagWrite>, String) {
     if !req.version_changed && req.has_cached_readme {
         if let Some(r) = req.cached_readme {
-            return (r.clone(), "readme:cached".to_string());
+            return (r.clone(), None, "readme:cached".to_string());
         }
     }
     let (outcome, diag) =
         crate::github::http::get_with_etag_diag(req.client, req.url, None, req.headers, req.etag)
             .await;
     let step = diag.step_label("readme");
+    let mut etag_write: Option<EtagWrite> = None;
     let text = match outcome {
         EtagGetOutcome::Fresh { text, etag } => {
-            if let Some(et) = etag {
-                if let Some(db) = crate::github::http::open_db_opt() {
-                    let _ = db.save_etag(req.url, &et, &text, crate::github::http::now_secs());
-                }
-            }
+            etag_write = etag.map(|et| EtagWrite {
+                url: req.url.to_string(),
+                etag: et,
+                payload: text.clone(),
+                timestamp: crate::github::http::now_secs(),
+            });
             if text.is_empty() {
                 req.default_readme.to_string()
             } else {
@@ -265,7 +280,7 @@ async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> (String, String) {
             }
         }
     };
-    (text, step)
+    (text, etag_write, step)
 }
 
 /// icon 探测 seam：无 token 时仍跑免鉴权 L2 SimpleIcons（零 GitHub API 配额消耗）；
@@ -487,19 +502,10 @@ impl CatalogService {
     pub async fn fetch_app_detail(
         &self,
         id: &str,
-        cached_etag: Option<String>,
-        cached_payload: Option<String>,
+        prefetch: DetailEtagPrefetch,
         cached_detail: Option<AppDetail>,
         token: Option<&str>,
-    ) -> Result<
-        (
-            AppDetail,
-            Option<(String, String)>,
-            Option<crate::icons::DetailIconResolution>,
-            DetailFetchDiag,
-        ),
-        String,
-    > {
+    ) -> Result<DetailFetchOutput, String> {
         let mut diag = DetailFetchDiag::default();
         // 身份解析内部 seam：endpoints + 收录项一次取出。
         let DetailIdentity {
@@ -518,7 +524,7 @@ impl CatalogService {
         let base_headers = crate::github::http::token_headers(token);
         let mut headers = base_headers.clone();
 
-        if let Some(ref etag) = cached_etag {
+        if let Some(ref etag) = prefetch.release_etag {
             if let Ok(val) = HeaderValue::from_str(etag) {
                 headers.insert(IF_NONE_MATCH, val);
             }
@@ -534,26 +540,27 @@ impl CatalogService {
             urlencoding::encode(&owner),
             urlencoding::encode(&repo)
         );
-        let is_force_like =
-            cached_etag.is_none() && cached_payload.is_none() && cached_detail.is_none();
-        let (repo_etag, repo_payload) = cached_etag_payload(&repo_url, is_force_like);
-        let ((release_outcome, rel_diag), (repo_info, repo_diag)) = tokio::join!(
+        let ((release_outcome, rel_diag), (repo_info, repo_etag_write, repo_diag)) = tokio::join!(
             crate::github::http::get_with_etag_diag(
                 client,
                 &release_url,
                 None,
                 &base_headers,
-                cached_etag.as_deref(),
+                prefetch.release_etag.as_deref(),
             ),
             fetch_repo_info(
                 client,
                 &base_headers,
                 &repo_url,
-                repo_etag.as_deref(),
-                repo_payload,
+                prefetch.repo_etag.as_deref(),
+                prefetch.repo_payload,
                 id,
             )
         );
+        let mut etag_writes: Vec<EtagWrite> = Vec::new();
+        if let Some(w) = repo_etag_write {
+            etag_writes.push(w);
+        }
         diag.steps.push(rel_diag.step_label("rel"));
         diag.steps.push(repo_diag.step_label("repo"));
         diag.rate_summary = rel_diag.rate_summary.or(repo_diag.rate_summary);
@@ -599,7 +606,13 @@ impl CatalogService {
                 }
                 self.update_catalog_item_from_detail(&detail);
                 diag.steps.push("reuse_304".to_string());
-                return Ok((detail, None, None, diag));
+                return Ok(DetailFetchOutput {
+                    detail,
+                    etag_writes,
+                    release_cache_written: false,
+                    icon_resolution: None,
+                    diag,
+                });
             }
         }
 
@@ -607,7 +620,7 @@ impl CatalogService {
         let (release_resp, new_cache) = match super::release_fetch::decide_detail_release(
             super::release_fetch::DetailReleaseInput {
                 outcome: &release_outcome,
-                cached_payload: cached_payload.as_deref(),
+                cached_payload: prefetch.release_payload.as_deref(),
                 cached_detail: cached_detail.as_ref(),
                 catalog_default_version: catalog_item.as_ref().map(|i| i.default_version.as_str()),
                 catalog_description_en: catalog_item
@@ -619,7 +632,13 @@ impl CatalogService {
         )? {
             super::release_fetch::DetailReleaseDecision::ReuseStale(existing) => {
                 diag.steps.push("reuse_stale".to_string());
-                return Ok((*existing, None, None, diag));
+                return Ok(DetailFetchOutput {
+                    detail: *existing,
+                    etag_writes,
+                    release_cache_written: false,
+                    icon_resolution: None,
+                    diag,
+                });
             }
             super::release_fetch::DetailReleaseDecision::Proceed {
                 release,
@@ -630,11 +649,20 @@ impl CatalogService {
                 (release, cache_to_save)
             }
         };
+        let release_cache_written = new_cache.is_some();
+        if let Some((rel_etag, rel_payload)) = new_cache {
+            etag_writes.push(EtagWrite {
+                url: release_url.clone(),
+                etag: rel_etag,
+                payload: rel_payload,
+                timestamp: crate::github::http::now_secs(),
+            });
+        }
         if matches!(
             release_outcome,
             EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed
         ) && cached_detail.is_none()
-            && cached_payload.is_none()
+            && prefetch.release_payload.is_none()
             && repo_info.is_some()
         {
             diag.steps.push("rel_fail_repo_ok_empty".to_string());
@@ -660,7 +688,6 @@ impl CatalogService {
             ACCEPT,
             HeaderValue::from_static("application/vnd.github.v3.raw"),
         );
-        let (readme_etag, readme_payload) = cached_etag_payload(&readme_url, is_force_like);
         let default_readme = format!("# {}\n\n{}", name, desc);
         let probe_branch: String = repo_info
             .as_ref()
@@ -672,13 +699,17 @@ impl CatalogService {
         let now_secs = crate::github::http::now_secs();
         let skip_checksum =
             should_skip_checksum_fetch(cached_detail.as_ref(), version_changed, now_secs);
-        let ((raw_readme, readme_step), probed_hit, (checksums, chk_step, chk_why)) = tokio::join!(
+        let (
+            (raw_readme, readme_etag_write, readme_step),
+            probed_hit,
+            (checksums, chk_step, chk_why),
+        ) = tokio::join!(
             fetch_readme_markdown(ReadmeFetch {
                 client,
                 url: &readme_url,
                 headers: &readme_headers,
-                etag: readme_etag.as_deref(),
-                payload: readme_payload.as_ref(),
+                etag: prefetch.readme_etag.as_deref(),
+                payload: prefetch.readme_payload.as_ref(),
                 version_changed,
                 has_cached_readme,
                 cached_readme: cached_readme.as_ref(),
@@ -695,6 +726,9 @@ impl CatalogService {
             ),
             fetch_checksum_table(&release_resp.assets, client, &headers, skip_checksum)
         );
+        if let Some(w) = readme_etag_write {
+            etag_writes.push(w);
+        }
         diag.steps.push(readme_step);
         if let Some(ref p) = probed_hit {
             diag.icon_source = Some(p.source.to_string());
@@ -799,7 +833,13 @@ impl CatalogService {
             },
         };
 
-        Ok((detail, new_cache, Some(icon_resolution), diag))
+        Ok(DetailFetchOutput {
+            detail,
+            etag_writes,
+            release_cache_written,
+            icon_resolution: Some(icon_resolution),
+            diag,
+        })
     }
 
     /// Checksum Manifest〈校验清单〉拉取 adapter：3s 硬超时抓取，失败置空不阻塞；
