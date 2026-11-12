@@ -22,8 +22,10 @@ Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `doc
 - **Website (`superMC5657/z-store-web`)**: Local repo at `z:\web_workplace\z-store-web`. Live demo build in `vite.demo.config.ts`.
 
 ## Rules
-Don't use `find` on Windows; where you would use `find`, use `fd` instead.
-Docs and comments: describe what it does now, not change history; explain why only when non-obvious.
+
+- Don't use `find` on Windows; where you would use `find`, use `fd` instead.
+- Always pass an explicit path to `rg` (e.g., `rg -n "pattern" .`).
+- Docs and comments: describe what it does now, not change history; explain why only when non-obvious.
 
 ### IPC Naming Convention
 
