@@ -75,6 +75,8 @@
   grid-column: span 3;
   grid-row: span 3;
   display: grid;
+  /* 单列严格约束为 minmax(0, 1fr)，避免隐式 auto 列被子项撑宽导致右上角徽标错位或被裁切 */
+  grid-template-columns: minmax(0, 1fr);
   /* 级联回退：不支持 subgrid 的环境按显式三轨渲染 */
   grid-template-rows: auto 1fr auto;
   grid-template-rows: subgrid;
@@ -107,7 +109,7 @@
   --cat-glow-size: 320px;
   --cat-glow-alpha: 10%;
   grid-column: span 6;
-  padding: 20px 22px;
+  padding: 20px 18px;
   min-block-size: 156px;
 }
 
@@ -144,17 +146,25 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   inline-size: 100%;
   min-inline-size: 0;
+}
+
+.category-bento-card.is-featured .category-card-top {
+  gap: 12px;
 }
 
 .category-card-identity {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-inline-size: 0;
   flex: 1 1 auto;
+}
+
+.category-bento-card.is-featured .category-card-identity {
+  gap: 12px;
 }
 
 .category-icon-tile {
@@ -212,13 +222,21 @@
   color: var(--text-tertiary);
   letter-spacing: 0.02em;
   line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .category-card-meta-right {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
+  max-inline-size: 58%;
+}
+
+.category-bento-card.is-featured .category-card-meta-right {
+  gap: 6px;
 }
 
 .category-count-pill {
@@ -226,16 +244,23 @@
   font-size: var(--font-xs);
   font-weight: var(--font-weight-medium);
   font-variant-numeric: tabular-nums;
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: var(--radius-xs);
   background: var(--bg-acrylic-hover);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-inline-size: 0;
   transition:
     color 0.16s var(--ease-smooth),
     background 0.16s var(--ease-smooth),
     border-color 0.16s var(--ease-smooth);
+}
+
+.category-bento-card.is-featured .category-count-pill {
+  padding: 2px 8px;
 }
 
 .category-bento-card:hover .category-count-pill {
@@ -247,6 +272,7 @@
 .category-arrow-icon {
   color: var(--text-tertiary);
   opacity: 0.55;
+  flex-shrink: 0;
   transition:
     transform 0.16s var(--ease-smooth),
     color 0.16s var(--ease-smooth),
@@ -262,6 +288,8 @@
 /* 第二轨：分类能力范围描述（双行截断守恒） */
 .category-card-desc {
   margin: 0;
+  inline-size: 100%;
+  min-inline-size: 0;
   font-size: var(--font-sm);
   color: var(--text-secondary);
   line-height: 1.5;
@@ -281,6 +309,7 @@
   justify-content: space-between;
   gap: 12px;
   inline-size: 100%;
+  min-inline-size: 0;
   padding-block-start: 10px;
   border-block-start: 1px solid var(--border-subtle);
   align-self: end;
@@ -291,7 +320,8 @@
   align-items: center;
   gap: 8px;
   min-inline-size: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0%;
+  overflow: clip;
   min-block-size: 24px;
 }
 
@@ -381,6 +411,23 @@
   .categories-bento-grid > .app-card.category-bento-card,
   .categories-bento-grid > .app-card.category-bento-card.is-featured {
     grid-column: span 6;
+    padding: 18px;
+  }
+
+  .category-bento-card.is-featured .category-card-top {
+    gap: 8px;
+  }
+
+  .category-bento-card.is-featured .category-card-identity {
+    gap: 10px;
+  }
+
+  .category-bento-card.is-featured .category-card-meta-right {
+    gap: 4px;
+  }
+
+  .category-bento-card.is-featured .category-count-pill {
+    padding: 2px 6px;
   }
 }
 
