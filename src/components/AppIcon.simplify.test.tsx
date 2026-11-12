@@ -184,4 +184,26 @@ describe('<AppIcon/> 展示分支', () => {
     expect(imgAfter?.getAttribute('src')).toBe(cachedDataUri);
     expect(container.querySelector('.app-icon-fallback-badge')).toBeNull();
   });
+
+  it('支持 fit="contain" 与 imgPadding 光学留白（默认仍为 cover）', () => {
+    const { container: defaultContainer } = render(
+      <AppIcon icon="https://cdn.simpleicons.org/r" name="DefaultFit" appId="o/d" />,
+    );
+    const defaultImg = defaultContainer.querySelector('img') as HTMLImageElement;
+    expect(defaultImg.style.objectFit).toBe('cover');
+
+    const { container: containContainer } = render(
+      <AppIcon
+        icon="https://cdn.simpleicons.org/r"
+        name="ContainFit"
+        appId="o/c"
+        fit="contain"
+        imgPadding={4}
+      />,
+    );
+    const containImg = containContainer.querySelector('img') as HTMLImageElement;
+    expect(containImg.style.objectFit).toBe('contain');
+    const box = containContainer.querySelector('.app-icon-container') as HTMLElement;
+    expect(box.style.padding).toBe('4px');
+  });
 });

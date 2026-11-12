@@ -1,27 +1,42 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { marked } from 'marked';
 import {
-  RotateCcw,
-  Shield,
-  Search,
+  ArrowRight,
   BellOff,
-  SkipForward,
-  Lock,
-  EyeOff,
   CheckCircle2,
-  Eye,
+  ChevronDown,
+  Download,
   DownloadCloud,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  FileText,
+  Lock,
+  MoreHorizontal,
+  RotateCcw,
+  Search,
+  Shield,
+  SkipForward,
 } from 'lucide-react';
-import { AppSummary, UpdateItem, UpdateCheckProgressPayload, WatchUpdatedPayload } from '../types';
+import { AppSummary, UpdateCheckProgressPayload, UpdateItem, WatchUpdatedPayload } from '../types';
 import { sanitizeHtml } from '../utils/sanitize';
 import { FlyoutMenu } from '../components/FlyoutMenu';
-import { AppIcon } from '../components/AppIcon';
 import { EmptyState } from '../components/EmptyState';
+import { ForgeIcon } from '../components/icons/PlatformIcons';
 import { ViewShell } from './ViewShell';
 import { resolveAppIconInfo } from '../utils/appHelper';
 import { queueAssembledRowIcons } from '../services/iconStore';
+import { ManageAppIcon } from './manage/ManageAppIcon';
+import { ManageHeader } from './manage/ManageHeader';
+import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar';
+import { ManageMenuItem } from './manage/ManageMenuItem';
+import {
+  buildCatalogLookup,
+  filterUpdates,
+  type UpdatesFilterTabId,
+} from './manage/manageModel';
 
 interface UpdatesViewProps {
   updates: UpdateItem[];
@@ -60,7 +75,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   onHideApp,
   updateRulesCount,
   onOpenRules,
-  watchNotifications,
+  watchNotifications = [],
   onOpenWatchedApp,
   onDismissWatch,
   onEnterUpdatesTab,
@@ -73,11 +88,12 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<UpdatesFilterTabId>('all');
 
-  const resolveIconInfo = (appId: string, iconOverride?: string, iconBgOverride?: string) =>
-    resolveAppIconInfo(appId, apps, iconOverride, iconBgOverride);
+  const catalogById = useMemo(() => buildCatalogLookup(apps), [apps]);
 
-  // 切签挂载（App 条件渲染，进 tab 即挂载）读一次 DB 快照；此处不触发任何网络检查。
+  // 切签挂载读一次 DB 快照；此处不触发任何网络检查。
   const onEnterRef = useRef(onEnterUpdatesTab);
   onEnterRef.current = onEnterUpdatesTab;
   useEffect(() => {
@@ -85,10 +101,9 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 组装落盘补齐：更新列表 + 关注动态展示图标（自身覆盖优先、收录库回退）http 远端入队（优先命中本地磁盘缓存，未命中/过期时后台拉取落盘，前 30 上限，`data:`/空跳过）。
+  // 组装落盘补齐：更新列表 + 关注动态展示图标入队本地缓存。
   useEffect(() => {
-    if (updates.length === 0 && (!watchNotifications || watchNotifications.length === 0)) return;
-    const catalogById = new Map(apps.map((a) => [a.id.toLowerCase(), a]));
+    if (updates.length === 0 && watchNotifications.length === 0) return;
     if (updates.length > 0) {
       queueAssembledRowIcons(
         updates.map((u) => ({
@@ -97,7 +112,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         })),
       );
     }
-    if (watchNotifications && watchNotifications.length > 0) {
+    if (watchNotifications.length > 0) {
       queueAssembledRowIcons(
         watchNotifications.map((n) => ({
           id: n.app_id,
@@ -105,7 +120,29 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         })),
       );
     }
-  }, [updates, apps, watchNotifications]);
+  }, [updates, watchNotifications, catalogById]);
+
+  // 关注动态清空后若停留在 watched 标签则自动回到 all
+  useEffect(() => {
+    if (activeTab === 'watched' && watchNotifications.length === 0) {
+      setActiveTab('all');
+    }
+  }, [activeTab, watchNotifications.length]);
+
+  const filteredUpdates = useMemo(
+    () => filterUpdates(updates, catalogById, searchQuery),
+    [updates, catalogById, searchQuery],
+  );
+
+  const filteredWatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return watchNotifications;
+    return watchNotifications.filter(
+      (n) =>
+        (n.app_name && n.app_name.toLowerCase().includes(q)) ||
+        n.app_id.toLowerCase().includes(q),
+    );
+  }, [watchNotifications, searchQuery]);
 
   const handleUpdate = async (id: string) => {
     try {
@@ -125,7 +162,7 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
     }
   };
 
-  const triggerAnimatedAction = async (id: string, action: () => Promise<void> | void) => {
+  const triggerAnimatedAction = (id: string, action: () => Promise<void> | void) => {
     setActiveMenuId(null);
     setFadingIds((prev) => new Set(prev).add(id));
     setTimeout(async () => {
@@ -135,387 +172,507 @@ export const UpdatesView: React.FC<UpdatesViewProps> = ({
         next.delete(id);
         return next;
       });
-    }, 280);
+    }, 240);
   };
 
-  return (
-    <ViewShell viewClass="updates-view">
-      <div className="section-header">
-        <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <RotateCcw size={18} style={{ color: 'var(--brand-primary)' }} />
-          <span>{t('updates.title', { count: updates.length })}</span>
-        </h3>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {onOpenRules && (
-            <button
-              className="btn-fluent btn-secondary btn-sm"
-              onClick={onOpenRules}
-              title={t('updates.rules_tooltip')}
-            >
-              <Shield size={14} strokeWidth={1.5} />
-              <span>{t('updates.rules_btn')}</span>
-              {typeof updateRulesCount === 'number' && updateRulesCount > 0 && (
-                <span className="badge-capsule">{updateRulesCount}</span>
-              )}
-            </button>
-          )}
-          {onCheckUpdates && (
-            <button
-              className="btn-fluent btn-secondary btn-sm"
-              onClick={async () => {
-                setLocalChecking(true);
-                try {
-                  await onCheckUpdates();
-                } finally {
-                  setLocalChecking(false);
-                }
-              }}
-              disabled={isChecking || isUpdatingAll}
-              title={t('updates.check_tooltip')}
-            >
-              {isChecking ? (
-                <>
-                  <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
-                  <span>{t('updates.checking')}</span>
-                </>
-              ) : (
-                <>
-                  <Search size={14} strokeWidth={1.5} />
-                  <span>{t('updates.check_updates')}</span>
-                </>
-              )}
-            </button>
-          )}
-          {updates.length > 0 && (
-            <button
-              className="btn-fluent btn-primary btn-sm"
-              onClick={handleUpdateAll}
-              disabled={isUpdatingAll || isChecking}
-            >
-              <DownloadCloud size={14} strokeWidth={1.5} />
-              <span>{isUpdatingAll ? t('updates.updating_all') : t('updates.update_all', { count: updates.length })}</span>
-            </button>
-          )}
-        </div>
-      </div>
+  const progressPct =
+    checkProgress && checkProgress.total > 0
+      ? Math.min(100, Math.round((checkProgress.checked / checkProgress.total) * 100))
+      : 0;
 
-      {/* 实时检查更新流式进度条 */}
+  const filterTabs: ManageFilterTab<UpdatesFilterTabId>[] | undefined =
+    watchNotifications.length > 0
+      ? [
+          {
+            id: 'all',
+            label: t('updates.filter_all'),
+            count: updates.length + watchNotifications.length,
+          },
+          {
+            id: 'updates',
+            label: t('updates.filter_updates'),
+            count: updates.length,
+          },
+          {
+            id: 'watched',
+            label: t('updates.filter_watched'),
+            count: watchNotifications.length,
+          },
+        ]
+      : undefined;
+
+  const showControlsBar = updates.length > 0 || watchNotifications.length > 0;
+  const isSearchFilteredOut =
+    searchQuery.trim() !== '' &&
+    ((activeTab === 'all' && filteredUpdates.length === 0 && filteredWatches.length === 0) ||
+      (activeTab === 'updates' && updates.length > 0 && filteredUpdates.length === 0) ||
+      (activeTab === 'watched' && filteredWatches.length === 0));
+
+  const showWatchSection =
+    !isSearchFilteredOut &&
+    (activeTab === 'all' || activeTab === 'watched') &&
+    filteredWatches.length > 0;
+  const showUpdatesSection =
+    !isSearchFilteredOut && (activeTab === 'all' || activeTab === 'updates');
+
+  const rulesCount = updateRulesCount ?? 0;
+  const subtitle =
+    updates.length > 0
+      ? t('updates.subtitle_summary', { count: updates.length, rules: rulesCount })
+      : t('updates.subtitle_all_latest', { rules: rulesCount });
+
+  return (
+    <ViewShell viewClass="updates-view manage-view">
+      <ManageHeader
+        icon={<RotateCcw size={16} strokeWidth={1.5} />}
+        title={t('updates.title_label')}
+        count={updates.length}
+        subtitle={subtitle}
+        actions={
+          <>
+            {onOpenRules && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary btn-sm"
+                onClick={onOpenRules}
+                title={t('updates.rules_tooltip')}
+              >
+                <Shield size={14} strokeWidth={1.5} />
+                <span>{t('updates.rules_btn')}</span>
+                {typeof updateRulesCount === 'number' && updateRulesCount > 0 && (
+                  <span className="badge-capsule">{updateRulesCount}</span>
+                )}
+              </button>
+            )}
+            {onCheckUpdates && (
+              <button
+                type="button"
+                className={`btn-fluent btn-sm ${updates.length === 0 ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={async () => {
+                  setLocalChecking(true);
+                  try {
+                    await onCheckUpdates();
+                  } finally {
+                    setLocalChecking(false);
+                  }
+                }}
+                disabled={isChecking || isUpdatingAll}
+                title={t('updates.check_tooltip')}
+              >
+                {isChecking ? (
+                  <>
+                    <RotateCcw size={14} strokeWidth={1.5} className="icon-spin" />
+                    <span>{t('updates.checking')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Search size={14} strokeWidth={1.5} />
+                    <span>{t('updates.check_updates')}</span>
+                  </>
+                )}
+              </button>
+            )}
+            {updates.length > 0 && (
+              <button
+                type="button"
+                className="btn-fluent btn-primary btn-sm"
+                onClick={handleUpdateAll}
+                disabled={isUpdatingAll || isChecking}
+              >
+                <DownloadCloud size={14} strokeWidth={1.5} />
+                <span>
+                  {isUpdatingAll
+                    ? t('updates.updating_all')
+                    : t('updates.update_all', { count: updates.length })}
+                </span>
+              </button>
+            )}
+          </>
+        }
+      />
+
       {isChecking && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 18px',
-            marginBottom: '16px',
-            borderRadius: 'var(--radius-lg)',
-            background: 'var(--brand-subtle)',
-            border: '1px solid var(--border-nav-active)',
-            fontSize: 'var(--font-base)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div className="spinner-icon" style={{ width: '14px', height: '14px', borderWidth: '2px', flexShrink: 0 }} />
+        <div className="manage-progress-banner" role="status" aria-live="polite">
+          <div className="manage-progress-left">
+            <span className="spinner-icon" aria-hidden="true" />
             <span>
               <strong>{t('updates.progress_title')}</strong>
               {checkProgress && checkProgress.total > 0 ? (
                 <span style={{ color: 'var(--text-secondary)' }}>
-                  {' '}{t('updates.progress_checked', {
+                  {' '}
+                  {t('updates.progress_checked', {
                     checked: checkProgress.checked,
                     total: checkProgress.total,
-                    current: checkProgress.app_name ? t('updates.progress_comparing', { name: checkProgress.app_name }) : '',
+                    current: checkProgress.app_name
+                      ? t('updates.progress_comparing', { name: checkProgress.app_name })
+                      : '',
                   })}
                 </span>
               ) : (
-                <span style={{ color: 'var(--text-secondary)' }}>{t('updates.progress_hint')}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  {t('updates.progress_hint')}
+                </span>
               )}
             </span>
           </div>
           {checkProgress && checkProgress.total > 0 && (
-            <div style={{ fontSize: 'var(--font-sm)', color: 'var(--brand-primary)', fontWeight: 510, flexShrink: 0 }}>
-              {Math.round((checkProgress.checked / checkProgress.total) * 100)}%
-            </div>
+            <span className="manage-progress-meta">{progressPct}%</span>
           )}
+          <div className="manage-progress-track">
+            <div className="manage-progress-fill" style={{ width: `${progressPct}%` }} />
+          </div>
         </div>
       )}
 
-      {/* 我关注的应用动态（与已安装更新相互独立，仅作提醒） */}
-      {watchNotifications && watchNotifications.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            marginBottom: '16px',
-            padding: '14px 18px',
-            borderRadius: 'var(--radius-lg)',
-            background: 'var(--brand-subtle)',
-            border: '1px solid var(--border-nav-active)',
-          }}
+      {showControlsBar && (
+        <ManageFilterBar<UpdatesFilterTabId>
+          tabs={filterTabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          tabsAriaLabel={t('updates.filter_tabs_aria')}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder={t('updates.search_placeholder')}
+          clearSearchLabel={t('updates.clear_search')}
+        />
+      )}
+
+      {isSearchFilteredOut && (
+        <EmptyState
+          icon={<Search size={36} strokeWidth={1.5} />}
+          title={t('updates.no_match_title')}
+          description={t('updates.no_match_desc')}
+          action={
+            <button
+              type="button"
+              className="btn-fluent btn-secondary btn-sm"
+              onClick={() => {
+                setSearchQuery('');
+                setActiveTab('all');
+              }}
+            >
+              {t('updates.reset_filters')}
+            </button>
+          }
+        />
+      )}
+
+      {showWatchSection && (
+        <section
+          className="manage-section"
+          aria-label={t('updates.watch_updates_title', { count: filteredWatches.length })}
         >
-          <span style={{ fontSize: 'var(--font-base)', fontWeight: 590, color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
-            <Eye size={14} strokeWidth={1.5} />
-            <span>{t('updates.watch_updates_title', { count: watchNotifications.length })}</span>
-          </span>
-          {watchNotifications.map((n) => {
-            const iconInfo = resolveIconInfo(n.app_id);
-            return (
-              <div
-                key={n.app_id}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', fontSize: 'var(--font-base)' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div
-                    style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0 }}
-                    onClick={() => onOpenWatchedApp && onOpenWatchedApp(n.app_id)}
-                    title={onOpenWatchedApp ? t('app.view_details') : undefined}
-                  >
-                    <AppIcon
-                      icon={iconInfo.icon}
-                      name={n.app_name || n.app_id}
-                      appId={n.app_id}
-                      iconBg={iconInfo.iconBg}
-                      size={26}
-                      style={{ width: '26px', height: '26px', borderRadius: '7px' }}
-                    />
-                  </div>
-                  <span>
-                    {t('updates.watch_released', { name: n.app_name || n.app_id, version: n.version })}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  {onOpenWatchedApp && (
-                    <button
-                      className="btn-fluent btn-primary"
-                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px' }}
-                      onClick={() => onOpenWatchedApp(n.app_id)}
-                    >
-                      {t('updates.view_details')}
-                    </button>
-                  )}
-                  {onDismissWatch && (
-                    <button
-                      className="btn-fluent btn-secondary"
-                      style={{ fontSize: 'var(--font-sm)', padding: '4px 12px' }}
-                      onClick={() => onDismissWatch(n.app_id)}
-                    >
-                      {t('updates.dismiss_watch')}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {updates.length === 0 ? (
-        isChecking ? (
-          <EmptyState
-            icon={<div className="spinner-icon" style={{ width: '36px', height: '36px', borderWidth: '3px' }} />}
-            title={t('updates.stream_checking_title')}
-            description={t('updates.stream_checking_desc')}
-          />
-        ) : (
-          <EmptyState
-            icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
-            title={t('updates.all_latest_title')}
-            description={t('updates.all_latest_desc')}
-          />
-        )
-      ) : (
-        <div className="fluent-list-container">
-          {updates.map((item) => {
-            const isExpanded = expandedId === item.app_id;
-            const isThisUpdating = updatingId === item.app_id;
-            const isMenuOpen = activeMenuId === item.app_id;
-            const isFading = fadingIds.has(item.app_id);
-            const iconInfo = resolveIconInfo(item.app_id, item.icon, item.icon_bg);
-
-            return (
-              <div
-                key={item.app_id}
-                className="fluent-list-row has-expanded-content update-item-entrance"
-                style={{
-                  position: 'relative',
-                  zIndex: isMenuOpen ? 50 : 1,
-                  opacity: isFading ? 0 : 1,
-                  transform: isFading ? 'scale(0.96) translateY(-8px)' : undefined,
-                  transition: 'opacity 0.28s cubic-bezier(0.1, 0.9, 0.2, 1), transform 0.28s cubic-bezier(0.1, 0.9, 0.2, 1)',
-                }}
-              >
-                <div className="fluent-list-row-main">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{ cursor: onOpenWatchedApp ? 'pointer' : 'default', flexShrink: 0, display: 'flex', alignItems: 'center' }}
-                      onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
-                      title={onOpenWatchedApp ? t('app.view_details') : undefined}
-                    >
-                      <AppIcon
+          <div className="manage-section-eyebrow">
+            <span className="manage-section-eyebrow-title">
+              <Eye size={13} strokeWidth={1.5} />
+              <span>{t('updates.watch_updates_title', { count: filteredWatches.length })}</span>
+            </span>
+          </div>
+          <div className="manage-panel">
+            {filteredWatches.map((n) => {
+              const iconInfo = resolveAppIconInfo(n.app_id, apps);
+              const displayName = n.app_name || n.app_id;
+              return (
+                <div key={n.app_id} className="manage-row">
+                  <div className="manage-row-main">
+                    <div className="manage-identity">
+                      <ManageAppIcon
+                        size="sm"
                         icon={iconInfo.icon}
-                        name={item.app_name}
-                        appId={item.app_id}
+                        name={displayName}
+                        appId={n.app_id}
                         iconBg={iconInfo.iconBg}
-                        className="app-icon"
-                        size={40}
-                      />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <h4
-                        style={{
-                          margin: '0 0 3px 0',
-                          fontSize: 'var(--font-md)',
-                          fontWeight: 590,
-                          cursor: onOpenWatchedApp ? 'pointer' : 'default',
-                          color: 'var(--text-primary)',
-                          letterSpacing: '-0.015em',
-                        }}
-                        onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
+                        onClick={onOpenWatchedApp ? () => onOpenWatchedApp(n.app_id) : undefined}
                         title={onOpenWatchedApp ? t('app.view_details') : undefined}
-                      >
-                        {item.app_name}
-                      </h4>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-sm)' }}>
-                        <span style={{ color: 'var(--text-tertiary)' }}>{t('updates.current_version', { version: item.current_version })}</span>
-                        <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--font-xs)' }}>➔</span>
-                        <span style={{ color: 'var(--brand-primary)', fontWeight: 510 }}>
-                          {t('updates.latest_version', { version: item.latest_version })}
-                        </span>
+                      />
+                      <div className="manage-identity-text">
+                        <div className="manage-title-line">
+                          <span
+                            className={`manage-app-name ${onOpenWatchedApp ? 'is-clickable' : ''}`.trim()}
+                            onClick={() => onOpenWatchedApp && onOpenWatchedApp(n.app_id)}
+                            title={onOpenWatchedApp ? t('app.view_details') : undefined}
+                          >
+                            {displayName}
+                          </span>
+                          <span className="manage-version-chip is-target">{n.version}</span>
+                        </div>
+                        <div className="manage-meta-line">
+                          <span>{t('updates.watch_released', { name: displayName, version: n.version })}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', position: 'relative' }}>
-                    {/* 行内三按钮统一 28px 高：btn-sm 的 max-height:28px 会钳制行内高度，改高需同步 maxHeight */}
-                    <button
-                      className="btn-fluent btn-sm btn-secondary"
-                      style={{ height: '28px', boxSizing: 'border-box', padding: '0 10px', fontSize: 'var(--font-sm)' }}
-                      onClick={() => setExpandedId(isExpanded ? null : item.app_id)}
-                    >
-                      {isExpanded ? t('updates.collapse_changelog') : t('updates.view_changelog')}
-                    </button>
-
-                    <button
-                      className="btn-fluent btn-sm btn-primary"
-                      style={{ height: '28px', boxSizing: 'border-box', padding: '0 14px', fontSize: 'calc(12.5px * var(--font-scale))', fontWeight: 510 }}
-                      disabled={isThisUpdating || isUpdatingAll}
-                      onClick={() => handleUpdate(item.app_id)}
-                    >
-                      {isThisUpdating ? t('updates.updating') : t('updates.update_now')}
-                    </button>
-
-                    {/* Fluent 更多菜单按钮 (···) */}
-                    <div style={{ position: 'relative' }}>
-                      <button
-                        className={`btn-fluent btn-sm btn-secondary ${isMenuOpen ? 'active' : ''}`}
-                        style={{
-                          width: '30px',
-                          height: '28px',
-                          boxSizing: 'border-box',
-                          padding: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          lineHeight: '1',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMenuId(isMenuOpen ? null : item.app_id);
-                        }}
-                        title={t('updates.more_rules_tooltip')}
-                        aria-label={t('installed.more_options')}
-                      >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                          <circle cx="5" cy="12" r="2" />
-                          <circle cx="12" cy="12" r="2" />
-                          <circle cx="19" cy="12" r="2" />
-                        </svg>
-                      </button>
-
-                      <FlyoutMenu
-                        isOpen={isMenuOpen}
-                        onClose={() => setActiveMenuId(null)}
-                        width={210}
-                      >
-                        {onIgnoreUpdate && (
-                          <button
-                            className="menu-item-fluent"
-                            onClick={() => {
-                              triggerAnimatedAction(item.app_id, () => onIgnoreUpdate(item.app_id));
-                            }}
-                          >
-                            <BellOff size={14} strokeWidth={1.5} style={{ color: 'var(--text-secondary)' }} />
-                            <div style={{ fontWeight: 510 }}>{t('updates.ignore_once')}</div>
-                          </button>
-                        )}
-
-                        {onSkipVersion && (
-                          <button
-                            className="menu-item-fluent"
-                            onClick={() => {
-                              triggerAnimatedAction(item.app_id, () => onSkipVersion(item.app_id, item.latest_version));
-                            }}
-                          >
-                            <SkipForward size={14} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-                            <div style={{ fontWeight: 510 }}>{t('updates.skip_version')}</div>
-                          </button>
-                        )}
-
-                        {onFreezeVersion && (
-                          <button
-                            className="menu-item-fluent"
-                            onClick={() => {
-                              triggerAnimatedAction(item.app_id, () => onFreezeVersion(item.app_id));
-                            }}
-                          >
-                            <Lock size={14} strokeWidth={1.5} style={{ color: '#60a5fa' }} />
-                            <div style={{ fontWeight: 510 }}>{t('updates.lock_version')}</div>
-                          </button>
-                        )}
-
-                        {onHideApp && (
-                          <button
-                            className="menu-item-fluent"
-                            style={{ color: '#f87171' }}
-                            onClick={() => {
-                              triggerAnimatedAction(item.app_id, () => onHideApp(item.app_id));
-                            }}
-                          >
-                            <EyeOff size={14} strokeWidth={1.5} style={{ color: '#f87171' }} />
-                            <div style={{ fontWeight: 510 }}>{t('updates.hide_app')}</div>
-                          </button>
-                        )}
-                      </FlyoutMenu>
+                    <div className="manage-row-actions">
+                      {onOpenWatchedApp && (
+                        <button
+                          type="button"
+                          className="manage-btn-action"
+                          onClick={() => onOpenWatchedApp(n.app_id)}
+                        >
+                          {t('updates.view_details')}
+                        </button>
+                      )}
+                      {onDismissWatch && (
+                        <button
+                          type="button"
+                          className="btn-fluent btn-ghost btn-sm"
+                          onClick={() => onDismissWatch(n.app_id)}
+                        >
+                          {t('updates.dismiss_watch')}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
-                {isExpanded && item.changelog && (
+      {showUpdatesSection && (
+        <section className="manage-section">
+          {updates.length === 0 ? (
+            isChecking ? (
+              <EmptyState
+                icon={
                   <div
-                    style={{
-                      marginTop: '12px',
-                      padding: '14px 16px',
-                      background: 'var(--bg-acrylic-thin)',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-color)',
-                      width: '100%',
-                      boxSizing: 'border-box',
-                    }}
-                  >
-                    <div
-                      className="readme-markdown-body"
-                      dangerouslySetInnerHTML={{
-                        __html: sanitizeHtml(marked.parse(item.changelog, { async: false }) as string),
-                      }}
-                    />
+                    className="spinner-icon"
+                    style={{ width: '36px', height: '36px', borderWidth: '3px' }}
+                  />
+                }
+                title={t('updates.stream_checking_title')}
+                description={t('updates.stream_checking_desc')}
+              />
+            ) : (
+              <EmptyState
+                icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
+                title={t('updates.all_latest_title')}
+                description={t('updates.all_latest_desc')}
+              />
+            )
+          ) : (
+            <div className="manage-panel">
+              {filteredUpdates.map((item) => {
+                const isExpanded = expandedId === item.app_id;
+                const isThisUpdating = updatingId === item.app_id;
+                const isMenuOpen = activeMenuId === item.app_id;
+                const isFading = fadingIds.has(item.app_id);
+                const iconInfo = resolveAppIconInfo(item.app_id, apps, item.icon, item.icon_bg);
+                const catalogEntry = catalogById.get(item.app_id.toLowerCase());
+                const hasChangelog = Boolean(item.changelog && item.changelog.trim());
+
+                const rowClasses = [
+                  'manage-row',
+                  'update-item-entrance',
+                  isMenuOpen ? 'is-menu-open' : '',
+                  isFading ? 'is-fading' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+
+                return (
+                  <div key={item.app_id} className={rowClasses}>
+                    <div className="manage-row-main">
+                      <div className="manage-identity">
+                        <ManageAppIcon
+                          size="md"
+                          icon={iconInfo.icon}
+                          name={item.app_name}
+                          appId={item.app_id}
+                          iconBg={iconInfo.iconBg}
+                          onClick={onOpenWatchedApp ? () => onOpenWatchedApp(item.app_id) : undefined}
+                          title={onOpenWatchedApp ? t('app.view_details') : undefined}
+                        />
+                        <div className="manage-identity-text">
+                          <div className="manage-title-line">
+                            <span
+                              className={`manage-app-name ${onOpenWatchedApp ? 'is-clickable' : ''}`.trim()}
+                              onClick={() => onOpenWatchedApp && onOpenWatchedApp(item.app_id)}
+                              title={onOpenWatchedApp ? t('app.view_details') : undefined}
+                            >
+                              {item.app_name}
+                            </span>
+                            {catalogEntry?.forge && catalogEntry.forge !== 'github' && (
+                              <span
+                                className="manage-micro-tag"
+                                title={`${t('app.code_source')}: ${catalogEntry.forge_host || catalogEntry.forge}`}
+                              >
+                                <ForgeIcon forge={catalogEntry.forge} size={11} />
+                                <span>{catalogEntry.forge_host || catalogEntry.forge}</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="manage-meta-line">
+                            <span className="manage-repo-slug" title={item.app_id}>
+                              {item.app_id}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="manage-version-diff">
+                        <span
+                          className="manage-version-chip is-neutral"
+                          title={t('updates.current_version', { version: item.current_version })}
+                        >
+                          {item.current_version}
+                        </span>
+                        <ArrowRight
+                          size={12}
+                          strokeWidth={1.5}
+                          className="manage-version-arrow"
+                          aria-hidden="true"
+                        />
+                        <span
+                          className="manage-version-chip is-target"
+                          title={t('updates.latest_version', { version: item.latest_version })}
+                        >
+                          {item.latest_version}
+                        </span>
+                      </div>
+
+                      <div className="manage-row-actions">
+                        <button
+                          type="button"
+                          className="btn-fluent btn-ghost btn-sm"
+                          aria-expanded={isExpanded}
+                          onClick={() => setExpandedId(isExpanded ? null : item.app_id)}
+                        >
+                          <FileText size={13} strokeWidth={1.5} />
+                          <span>
+                            {isExpanded ? t('updates.collapse_changelog') : t('updates.view_changelog')}
+                          </span>
+                          <ChevronDown
+                            size={13}
+                            strokeWidth={1.5}
+                            className={`manage-chevron-rotate ${isExpanded ? 'is-expanded' : ''}`.trim()}
+                          />
+                        </button>
+
+                        <button
+                          type="button"
+                          className="manage-btn-action"
+                          disabled={isThisUpdating || isUpdatingAll}
+                          onClick={() => handleUpdate(item.app_id)}
+                        >
+                          {isThisUpdating ? (
+                            <RotateCcw size={13} strokeWidth={1.5} className="icon-spin" />
+                          ) : (
+                            <Download size={13} strokeWidth={1.5} />
+                          )}
+                          <span>{isThisUpdating ? t('updates.updating') : t('updates.update_now')}</span>
+                        </button>
+
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            type="button"
+                            className={`manage-btn-icon ${isMenuOpen ? 'active' : ''}`.trim()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuId(isMenuOpen ? null : item.app_id);
+                            }}
+                            title={t('updates.more_rules_tooltip')}
+                            aria-label={t('installed.more_options')}
+                          >
+                            <MoreHorizontal size={14} strokeWidth={1.5} />
+                          </button>
+
+                          <FlyoutMenu
+                            isOpen={isMenuOpen}
+                            onClose={() => setActiveMenuId(null)}
+                            width={210}
+                          >
+                            {onIgnoreUpdate && (
+                              <ManageMenuItem
+                                icon={<BellOff size={13} strokeWidth={1.5} />}
+                                label={t('updates.ignore_once')}
+                                onClick={() =>
+                                  triggerAnimatedAction(item.app_id, () => onIgnoreUpdate(item.app_id))
+                                }
+                              />
+                            )}
+
+                            {onSkipVersion && (
+                              <ManageMenuItem
+                                icon={<SkipForward size={13} strokeWidth={1.5} />}
+                                label={t('updates.skip_version')}
+                                onClick={() =>
+                                  triggerAnimatedAction(item.app_id, () =>
+                                    onSkipVersion(item.app_id, item.latest_version),
+                                  )
+                                }
+                              />
+                            )}
+
+                            {onFreezeVersion && (
+                              <ManageMenuItem
+                                icon={<Lock size={13} strokeWidth={1.5} />}
+                                label={t('updates.lock_version')}
+                                onClick={() =>
+                                  triggerAnimatedAction(item.app_id, () => onFreezeVersion(item.app_id))
+                                }
+                              />
+                            )}
+
+                            {onHideApp && (
+                              <ManageMenuItem
+                                icon={<EyeOff size={13} strokeWidth={1.5} />}
+                                label={t('updates.hide_app')}
+                                danger
+                                onClick={() =>
+                                  triggerAnimatedAction(item.app_id, () => onHideApp(item.app_id))
+                                }
+                              />
+                            )}
+                          </FlyoutMenu>
+                        </div>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="manage-changelog-drawer">
+                        <div className="manage-changelog-header">
+                          <span>
+                            {t('updates.changelog_header', {
+                              current: item.current_version,
+                              latest: item.latest_version,
+                            })}
+                          </span>
+                          {onOpenWatchedApp && (
+                            <button
+                              type="button"
+                              className="manage-inline-link-btn"
+                              onClick={() => onOpenWatchedApp(item.app_id)}
+                            >
+                              <ExternalLink size={11} strokeWidth={1.5} />
+                              <span>{t('updates.open_app_detail')}</span>
+                            </button>
+                          )}
+                        </div>
+                        {hasChangelog ? (
+                          <div className="manage-changelog-scroll">
+                            <div
+                              className="readme-markdown-body"
+                              dangerouslySetInnerHTML={{
+                                __html: sanitizeHtml(marked.parse(item.changelog, { async: false }) as string),
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="manage-changelog-empty">
+                            <span>{t('updates.changelog_empty')}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
     </ViewShell>
   );
 };
-

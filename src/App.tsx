@@ -341,6 +341,11 @@ export const App: React.FC = () => {
     searchQuery,
   });
 
+  const updatableIdSet = useMemo(
+    () => new Set(updates.map((u) => u.app_id.toLowerCase())),
+    [updates],
+  );
+
   // 7. 更新规则动作簇（单项更新/忽略/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
   const {
     handleApplyUpdate,
@@ -719,6 +724,7 @@ export const App: React.FC = () => {
               installedApps={filteredInstalledApps}
               apps={platformFilteredApps}
               uninstallingAppIds={uninstallingAppIds}
+              updatableIds={updatableIdSet}
               onOpenDetail={handleOpenDetail}
               onLaunch={handleLaunchApp}
               onUninstall={handleUninstallApp}

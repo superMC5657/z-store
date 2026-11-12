@@ -1,28 +1,51 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
   AlertTriangle,
-  RotateCcw,
-  Shield,
+  ArrowUpDown,
+  Check,
+  Copy,
   Download,
-  Search,
-  ScanLine,
+  EyeOff,
   FolderOpen,
   Lock,
-  EyeOff,
   Package,
+  RotateCcw,
+  ScanLine,
+  Search,
+  Shield,
 } from 'lucide-react';
 import { AppSummary, InstalledApp, UpdateRule } from '../types';
-import { AppIcon } from '../components/AppIcon';
 import { EmptyState } from '../components/EmptyState';
 import { ViewShell } from './ViewShell';
-import { formatAppDate, resolveAppIconInfo, resolveInstalledAppName } from '../utils/appHelper';
+import {
+  copyTextToClipboard,
+  formatAppDate,
+  resolveAppIconInfo,
+  resolveInstalledAppName,
+} from '../utils/appHelper';
+import { InstalledItemActions } from './InstalledView/InstalledItemActions';
+import { queueAssembledRowIcons } from '../services/iconStore';
+import { ManageAppIcon } from './manage/ManageAppIcon';
+import { ManageHeader } from './manage/ManageHeader';
+import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar';
+import {
+  buildCatalogLookup,
+  buildRulesMap,
+  computeInstalledStats,
+  filterAndSortInstalledApps,
+  formatInstallMethodLabel,
+  type InstalledFilterTabId,
+  type InstalledSortOrder,
+} from './manage/manageModel';
 
 interface InstalledViewProps {
   installedApps: InstalledApp[];
   apps?: AppSummary[];
   uninstallingAppIds?: Set<string>;
+  /** 存在可用更新的小写规范 app_id 集合，用于展示轻量更新联动徽标。 */
+  updatableIds?: ReadonlySet<string>;
   onOpenDetail?: (id: string) => void;
   onLaunch: (id: string) => void;
   onUninstall: (id: string) => void;
@@ -40,13 +63,11 @@ interface InstalledViewProps {
   onRetryLoad?: () => void;
 }
 
-import { InstalledItemActions } from './InstalledView/InstalledItemActions';
-import { queueAssembledRowIcons } from '../services/iconStore';
-
 export const InstalledView: React.FC<InstalledViewProps> = ({
   installedApps,
   apps = [],
   uninstallingAppIds,
+  updatableIds,
   onOpenDetail,
   onLaunch,
   onUninstall,
@@ -67,18 +88,41 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<InstalledFilterTabId>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<InstalledSortOrder>('recent');
 
-  // 组装落盘补齐：已装列表展示图标（自身覆盖优先、收录库回退）http 远端入队（优先命中本地磁盘缓存，未命中/过期时后台拉取落盘，前 30 上限，`data:`/空跳过）。
+  const catalogById = useMemo(() => buildCatalogLookup(apps), [apps]);
+
+  // 组装落盘补齐：已装列表展示图标入队本地缓存。
   useEffect(() => {
     if (installedApps.length === 0) return;
-    const catalogById = new Map(apps.map((a) => [a.id.toLowerCase(), a]));
     queueAssembledRowIcons(
       installedApps.map((a) => ({
         id: a.app_id,
         icon: a.icon || catalogById.get(a.app_id.toLowerCase())?.icon || '',
       })),
     );
-  }, [installedApps, apps]);
+  }, [installedApps, catalogById]);
+
+  const rulesByAppId = useMemo(() => buildRulesMap(updateRules), [updateRules]);
+  const stats = useMemo(
+    () => computeInstalledStats(installedApps, rulesByAppId, updatableIds),
+    [installedApps, rulesByAppId, updatableIds],
+  );
+
+  const visibleApps = useMemo(
+    () =>
+      filterAndSortInstalledApps(
+        installedApps,
+        apps,
+        rulesByAppId,
+        activeTab,
+        searchQuery,
+        sortOrder,
+      ),
+    [installedApps, apps, rulesByAppId, activeTab, searchQuery, sortOrder],
+  );
 
   const handleTriggerUninstall = (id: string) => {
     if (uninstallingAppIds?.has(id)) return;
@@ -111,254 +155,322 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     }
   };
 
-  const handleCopyPath = (id: string, path: string) => {
-    navigator.clipboard.writeText(path);
+  const handleCopyPath = async (id: string, path: string) => {
+    const ok = await copyTextToClipboard(path);
+    if (!ok) return;
     setCopiedId(id);
     setTimeout(() => {
       setCopiedId((prev) => (prev === id ? null : prev));
     }, 2000);
   };
 
+  const filterTabs: ManageFilterTab<InstalledFilterTabId>[] = [
+    { id: 'all', label: t('installed.filter_all'), count: installedApps.length },
+    { id: 'frozen', label: t('installed.filter_frozen'), count: stats.frozenCount },
+    { id: 'hidden', label: t('installed.filter_hidden'), count: stats.hiddenCount },
+    { id: 'missing_path', label: t('installed.filter_missing_path'), count: stats.missingPathCount },
+  ];
+
+  const subtitle =
+    stats.updatableCount > 0
+      ? t('installed.subtitle_with_updates', {
+          total: installedApps.length,
+          updatable: stats.updatableCount,
+        })
+      : t('installed.subtitle_summary', {
+          total: installedApps.length,
+          frozen: stats.frozenCount,
+          hidden: stats.hiddenCount,
+        });
+
   return (
-    <ViewShell viewClass="installed-view">
-      <div className="section-header">
-        <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Package size={16} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-          <span>{t('installed.title', { count: installedApps.length })}</span>
-        </h3>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          {onScanSystemApps && (
-            <button
-              className="btn-fluent btn-primary btn-sm"
-              onClick={onScanSystemApps}
-              title={t('installed.scan_local_tooltip')}
-            >
-              <ScanLine size={14} strokeWidth={1.5} />
-              <span>{t('installed.scan_local_apps')}</span>
-            </button>
-          )}
+    <ViewShell viewClass="installed-view manage-view">
+      <ManageHeader
+        icon={<Package size={16} strokeWidth={1.5} />}
+        title={t('installed.title_label')}
+        count={installedApps.length}
+        subtitle={subtitle}
+        actions={
+          <>
+            {onOpenRules && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary btn-sm"
+                onClick={onOpenRules}
+                title={t('installed.rules_tooltip')}
+              >
+                <Shield size={14} strokeWidth={1.5} />
+                <span>{t('installed.rules')}</span>
+                {updateRules.length > 0 && (
+                  <span className="badge-capsule">{updateRules.length}</span>
+                )}
+              </button>
+            )}
 
-          {onRefresh && (
-            <button
-              className="btn-fluent btn-secondary btn-sm"
-              onClick={onRefresh}
-              disabled={isRefreshing}
-              title={t('installed.refresh_status_tooltip')}
-            >
-              <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
-              <span>{isRefreshing ? t('installed.refreshing') : t('installed.refresh_status')}</span>
-            </button>
-          )}
+            {onRefresh && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary btn-sm"
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                title={t('installed.refresh_status_tooltip')}
+              >
+                <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
+                <span>{isRefreshing ? t('installed.refreshing') : t('installed.refresh_status')}</span>
+              </button>
+            )}
 
-          {onOpenRules && (
-            <button
-              className="btn-fluent btn-secondary btn-sm"
-              onClick={onOpenRules}
-              title={t('installed.rules_tooltip')}
-            >
-              <Shield size={14} strokeWidth={1.5} />
-              <span>{t('installed.rules')}</span>
-              {updateRules.length > 0 && (
-                <span className="badge-capsule">
-                  {updateRules.length}
-                </span>
-              )}
-            </button>
-          )}
+            {onExportAppsJson && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary btn-sm"
+                onClick={onExportAppsJson}
+                title={t('installed.export_list_tooltip')}
+                disabled={installedApps.length === 0}
+              >
+                <Download size={14} strokeWidth={1.5} />
+                <span>{t('installed.export_list')}</span>
+              </button>
+            )}
 
-          {onExportAppsJson && (
+            {onScanSystemApps && (
+              <button
+                type="button"
+                className="btn-fluent btn-primary btn-sm"
+                onClick={onScanSystemApps}
+                title={t('installed.scan_local_tooltip')}
+              >
+                <ScanLine size={14} strokeWidth={1.5} />
+                <span>{t('installed.scan_local_apps')}</span>
+              </button>
+            )}
+          </>
+        }
+      />
+
+      {installedApps.length > 0 && (
+        <ManageFilterBar<InstalledFilterTabId>
+          tabs={filterTabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          tabsAriaLabel={t('installed.filter_tabs_aria')}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder={t('installed.search_placeholder')}
+          clearSearchLabel={t('installed.clear_search')}
+          rightExtra={
             <button
+              type="button"
               className="btn-fluent btn-secondary btn-sm"
-              onClick={onExportAppsJson}
-              title={t('installed.export_list_tooltip')}
-              disabled={installedApps.length === 0}
+              onClick={() => setSortOrder((prev) => (prev === 'recent' ? 'name' : 'recent'))}
+              title={t('installed.sort_tooltip')}
             >
-              <Download size={14} strokeWidth={1.5} />
-              <span>{t('installed.export_list')}</span>
+              <ArrowUpDown size={13} strokeWidth={1.5} />
+              <span>
+                {sortOrder === 'recent' ? t('installed.sort_recent') : t('installed.sort_name')}
+              </span>
             </button>
-          )}
-        </div>
-      </div>
+          }
+        />
+      )}
 
       {installedApps.length === 0 && loadError ? (
         <EmptyState
           icon={<AlertTriangle size={40} strokeWidth={1.5} />}
           title={t('installed.load_failed_title')}
           description={t('installed.load_failed_desc', { error: loadError })}
-          action={onRetryLoad && (
-            <button
-              type="button"
-              className="btn-fluent btn-secondary"
-              style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              onClick={onRetryLoad}
-            >
-              <RotateCcw size={14} strokeWidth={1.5} />
-              <span>{t('installed.retry_load')}</span>
-            </button>
-          )}
+          action={
+            onRetryLoad && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                onClick={onRetryLoad}
+              >
+                <RotateCcw size={14} strokeWidth={1.5} />
+                <span>{t('installed.retry_load')}</span>
+              </button>
+            )
+          }
         />
       ) : installedApps.length === 0 ? (
         <EmptyState
           icon={<FolderOpen size={40} strokeWidth={1.5} />}
           title={t('installed.empty_title')}
           description={t('installed.empty_desc')}
-          action={onRefresh && (
+          action={
+            onRefresh && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                onClick={onRefresh}
+                disabled={isRefreshing}
+              >
+                <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
+                <span>{isRefreshing ? t('installed.refreshing_list') : t('installed.refresh_list')}</span>
+              </button>
+            )
+          }
+        />
+      ) : visibleApps.length === 0 ? (
+        <EmptyState
+          icon={<Search size={36} strokeWidth={1.5} />}
+          title={t('installed.no_match_title')}
+          description={t('installed.no_match_desc')}
+          action={
             <button
               type="button"
-              className="btn-fluent btn-secondary"
-              style={{ padding: '6px 16px', fontSize: 'var(--font-base)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              onClick={onRefresh}
-              disabled={isRefreshing}
+              className="btn-fluent btn-secondary btn-sm"
+              onClick={() => {
+                setActiveTab('all');
+                setSearchQuery('');
+              }}
             >
-              <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
-              <span>{isRefreshing ? t('installed.refreshing_list') : t('installed.refresh_list')}</span>
+              {t('installed.reset_filters')}
             </button>
-          )}
+          }
         />
       ) : (
-        <div className="installed-list-container">
-          {installedApps.map((app) => {
-            const rule = updateRules.find((r) => r.app_id.toLowerCase() === app.app_id.toLowerCase());
+        <div className="installed-list-container manage-panel">
+          {visibleApps.map((app) => {
+            const rule = rulesByAppId.get(app.app_id.toLowerCase());
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
+            const isUpdatable = Boolean(updatableIds?.has(app.app_id.toLowerCase()));
             const isMenuOpen = activeMenuId === app.app_id;
+            const isCopied = copiedId === app.app_id;
             const iconInfo = resolveAppIconInfo(app.app_id, apps, app.icon, app.icon_bg);
             const appDisplayName = resolveInstalledAppName(app, apps);
+            const methodLabel = formatInstallMethodLabel(app.install_method);
 
             return (
               <div
                 key={app.app_id}
-                className="installed-list-row fluent-list-row"
-                style={{
-                  zIndex: isMenuOpen ? 50 : 1,
-                }}
+                className={`installed-list-row manage-row ${isMenuOpen ? 'is-menu-open' : ''}`.trim()}
               >
-                <div
-                  style={{ cursor: onOpenDetail ? 'pointer' : 'default', flexShrink: 0, display: 'flex', alignItems: 'center' }}
-                  onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
-                  title={onOpenDetail ? t('app.view_details') : undefined}
-                >
-                  <AppIcon
-                    icon={iconInfo.icon}
-                    name={appDisplayName}
-                    appId={app.app_id}
-                    iconBg={iconInfo.iconBg}
-                    className="app-icon"
-                    size={32}
-                  />
-                </div>
-
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
-                    <span
-                      style={{
-                        fontWeight: 590,
-                        fontSize: 'var(--font-md)',
-                        cursor: onOpenDetail ? 'pointer' : 'default',
-                        color: 'var(--text-primary)',
-                        letterSpacing: '-0.015em',
-                      }}
-                      onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
+                <div className="manage-row-main">
+                  <div className="manage-identity">
+                    <ManageAppIcon
+                      size="md"
+                      icon={iconInfo.icon}
+                      name={appDisplayName}
+                      appId={app.app_id}
+                      iconBg={iconInfo.iconBg}
+                      onClick={onOpenDetail ? () => onOpenDetail(app.app_id) : undefined}
                       title={onOpenDetail ? t('app.view_details') : undefined}
-                    >
-                      {appDisplayName}
-                    </span>
-                    <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', flexShrink: 0 }}>{app.version}</span>
-                    {isFrozen && (
-                      <span className="app-tag app-tag-locked">
-                        <Lock size={10} strokeWidth={1.5} />
-                        <span>{t('installed.locked')}</span>
-                      </span>
-                    )}
-                    {isHidden && (
-                      <span className="app-tag app-tag-hidden">
-                        <EyeOff size={10} strokeWidth={1.5} />
-                        <span>{t('installed.hidden')}</span>
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                    <span
-                      className="text-mono"
-                      style={{
-                        minWidth: 0,
-                      }}
-                      title={
-                        app.install_path
-                          ? `${t('installed.path_prefix', { path: app.install_path })} · ${t('installed.installed_date', { date: formatAppDate(app.installed_at, i18n.language) })}`
-                          : undefined
-                      }
-                    >
-                      {app.install_path
-                        ? t('installed.path_prefix', { path: app.install_path })
-                        : t('installed.path_not_detected_hint')}{' '}
-                      · {t('installed.installed_date', { date: formatAppDate(app.installed_at, i18n.language) })}
-                    </span>
-                    {app.install_path ? (
-                      <button
-                        onClick={() => handleCopyPath(app.app_id, app.install_path)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--brand-primary)',
-                          cursor: 'pointer',
-                          fontSize: 'var(--font-xs)',
-                          padding: '0 4px',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {copiedId === app.app_id ? t('installed.copied') : t('installed.copy')}
-                      </button>
-                    ) : (
-                      onScanSystemApps && (
-                        <button
-                          onClick={() => onScanSystemApps()}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--brand-primary)',
-                            cursor: 'pointer',
-                            fontSize: 'var(--font-xs)',
-                            padding: '0 4px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            flexShrink: 0,
-                          }}
-                        >
-                          <Search size={10} />
-                          <span>{t('installed.rescan')}</span>
-                        </button>
-                      )
-                    )}
-                  </div>
-                </div>
+                    />
 
-                <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-                  <InstalledItemActions
-                    app={app}
-                    isFrozen={isFrozen}
-                    isHidden={isHidden}
-                    isMenuOpen={isMenuOpen}
-                    isUninstallingLoading={uninstallingAppIds?.has(app.app_id)}
-                    confirmingUninstallId={confirmingUninstallId}
-                    confirmingUnmanageId={confirmingUnmanageId}
-                    onTriggerUninstall={handleTriggerUninstall}
-                    onTriggerUnmanage={handleTriggerUnmanage}
-                    onCancelConfirm={() => {
-                      setConfirmingUninstallId(null);
-                      setConfirmingUnmanageId(null);
-                    }}
-                    onLaunch={onLaunch}
-                    onToggleMenu={(id, e) => {
-                      e.stopPropagation();
-                      setActiveMenuId(activeMenuId === id ? null : id);
-                    }}
-                    onCloseMenu={() => setActiveMenuId(null)}
-                    onToggleRuleFrozen={onToggleRuleFrozen}
-                    onToggleRuleHidden={onToggleRuleHidden}
-                    compact={true}
-                  />
+                    <div className="manage-identity-text">
+                      <div className="manage-title-line">
+                        <span
+                          className={`manage-app-name ${onOpenDetail ? 'is-clickable' : ''}`.trim()}
+                          onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
+                          title={onOpenDetail ? t('app.view_details') : undefined}
+                        >
+                          {appDisplayName}
+                        </span>
+                        <span className="manage-version-chip is-neutral">{app.version}</span>
+                        {methodLabel && <span className="manage-micro-tag">{methodLabel}</span>}
+                        {isUpdatable && (
+                          <span className="manage-micro-tag is-updatable">
+                            <span
+                              className="status-dot"
+                              style={{ background: 'var(--brand-primary)' }}
+                              aria-hidden="true"
+                            />
+                            <span>{t('installed.update_available')}</span>
+                          </span>
+                        )}
+                        {isFrozen && (
+                          <span className="app-tag app-tag-locked">
+                            <Lock size={10} strokeWidth={1.5} />
+                            <span>{t('installed.locked')}</span>
+                          </span>
+                        )}
+                        {isHidden && (
+                          <span className="app-tag app-tag-hidden">
+                            <EyeOff size={10} strokeWidth={1.5} />
+                            <span>{t('installed.hidden')}</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="manage-meta-line">
+                        <span className="manage-date-text">
+                          {t('installed.installed_date', {
+                            date: formatAppDate(app.installed_at, i18n.language),
+                          })}
+                        </span>
+                        <span className="manage-meta-sep" aria-hidden="true">
+                          ·
+                        </span>
+                        {app.install_path ? (
+                          <button
+                            type="button"
+                            className={`manage-path-chip ${isCopied ? 'is-copied' : ''}`.trim()}
+                            onClick={() => void handleCopyPath(app.app_id, app.install_path)}
+                            title={`${app.install_path} — ${t('installed.copy_path_tooltip')}`}
+                            aria-label={t('installed.copy_path_tooltip')}
+                          >
+                            <span className="manage-path-text">{app.install_path}</span>
+                            <span className="manage-path-copy-badge">
+                              {isCopied ? (
+                                <>
+                                  <Check size={11} strokeWidth={1.75} />
+                                  <span>{t('installed.copied_short')}</span>
+                                </>
+                              ) : (
+                                <Copy size={11} strokeWidth={1.5} />
+                              )}
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="manage-path-missing">
+                            <span>{t('installed.path_not_detected_hint')}</span>
+                            {onScanSystemApps && (
+                              <button
+                                type="button"
+                                className="manage-inline-link-btn"
+                                onClick={() => onScanSystemApps()}
+                              >
+                                <Search size={10} strokeWidth={1.5} />
+                                <span>{t('installed.rescan')}</span>
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="manage-row-actions">
+                    <InstalledItemActions
+                      app={app}
+                      isFrozen={isFrozen}
+                      isHidden={isHidden}
+                      isMenuOpen={isMenuOpen}
+                      isUninstallingLoading={uninstallingAppIds?.has(app.app_id)}
+                      confirmingUninstallId={confirmingUninstallId}
+                      confirmingUnmanageId={confirmingUnmanageId}
+                      onTriggerUninstall={handleTriggerUninstall}
+                      onTriggerUnmanage={handleTriggerUnmanage}
+                      onCancelConfirm={() => {
+                        setConfirmingUninstallId(null);
+                        setConfirmingUnmanageId(null);
+                      }}
+                      onLaunch={onLaunch}
+                      onOpenDetail={onOpenDetail}
+                      onCopyPath={(id, path) => void handleCopyPath(id, path)}
+                      onToggleMenu={(id, e) => {
+                        e.stopPropagation();
+                        setActiveMenuId(activeMenuId === id ? null : id);
+                      }}
+                      onCloseMenu={() => setActiveMenuId(null)}
+                      onToggleRuleFrozen={onToggleRuleFrozen}
+                      onToggleRuleHidden={onToggleRuleHidden}
+                    />
+                  </div>
                 </div>
               </div>
             );

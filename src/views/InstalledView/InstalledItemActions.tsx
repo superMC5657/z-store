@@ -1,8 +1,19 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, MinusCircle } from 'lucide-react';
+import {
+  Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Lock,
+  MinusCircle,
+  MoreHorizontal,
+  Play,
+  Unlock,
+} from 'lucide-react';
 import type { InstalledApp } from '../../types';
 import { FlyoutMenu } from '../../components/FlyoutMenu';
+import { ManageMenuItem } from '../manage/ManageMenuItem';
 
 interface InstalledItemActionsProps {
   app: InstalledApp;
@@ -16,11 +27,12 @@ interface InstalledItemActionsProps {
   onTriggerUnmanage: (id: string) => void;
   onCancelConfirm: () => void;
   onLaunch: (id: string) => void;
+  onOpenDetail?: (id: string) => void;
+  onCopyPath?: (id: string, path: string) => void;
   onToggleMenu: (id: string, e: React.MouseEvent) => void;
   onCloseMenu: () => void;
   onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<void>;
   onToggleRuleHidden?: (appId: string, isHidden: boolean) => Promise<void>;
-  compact?: boolean;
 }
 
 export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
@@ -35,23 +47,25 @@ export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
   onTriggerUnmanage,
   onCancelConfirm,
   onLaunch,
+  onOpenDetail,
+  onCopyPath,
   onToggleMenu,
   onCloseMenu,
   onToggleRuleFrozen,
   onToggleRuleHidden,
-  compact = false,
 }) => {
   const { t } = useTranslation();
   const isUnmanaging = confirmingUnmanageId === app.app_id;
   const isUninstalling = confirmingUninstallId === app.app_id;
 
   return (
-    <div className={`installed-actions-group ${compact ? 'compact' : ''}`}>
-      {/* 左侧区域：破坏性/管理操作 (卡片模式在左，紧凑列表模式居右归并) */}
+    <div className="installed-actions-group">
+      {/* 左侧区域：低权重卸载 / 二次确认操作 */}
       <div className="installed-actions-left">
         {isUninstallingLoading ? (
           <button
-            className={`installed-action-btn btn-installed-uninstall btn-loading ${compact ? 'compact' : ''}`}
+            type="button"
+            className="installed-action-btn btn-installed-uninstall btn-loading"
             disabled
             title={t('installed.uninstalling_tooltip')}
           >
@@ -60,14 +74,16 @@ export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
         ) : isUnmanaging ? (
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
             <button
-              className={`installed-action-btn btn-confirm-warning ${compact ? 'compact' : ''}`}
+              type="button"
+              className="installed-action-btn btn-confirm-warning"
               onClick={() => onTriggerUnmanage(app.app_id)}
               title={t('installed.confirm_unmanage_tooltip')}
             >
               {t('installed.confirm_unmanage')}
             </button>
             <button
-              className={`installed-action-btn btn-confirm-cancel ${compact ? 'compact' : ''}`}
+              type="button"
+              className="installed-action-btn btn-confirm-cancel"
               onClick={onCancelConfirm}
               title={t('installed.cancel_confirm_tooltip')}
             >
@@ -77,14 +93,16 @@ export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
         ) : isUninstalling ? (
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
             <button
-              className={`installed-action-btn btn-confirm-danger ${compact ? 'compact' : ''}`}
+              type="button"
+              className="installed-action-btn btn-confirm-danger"
               onClick={() => onTriggerUninstall(app.app_id)}
               title={t('installed.confirm_uninstall_tooltip')}
             >
               {t('installed.confirm_uninstall')}
             </button>
             <button
-              className={`installed-action-btn btn-confirm-cancel ${compact ? 'compact' : ''}`}
+              type="button"
+              className="installed-action-btn btn-confirm-cancel"
               onClick={onCancelConfirm}
               title={t('installed.cancel_confirm_tooltip')}
             >
@@ -93,7 +111,8 @@ export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
           </div>
         ) : (
           <button
-            className={`installed-action-btn btn-installed-uninstall ${compact ? 'compact' : ''}`}
+            type="button"
+            className="installed-action-btn btn-installed-uninstall"
             onClick={() => onTriggerUninstall(app.app_id)}
             title={t('installed.uninstall_tooltip')}
           >
@@ -102,31 +121,29 @@ export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
         )}
       </div>
 
-      {/* 右侧区域：核心高频行动点 [ ▶ 启动 ] + [ ··· 更多操作 ] */}
+      {/* 右侧区域：Outline [ ▶ 启动 ] + [ ··· 更多操作 ] */}
       <div className="installed-actions-right">
         <button
-          className={`installed-action-btn btn-fluent btn-primary ${compact ? 'compact' : ''}`}
+          type="button"
+          className="manage-btn-action"
           disabled={isUninstallingLoading}
           onClick={() => onLaunch(app.app_id)}
           title={t('installed.launch_tooltip')}
         >
-          <Play size={12} fill="currentColor" strokeWidth={0} aria-hidden="true" style={{ marginRight: '4px', width: '12px', height: '12px', flexShrink: 0, display: 'block' }} />
-          <span style={{ lineHeight: 1 }}>{t('installed.launch')}</span>
+          <Play size={11} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+          <span>{t('installed.launch')}</span>
         </button>
 
         <div style={{ position: 'relative' }}>
           <button
-            className={`installed-action-btn btn-fluent btn-secondary btn-icon-only ${compact ? 'compact' : ''} ${isMenuOpen ? 'active' : ''}`}
+            type="button"
+            className={`manage-btn-icon ${isMenuOpen ? 'active' : ''}`.trim()}
             disabled={isUninstallingLoading}
             onClick={(e) => onToggleMenu(app.app_id, e)}
             title={t('installed.more_options_tooltip')}
             aria-label={t('installed.more_options')}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="5" cy="12" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="19" cy="12" r="2" />
-            </svg>
+            <MoreHorizontal size={14} strokeWidth={1.5} />
           </button>
 
           <FlyoutMenu
@@ -136,88 +153,87 @@ export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
             width={210}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', width: '100%' }}>
-              {/* 版本锁定 */}
+              {onOpenDetail && (
+                <ManageMenuItem
+                  icon={<ExternalLink size={13} strokeWidth={1.5} />}
+                  label={t('installed.view_details')}
+                  onClick={() => {
+                    onCloseMenu();
+                    onOpenDetail(app.app_id);
+                  }}
+                />
+              )}
+
+              {app.install_path && onCopyPath && (
+                <ManageMenuItem
+                  icon={<Copy size={13} strokeWidth={1.5} />}
+                  label={t('installed.copy_path_menu')}
+                  onClick={() => {
+                    onCloseMenu();
+                    onCopyPath(app.app_id, app.install_path);
+                  }}
+                />
+              )}
+
+              {(onOpenDetail || (app.install_path && onCopyPath)) &&
+                (onToggleRuleFrozen || onToggleRuleHidden) && <div className="flyout-divider" />}
+
               {onToggleRuleFrozen && (
-                <button
-                  className="flyout-item"
+                <ManageMenuItem
+                  icon={
+                    isFrozen ? (
+                      <Unlock size={13} strokeWidth={1.5} />
+                    ) : (
+                      <Lock size={13} strokeWidth={1.5} />
+                    )
+                  }
+                  label={isFrozen ? t('installed.unlock_version') : t('installed.lock_version')}
+                  badge={isFrozen ? t('installed.locked') : undefined}
+                  title={
+                    isFrozen
+                      ? t('installed.unlock_version_tooltip')
+                      : t('installed.lock_version_tooltip')
+                  }
                   onClick={async () => {
                     onCloseMenu();
                     await onToggleRuleFrozen(app.app_id, !isFrozen);
                   }}
-                  title={isFrozen ? t('installed.unlock_version_tooltip') : t('installed.lock_version_tooltip')}
-                >
-                  <div className="flyout-item-icon">
-                    {isFrozen ? (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 9.9-1" />
-                      </svg>
-                    ) : (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="flyout-item-content">
-                    <div className="flyout-item-title">
-                      <span>{isFrozen ? t('installed.unlock_version') : t('installed.lock_version')}</span>
-                      {isFrozen && <span className="flyout-item-badge badge-blue">{t('installed.locked')}</span>}
-                    </div>
-                  </div>
-                </button>
+                />
               )}
 
-              {/* 隐藏应用 */}
               {onToggleRuleHidden && (
-                <button
-                  className="flyout-item"
+                <ManageMenuItem
+                  icon={
+                    isHidden ? (
+                      <Eye size={13} strokeWidth={1.5} />
+                    ) : (
+                      <EyeOff size={13} strokeWidth={1.5} />
+                    )
+                  }
+                  label={isHidden ? t('installed.unhide_app') : t('installed.hide_app')}
+                  badge={isHidden ? t('installed.hidden') : undefined}
+                  title={
+                    isHidden ? t('installed.unhide_app_tooltip') : t('installed.hide_app_tooltip')
+                  }
                   onClick={async () => {
                     onCloseMenu();
                     await onToggleRuleHidden(app.app_id, !isHidden);
                   }}
-                  title={isHidden ? t('installed.unhide_app_tooltip') : t('installed.hide_app_tooltip')}
-                >
-                  <div className="flyout-item-icon">
-                    {isHidden ? (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    ) : (
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                        <line x1="1" y1="1" x2="23" y2="23" />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="flyout-item-content">
-                    <div className="flyout-item-title">
-                      <span>{isHidden ? t('installed.unhide_app') : t('installed.hide_app')}</span>
-                      {isHidden && <span className="flyout-item-badge badge-red">{t('installed.hidden')}</span>}
-                    </div>
-                  </div>
-                </button>
+                />
               )}
 
               <div className="flyout-divider" />
 
-              {/* 取消管理 */}
-              <button
-                className="flyout-item flyout-item-danger"
+              <ManageMenuItem
+                icon={<MinusCircle size={13} strokeWidth={1.5} />}
+                label={t('installed.unmanage')}
+                danger
+                title={t('installed.unmanage_tooltip')}
                 onClick={() => {
                   onCloseMenu();
                   onTriggerUnmanage(app.app_id);
                 }}
-                title={t('installed.unmanage_tooltip')}
-              >
-                <div className="flyout-item-icon">
-                  <MinusCircle size={13} />
-                </div>
-                <div className="flyout-item-content">
-                  <div className="flyout-item-title">{t('installed.unmanage')}</div>
-                </div>
-              </button>
+              />
             </div>
           </FlyoutMenu>
         </div>

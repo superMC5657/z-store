@@ -18,6 +18,10 @@ interface AppIconProps {
   style?: React.CSSProperties;
   size?: number | string;
   iconOverride?: string;
+  /** 图标缩放策略：默认 `'cover'` 保持卡片铺满；管理列表可传 `'contain'` 防异形图切边。 */
+  fit?: 'cover' | 'contain';
+  /** 仅图片激活时应用的光学安全区内边距，回退徽章与 emoji 仍满框填充。 */
+  imgPadding?: number | string;
   /** 首屏以上 eager，其余一律 lazy（默认 lazy，避免全网格同时抢带宽）。 */
   loading?: 'eager' | 'lazy';
 }
@@ -98,6 +102,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
   style = {},
   size,
   iconOverride,
+  fit = 'cover',
+  imgPadding,
   loading = 'lazy',
 }) => {
   // 图标读侧订阅：店内 `admitIconHit` 受理后经 `subscribeIconWrites` 扇出，
@@ -188,6 +194,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
     justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
+    boxSizing: 'border-box',
+    ...(showImg && imgPadding !== undefined ? { padding: imgPadding } : {}),
     ...(size ? { width: size, height: size } : {}),
     ...style,
   };
@@ -205,8 +213,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
           style={{
             width: '100%',
             height: '100%',
-            objectFit: 'cover',
-            borderRadius: 'inherit',
+            objectFit: fit,
+            borderRadius: imgPadding !== undefined ? 'var(--radius-xs, 4px)' : 'inherit',
             display: 'block',
             opacity: 1,
           }}

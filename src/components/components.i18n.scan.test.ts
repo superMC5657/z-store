@@ -50,6 +50,13 @@ const MIGRATED_FILES = [
   '../views/pending/PendingListColumn.tsx',
   '../views/pending/PendingPreviewLane.tsx',
   '../views/pending/PendingRichCard.tsx',
+  '../views/manage/ManageAppIcon.tsx',
+  '../views/manage/ManageHeader.tsx',
+  '../views/manage/ManageFilterBar.tsx',
+  '../views/manage/ManageMenuItem.tsx',
+  '../views/InstalledView/InstalledItemActions.tsx',
+  '../views/InstalledView.tsx',
+  '../views/UpdatesView.tsx',
   '../app/InstallConfirmDialog.tsx',
 ];
 

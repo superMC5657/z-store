@@ -109,7 +109,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText(/已安装.*\(0\)/)).toBeTruthy();
+      expect(screen.getByText('已安装')).toBeTruthy();
+      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
       expect(screen.getByText('规则')).toBeTruthy();
       expect(screen.getByText('导出清单')).toBeTruthy();
       expect(screen.getByText('扫描本地')).toBeTruthy();
@@ -128,7 +129,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText(/Installed.*\(0\)/)).toBeTruthy();
+      expect(screen.getByText('Installed')).toBeTruthy();
+      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
       expect(screen.getByText('Rules')).toBeTruthy();
       expect(screen.getByText('Export List')).toBeTruthy();
       expect(screen.getByText('Scan Local')).toBeTruthy();
@@ -295,7 +297,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText(/应用更新.*\(0\)/)).toBeTruthy();
+      expect(screen.getByText('应用更新')).toBeTruthy();
+      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
       expect(screen.getByText('检查更新')).toBeTruthy();
       expect(screen.getByText('已是最新版本')).toBeTruthy();
       unmount();
@@ -311,7 +314,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
         />,
       );
 
-      expect(screen.getByText(/Updates.*\(0\)/)).toBeTruthy();
+      expect(screen.getByText('App Updates')).toBeTruthy();
+      expect(document.querySelector('.manage-count-pill')?.textContent).toBe('0');
       expect(screen.getByText('Check Updates')).toBeTruthy();
       expect(screen.getByText('Up to Date')).toBeTruthy();
     });
