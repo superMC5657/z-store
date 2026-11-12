@@ -495,7 +495,22 @@ async fn fetch_detail_from_forge(
         }
     };
     let now = crate::now_secs();
-    let platforms = crate::github::detail_assets::platforms_from_assets(&release_info.assets);
+    let catalog_item = state.catalog.get_catalog_item(&clean_id);
+    let platforms = crate::github::detail_assets::platforms_with_ios_union(
+        &release_info.assets,
+        catalog_item.as_ref().map(|i| i.platforms.as_slice()),
+    );
+    let license = catalog_item
+        .as_ref()
+        .map(|i| i.license.trim())
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "OpenSource".to_string());
+    let homepage = repo_info
+        .homepage
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| catalog_item.as_ref().and_then(|i| i.homepage.clone()));
     let mut detail = AppDetail {
         core: AppCore {
             id: clean_id.clone(),
@@ -508,14 +523,14 @@ async fn fetch_detail_from_forge(
             description: repo_info.description.clone().unwrap_or_default(),
             stars: repo_info.stars,
             forks: repo_info.forks,
-            license: "OpenSource".to_string(),
+            license,
             latest_version: release_info.tag_name,
-            is_verified: false,
+            is_verified: catalog_item.as_ref().map(|i| i.is_verified).unwrap_or(false),
             category: "external".to_string(),
             category_name: "跨平台开源".to_string(),
             forge: Some(coord.forge.as_str().to_string()),
             forge_host: Some(coord.host.clone()),
-            homepage: repo_info.homepage.clone(),
+            homepage,
             platforms,
             is_cataloged: None,
             source: None,
@@ -535,48 +550,15 @@ async fn fetch_detail_from_forge(
     };
 
     let mut db_ms: Option<u128> = None;
+    if let Some(ref cat) = catalog_item {
+        cat.overlay_detail_core(&mut detail.core);
+    }
     if let Ok(db) = state.db() {
         let start_db = std::time::Instant::now();
-        let icon_trimmed = detail.core.icon.trim();
-        let staged_cycle: Option<crate::db::AppIconCycle> = if !icon_trimmed.is_empty() {
-            let mut cycle = db
-                .get_icon_cycle(&clean_id)
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| {
-                    crate::db::AppIconCycle::new(&clean_id, &detail.core.owner, &detail.core.repo)
-                });
-            cycle.is_cataloged = false;
-            cycle.level = 4;
-            cycle.l4_url = icon_trimmed.to_string();
-            cycle.selected_url = icon_trimmed.to_string();
-            cycle.updated_at = crate::now_secs();
-            Some(cycle)
-        } else {
-            None
-        };
-        if crate::repositories::DetailRepository::persist_detail_bundle(
-            &db,
-            &clean_id,
-            &detail,
-            staged_cycle.as_ref(),
-            &[],
-        )
-        .is_ok()
-        {
-            state.catalog.update_catalog_item_stats(
-                &clean_id,
-                Some(repo_info.stars),
-                Some(repo_info.forks),
-                Some(&detail.core.latest_version),
-            );
-        } else {
-            log::warn!(
-                target: "detail",
-                "persist_detail_bundle failed forge id={}; keeping in-memory catalog unchanged",
-                clean_id
-            );
+        if detail.core.icon.trim().is_empty() {
+            restore_existing_cycle_icon(&db, &clean_id, &mut detail);
         }
+        persist_detail_and_sync_catalog(state, &db, &clean_id, &detail, None, &[]);
         db_ms = Some(start_db.elapsed().as_millis());
     }
 
@@ -733,6 +715,47 @@ async fn fetch_detail_from_github(
     }
 }
 
+/// 详情无图标时从已确认的 `app_icon_cycles` 恢复选定图标（跳过显式置空的 L5）。
+fn restore_existing_cycle_icon(db: &crate::db::Database, clean_id: &str, detail: &mut AppDetail) {
+    if let Ok(Some(existing_cycle)) = db.get_icon_cycle(clean_id) {
+        if existing_cycle.pinned
+            || (existing_cycle.level != 5 && !existing_cycle.selected_url.trim().is_empty())
+        {
+            detail.core.icon = existing_cycle.selected_url.clone();
+        }
+    }
+}
+
+/// 原子写入详情捆绑并在提交成功后同步刷新内存目录索引；失败时保持内存索引不变。
+fn persist_detail_and_sync_catalog(
+    state: &AppState,
+    db: &crate::db::Database,
+    clean_id: &str,
+    detail: &AppDetail,
+    staged_cycle: Option<&crate::db::AppIconCycle>,
+    etag_writes: &[crate::repositories::EtagWrite],
+) -> bool {
+    if crate::repositories::DetailRepository::persist_detail_bundle(
+        db,
+        clean_id,
+        detail,
+        staged_cycle,
+        etag_writes,
+    )
+    .is_ok()
+    {
+        state.catalog.update_catalog_item_from_detail(detail);
+        true
+    } else {
+        log::warn!(
+            target: "detail",
+            "persist_detail_bundle failed id={}; keeping in-memory catalog unchanged",
+            clean_id
+        );
+        false
+    }
+}
+
 fn persist_github_detail(
     state: &AppState,
     clean_id: &str,
@@ -833,27 +856,18 @@ fn persist_github_detail(
                 }
                 Some(cycle)
             } else {
-                if let Ok(Some(existing_cycle)) = db.get_icon_cycle(clean_id) {
-                    if existing_cycle.pinned
-                        || (existing_cycle.level != 5
-                            && !existing_cycle.selected_url.trim().is_empty())
-                    {
-                        detail.core.icon = existing_cycle.selected_url.clone();
-                    }
-                }
+                restore_existing_cycle_icon(&db, clean_id, detail);
                 None
             };
-            if crate::repositories::DetailRepository::persist_detail_bundle(
+            if persist_detail_and_sync_catalog(
+                state,
                 &db,
                 clean_id,
                 detail,
                 staged_cycle.as_ref(),
                 etag_writes,
-            )
-            .is_ok()
-            {
+            ) {
                 persisted = true;
-                state.catalog.update_catalog_item_from_detail(detail);
                 if let Some(ref c) = staged_cycle {
                     let sel = c.selected_url.trim().to_string();
                     if c.cache_file.trim().is_empty()
@@ -868,12 +882,6 @@ fn persist_github_detail(
                         );
                     }
                 }
-            } else {
-                log::warn!(
-                    target: "detail",
-                    "persist_detail_bundle failed id={}; keeping in-memory catalog unchanged",
-                    clean_id
-                );
             }
         } else if !etag_writes.is_empty() {
             for w in etag_writes {

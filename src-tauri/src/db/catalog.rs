@@ -282,42 +282,6 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// 轻量回写统计字段（stars / forks / latest_version）到 `catalog_apps`。
-    pub fn update_catalog_app_stats(
-        &self,
-        id: &str,
-        stars: Option<u64>,
-        forks: Option<u64>,
-        version: Option<&str>,
-    ) -> Result<bool> {
-        let Some(key) = crate::forge::canonical_app_id(id) else {
-            return Ok(false);
-        };
-        let Some(existing) = self.get_catalog_app(&key)? else {
-            return Ok(false);
-        };
-        let next_stars = stars.unwrap_or(existing.stars);
-        let next_forks = forks.unwrap_or(existing.forks);
-        let next_ver = version
-            .filter(|v| CatalogItem::is_concrete_version(v))
-            .map(|v| v.trim().to_string())
-            .unwrap_or_else(|| existing.default_version.clone());
-        let now = now_secs();
-        let rows = self.exec_write(
-            r#"
-            UPDATE catalog_apps SET
-                stars = ?1,
-                forks = ?2,
-                default_version = ?3,
-                detail_synced_at = ?4,
-                updated_at = ?4
-            WHERE id = ?5
-            "#,
-            params![next_stars as i64, next_forks as i64, next_ver, now, key],
-        )?;
-        Ok(rows > 0)
-    }
-
     /// 平台懒回填持久化：仅当 `catalog_apps` 存在对应行且推导出非空平台时回写 `platforms_json`。
     pub fn update_catalog_app_platforms(&self, id: &str, platforms: &[String]) -> Result<bool> {
         if platforms.is_empty() {

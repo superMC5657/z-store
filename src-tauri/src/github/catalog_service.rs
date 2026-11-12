@@ -314,40 +314,6 @@ impl CatalogService {
         }
     }
 
-    /// 动态回写并保鲜单个应用的实时统计数据（Stars、Forks、最新版本等）
-    pub fn update_catalog_item_stats(
-        &self,
-        id: &str,
-        stars: Option<u64>,
-        forks: Option<u64>,
-        version: Option<&str>,
-    ) {
-        let Some(key) = crate::forge::canonical_app_id(id) else {
-            return;
-        };
-        let apply = |list: &mut Vec<CatalogItem>| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == key) {
-                if let Some(s) = stars {
-                    item.stars = s;
-                }
-                if let Some(f) = forks {
-                    item.forks = f;
-                }
-                if let Some(v) = version {
-                    if CatalogItem::is_concrete_version(v) {
-                        item.default_version = v.trim().to_string();
-                    }
-                }
-            }
-        };
-        if let Ok(mut items) = self.items.write() {
-            apply(&mut items);
-        }
-        if let Ok(mut collected) = self.collected.write() {
-            apply(&mut collected);
-        }
-    }
-
     /// 从应用详情全量回写内存目录项（同时覆盖远端 `items` 与本地收录 `collected`）：
     /// 同步 `stars`、`forks`、`default_version`、`platforms`、`license`、`homepage` 与缺省时的 `http(s)` 图标。
     pub fn update_catalog_item_from_detail(&self, detail: &crate::models::AppDetail) {

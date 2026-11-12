@@ -38,24 +38,6 @@ impl DetailRepository {
         })
     }
 
-    /// 304 命中时保鲜：刷新 `app_details.cached_at` 并按需回写 `catalog_apps` 最新统计与 `api_etag_cache`。
-    pub fn refresh_on_not_modified(
-        db: &Database,
-        app_id: &str,
-        detail: &AppDetail,
-        now: i64,
-        etag_writes: &[EtagWrite],
-    ) -> Result<()> {
-        db.with_immediate_transaction(|| {
-            db.touch_app_detail(app_id, now)?;
-            let _ = db.update_catalog_app_from_detail(detail)?;
-            for w in etag_writes {
-                db.save_etag(&w.url, &w.etag, &w.payload, w.timestamp)?;
-            }
-            Ok(())
-        })
-    }
-
     /// 从 `app_details` 读取详情并叠加目录精校元数据与收录标记。
     pub fn project_detail(
         db: &Database,

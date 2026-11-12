@@ -604,7 +604,6 @@ impl CatalogService {
                         detail.core.description_en = eff_en;
                     }
                 }
-                self.update_catalog_item_from_detail(&detail);
                 diag.steps.push("reuse_304".to_string());
                 return Ok(DetailFetchOutput {
                     detail,
@@ -753,13 +752,6 @@ impl CatalogService {
             license: latest_license,
             homepage: latest_homepage,
         } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref());
-
-        self.update_catalog_item_stats(
-            id,
-            Some(latest_stars),
-            Some(latest_forks),
-            Some(&release_resp.tag_name),
-        );
 
         let (extracted_logo, cleaned_readme) =
             Self::extract_and_strip_logo_from_readme(&raw_readme, &owner, &repo);

@@ -5,8 +5,10 @@
  *   非远端置空走首字母（`AppIcon` 同规则）。
  * - `needsFavoriteIconWarm`：空/非远端需查轮换，合法远端仅文件预热。
  */
-import { describe, expect, it } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../types';
+import { tauriApi } from '../services/api';
 import { PLATFORM_IDS } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import {
@@ -20,6 +22,7 @@ import {
   needsFavoriteIconWarm,
   parseFavoriteOwnerRepo,
   pickFavoritePersistIconUrl,
+  useUncatalogedJoin,
 } from './favoritesUncataloged';
 import { selectFavoritesViewApps } from './selectors';
 
@@ -305,5 +308,93 @@ describe('buildRecordCatalogedMap (record wins, false wins)', () => {
       isFavoritePlaceholderRow({ ...makeFavoritePlaceholderSummary('o/x'), stars: 10 }),
     ).toBe(false);
     expect(isFavoritePlaceholderRow(null as unknown as AppSummary)).toBe(false);
+  });
+});
+
+describe('useUncatalogedJoin batch filtering & eviction short-circuit', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('初始全量均已收录时直接短路，不发任何回填 IPC', () => {
+    const batchSpy = vi.spyOn(tauriApi, 'getCachedAppDetailsBatch').mockResolvedValue([]);
+    const favEntriesSpy = vi.spyOn(tauriApi, 'getFavoriteEntries').mockResolvedValue([]);
+    const watchedSpy = vi.spyOn(tauriApi, 'getWatchedApps').mockResolvedValue([]);
+
+    const { result } = renderHook(() =>
+      useUncatalogedJoin({
+        favoriteIds: new Set(['Catalog/App']),
+        watchedIds: new Set(),
+        apps: [row('catalog/app', ['windows'])],
+      }),
+    );
+
+    expect(result.current.uncatalogedExtraApps).toEqual([]);
+    expect(batchSpy).not.toHaveBeenCalled();
+    expect(favEntriesSpy).not.toHaveBeenCalled();
+    expect(watchedSpy).not.toHaveBeenCalled();
+  });
+
+  it('只把未收录 id 传给 getCachedAppDetailsBatch，回填富卡并按记录打标，驱逐或取消收藏后短路', async () => {
+    const richUnknown = {
+      ...makeFavoritePlaceholderSummary('Unknown/Repo'),
+      description: 'cached rich',
+      stars: 99,
+      platforms: ['windows'],
+    };
+    const batchSpy = vi
+      .spyOn(tauriApi, 'getCachedAppDetailsBatch')
+      .mockResolvedValue([richUnknown, null]);
+    const favEntriesSpy = vi
+      .spyOn(tauriApi, 'getFavoriteEntries')
+      .mockResolvedValue([{ app_id: 'unknown/repo', is_cataloged: true, favorited_at: 1 }]);
+    const watchedSpy = vi.spyOn(tauriApi, 'getWatchedApps').mockResolvedValue([]);
+
+    const initialApps = [row('catalog/app', ['windows'])];
+
+    const { rerender, result } = renderHook(
+      ({
+        favoriteIds,
+        watchedIds,
+        apps,
+      }: {
+        favoriteIds: Set<string>;
+        watchedIds: Set<string>;
+        apps: AppSummary[];
+      }) => useUncatalogedJoin({ favoriteIds, watchedIds, apps }),
+      {
+        initialProps: {
+          favoriteIds: new Set(['Catalog/App', 'Unknown/Repo']),
+          watchedIds: new Set(['unknown/repo', 'Another/Uncataloged']),
+          apps: initialApps,
+        },
+      },
+    );
+
+    await waitFor(() => {
+      const hit = result.current.uncatalogedExtraApps.find((a) => a.id === 'Unknown/Repo');
+      expect(hit?.stars).toBe(99);
+      expect(hit?.is_cataloged).toBe(true);
+    });
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    expect(batchSpy).toHaveBeenCalledWith(['Unknown/Repo', 'Another/Uncataloged']);
+
+    batchSpy.mockClear();
+    favEntriesSpy.mockClear();
+    watchedSpy.mockClear();
+
+    // Another/Uncataloged 被取消收藏，同时 Unknown/Repo 进入 catalog：两项均被驱逐且当轮短路，不再发 IPC
+    rerender({
+      favoriteIds: new Set(['Catalog/App', 'Unknown/Repo']),
+      watchedIds: new Set(),
+      apps: [row('catalog/app', ['windows']), row('unknown/repo', ['windows'])],
+    });
+
+    await waitFor(() => {
+      expect(result.current.uncatalogedExtraApps).toEqual([]);
+    });
+    expect(batchSpy).not.toHaveBeenCalled();
+    expect(favEntriesSpy).not.toHaveBeenCalled();
+    expect(watchedSpy).not.toHaveBeenCalled();
   });
 });

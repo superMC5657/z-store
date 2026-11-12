@@ -5,7 +5,7 @@ import { tauriApi } from '../services/api';
 import { admitIconHit, patchAppIconList } from '../services/iconStore';
 import { appSummaryFromDetail } from '../services/trends';
 import { isRemoteIcon } from '../components/AppIcon';
-import { normalizeId } from '../services/normalizeId';
+import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isCatalogedFailClosed } from '../utils/appHelper';
 import { annotateLocalSource, buildCatalogIdSet } from './selectors';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
@@ -21,7 +21,7 @@ import { DEFAULT_ICON_BG } from '../styles/tokens';
  *
  * - 归一大小写：join/去重一律经前端唯一口 `normalizeId`（`trim().toLowerCase()`），
  *   原始 id 保留原值供 `FavoritesView` 精确 `has` 命中（双键：原值 + 小写在调用方分别建索引）。
- * - 富卡优先（cache-first）：`getCachedAppDetailsBatch`（DB-only 全量回填）→
+ * - 富卡优先（cache-first）：`getCachedAppDetailsBatch`（DB-only 未收录批量回填）→
  *   记录 `is_cataloged` 打标（`get_favorite_entries` + `get_watched_apps` 联合记录，
  *   任一显式 `false` 即未收录，缺字段/缺席即未收录 fail-closed）；`None`/失败才用最小占位，
  *   保证行必展示。
@@ -259,7 +259,7 @@ interface UseUncatalogedJoinParams {
  * 收藏/关注 left-join 富卡行（cache-first，记录优先打标）。
  *
  * 顺序：(a) `missing` 同步占位行（行必展示）；(b) `get_cached_app_details_batch`
- * 对全部 fav/watch id 批量回填富卡数据（DB-only 本地读）；(c) 逐行按记录
+ * 对未收录 fav/watch id 批量回填富卡数据（DB-only 本地读）；(c) 逐行按记录
  * `is_cataloged` 打标——记录优先，目录 `apps` 列表仅作结构去重/驱逐补充，
  * 永不覆盖记录标记。
  * 记录已收录行得已收录徽标 + 真实分类；记录未收录/缺席行得未收录徽标；
@@ -355,29 +355,34 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
       recordCatalogedRef.current = new Map();
       return;
     }
+    const unionIds = new Set<string>([...favoriteIds, ...watchedIds]);
+    const unionLower = normalizeIdLowerSet(unionIds);
     const catalogLower = buildCatalogIdSet(apps);
     // 本地橘黄：占位/富卡同 id 经 selectors 叠加 source='local'
     //（蓝优先：已验证行不叠加；去重仍远端优先，仅搬标记）。
     const withLocalMark = (row: AppSummary): AppSummary => annotateLocalSource(row, apps);
     const current = uncatalogedExtraAppsRef.current;
-    // 收录到达即驱逐（大小写归一），避免与目录行双显
-    let pruned: AppSummary[] | null = null;
-    if (current.length > 0 && catalogLower.size > 0) {
-      pruned = current.filter((e) => !catalogLower.has(normalizeId(e.id)));
-      if (pruned.length !== current.length) setUncatalogedExtraApps(pruned);
+    // 收录到达或取消收藏/关注即驱逐（大小写归一），避免与目录行双显或残留已移除条目
+    const remainingExtras =
+      current.length > 0
+        ? current.filter((e) => {
+            const k = normalizeId(e.id);
+            return Boolean(k) && unionLower.has(k) && !catalogLower.has(k);
+          })
+        : current;
+    if (remainingExtras.length !== current.length) {
+      setUncatalogedExtraApps(remainingExtras);
     }
-    const baseLower = pruned ?? current;
-    const baseLowerSet = new Set<string>();
-    for (const e of baseLower) {
+    const remainingExtraKeys = new Set<string>();
+    for (const e of remainingExtras) {
       const k = normalizeId(e.id);
-      if (k) baseLowerSet.add(k);
+      if (k) remainingExtraKeys.add(k);
     }
     // 收藏+关注 union 求缺：任一集合未收录即合成（共用同一占位 helpers/去重/inflight 口径）。
-    const unionIds = new Set<string>([...favoriteIds, ...watchedIds]);
-    const missing = findMissingIds(unionIds, catalogLower, baseLowerSet).filter(
+    const missing = findMissingIds(unionIds, catalogLower, remainingExtraKeys).filter(
       (id) => !favoriteExtraInflightRef.current.has(normalizeId(id)),
     );
-    if (missing.length === 0 && uncatalogedExtraAppsRef.current.length === 0) return;
+    if (missing.length === 0 && remainingExtras.length === 0) return;
     let cancelled = false;
     // (a) 占位行同步（行必展示；打标用上轮记录表，重合后由 (c) 按最新记录纠正）。
     if (missing.length > 0) {
@@ -396,20 +401,12 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatal
         return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
       });
     }
-    // (b) 富卡数据批量回填（全部 fav/watch id，DB-only 本地读，不经网络门控）与
+    // (b) 富卡数据批量回填（仅未收录 fav/watch id，DB-only 本地读，不经网络门控）与
     // (c) 记录表并行拉取；单次合并中先按最新记录重打标既有行，再合入富卡行。
     // 目录 apps 列表仅作结构去重/驱逐（catalogLower），永不覆盖记录标记。
-    const seenAll = new Set<string>();
-    const allIds: string[] = [];
-    for (const raw of unionIds) {
-      const id = typeof raw === 'string' ? raw.trim() : '';
-      const k = normalizeId(id);
-      if (!k || seenAll.has(k)) continue;
-      seenAll.add(k);
-      allIds.push(id);
-    }
+    const uncatalogedIds = findMissingIds(unionIds, catalogLower);
     void Promise.all([
-      (allIds.length > 0 ? tauriApi.getCachedAppDetailsBatch(allIds) : Promise.resolve([])).catch(() => null),
+      (uncatalogedIds.length > 0 ? tauriApi.getCachedAppDetailsBatch(uncatalogedIds) : Promise.resolve([])).catch(() => null),
       tauriApi.getFavoriteEntries().catch(() => []),
       tauriApi.getWatchedApps().catch(() => []),
     ]).then(([rows, favEntries, watchEntries]) => {
