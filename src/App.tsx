@@ -326,6 +326,7 @@ export const App: React.FC = () => {
   } = useAppSelectors({
     apps,
     onlineApps,
+    isOnlineResults: isOnlineResultSet,
     uncatalogedExtraApps,
     installedApps,
     updates,

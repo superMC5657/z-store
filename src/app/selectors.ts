@@ -26,6 +26,7 @@ export {
 interface UseAppSelectorsParams {
   apps: AppSummary[];
   onlineApps: AppSummary[];
+  isOnlineResults?: boolean;
   uncatalogedExtraApps: AppSummary[];
   installedApps: InstalledApp[];
   updates: UpdateItem[];
@@ -63,9 +64,9 @@ function selectPlatformFilteredApps(
   return apps.filter((a) => matchPlatformSetWithLoading(a, selectedPlatforms, platformResolvedOtherIds));
 }
 
-function selectPlatformCounts(
-  apps: AppSummary[],
-  platformResolvedOtherIds: Set<string>,
+export function selectPlatformCounts(
+  apps: readonly AppSummary[],
+  platformResolvedOtherIds: ReadonlySet<string>,
 ): Record<PlatformId, number> {
   const counts = {} as Record<PlatformId, number>;
   for (const id of PLATFORM_IDS) {
@@ -89,6 +90,66 @@ function selectPlatformCounts(
     }
   }
   return counts;
+}
+
+/**
+ * 合并多组应用供侧栏平台计数：按行别名键（`rowAliasKeys`）去重，
+ * 同仓多行存在时合并平台并集（空平台行被具平台行升级），避免本地结果与在线搜索结果重复或漏计。
+ */
+export function mergeAppsForPlatformCounts(
+  baseApps: readonly AppSummary[],
+  extraApps: readonly AppSummary[] = [],
+): AppSummary[] {
+  const aliasToIndex = new Map<string, number>();
+  const out: AppSummary[] = [];
+
+  const appendOrMerge = (app: AppSummary) => {
+    const keys = rowAliasKeys(app);
+    let existingIdx: number | undefined;
+    for (const k of keys) {
+      const hit = aliasToIndex.get(k);
+      if (hit !== undefined) {
+        existingIdx = hit;
+        break;
+      }
+    }
+    if (existingIdx === undefined) {
+      const idx = out.length;
+      out.push(app);
+      for (const k of keys) aliasToIndex.set(k, idx);
+      return;
+    }
+    for (const k of keys) {
+      if (!aliasToIndex.has(k)) aliasToIndex.set(k, existingIdx);
+    }
+    const existing = out[existingIdx];
+    const nextPlatforms = app.platforms ?? [];
+    const existingPlatforms = existing.platforms ?? [];
+    if (nextPlatforms.length === 0) {
+      if (existingPlatforms.length === 0 && !existing.id.includes('/') && app.id.includes('/')) {
+        out[existingIdx] = app;
+      }
+      return;
+    }
+    if (existingPlatforms.length === 0) {
+      out[existingIdx] = app;
+      return;
+    }
+    const seen = new Set(existingPlatforms.map(normalizePlatform));
+    const additions = nextPlatforms.filter((p) => {
+      const n = normalizePlatform(p);
+      if (seen.has(n)) return false;
+      seen.add(n);
+      return true;
+    });
+    if (additions.length > 0) {
+      out[existingIdx] = { ...existing, platforms: [...existingPlatforms, ...additions] };
+    }
+  };
+
+  for (const a of baseApps) appendOrMerge(a);
+  for (const a of extraApps) appendOrMerge(a);
+  return out;
 }
 
 function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
@@ -735,6 +796,7 @@ export function resolveBareRowLocalBadgeVariant(
 export function useAppSelectors({
   apps,
   onlineApps,
+  isOnlineResults = false,
   uncatalogedExtraApps,
   installedApps,
   updates,
@@ -813,12 +875,29 @@ export function useAppSelectors({
   }, [setSelectedPlatforms]);
 
   // 趋势榜单平台分布（TrendsView 上报其榜单行口径）：趋势页侧栏计数切到该口径，
+  // 搜索态首页（HomeView 同时展示本地段与在线段）纳入去重后的在线结果分布，
   // 其余页面沿用收录库口径。null = 尚未上报（沿用收录库，避免闪 0）。
   const [trendsPlatformCounts, setTrendsPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
   const handleTrendsPlatformCounts = useCallback((counts: Record<PlatformId, number>) => {
     setTrendsPlatformCounts(counts);
   }, []);
-  const sidebarPlatformCounts = currentView === 'trends' && trendsPlatformCounts ? trendsPlatformCounts : platformCounts;
+  const hasActiveOnlineSearch =
+    currentView === 'home' &&
+    typeof searchQuery === 'string' &&
+    searchQuery.trim().length > 0 &&
+    isOnlineResults &&
+    annotatedOnlineApps.length > 0;
+  const searchPlatformCounts = useMemo(() => {
+    if (!hasActiveOnlineSearch) return null;
+    return selectPlatformCounts(
+      mergeAppsForPlatformCounts(mergedApps, annotatedOnlineApps),
+      platformResolvedOtherIds,
+    );
+  }, [hasActiveOnlineSearch, mergedApps, annotatedOnlineApps, platformResolvedOtherIds]);
+  const sidebarPlatformCounts =
+    currentView === 'trends' && trendsPlatformCounts
+      ? trendsPlatformCounts
+      : searchPlatformCounts ?? platformCounts;
 
   // 已安装 id 集（大小写归一）：安装态与「受管」判定共用同一集合，一处计算两处消费。
   const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
