@@ -138,40 +138,54 @@ pub async fn execute_installation(
     app_id: &str,
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
-    log::info!(
-        "install start sid={} id={} kind={:?}",
-        crate::z_log::new_session_id(),
-        app_id,
-        kind
-    );
+    let started = std::time::Instant::now();
+    let trace = crate::z_log::new_trace_id();
+    let kind_str = format!("{:?}", kind);
+    let mut start_ev = crate::z_log::WideEvent::new("installer", "install start");
+    start_ev
+        .field("id", app_id)
+        .field("kind", &kind_str)
+        .field("t", &trace)
+        .dev("file", crate::log_support::file_base(&installer_path.to_string_lossy()));
+    start_ev.info();
+
     let res = execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
     match &res {
         Ok(InstallOutcome::Installed(_)) => {
-            log::info!(
-                "install done sid={} id={}",
-                crate::z_log::new_session_id(),
-                app_id
-            )
+            let mut ev =
+                crate::z_log::WideEvent::new("installer", "install done").with_started(started);
+            ev.field("id", app_id)
+                .field("kind", &kind_str)
+                .field("t", &trace);
+            ev.info();
         }
-        Ok(InstallOutcome::Skipped(msg)) => log::info!(
-            "install skipped sid={} id={} reason={}",
-            crate::z_log::new_session_id(),
-            app_id,
-            crate::log_support::short_reason(msg)
-        ),
+        Ok(InstallOutcome::Skipped(msg)) => {
+            let mut ev =
+                crate::z_log::WideEvent::new("installer", "install skipped").with_started(started);
+            ev.field("id", app_id)
+                .field("kind", &kind_str)
+                .field("reason", crate::log_support::short_reason(msg))
+                .field("t", &trace);
+            ev.info();
+        }
         Err(e) if is_user_cancellation(e) => {
-            log::info!(
-                "install cancelled by user sid={} id={} reason={}",
-                crate::z_log::new_session_id(),
-                app_id,
-                crate::log_support::short_reason(e)
-            );
+            let mut ev = crate::z_log::WideEvent::new("installer", "install cancelled")
+                .with_started(started);
+            ev.field("id", app_id)
+                .field("kind", &kind_str)
+                .field("t", &trace)
+                .dev("reason", crate::log_support::short_reason(e));
+            ev.info();
         }
-        Err(e) => log::error!(
-            "install failed id={} reason={}",
-            app_id,
-            crate::log_support::short_reason(e)
-        ),
+        Err(e) => {
+            let mut ev =
+                crate::z_log::WideEvent::new("installer", "install failed").with_started(started);
+            ev.field("id", app_id)
+                .field("kind", &kind_str)
+                .field("reason", crate::log_support::short_reason(e))
+                .field("t", &trace);
+            ev.error();
+        }
     }
     res
 }
@@ -225,7 +239,7 @@ async fn execute_installation_inner(
             skip => "当前平台跳过 MSI 安装", installer_path
         ),
         AssetKind::SetupExe => run_on_target!(
-            windows => windows::install_setup_exe(installer_path, app_id).await,
+            windows => windows::install_setup_exe(installer_path).await,
             skip => "非 Windows 平台跳过 SetupExe 安装", installer_path
         ),
         AssetKind::PortableZip => {

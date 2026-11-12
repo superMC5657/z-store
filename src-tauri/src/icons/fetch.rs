@@ -273,12 +273,6 @@ pub async fn fetch_icons_stream<F, Fut>(
     if jobs.is_empty() {
         return;
     }
-    log::debug!(
-        "icon fetch start jobs={} pool={} total_timeout_secs={}",
-        jobs.len(),
-        cfg.pool,
-        cfg.total_timeout_secs,
-    );
     // L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
     // D5 双池隔离：L2 SimpleIcons 走 icon_client（无鉴权），L3 Trees 走 api_client。
     let timeout_secs = crate::config::get_project_config().network.api_timeout_seconds;
@@ -298,13 +292,7 @@ pub async fn fetch_icons_stream<F, Fut>(
     // 有界并发：单层 buffer_unordered(pool)（默认 5，与趋势 buffered(5) 对齐），
     // 快慢各一次 emit（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
     let pool = cfg.pool.max(1);
-    // 整批总量按 jobs 伸缩（纯决策收敛在缝内，pool 保持 5）：
     let jobs_len = jobs.len();
-    // 记录批处理的 lane/scope 与数量级。
-    let scope_desc = jobs.first().map(|j| match &j.ctx {
-        IconFetchCtx::Search { search_id, gen } => format!("search sid={search_id} gen={gen}"),
-        IconFetchCtx::Trend { board, gen } => format!("trend board={board} gen={gen}"),
-    });
     let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
     let batch = futures_util::stream::iter(jobs.into_iter().map(|job| {
         let handle = handle.clone();
@@ -338,13 +326,7 @@ pub async fn fetch_icons_stream<F, Fut>(
     .for_each(|()| async {});
     // 整批总超时：超时即降级结束（剩余任务直接丢弃，不炸不重试）。
     let total = scaled_total_timeout(jobs_len, pool, timeout_each, cfg.total_timeout_secs);
-    if tokio::time::timeout(total, batch).await.is_err() {
-        log::debug!(
-            "icon fetch truncated jobs={} scope={}",
-            jobs_len,
-            scope_desc.as_deref().unwrap_or("unknown"),
-        );
-    }
+    let _ = tokio::time::timeout(total, batch).await;
 }
 
 #[cfg(test)]

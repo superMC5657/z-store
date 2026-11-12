@@ -12,15 +12,28 @@ pub(crate) enum EtagGetOutcome {
     Failed,
 }
 
-/// 通用 ETag GET 请求通道：挂载 `If-None-Match`，处理 304 / 401 / 200 结果并上报限流。
+/// 通用 ETag GET 请求通道：挂载 `If-None-Match`，处理 304 / 401 / 200 结果并上报限流；
+/// 不直接打日志，交由上层宽事件统一汇总。
 pub(crate) async fn get_with_etag(
     client: &reqwest::Client,
     canonical_url: &str,
     api_base: Option<&str>,
     base_headers: &HeaderMap,
     cached_etag: Option<&str>,
-    log_tag: &str,
 ) -> EtagGetOutcome {
+    get_with_etag_diag(client, canonical_url, api_base, base_headers, cached_etag)
+        .await
+        .0
+}
+
+/// 带诊断摘要的 ETag GET 通道（返回 `(EtagGetOutcome, HttpDiag)` 供宽事件聚合作业使用）。
+pub(crate) async fn get_with_etag_diag(
+    client: &reqwest::Client,
+    canonical_url: &str,
+    api_base: Option<&str>,
+    base_headers: &HeaderMap,
+    cached_etag: Option<&str>,
+) -> (EtagGetOutcome, crate::log_support::HttpDiag) {
     let url = crate::github::CatalogService::request_url(canonical_url, api_base);
     let mut headers = base_headers.clone();
     if let Some(etag) = cached_etag {
@@ -31,52 +44,27 @@ pub(crate) async fn get_with_etag(
         }
     }
     let safe_url = crate::log_support::sanitize_url(&url);
-    let (req_id, sid) = new_log_ctx();
     let host = crate::log_support::host_of(&url);
-    log::debug!(
-        "http get dev etag tag={} sid={} req={} url='{}'",
-        log_tag,
-        sid,
-        req_id,
-        safe_url
-    );
     let start = std::time::Instant::now();
     // 有限重试：仅传输错误(is_timeout/is_connect)+429/5xx，最多 2 次；
     // 429 消费 Retry-After（上限 60s 缺省 5s，对齐 D9），5xx/传输错误退避 200ms -> 800ms；
     // 401/404/304 直接返回；限流上报逻辑不变（每轮响应照常上报）。
     const RETRY_BACKOFF_MS: [u64; 2] = [200, 800];
     let mut attempt: usize = 0;
+    let mut rate_summary: Option<String> = None;
     let res = loop {
         match client.get(&url).headers(headers.clone()).send().await {
             Ok(r) => {
                 crate::notify_rate_limit("github.com", r.headers());
+                if let Some(rs) = crate::log_support::rate_limit_summary(r.headers()) {
+                    rate_summary = Some(rs);
+                }
                 let status = r.status();
                 let retryable_status = status.as_u16() == 429 || status.is_server_error();
                 if retryable_status && attempt < RETRY_BACKOFF_MS.len() {
-                    // 429 优先服务端指示 Retry-After；5xx 保持固定退避。
                     let delay_ms = if status.as_u16() == 429 {
-                        let ms = retry_after_delay_ms(r.headers());
-                        log::debug!(
-                            "http get dev etag retry tag={} sid={} req={} url='{}' status=429 attempt={} retry_after_ms={}",
-                            log_tag,
-                            sid,
-                            req_id,
-                            safe_url,
-                            attempt + 1,
-                            ms
-                        );
-                        ms
+                        retry_after_delay_ms(r.headers())
                     } else {
-                        log::debug!(
-                            "http get dev etag retry tag={} sid={} req={} url='{}' status={} attempt={} next_backoff_ms={}",
-                            log_tag,
-                            sid,
-                            req_id,
-                            safe_url,
-                            status.as_u16(),
-                            attempt + 1,
-                            RETRY_BACKOFF_MS[attempt]
-                        );
                         RETRY_BACKOFF_MS[attempt]
                     };
                     tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
@@ -88,61 +76,46 @@ pub(crate) async fn get_with_etag(
             Err(e) => {
                 let retryable_err = e.is_timeout() || e.is_connect();
                 if retryable_err && attempt < RETRY_BACKOFF_MS.len() {
-                    log::debug!(
-                        "http get dev etag retry tag={} sid={} req={} host={} reason={} attempt={} next_backoff_ms={}",
-                        log_tag,
-                        sid,
-                        req_id,
-                        host,
-                        crate::log_support::short_reason(&e.to_string()),
-                        attempt + 1,
-                        RETRY_BACKOFF_MS[attempt]
-                    );
                     tokio::time::sleep(std::time::Duration::from_millis(RETRY_BACKOFF_MS[attempt]))
                         .await;
                     attempt += 1;
                     continue;
                 }
-                log::warn!(
-                    "http get dev etag failed tag={} sid={} req={} host={} reason={} elapsed_ms={}",
-                    log_tag,
-                    sid,
-                    req_id,
+                let diag = crate::log_support::HttpDiag {
+                    status: None,
+                    elapsed_ms: start.elapsed().as_millis(),
+                    retries: attempt as u8,
+                    bytes: 0,
                     host,
-                    crate::log_support::short_reason(&e.to_string()),
-                    start.elapsed().as_millis()
-                );
-                return EtagGetOutcome::Failed;
+                    safe_url,
+                    err_reason: Some(crate::log_support::http_err_reason(&e)),
+                    rate_summary,
+                };
+                return (EtagGetOutcome::Failed, diag);
             }
         }
     };
     let status = res.status();
-    log::debug!(
-        "http resp dev etag tag={} sid={} req={} url='{}' status={} elapsed_ms={}",
-        log_tag,
-        sid,
-        req_id,
-        safe_url,
-        status.as_u16(),
-        start.elapsed().as_millis()
-    );
-    log::info!(
-        "http resp dev etag tag={} sid={} req={} host={} status={} elapsed_ms={}",
-        log_tag,
-        sid,
-        req_id,
+    let mut diag = crate::log_support::HttpDiag {
+        status: Some(status.as_u16()),
+        elapsed_ms: start.elapsed().as_millis(),
+        retries: attempt as u8,
+        bytes: 0,
         host,
-        status.as_u16(),
-        start.elapsed().as_millis()
-    );
+        safe_url,
+        err_reason: None,
+        rate_summary,
+    };
     if status == reqwest::StatusCode::NOT_MODIFIED {
-        return EtagGetOutcome::NotModified;
+        return (EtagGetOutcome::NotModified, diag);
     }
     if status == reqwest::StatusCode::UNAUTHORIZED {
-        return EtagGetOutcome::Unauthorized;
+        diag.err_reason = Some("http_401".to_string());
+        return (EtagGetOutcome::Unauthorized, diag);
     }
     if !status.is_success() {
-        return EtagGetOutcome::Failed;
+        diag.err_reason = Some(format!("http_{}", status.as_u16()));
+        return (EtagGetOutcome::Failed, diag);
     }
     let etag = res
         .headers()
@@ -150,17 +123,15 @@ pub(crate) async fn get_with_etag(
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
     match res.text().await {
-        Ok(text) => EtagGetOutcome::Fresh { text, etag },
+        Ok(text) => {
+            diag.bytes = text.len();
+            diag.elapsed_ms = start.elapsed().as_millis();
+            (EtagGetOutcome::Fresh { text, etag }, diag)
+        }
         Err(e) => {
-            log::warn!(
-                "http read dev etag body failed tag={} sid={} req={} host={} reason={}",
-                log_tag,
-                sid,
-                req_id,
-                host,
-                crate::log_support::short_reason(&e.to_string())
-            );
-            EtagGetOutcome::Failed
+            diag.elapsed_ms = start.elapsed().as_millis();
+            diag.err_reason = Some(crate::log_support::short_reason(&e.to_string()));
+            (EtagGetOutcome::Failed, diag)
         }
     }
 }
@@ -205,11 +176,6 @@ pub(crate) fn bearer_headers(token: Option<&str>) -> HeaderMap {
         token,
         crate::forge::http::AuthScheme::Bearer,
     )
-}
-
-/// 统一日志上下文，返回 `(req_id, sid)`。
-pub(crate) fn new_log_ctx() -> (String, String) {
-    (crate::z_log::new_req_id(), crate::z_log::new_session_id())
 }
 
 /// 分类元信息结构体。

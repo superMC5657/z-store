@@ -21,7 +21,6 @@ import { patchSearchListCacheIcon } from '../../services/search/searchListCache'
 import { matchPlatformSetWithLoading } from '../../lib/platformFilter';
 import { annotateIsCataloged, buildCatalogIdSet, restampLocalMarks } from '../selectors';
 import { type PlatformId } from '../../lib/platformFilter';
-import { zlogInfo } from '../../lib/z-log';
 import { adoptEchoInWindow } from './useSearchState';
 
 interface UseAppSubscriptionsParams {
@@ -417,19 +416,5 @@ export function useAppSubscriptions({
       if (Array.isArray(rows)) setUpdates(rows);
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
-
-  const isFirstViewRender = useRef(true);
-  const prevViewRef = useRef<ViewType>('home');
-  useEffect(() => {
-    if (isFirstViewRender.current) {
-      isFirstViewRender.current = false;
-      prevViewRef.current = currentView;
-      return;
-    }
-    // 视图切换永带 from + params（杜绝裸 switch），sid 由 z-log 自动关联行为链。
-    const from = prevViewRef.current;
-    prevViewRef.current = currentView;
-    zlogInfo(`switch view='${currentView}' from='${from}' params={}`);
   }, [currentView]);
 }

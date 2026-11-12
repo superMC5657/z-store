@@ -1,4 +1,4 @@
-use super::{is_user_cancellation, InstallOutcome};
+use super::InstallOutcome;
 
 /// 智能拆分 Windows 卸载命令行为 (可执行文件路径, 参数列表)
 pub fn parse_uninstaller_command(cmd: &str) -> (String, Vec<String>) {
@@ -253,28 +253,6 @@ pub async fn execute_uninstallation(
     app_name: &str,
 ) -> Result<(), String> {
     let res = execute_uninstallation_inner(uninstaller_cmd, main_install_path, app_name).await;
-    match &res {
-        Ok(InstallOutcome::Installed(_)) => {
-            log::info!("uninstall done id={}", app_name)
-        }
-        Ok(InstallOutcome::Skipped(msg)) => log::info!(
-            "uninstall skipped id={} reason={}",
-            app_name,
-            crate::log_support::short_reason(msg)
-        ),
-        Err(e) if is_user_cancellation(e) => {
-            log::info!(
-                "uninstall cancelled by user id={} reason={}",
-                app_name,
-                crate::log_support::short_reason(e)
-            );
-        }
-        Err(e) => log::error!(
-            "uninstall failed id={} reason={}",
-            app_name,
-            crate::log_support::short_reason(e)
-        ),
-    }
     match res {
         Ok(outcome) => outcome.into_result().map(|_| ()),
         Err(e) => Err(e),

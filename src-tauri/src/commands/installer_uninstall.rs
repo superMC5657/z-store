@@ -102,7 +102,10 @@ fn cleanup_desktop_shortcut(app_name: &str) {
         .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
     if let Some(lnk) = deletable_desktop_lnk(&desktop, app_name) {
         if let Err(e) = std::fs::remove_file(&lnk) {
-            log::warn!("删除 Desktop 快捷方式失败 path={} err={}", lnk.display(), e);
+            let mut ev = crate::z_log::WideEvent::new("installer", "shortcut cleanup failed");
+            ev.field("reason", crate::log_support::short_reason(&e.to_string()))
+                .dev("file", crate::log_support::file_base(&lnk.to_string_lossy()));
+            ev.warn();
         }
     }
 }
@@ -110,11 +113,11 @@ fn cleanup_desktop_shortcut(app_name: &str) {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
-    log::info!(
-        "uninstall start sid={} id={}",
-        crate::z_log::new_session_id(),
-        app_id
-    );
+    let started = std::time::Instant::now();
+    let trace = crate::z_log::new_trace_id();
+    let mut start_ev = crate::z_log::WideEvent::new("installer", "uninstall start");
+    start_ev.field("id", &app_id).field("t", &trace);
+    start_ev.info();
     let installed_app = {
         let db = state.db()?;
         db.get_installed_apps()
@@ -204,16 +207,22 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
     }
 
     match &res {
-        Ok(_) => log::info!(
-            "uninstall done sid={} id={}",
-            crate::z_log::new_session_id(),
-            app_id
-        ),
-        Err(e) => log::warn!(
-            "uninstall failed id={} reason={}",
-            app_id,
-            crate::log_support::short_reason(e)
-        ),
+        Ok(_) => {
+            let mut ev =
+                crate::z_log::WideEvent::new("installer", "uninstall done").with_started(started);
+            ev.field("id", &app_id)
+                .field("t", &trace)
+                .dev("method", &app.install_method);
+            ev.info();
+        }
+        Err(e) => {
+            let mut ev = crate::z_log::WideEvent::new("installer", "uninstall failed")
+                .with_started(started);
+            ev.field("id", &app_id)
+                .field("reason", crate::log_support::short_reason(e))
+                .field("t", &trace);
+            ev.error();
+        }
     }
 
     Ok(res?)

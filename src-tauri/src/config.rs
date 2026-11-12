@@ -464,11 +464,11 @@ fn apply_compiled_license_gate(
     if external.license_gate.enabled != compiled.license_gate.enabled
         || external.license_gate.allowed != compiled.license_gate.allowed
     {
-        log::warn!(
-            "license_gate 运行时覆盖已忽略，以编译时嵌入值为准 (external enabled={} allowed_len={})",
+        push_startup_warning(format!(
+            "license_gate runtime override ignored external_enabled={} allowed_len={}",
             external.license_gate.enabled,
             external.license_gate.allowed.len()
-        );
+        ));
     }
     external.license_gate = compiled.license_gate.clone();
     external
@@ -549,7 +549,7 @@ impl CatalogConfig {
 impl Default for ProjectConfig {
     fn default() -> Self {
         let cfg: Self = toml::from_str(EMBEDDED_CONFIG).unwrap_or_else(|e| {
-            log::warn!("嵌入 config.toml 解析失败，按节回退编译期默认值: {}", e);
+            push_startup_warning(format!("embedded config.toml parse failed: {}", e));
             Self {
                 runtime: RuntimeConfig::default(),
                 cache: CacheConfig::default(),
@@ -568,6 +568,26 @@ impl Default for ProjectConfig {
 }
 
 static GLOBAL_CONFIG: OnceLock<ProjectConfig> = OnceLock::new();
+static CONFIG_SOURCE: OnceLock<String> = OnceLock::new();
+static STARTUP_WARNINGS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn push_startup_warning(msg: String) {
+    if let Ok(mut w) = STARTUP_WARNINGS.lock() {
+        w.push(msg);
+    }
+}
+
+pub fn config_source_summary() -> &'static str {
+    let _ = get_project_config();
+    CONFIG_SOURCE.get().map(String::as_str).unwrap_or("embedded")
+}
+
+pub fn take_startup_warnings() -> Vec<String> {
+    STARTUP_WARNINGS
+        .lock()
+        .map(|mut w| std::mem::take(&mut *w))
+        .unwrap_or_default()
+}
 
 /// 外部 config.toml 候选（全绝对路径，消除 CWD 依赖——同一机器不同工作目录
 /// 读到同一份配置）：安装目录随包覆盖优先，其次用户配置目录（与数据目录同域）。
@@ -602,26 +622,19 @@ pub fn get_project_config() -> &'static ProjectConfig {
                     if let Some(config_dir) = path.parent() {
                         external.catalog.rebase_local_path(config_dir);
                     }
-                    log::info!("外部 config.toml 已加载 path={}", path.display());
+                    let _ = CONFIG_SOURCE.set(format!("external({})", path.display()));
                     return apply_compiled_license_gate(external, &compiled);
                 }
                 Err(reason) => {
-                    log::warn!(
-                        "外部 config.toml 读取/解析失败，跳过 path={} reason={}",
+                    push_startup_warning(format!(
+                        "external config.toml parse failed path='{}' reason={}",
                         path.display(),
-                        reason
-                    );
+                        crate::log_support::short_reason(&reason)
+                    ));
                 }
             }
         }
-        log::debug!(
-            "未加载任何外部 config.toml，使用编译期嵌入配置（候选：{}）",
-            candidates
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        let _ = CONFIG_SOURCE.set("embedded".to_string());
         compiled
     })
 }

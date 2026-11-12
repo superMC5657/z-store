@@ -215,7 +215,9 @@ pub(crate) fn map_auth_status(
         return Err(unauthorized_msg.to_string());
     }
     if code == 403 {
-        log::warn!("oauth forbidden status=403 {}", op_ctx);
+        let mut ev = crate::z_log::WideEvent::new("oauth", "forbidden");
+        ev.field("status", 403).dev("ctx", op_ctx);
+        ev.warn();
         return Err(forbidden_msg.to_string());
     }
     Ok(())
@@ -240,8 +242,6 @@ async fn post_oauth_json(
 
 /// 发起 Device Flow：向 GitHub 申请 `device_code` 与用户验证码。
 pub async fn request_device_code(client_id: &str) -> Result<DeviceStartResult, String> {
-    // 入口 debug：不记 client_id / code 明文，只记结论。
-    log::debug!("oauth device start");
     let resp = post_oauth_json(
         DEVICE_CODE_URL,
         &serde_json::json!({
@@ -274,8 +274,6 @@ pub async fn poll_device_once(
     client_id: &str,
     device_code: &str,
 ) -> Result<DevicePollOutcome, String> {
-    // 轮询 debug：不记 device_code 明文，只记轮询结论。
-    log::debug!("oauth device poll");
     let resp = post_oauth_json(
         ACCESS_TOKEN_URL,
         &serde_json::json!({
@@ -290,17 +288,7 @@ pub async fn poll_device_once(
         .text()
         .await
         .map_err(|e| format!("读取授权响应失败: {}", e))?;
-    let outcome = classify_device_poll(&text);
-    // 轮询结论 debug：只记状态机分支，不记 token / code / body。
-    let kind = match &outcome {
-        DevicePollOutcome::Authorized { .. } => "authorized",
-        DevicePollOutcome::Pending { .. } => "pending",
-        DevicePollOutcome::Expired { .. } => "expired",
-        DevicePollOutcome::Denied { .. } => "denied",
-        DevicePollOutcome::Error { .. } => "error",
-    };
-    log::debug!("oauth device poll done status={}", kind);
-    Ok(outcome)
+    Ok(classify_device_poll(&text))
 }
 
 /// 快照缺失或未标记权限范围时需实时补拉（纯谓词，可单元测试）。

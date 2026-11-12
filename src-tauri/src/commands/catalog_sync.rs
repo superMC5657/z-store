@@ -9,6 +9,7 @@ pub async fn sync_catalog(
     state: State<'_, AppState>,
     force: Option<bool>,
 ) -> crate::AppResult<SyncCatalogResult> {
+    let start = std::time::Instant::now();
     let (url, cached_etag) = {
         let db = state.db()?;
         let url = db
@@ -31,9 +32,9 @@ pub async fn sync_catalog(
         (url, etag)
     };
 
-    let safe_url = crate::log_support::sanitize_url(&url);
     let is_force = force.unwrap_or(false);
-    log::info!("sync catalog start url='{}' force={}", safe_url, is_force);
+    let is_default_src = crate::github::catalog_service::is_default_catalog_source(&url);
+    let source_kind = if is_default_src { "default" } else { "custom" };
 
     let res = state
         .catalog
@@ -48,14 +49,16 @@ pub async fn sync_catalog(
                 .map(|db| db.is_strict_errors())
                 .unwrap_or_else(|_| crate::config::is_strict_errors());
             if !should_use_local_fallback(strict_errors) {
-                log::error!(
-                    "sync catalog failed strict abort url='{}' reason={}",
-                    safe_url,
-                    crate::log_support::short_reason(&err)
-                );
+                let mut ev =
+                    crate::z_log::WideEvent::new("catalog", "sync failed").with_started(start);
+                ev.field("source", source_kind)
+                    .field("strict", true)
+                    .field("reason", crate::log_support::short_reason(&err))
+                    .dev("force", is_force)
+                    .dev_url("url", &url);
+                ev.error();
                 return Err(err.into());
             }
-            // 如果请求远程失败且为默认或远程链接，检测本地配置的 catalog.json 路径作为无缝备选
             let mut local_fallback = None;
             let cfg = crate::config::get_project_config();
             if let Some(resolved_path) = cfg.catalog.resolve_local_path() {
@@ -73,13 +76,15 @@ pub async fn sync_catalog(
                     state.catalog.hydrate_from_details_cache(&db);
                 }
                 let graduated = retire_graduated_drafts(&state, &items);
-                log::warn!(
-                    "sync catalog remote failed url='{}' reason={}, fallback to local path='{}' count={}",
-                    safe_url,
-                    crate::log_support::short_reason(&err),
-                    candidate,
-                    count
-                );
+                let mut ev =
+                    crate::z_log::WideEvent::new("catalog", "sync fallback").with_started(start);
+                ev.field("source", "local")
+                    .field("count", count)
+                    .field("reason", crate::log_support::short_reason(&err))
+                    .dev("graduated", graduated.len())
+                    .dev("local_file", crate::log_support::file_base(&candidate))
+                    .dev_url("url", &url);
+                ev.warn();
                 return Ok(SyncCatalogResult {
                     updated: true,
                     count,
@@ -92,11 +97,13 @@ pub async fn sync_catalog(
                     ),
                 });
             } else {
-                log::error!(
-                    "sync catalog failed url='{}' reason={}",
-                    safe_url,
-                    crate::log_support::short_reason(&err)
-                );
+                let mut ev =
+                    crate::z_log::WideEvent::new("catalog", "sync failed").with_started(start);
+                ev.field("source", source_kind)
+                    .field("reason", crate::log_support::short_reason(&err))
+                    .dev("force", is_force)
+                    .dev_url("url", &url);
+                ev.error();
                 return Err(err.into());
             }
         }
@@ -113,13 +120,19 @@ pub async fn sync_catalog(
             state.catalog.hydrate_from_details_cache(&db);
         }
         let graduated = retire_graduated_drafts(&state, &items);
-        // 目录已更新：收藏/关注收录标记就地回填，新收录行无需重启即纠正（最佳努力，不阻塞同步返回）。
         crate::commands::history::backfill_cataloged_flags(&state);
-        log::info!(
-            "sync catalog done url='{}' updated=true count={}",
-            safe_url,
-            count
-        );
+        let mut ev = crate::z_log::WideEvent::new("catalog", "sync ok").with_started(start);
+        ev.field("source", source_kind)
+            .field("updated", true)
+            .field("count", count)
+            .dev("force", is_force)
+            .dev("graduated", graduated.len())
+            .dev_url("url", &url);
+        if is_default_src {
+            ev.info();
+        } else {
+            ev.warn();
+        }
         Ok(SyncCatalogResult {
             updated: true,
             count,
@@ -130,11 +143,18 @@ pub async fn sync_catalog(
         })
     } else {
         let count = state.catalog.get_catalog_count();
-        log::info!(
-            "sync catalog done url='{}' updated=false (up-to-date) count={}",
-            safe_url,
-            count
-        );
+        let mut ev =
+            crate::z_log::WideEvent::new("catalog", "sync unchanged").with_started(start);
+        ev.field("source", source_kind)
+            .field("updated", false)
+            .field("count", count)
+            .dev("via", "304")
+            .dev_url("url", &url);
+        if is_default_src {
+            ev.info();
+        } else {
+            ev.warn();
+        }
         Ok(SyncCatalogResult {
             updated: false,
             count,

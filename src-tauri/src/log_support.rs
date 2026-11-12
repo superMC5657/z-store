@@ -210,6 +210,60 @@ pub fn http_err_reason(e: &reqwest::Error) -> String {
     short_reason(&out)
 }
 
+/// 轻量 HTTP 请求诊断摘要：底层请求采集后回传上层宽事件，不在底层直接刷屏打点。
+#[derive(Debug, Clone, Default)]
+pub struct HttpDiag {
+    pub status: Option<u16>,
+    pub elapsed_ms: u128,
+    pub retries: u8,
+    pub bytes: usize,
+    pub host: String,
+    pub safe_url: String,
+    pub err_reason: Option<String>,
+    pub rate_summary: Option<String>,
+}
+
+impl HttpDiag {
+    pub fn step_label(&self, name: &str) -> String {
+        let code = match self.status {
+            Some(s) => s.to_string(),
+            None => "err".to_string(),
+        };
+        if self.retries > 0 {
+            format!("{}:{}({}ms,r{})", name, code, self.elapsed_ms, self.retries)
+        } else {
+            format!("{}:{}({}ms)", name, code, self.elapsed_ms)
+        }
+    }
+}
+
+/// 提取 `x-ratelimit-remaining/limit` 简短摘要（如 `"56/60"`）。
+pub fn rate_limit_summary(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    let (remaining, limit, _) = crate::extract_rate_limit_headers(headers)?;
+    Some(format!("{}/{}", remaining, limit))
+}
+
+/// 宽事件键值格式化：简单标识符原样输出，空串、空白、引号或换行内容清洗后用单引号包裹。
+pub fn format_kv_value(val: &str) -> String {
+    let single_line = val
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim()
+        .replace('\r', "");
+    if single_line.is_empty() {
+        return "''".to_string();
+    }
+    let needs_quote = single_line.chars().any(|c| {
+        c.is_whitespace() || c == '\'' || c == '"' || c == '=' || c == ';'
+    });
+    if !needs_quote {
+        return single_line;
+    }
+    let escaped = single_line.replace('\'', "\"");
+    format!("'{}'", escaped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

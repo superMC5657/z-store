@@ -485,18 +485,6 @@ pub(crate) async fn download_icon_bytes(
         return Err("图标链接不能为空".into());
     }
 
-    let icon_req = crate::z_log::new_req_id();
-    let icon_sid = crate::z_log::new_session_id();
-    let safe_url = crate::log_support::sanitize_url(url_trimmed);
-    let icon_host = crate::log_support::host_of(url_trimmed);
-    log::debug!(
-        "http get icon sid={} req={} url='{}'",
-        icon_sid,
-        icon_req,
-        safe_url
-    );
-    let start_icon = std::time::Instant::now();
-
     let last_err = match client
         .get(url_trimmed)
         .headers(crate::forge::http::icon_headers())
@@ -504,7 +492,6 @@ pub(crate) async fn download_icon_bytes(
         .await
     {
         Ok(resp) => {
-            let status = resp.status().as_u16();
             if resp.status().is_success() {
                 let ctype = resp
                     .headers()
@@ -519,34 +506,6 @@ pub(crate) async fn download_icon_bytes(
                 };
                 if let Ok(bytes) = resp.bytes().await {
                     if !bytes.is_empty() && is_valid_image(&bytes) {
-                        let sniff_mime = detect_image_mime(&bytes);
-                        let sniff_ext = mime_to_ext(sniff_mime);
-                        if ctype.to_ascii_lowercase().starts_with("image/")
-                            && mime_to_ext(&ctype) != sniff_ext
-                        {
-                            log::warn!(
-                                "http resp icon ctype mismatch sid={} req={} url='{}' content_type='{}' sniff_mime={} real_ext={}",
-                                icon_sid,
-                                icon_req,
-                                safe_url,
-                                ctype_log,
-                                sniff_mime,
-                                sniff_ext
-                            );
-                        }
-                        log::debug!(
-                            "http resp icon ok sid={} req={} host={} status={} bytes={} content_type='{}' sniff_mime={} real_ext={} raw_url='{}' elapsed_ms={}",
-                            icon_sid,
-                            icon_req,
-                            icon_host,
-                            status,
-                            bytes.len(),
-                            ctype_log,
-                            sniff_mime,
-                            sniff_ext,
-                            safe_url,
-                            start_icon.elapsed().as_millis()
-                        );
                         return Ok(bytes.to_vec());
                     } else if bytes.is_empty() {
                         format!("响应内容为空(content-type={})", ctype_log)
@@ -557,38 +516,12 @@ pub(crate) async fn download_icon_bytes(
                     "读取响应内容失败".to_string()
                 }
             } else {
-                log::debug!(
-                    "http resp icon fail sid={} req={} url='{}' status={} elapsed_ms={}",
-                    icon_sid,
-                    icon_req,
-                    safe_url,
-                    status,
-                    start_icon.elapsed().as_millis()
-                );
                 format!("HTTP 状态码: {}", resp.status())
             }
         }
-        Err(e) => {
-            log::debug!(
-                "http resp icon err sid={} req={} host={} reason={} elapsed_ms={}",
-                icon_sid,
-                icon_req,
-                icon_host,
-                crate::log_support::short_reason(&e.to_string()),
-                start_icon.elapsed().as_millis()
-            );
-            format!("请求失败: {}", e)
-        }
+        Err(e) => format!("请求失败: {}", e),
     };
 
-    log::debug!(
-        "http resp icon fail sid={} req={} host={} raw_url='{}' reason={}",
-        icon_sid,
-        icon_req,
-        icon_host,
-        safe_url,
-        crate::log_support::short_reason(&last_err)
-    );
     Err(format!("拉取远程图标失败 ({}): {}", url_trimmed, last_err))
 }
 
@@ -670,16 +603,10 @@ fn empty_cycle_result(is_cataloged: bool) -> IconCycleResult {
 
 async fn fetch_anon_probe_bytes(
     client: &reqwest::Client,
-    app_id_label: &str,
     owner: &str,
     repo: &str,
 ) -> Option<(String, Vec<u8>)> {
     let probed_url = probe_anon_simple(client, owner, repo).await?;
-    log::debug!(
-        "icon probe fallback hit app_id='{}' source=simple-icons url='{}'",
-        app_id_label,
-        crate::log_support::sanitize_url(&probed_url)
-    );
     let bytes = download_icon_bytes(client, &probed_url).await.ok()?;
     Some((probed_url, bytes))
 }
@@ -882,7 +809,7 @@ pub async fn get_or_fetch_icon(
             let mut probed: Option<(String, Vec<u8>)> = None;
             if let Some(c) = crate::forge::RepositoryUrlParser::parse(raw_id) {
                 if !c.owner.is_empty() && !c.repo.is_empty() {
-                    probed = fetch_anon_probe_bytes(&client, raw_id, &c.owner, &c.repo).await;
+                    probed = fetch_anon_probe_bytes(&client, &c.owner, &c.repo).await;
                 }
             }
             match probed {
@@ -1105,20 +1032,7 @@ pub async fn cycle_app_icon(state: &AppState, app_id: String) -> crate::AppResul
     }
 
     let client = new_configured_icon_client();
-    let bytes = match load_cycle_target_bytes(state, &icons_dir, &target_url, false, &client).await
-    {
-        Ok(b) => b,
-        Err(e) => {
-            log::warn!(
-                "cycle_app_icon download failed id={} level={} target_url='{}' err={}",
-                canonical_id,
-                next_level,
-                crate::log_support::sanitize_url(&target_url),
-                e
-            );
-            return Err(e.into());
-        }
-    };
+    let bytes = load_cycle_target_bytes(state, &icons_dir, &target_url, false, &client).await?;
 
     Ok(persist_manual_selection(
         state,

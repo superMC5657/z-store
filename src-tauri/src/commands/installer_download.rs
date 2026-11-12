@@ -26,33 +26,17 @@ pub(crate) fn resolve_download_dir(state: &AppState) -> Option<std::path::PathBu
 
 /// 安装与仅下载共用的下载通道：经用户配置镜像加速（仅安装包通道），
 /// 含流式下载 + SHA-256 校验 + 进度事件；直连失败且为 GitHub 链接时公共兜底重试。
-/// `init_log_tag` / `fallback_log_tag` 仅区分日志来源（`download init` / `download-only init`）。
 pub(crate) async fn download_asset_with_fallback(
     app_handle: &AppHandle,
     state: &AppState,
     app_id: &str,
     asset: &ReleaseAsset,
     custom_download_dir: Option<&std::path::Path>,
-    init_log_tag: &str,
-    fallback_log_tag: &str,
 ) -> Result<(std::path::PathBuf, String), String> {
-    let (rewritten_url, is_mirror) = {
+    let rewritten_url = {
         let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-        let rewritten = mirror.rewrite_installer_asset_url(&asset.download_url);
-        let is_mirror = rewritten != asset.download_url;
-        (rewritten, is_mirror)
+        mirror.rewrite_installer_asset_url(&asset.download_url)
     };
-
-    log::info!(
-        "{} sid={} id={} file='{}' raw_url='{}' effective_url='{}' mirror={}",
-        init_log_tag,
-        crate::z_log::new_session_id(),
-        app_id,
-        asset.name,
-        crate::log_support::sanitize_url(&asset.download_url),
-        crate::log_support::sanitize_url(&rewritten_url),
-        is_mirror
-    );
 
     let download_res = crate::installer::download_with_progress(
         app_handle,
@@ -71,11 +55,12 @@ pub(crate) async fn download_asset_with_fallback(
             let is_direct = rewritten_url == asset.download_url;
             if is_github && is_direct {
                 let fallback_url = crate::mirror::wrap_gh_proxy(&asset.download_url);
-                log::warn!(
-                    "{} url='{}'",
-                    fallback_log_tag,
-                    crate::log_support::sanitize_url(&fallback_url)
-                );
+                let mut ev = crate::z_log::WideEvent::new("download", "mirror fallback");
+                ev.field("id", app_id)
+                    .field("file", crate::log_support::file_base(&asset.name))
+                    .field("reason", crate::log_support::short_reason(&e))
+                    .dev_url("url", &fallback_url);
+                ev.warn();
                 DownloadProgressPayload::emit_event(
                     app_handle,
                     app_id,
@@ -145,8 +130,6 @@ pub(crate) async fn prepare_and_download_asset(
     app_id: &str,
     asset_name: Option<&str>,
     missing_asset_err: &str,
-    init_log_tag: &str,
-    fallback_log_tag: &str,
 ) -> Result<PreparedDownload, String> {
     let custom_download_dir = resolve_download_dir(state);
     // 仅下载通道不消费详情元数据，仅取择取结果（detail 供安装通道使用）。
@@ -158,8 +141,6 @@ pub(crate) async fn prepare_and_download_asset(
         app_id,
         &asset,
         custom_download_dir.as_deref(),
-        init_log_tag,
-        fallback_log_tag,
     )
     .await?;
 
@@ -187,8 +168,6 @@ pub async fn download_asset(
         &app_id,
         asset_name.as_deref(),
         "该 Release 未提供可下载的产物资产",
-        "download-only init",
-        "download-only direct failed, retrying via fallback mirror",
     )
     .await?;
 

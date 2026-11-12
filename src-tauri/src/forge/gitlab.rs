@@ -34,16 +34,10 @@ impl ForgeProvider for GitLabProvider {
                 urlencoding::encode(repo)
             );
             let url = format!("https://{}/api/v4/projects/{}", host, encoded_path);
-            let span = HttpSpan::start(&url);
-            let repo_id = format!("{owner}/{repo}");
-            span.log_start("fetch repo", &repo_id);
+            let span = HttpSpan::start();
             let resp = get_with_retry_after_once(&client, &url, &headers)
                 .await
-                .map_err(|e| {
-                    span.log_fail("fetch repo", &repo_id, &e.to_string());
-                    e.to_string()
-                })?;
-            span.log_done("fetch repo", &repo_id, resp.status().as_u16());
+                .map_err(|e| e.to_string())?;
             // 三家限流口径对齐：x-ratelimit 头存在即上报配额事件（无头时为 no-op）。
             span.notify(&resp, host);
 
@@ -119,16 +113,10 @@ impl ForgeProvider for GitLabProvider {
                 host, encoded_path
             );
 
-            let span = HttpSpan::start(&latest_url);
-            let repo_id = format!("{owner}/{repo}");
-            span.log_start("fetch release", &repo_id);
+            let span = HttpSpan::start();
             let resp = get_with_retry_after_once(&client, &latest_url, &headers)
                 .await
-                .map_err(|e| {
-                    span.log_fail("fetch release", &repo_id, &e.to_string());
-                    e.to_string()
-                })?;
-            span.log_done("fetch release", &repo_id, resp.status().as_u16());
+                .map_err(|e| e.to_string())?;
             span.notify(&resp, host);
 
             let release: GitLabReleasePayload = if resp.status().is_success() {
@@ -139,26 +127,10 @@ impl ForgeProvider for GitLabProvider {
                     "https://{}/api/v4/projects/{}/releases?per_page=1",
                     host, encoded_path
                 );
-                let safe_list = crate::log_support::sanitize_url(&list_url);
-                let start_list = std::time::Instant::now();
-                log::debug!(
-                    "http get forge release fallback id={}/{} sid={} req={} url='{}'",
-                    owner,
-                    repo,
-                    span.sid,
-                    span.req_id,
-                    safe_list
-                );
                 let list_resp = get_with_retry_after_once(&client, &list_url, &headers)
                     .await
-                    .map_err(|e| {
-                        log::warn!("http get forge release fallback failed id={}/{} sid={} req={} host={} reason={}", owner, repo, span.sid, span.req_id, span.host, crate::log_support::short_reason(&e.to_string()));
-                        e.to_string()
-                    })?;
+                    .map_err(|e| e.to_string())?;
                 span.notify(&list_resp, host);
-                // fallback 出入口合一：单条 debug 记列表回退结果。
-                log::debug!("http forge release fallback id={}/{} sid={} req={} url='{}' status={} elapsed_ms={}", owner, repo, span.sid, span.req_id, safe_list, list_resp.status().as_u16(), start_list.elapsed().as_millis());
-                log::info!("http resp forge release fallback id={}/{} sid={} req={} host={} status={} elapsed_ms={}", owner, repo, span.sid, span.req_id, span.host, list_resp.status().as_u16(), start_list.elapsed().as_millis());
                 if !list_resp.status().is_success() {
                     return Err(format!(
                         "获取 GitLab Release 失败: HTTP {}",

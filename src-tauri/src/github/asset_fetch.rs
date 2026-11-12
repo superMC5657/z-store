@@ -248,12 +248,7 @@ async fn fetch_asset_inner(trimmed: &str, normalized: &str, stem: &str, app: &st
                         trimmed, normalized, stem, &dir, existing, fresh, app,
                     );
                 }
-                Err(reason) => {
-                    log::debug!(
-                        "asset cache revalidate failed app={} reason={}",
-                        app,
-                        crate::log_support::short_reason(&reason)
-                    );
+                Err(_reason) => {
                     return path.to_string_lossy().to_string();
                 }
             }
@@ -280,12 +275,7 @@ async fn fetch_asset_inner(trimmed: &str, normalized: &str, stem: &str, app: &st
             }
             return trimmed.to_string();
         }
-        Err(reason) => {
-            log::debug!(
-                "asset cache download failed app={} reason={}",
-                app,
-                crate::log_support::short_reason(&reason)
-            );
+        Err(_reason) => {
             if let Some(path) = existing {
                 return path.to_string_lossy().to_string();
             }
@@ -344,12 +334,6 @@ fn store_fresh_asset(
             }
         }
     }
-    log::debug!(
-        "asset cache stored app={} bytes={} ext={}",
-        app,
-        fresh.bytes.len(),
-        ext
-    );
     final_path.to_string_lossy().to_string()
 }
 

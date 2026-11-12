@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, ViewType } from '../../types';
 import { tauriApi, UNVERIFIED_ASSET_MARKER } from '../../services/api';
-import { zlogInfo } from '../../lib/z-log';
 
 /** 无校验资产待确认状态：D3 门禁拒绝后挂起，待用户在警示弹窗显式确认后重试。 */
 interface UnverifiedInstallPrompt {
@@ -40,7 +39,6 @@ export function useInstallState({
   // 安装应用（稳定回调：经 ref 读 installing，搜索键入/图标升级时引用不变）
   const handleInstallApp = useCallback(async (id: string, assetName?: string, customInstallDir?: string, allowUnverified?: boolean): Promise<void> => {
     if (installingRef.current.has(id)) return;
-    zlogInfo(`click install id=${id} asset=${assetName || 'auto'} allowUnverified=${allowUnverified ? 'yes' : 'no'}`);
     setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
       const installed = await tauriApi.installApp(id, assetName, customInstallDir, allowUnverified);
@@ -81,7 +79,6 @@ export function useInstallState({
 
   // 启动应用
   const handleLaunchApp = async (id: string) => {
-    zlogInfo(`click launch id=${id}`);
     const app = installedApps.find((a) => a.app_id === id);
     const appName = app ? app.app_name : id;
     try {
@@ -136,7 +133,6 @@ export function useInstallState({
   // 卸载应用（触发官方卸载器 -> 等待完成 -> 校验移除 -> 从列表删除）
   const handleUninstallApp = async (id: string) => {
     if (uninstallingAppIds.has(id)) return;
-    zlogInfo(`click uninstall id=${id}`);
     const app = installedApps.find((a) => a.app_id.toLowerCase() === id.toLowerCase());
     const appName = app?.app_name || apps.find((a) => a.id.toLowerCase() === id.toLowerCase())?.name || id;
 

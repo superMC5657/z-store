@@ -44,16 +44,10 @@ impl ForgeProvider for GiteaProvider {
                 urlencoding::encode(owner),
                 urlencoding::encode(repo)
             );
-            let span = HttpSpan::start(&url);
-            let repo_id = format!("{owner}/{repo}");
-            span.log_start("fetch repo", &repo_id);
+            let span = HttpSpan::start();
             let resp = get_with_retry_after_once(&client, &url, &headers)
                 .await
-                .map_err(|e| {
-                    span.log_fail("fetch repo", &repo_id, &e.to_string());
-                    e.to_string()
-                })?;
-            span.log_done("fetch repo", &repo_id, resp.status().as_u16());
+                .map_err(|e| e.to_string())?;
             // 三家限流口径对齐：x-ratelimit 头存在即上报配额事件（无头时为 no-op）。
             span.notify(&resp, host);
 
@@ -109,16 +103,10 @@ impl ForgeProvider for GiteaProvider {
                 urlencoding::encode(owner),
                 urlencoding::encode(repo)
             );
-            let span = HttpSpan::start(&url);
-            let repo_id = format!("{owner}/{repo}");
-            span.log_start("fetch release", &repo_id);
+            let span = HttpSpan::start();
             let resp = get_with_retry_after_once(&client, &url, &headers)
                 .await
-                .map_err(|e| {
-                    span.log_fail("fetch release", &repo_id, &e.to_string());
-                    e.to_string()
-                })?;
-            span.log_done("fetch release", &repo_id, resp.status().as_u16());
+                .map_err(|e| e.to_string())?;
             span.notify(&resp, host);
 
             if !resp.status().is_success() {

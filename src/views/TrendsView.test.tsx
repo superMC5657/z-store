@@ -237,14 +237,11 @@ describe('时间榜主源：trending HTML 一榜一 URL', () => {
     expect(warns.some((m) => m.includes('board=weekly') && m.includes('unavailable'))).toBe(true);
   });
 
-  it('成功经 z-log 记录 board/source/count', async () => {
+  it('正常拉榜成功不刷屏冗余 info 日志', async () => {
     trendingHtml = trendingHtmlFixture();
     vi.mocked(zlogInfo).mockClear();
     await fetchTrendsResult('daily');
-    const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
-    expect(
-      infos.some((m) => m.includes('board=daily') && m.includes('trending-html') && m.includes('count=3')),
-    ).toBe(true);
+    expect(vi.mocked(zlogInfo)).not.toHaveBeenCalled();
   });
 
   it('Abort => timeout；TypeError => network', async () => {
@@ -946,10 +943,9 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     );
   }
 
-  it('点击触发 forceRefresh 直抓：旧榜保留、无缓存命中日志', async () => {
+  it('点击触发 forceRefresh 直抓：旧榜保留、触发新网络请求', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
-    vi.mocked(zlogInfo).mockClear();
     const { container } = renderBoard();
     // 挂载即加载默认榜（首抓走缓存允许路径）
     await clickTrendsRefresh();
@@ -957,8 +953,6 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     const btn = screen.getByTestId('trends-refresh') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
 
-    // 首抓走完后清零：只观察刷新这次抓取。
-    vi.mocked(zlogInfo).mockClear();
     const before = requestedUrls.length;
     expect(before).toBeGreaterThan(0);
 
@@ -982,8 +976,6 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     // 直抓穿透 L1：同 key 仍产生一次新的网络请求。
     expect(requestedUrls.length).toBe(before + 1);
     expect(screen.getByText('acme/atlas')).toBeTruthy();
-    const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
-    expect(infos.some((m) => m.toLowerCase().includes('cache hit'))).toBe(false);
   });
 
   it('刷新失败走现有 error lane（不弹框，按钮恢复可用）', async () => {
@@ -1087,21 +1079,6 @@ describe('TrendsView L2可信分档：具平台免验，loading后台补验', ()
     await new Promise((r) => setTimeout(r, 50));
     expect(enrichSpy).not.toHaveBeenCalled();
     expect(liteSpy).not.toHaveBeenCalled();
-    // 免验取证单行日志：每次决策记录 board/可信 concrete/loading/跳过/目标（无 DevTools 可查）。
-    await waitFor(() => {
-      const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
-      expect(
-        infos.some(
-          (m) =>
-            m.includes('[trends] lite-skip') &&
-            m.includes('board=weekly') &&
-            m.includes('trustedConcrete=3') &&
-            m.includes('trustedLoading=0') &&
-            m.includes('skipped=3') &&
-            m.includes('targets=0'),
-        ),
-      ).toBe(true);
-    });
   });
 
   it('含loading则仅loading补验：具平台直展，loading 经 enrich+lite 落定', async () => {
@@ -1148,21 +1125,6 @@ describe('TrendsView L2可信分档：具平台免验，loading后台补验', ()
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
     });
     expect(screen.getByText('acme/beacon enriched desc')).toBeTruthy();
-    // 免验取证单行日志：混合档仅 loading 补验（atlas 免验，beacon/comet 为目标）。
-    await waitFor(() => {
-      const infos = vi.mocked(zlogInfo).mock.calls.map(([m]) => String(m));
-      expect(
-        infos.some(
-          (m) =>
-            m.includes('[trends] lite-skip') &&
-            m.includes('board=weekly') &&
-            m.includes('trustedConcrete=1') &&
-            m.includes('trustedLoading=2') &&
-            m.includes('skipped=1') &&
-            m.includes('targets=2'),
-        ),
-      ).toBe(true);
-    });
   });
 });
 

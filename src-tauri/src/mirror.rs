@@ -117,19 +117,34 @@ impl MirrorManager {
         }
     }
 
+    pub fn active_summary(&self) -> String {
+        match &self.custom_proxy {
+            Some(p) if !p.trim().is_empty() && p.trim() != "direct" => {
+                crate::log_support::host_of(p)
+            }
+            _ => "direct".to_string(),
+        }
+    }
+
+    pub(crate) fn apply_initial_mirror(&mut self, id_or_url: &str) -> bool {
+        self.set_active_mirror_inner(id_or_url, false)
+    }
+
     pub fn set_active_mirror(&mut self, id_or_url: &str) -> bool {
+        self.set_active_mirror_inner(id_or_url, true)
+    }
+
+    fn set_active_mirror_inner(&mut self, id_or_url: &str, emit_switch_info: bool) -> bool {
         let trimmed = id_or_url.trim();
         let (new_proxy, id) = if trimmed.is_empty() || trimmed == "direct" {
             (None, "direct")
         } else if trimmed == "ghproxy" {
             (Some(DEFAULT_GH_PROXY.to_string()), "custom")
         } else if let Err(reason) = validate_custom_proxy(trimmed) {
-            // 自定义镜像准入失败（非 https / 非法域名）：拒绝切换保持现状（fail-closed），
-            // 拒绝理由由 switch_mirror 命令层前置透出。
-            log::warn!(
-                "mirror rejected id_or_url reason={}",
-                crate::log_support::short_reason(&reason)
-            );
+            // 自定义镜像准入失败（非 https / 非法域名）：拒绝切换保持现状并记录 WRN
+            let mut ev = crate::z_log::WideEvent::new("network", "mirror rejected");
+            ev.field("reason", crate::log_support::short_reason(&reason));
+            ev.warn();
             return false;
         } else {
             (Some(trimmed.to_string()), "custom")
@@ -139,10 +154,14 @@ impl MirrorManager {
             return true; // 状态未改变，幂等跳过，避免重复刷日志
         }
         self.custom_proxy = new_proxy;
-        // 代理 host 豁免：仅 per-client `no_proxy` 透传，不写进程全局变量；
-        // 加速代理仅改写安装包下载 URL，API 端点始终直连（见 proxy 默认豁免）。
-        let proxy_display = self.custom_proxy.as_deref().unwrap_or("direct");
-        log::info!("mirror switch id={} proxy='{}'", id, proxy_display);
+        if emit_switch_info {
+            let proxy_display = self.custom_proxy.as_deref().unwrap_or("direct");
+            let mut ev = crate::z_log::WideEvent::new("network", "mirror switch");
+            ev.field("id", id)
+                .field("proxy", self.active_summary())
+                .dev("endpoint", proxy_display);
+            ev.info();
+        }
         true
     }
 
@@ -173,8 +192,10 @@ impl MirrorManager {
         builder.build().unwrap_or_default()
     }
 
-    /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延
-    pub async fn test_proxy_latency(proxy_url: Option<&str>) -> (bool, u32, String) {
+    /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延，并附带 HTTP 状态与实际测速 URL。
+    pub async fn test_proxy_latency(
+        proxy_url: Option<&str>,
+    ) -> (bool, u32, String, Option<u16>, String) {
         let timeout_ms = crate::config::get_project_config().network.ping_timeout_ms;
 
         let clean_url = proxy_url
@@ -186,7 +207,7 @@ impl MirrorManager {
                 // 测速与保存同一准入口径（https 强制 + 域名校验）：
                 // 允许测 http 却存不进去只会制造困惑。
                 if let Err(reason) = validate_custom_proxy(p) {
-                    return (false, 9999, reason);
+                    return (false, 9999, reason, None, String::new());
                 }
                 p.trim_end_matches('/').to_string()
             }
@@ -196,17 +217,6 @@ impl MirrorManager {
         // 被测镜像 host 直连豁免：靠 per-client no_proxy 覆盖，不另起 Client。
         let extra_hosts = crate::proxy::proxy_hosts_for(&test_url);
         let client = Self::ping_client(timeout_ms, &extra_hosts);
-
-        let safe_test_url = crate::log_support::sanitize_url(&test_url);
-        let req_id = crate::z_log::new_req_id();
-        let sid = crate::z_log::new_session_id();
-        let req_host = crate::log_support::host_of(&test_url);
-        log::debug!(
-            "test mirror ping start sid={} req={} url='{}'",
-            sid,
-            req_id,
-            safe_test_url
-        );
 
         let start = Instant::now();
         let mut resp = client.head(&test_url).send().await;
@@ -224,50 +234,30 @@ impl MirrorManager {
             Ok(res) => {
                 let status = res.status().as_u16();
                 if status < 500 {
-                    log::debug!(
-                        "test mirror ping resp sid={} req={} url='{}' status={} latency_ms={}",
-                        sid,
-                        req_id,
-                        safe_test_url,
-                        status,
-                        elapsed
-                    );
-                    log::info!(
-                        "http resp mirror ping sid={} req={} host={} status={} latency_ms={}",
-                        sid,
-                        req_id,
-                        req_host,
-                        status,
-                        elapsed
-                    );
                     (
                         true,
                         elapsed.clamp(1, 4000),
                         format!("{} ms (连接正常)", elapsed),
+                        Some(status),
+                        test_url,
                     )
                 } else {
-                    log::warn!(
-                        "test mirror ping resp sid={} req={} host={} status={} latency_ms={}",
-                        sid,
-                        req_id,
-                        req_host,
-                        status,
-                        elapsed
-                    );
-                    (false, 9999, format!("HTTP 状态码异常: {}", status))
+                    (
+                        false,
+                        9999,
+                        format!("HTTP 状态码异常: {}", status),
+                        Some(status),
+                        test_url,
+                    )
                 }
             }
-            Err(e) => {
-                let reason = crate::log_support::short_reason(&e.to_string());
-                log::warn!(
-                    "test mirror ping failed sid={} req={} host={} reason={}",
-                    sid,
-                    req_id,
-                    req_host,
-                    reason
-                );
-                (false, 9999, format!("连接失败或超时: {}", e))
-            }
+            Err(e) => (
+                false,
+                9999,
+                format!("连接失败或超时: {}", e),
+                None,
+                test_url,
+            ),
         }
     }
 }
@@ -360,7 +350,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_proxy_ping() {
-        let (ok, latency, msg) = MirrorManager::test_proxy_latency(None).await;
+        let (ok, latency, msg, _, _) = MirrorManager::test_proxy_latency(None).await;
         log::debug!("PING DIRECT: ok={}, lat={}, msg={}", ok, latency, msg);
     }
 }

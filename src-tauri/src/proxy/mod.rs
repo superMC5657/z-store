@@ -187,6 +187,7 @@ pub fn apply_proxy(builder: ClientBuilder, extra_hosts: &[String]) -> ClientBuil
             }
             Err(e) => {
                 log::warn!(
+                    target: "network",
                     "proxy env http invalid reason={}",
                     crate::log_support::short_reason(&e.to_string())
                 );
@@ -201,6 +202,7 @@ pub fn apply_proxy(builder: ClientBuilder, extra_hosts: &[String]) -> ClientBuil
             }
             Err(e) => {
                 log::warn!(
+                    target: "network",
                     "proxy env https invalid reason={}",
                     crate::log_support::short_reason(&e.to_string())
                 );

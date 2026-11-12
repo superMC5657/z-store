@@ -13,17 +13,9 @@ impl CatalogService {
         api_base: Option<&str>,
         base_headers: &HeaderMap,
         cached_etag: Option<&str>,
-        log_tag: &str,
     ) -> EtagGetOutcome {
-        super::http::get_with_etag(
-            client,
-            canonical_url,
-            api_base,
-            base_headers,
-            cached_etag,
-            log_tag,
-        )
-        .await
+        super::http::get_with_etag(client, canonical_url, api_base, base_headers, cached_etag)
+            .await
     }
 
     pub async fn fetch_developer_profile(
@@ -77,7 +69,6 @@ impl CatalogService {
                 api_base,
                 &headers,
                 user_etag.as_deref(),
-                "dev-user",
             )
             .await
             {
@@ -92,7 +83,6 @@ impl CatalogService {
                             .map_err(|e| format!("解析本地 ETag 缓存失败: {}", e))?;
                         (Some(user), None)
                     } else {
-                        log::warn!("dev user 304 but no cached payload id={}", dev);
                         (None, None)
                     }
                 }
@@ -161,7 +151,6 @@ impl CatalogService {
                 api_base,
                 &headers,
                 repos_etag.as_deref(),
-                "dev-repos",
             )
             .await
             {
@@ -176,7 +165,6 @@ impl CatalogService {
                             serde_json::from_str(&payload).unwrap_or_default();
                         (items, None)
                     } else {
-                        log::warn!("dev repos 304 but no cached payload id={}", dev);
                         (Vec::new(), None)
                     }
                 }

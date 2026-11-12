@@ -132,8 +132,16 @@ fn resolve_detail_identity(svc: &CatalogService, id: &str) -> Result<DetailIdent
     })
 }
 
-/// repo 抓取 seam：ETag 条件请求 + HttpSpan + Fresh 落库 + 回退解析
-///（401 经 `check_auth_expired` 统一通知 + warn；限流上报在 `get_with_etag` 内）。
+/// 详情抓取子阶段诊断汇总（供上层宽事件单行输出，底层不直接刷屏）。
+#[derive(Debug, Clone, Default)]
+pub struct DetailFetchDiag {
+    pub steps: Vec<String>,
+    pub rate_summary: Option<String>,
+    pub checksum_why: Option<String>,
+    pub icon_source: Option<String>,
+}
+
+/// repo 抓取 seam：ETag 条件请求 + 限流上报 + 缓存回退解析（返回 `HttpDiag` 供宽事件汇总）。
 async fn fetch_repo_info(
     client: &reqwest::Client,
     base_headers: &HeaderMap,
@@ -141,48 +149,27 @@ async fn fetch_repo_info(
     repo_etag: Option<&str>,
     repo_payload: Option<String>,
     id: &str,
-) -> Option<GitHubRepoResponse> {
-    // repo 并发请求经 forge HttpSpan（log_search_* 分支），
-    // 经 get_with_etag 挂 IF_NONE_MATCH，304 时用 SQLite payload 恢复。
-    let repo_span = crate::forge::http::HttpSpan::start(repo_url);
-    repo_span.log_search_start("repo");
-    let outcome = CatalogService::get_with_etag(
-        client,
-        repo_url,
-        None,
-        base_headers,
-        repo_etag,
-        "detail-repo",
-    )
-    .await;
-    // repo ETag 响应的 401/限流处理与日志（get_with_etag 已做限流上报，此处补 HttpSpan + 401 通知）。
-    // 401 经 crate::check_auth_expired 统一通知 + warn；日志经 HttpSpan 统一收敛。
-    // Fresh 落库 api_etag_cache；304/失败时用 SQLite payload 恢复，避免每次全量。
-    // NotModified/Unauthorized/Failed 回退解析合并，日志分支内部分发。
+) -> (Option<GitHubRepoResponse>, crate::log_support::HttpDiag) {
+    let (outcome, diag) =
+        crate::github::http::get_with_etag_diag(client, repo_url, None, base_headers, repo_etag)
+            .await;
     match outcome {
         EtagGetOutcome::Fresh { text, etag } => {
-            repo_span.log_search_done("repo", 200);
             if let Some(et) = etag {
                 if let Some(db) = crate::github::http::open_db_opt() {
                     let _ = db.save_etag(repo_url, &et, &text, crate::github::http::now_secs());
                 }
             }
-            serde_json::from_str::<GitHubRepoResponse>(&text).ok()
+            (
+                serde_json::from_str::<GitHubRepoResponse>(&text).ok(),
+                diag,
+            )
         }
         other => {
-            match &other {
-                EtagGetOutcome::NotModified => {
-                    repo_span.log_search_done("repo", 304);
-                }
-                EtagGetOutcome::Unauthorized => {
-                    repo_span.log_search_done("repo", 401);
-                    crate::check_auth_expired(401, &format!("op=detail-repo id={}", id));
-                }
-                _ => {
-                    repo_span.log_search_fail("repo", "fetch failed");
-                }
+            if matches!(other, EtagGetOutcome::Unauthorized) {
+                crate::check_auth_expired(401, &format!("op=detail-repo id={}", id));
             }
-            parse_repo_payload(repo_payload.as_ref())
+            (parse_repo_payload(repo_payload.as_ref()), diag)
         }
     }
 }
@@ -225,26 +212,18 @@ struct ReadmeFetch<'a> {
     log_id: &'a str,
 }
 
-/// readme 抓取 seam：版本未变 + 有缓存直接复用；否则 ETag 条件请求
-///（304 用 SQLite payload / cached_readme 恢复；401 经 `check_auth_expired` 通知后回退；
-/// 失败用 cached_readme 或默认回退）。
-async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> String {
-    // 版本未发生变动且已有 README 缓存，不重复发网络请求拉取
+/// readme 抓取 seam：版本未变 + 有缓存直接复用；否则 ETag 条件请求，返回 `(markdown, step_label)`。
+async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> (String, String) {
     if !req.version_changed && req.has_cached_readme {
         if let Some(r) = req.cached_readme {
-            return r.clone();
+            return (r.clone(), "readme:cached".to_string());
         }
     }
-    match CatalogService::get_with_etag(
-        req.client,
-        req.url,
-        None,
-        req.headers,
-        req.etag,
-        "detail-readme",
-    )
-    .await
-    {
+    let (outcome, diag) =
+        crate::github::http::get_with_etag_diag(req.client, req.url, None, req.headers, req.etag)
+            .await;
+    let step = diag.step_label("readme");
+    let text = match outcome {
         EtagGetOutcome::Fresh { text, etag } => {
             if let Some(et) = etag {
                 if let Some(db) = crate::github::http::open_db_opt() {
@@ -285,7 +264,8 @@ async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> String {
                 req.default_readme.to_string()
             }
         }
-    }
+    };
+    (text, step)
 }
 
 /// icon 探测 seam：无 token 时仍跑免鉴权 L2 SimpleIcons（零 GitHub API 配额消耗）；
@@ -343,26 +323,21 @@ fn should_skip_checksum_fetch(
 }
 
 /// checksum 抓取 seam：消极缓存命中整路跳过，否则经 `extract_checksums_map`
-///（3s 硬超时，失败置空不阻塞）。
+/// 返回 `(checksum_map, step_label, skip_or_fail_reason)`。
 async fn fetch_checksum_table(
     assets: &[GitHubAssetResponse],
     client: &reqwest::Client,
     headers: &HeaderMap,
-    app_id: &str,
-    sid: &str,
-    req_id: &str,
     skip_checksum: bool,
-) -> HashMap<String, String> {
+) -> (HashMap<String, String>, String, Option<String>) {
     if skip_checksum {
-        log::debug!(
-            "checksum skip id={} sid={} req={} reason=negative_cache_hit_24h",
-            app_id,
-            sid,
-            req_id
+        return (
+            HashMap::new(),
+            "chk:skip(neg_cache)".to_string(),
+            Some("negative_cache_24h".to_string()),
         );
-        return HashMap::new();
     }
-    CatalogService::extract_checksums_map(assets, client, headers, app_id, sid, req_id).await
+    CatalogService::extract_checksums_map(assets, client, headers).await
 }
 
 /// release 资产组装 seam：校验过滤 → classify（`forge::provider::classify_asset_fields`
@@ -521,9 +496,11 @@ impl CatalogService {
             AppDetail,
             Option<(String, String)>,
             Option<crate::icons::DetailIconResolution>,
+            DetailFetchDiag,
         ),
         String,
     > {
+        let mut diag = DetailFetchDiag::default();
         // 身份解析内部 seam：endpoints + 收录项一次取出。
         let DetailIdentity {
             owner,
@@ -557,26 +534,16 @@ impl CatalogService {
             urlencoding::encode(&owner),
             urlencoding::encode(&repo)
         );
-        let (req_id, sid) = crate::github::http::new_log_ctx();
-        // 首屏快速路径 (1)：release ∥ repo 并发发射。repo 仅需 owner/repo，
-        // 与 release 响应无任何依赖，故两个原始请求同时在途，重叠 TLS 握手与首字节等待。
-        // repo 同样经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
-        // 与 release 一致零配额；401/限流语义一致。
-        // release 复用已有 get_with_etag（304/200/ETag 与 developer_* 共用实现）。
-        // force 语义：调用方 force 时传入全 None，此时跳过 DB 预读；
-        // 冷启动同样全 None（DB 无行，预读亦为 None），语义一致。
-        // repo 侧经 `fetch_repo_info` 内部 seam（HttpSpan/落库/回退在内），join 并发。
         let is_force_like =
             cached_etag.is_none() && cached_payload.is_none() && cached_detail.is_none();
         let (repo_etag, repo_payload) = cached_etag_payload(&repo_url, is_force_like);
-        let (release_outcome, repo_info) = tokio::join!(
-            Self::get_with_etag(
+        let ((release_outcome, rel_diag), (repo_info, repo_diag)) = tokio::join!(
+            crate::github::http::get_with_etag_diag(
                 client,
                 &release_url,
                 None,
                 &base_headers,
                 cached_etag.as_deref(),
-                "detail-release",
             ),
             fetch_repo_info(
                 client,
@@ -587,6 +554,9 @@ impl CatalogService {
                 id,
             )
         );
+        diag.steps.push(rel_diag.step_label("rel"));
+        diag.steps.push(repo_diag.step_label("repo"));
+        diag.rate_summary = rel_diag.rate_summary.or(repo_diag.rate_summary);
 
         // release 401 统一经 crate::check_auth_expired 通知；get_with_etag 已做限流上报。
         let is_auth_unauthorized = matches!(release_outcome, EtagGetOutcome::Unauthorized);
@@ -594,9 +564,6 @@ impl CatalogService {
             crate::notify_auth_expired();
         }
 
-        // 核心提速门禁：若 GitHub 返回 304 Not Modified（说明最新 Release 版本完全未变）
-        // 且本地已有完整缓存详情，直接零网络开销复用已有 README 与 Release 资产，实现 ~50ms 闪电响应
-        //（经 `reuse_304_cached` 内部 seam，deduce+ios 并集经平台 seam 单口，并合并并发取回的最新 repo_info）。
         if matches!(release_outcome, EtagGetOutcome::NotModified) {
             if let Some(mut detail) =
                 reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref())
@@ -631,12 +598,11 @@ impl CatalogService {
                     }
                 }
                 self.update_catalog_item_from_detail(&detail);
-                return Ok((detail, None, None));
+                diag.steps.push("reuse_304".to_string());
+                return Ok((detail, None, None, diag));
             }
         }
 
-        // 收敛：release 决议经 `github::release_fetch` deep adapter（与 shallow 同一模块；
-        // repo/README/Checksum Manifest〈校验清单〉/平台推导仍在本函数继续，图标段不动）。
         let synthesized_empty_failure: bool;
         let (release_resp, new_cache) = match super::release_fetch::decide_detail_release(
             super::release_fetch::DetailReleaseInput {
@@ -652,8 +618,8 @@ impl CatalogService {
             },
         )? {
             super::release_fetch::DetailReleaseDecision::ReuseStale(existing) => {
-                // 离线或网络异常回退：若有 cached_detail 直接使用（stale 穿透，不 touch 不落库）。
-                return Ok((*existing, None, None));
+                diag.steps.push("reuse_stale".to_string());
+                return Ok((*existing, None, None, diag));
             }
             super::release_fetch::DetailReleaseDecision::Proceed {
                 release,
@@ -664,8 +630,6 @@ impl CatalogService {
                 (release, cache_to_save)
             }
         };
-        // 诊断日志：releases/latest 单点 Failed 但 repo 存活时的 fresh 空行
-        //（谓词：失败 outcome + 无旧行 + 无 payload + repo 存活）。
         if matches!(
             release_outcome,
             EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed
@@ -673,15 +637,9 @@ impl CatalogService {
             && cached_payload.is_none()
             && repo_info.is_some()
         {
-            log::debug!(
-                "detail release empty but repo ok id={} sid={} req={} reason=release_failed_repo_ok_fresh_empty",
-                id,
-                sid,
-                req_id
-            );
+            diag.steps.push("rel_fail_repo_ok_empty".to_string());
         }
 
-        // 判断版本是否变化以及是否已有缓存的 README
         let version_changed = cached_detail
             .as_ref()
             .map(|c| c.core.latest_version != release_resp.tag_name)
@@ -692,43 +650,29 @@ impl CatalogService {
             .unwrap_or(false);
         let cached_readme = cached_detail.as_ref().map(|c| c.readme_markdown.clone());
 
-        // 首屏快速路径 (2)：保持 join(release,repo) 后，
-        // readme + probe_repo_logo + checksums 三路 join 并发。
-        // checksum 失败/超时置空不阻塞；probe 无 token 直接跳过不计时。
-        // README 经 get_with_etag 走 SQLite ETag 缓存（304 命中直接用缓存 payload），
-        // ETag 命中 304 时直接复用缓存 payload；限流/401 经 get_with_etag 内统一上报，此处补 401 通知。
         let readme_url = format!(
             "https://api.github.com/repos/{}/{}/readme",
             urlencoding::encode(&owner),
             urlencoding::encode(&repo)
         );
-        // 瘦身：base_headers 各派生只 clone 一次，后续经 &复用（release/repo/probe 共用 &base_headers，
-        // readme 独占 &readme_headers，checksum 独占 &headers），避免双 clone。
         let mut readme_headers = base_headers.clone();
         readme_headers.insert(
             ACCEPT,
             HeaderValue::from_static("application/vnd.github.v3.raw"),
         );
-        // README ETag 预读（force 时跳过；冷启动预读为 None）。
         let (readme_etag, readme_payload) = cached_etag_payload(&readme_url, is_force_like);
-        // 瘦身：去 default_readme_clone 中间克隆，分支按需 clone &default_readme，避免双 clone。
         let default_readme = format!("# {}\n\n{}", name, desc);
-        // probe 分支取值与原图标决策一致，仅前移以便并发（repo_info 已与 release 并发就绪）。
         let probe_branch: String = repo_info
             .as_ref()
             .and_then(|r| r.default_branch.clone())
             .map(|b| b.trim().to_string())
             .filter(|b| !b.is_empty())
             .unwrap_or_else(|| "HEAD".to_string());
-        // 无 token 直接跳过探测，不计时、不耗配额；有 token 才进 SimpleIcons+Trees。
         let has_token = token.map(|t| !t.trim().is_empty()).unwrap_or(false);
-        // 消极缓存判定前移，供 checksum 并发分支使用。
-        // 时间戳经 github 内 now_secs()。
         let now_secs = crate::github::http::now_secs();
         let skip_checksum =
             should_skip_checksum_fetch(cached_detail.as_ref(), version_changed, now_secs);
-        // 三路并发：readme 文本、图标探测、校验和抓取同时在途，超时各自内部收敛。
-        let (raw_readme, probed_hit, checksums) = tokio::join!(
+        let ((raw_readme, readme_step), probed_hit, (checksums, chk_step, chk_why)) = tokio::join!(
             fetch_readme_markdown(ReadmeFetch {
                 client,
                 url: &readme_url,
@@ -749,24 +693,19 @@ impl CatalogService {
                 &probe_branch,
                 has_token
             ),
-            fetch_checksum_table(
-                &release_resp.assets,
-                client,
-                &headers,
-                id,
-                &sid,
-                &req_id,
-                skip_checksum
-            )
+            fetch_checksum_table(&release_resp.assets, client, &headers, skip_checksum)
         );
+        diag.steps.push(readme_step);
         if let Some(ref p) = probed_hit {
-            log::debug!(
-                "icon probe hit id={} source={} url='{}'",
-                id,
-                p.source,
-                crate::log_support::sanitize_url(&p.url)
-            );
+            diag.icon_source = Some(p.source.to_string());
+            diag.steps.push(format!("icon:{}", p.source));
+        } else if !has_token {
+            diag.steps.push("icon:anon_miss".to_string());
+        } else {
+            diag.steps.push("icon:miss".to_string());
         }
+        diag.steps.push(chk_step);
+        diag.checksum_why = chk_why;
         let probed_with_level = probed_hit.map(|p| {
             (
                 crate::icons::ProbeIconLevel::from_source(p.source),
@@ -774,8 +713,6 @@ impl CatalogService {
             )
         });
 
-        // 动态回写更新内存中的 CatalogItem 统计数据，使得列表页卡片上的 Stars/Forks/Version 也同步刷新
-        //（统计取值经 `resolve_detail_stats` 内部 seam：repo 真值优先，缺失回退收录库）。
         let DetailStats {
             stars: latest_stars,
             forks: latest_forks,
@@ -783,61 +720,21 @@ impl CatalogService {
             homepage: latest_homepage,
         } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref());
 
-        // 动态回写更新内存中的 CatalogItem 统计数据，使得列表页卡片上的 Stars/Forks/Version 也同步刷新
-        let start_stats = std::time::Instant::now();
         self.update_catalog_item_stats(
             id,
             Some(latest_stars),
             Some(latest_forks),
             Some(&release_resp.tag_name),
         );
-        log::debug!(
-            "catalog stats update done id={} sid={} req={} elapsed_ms={}",
-            id,
-            sid,
-            req_id,
-            start_stats.elapsed().as_millis()
-        );
 
-        // 提取 README 首部 Logo，并从 README 正文中剥离该 Logo，避免详情页头部与文档内容区发生重叠/重复
-        let chars_in = raw_readme.chars().count();
-        log::debug!(
-            "readme_process start id={} sid={} req={} chars_in={}",
-            id,
-            sid,
-            req_id,
-            chars_in
-        );
-        let start_readme_process = std::time::Instant::now();
         let (extracted_logo, cleaned_readme) =
             Self::extract_and_strip_logo_from_readme(&raw_readme, &owner, &repo);
         let readme_markdown = Self::rewrite_readme_images(&cleaned_readme, &owner, &repo);
-        log::debug!(
-            "readme_process done id={} sid={} req={} chars_in={} chars_out={} elapsed_ms={}",
-            id,
-            sid,
-            req_id,
-            chars_in,
-            readme_markdown.chars().count(),
-            start_readme_process.elapsed().as_millis()
-        );
 
-        // checksums 已与 readme/probe 三路并发就绪（见上游 join），此处直接复用。
-        // 跳过/超时均以空表落库，sha256 缺失由调用方降级。
-        // 跳过判定见上游 `should_skip_checksum_fetch`。
-        // 资产组装经 `build_release_assets` 内部 seam（过滤→classify→sha→打分排序）。
         let releases = build_release_assets(release_resp.assets, &checksums);
 
-        // 从经校验的有效发布资产中推断平台；无有效安装包则置空，避免虚假发布
-        // deduce + ios 并集 + 排序经内部平台 seam（与 304 快径共用）。
         let final_platforms = unioned_detail_platforms(&releases, catalog_item.as_ref());
 
-        // 图标层级决策经 icons::pick_detail_icon_with_level（收录官方 → 品牌库 → Trees → README → 空）：
-        // 1. 已具备已知独立官方图标则保持，避免被误覆盖；
-        // 2. 否则进入探测链（Simple Icons → Git Trees 全库评分，保留真实 L2/L3 级别）；
-        // 3. 探测未命中则采用 README 提取并清洗出的 Logo（显式 L4 级别）；
-        // 4. 若探测命中 L2/L3 的同时提取到了 README Logo，顺手保留在 extra_l4_url 供落库补齐 l4_url；
-        // 5. 全未命中兜底返回空字符串（前端降级为首字母徽章）。
         let icon_resolution = crate::icons::pick_detail_icon_with_level(
             &icon,
             probed_with_level,
@@ -845,11 +742,6 @@ impl CatalogService {
         );
         let final_icon = icon_resolution.icon.clone();
 
-        // 趋势榜详情简介丢弃根治——未收录仓 external_synth 占位回填 GitHub 真简介。
-        // 已收录仓（catalog_item.is_some()）人工精校简介优先，不覆盖 desc / description_en。
-        // 仅当 catalog 未命中且 desc 为占位、repo_info.description 有非空真值时替换；
-        // description_en 缺失或占位时同理用 repo 真值回填。
-        // 简介决议经 `resolve_effective_descriptions` 内部 seam。
         let (effective_desc, effective_description_en) =
             resolve_effective_descriptions(catalog_item.as_ref(), desc, repo_info.as_ref());
 
@@ -890,8 +782,6 @@ impl CatalogService {
             },
             changelog: release_resp.body.unwrap_or_default(),
             readme_markdown,
-            // 变体复用：版本未变时沿用缓存详情中的 variants，避免清零已回填的多语言正文；
-            // 版本变化时置空，待 get_readme_variants 按需重拉（不改 API 形状）。
             readme_variants: if version_changed {
                 None
             } else {
@@ -902,15 +792,6 @@ impl CatalogService {
             },
             releases,
             cached_at: Some(crate::github::http::now_secs()),
-            // 合成空失败（401/限流/离线且无任何缓存）以 stale 区分于成功空。
-            // 成功 deduce 路径（releases/platforms 推导、排序、ios 并集）不带 stale；
-            // 仅此处标记，前端 stale-empty 视为 loading/待 backfill-loading，永不确认 Other，
-            // 调用方（commands::catalog_detail）据此跳过 SQLite 持久化。
-            // 真空契约：远端 200 已问到（repo/release 任一 Fresh 即走成功路径）、
-            // 仅 is_valid_installer_asset 全过滤致 releases/platforms 双空时，
-            // synthesized_empty_failure 为 false，此处保持 None（与失败空可区分）；
-            // 前端双空+None 视为确认真空（virtual-Other）灭黄标。
-            // 仅网络/401/限流/解析失败才标 Some(true)。
             is_stale: if synthesized_empty_failure {
                 Some(true)
             } else {
@@ -918,34 +799,18 @@ impl CatalogService {
             },
         };
 
-        Ok((detail, new_cache, Some(icon_resolution)))
+        Ok((detail, new_cache, Some(icon_resolution), diag))
     }
 
-    /// Checksum Manifest〈校验清单〉拉取 adapter（fetch→verify 契约的 fetch 侧；
-    /// 服务 ADR-0004，不重开）：3s 硬超时抓取，失败置空不阻塞；
-    /// 命中表供流式校验 implementation（`persist_stream_to_file` Tampered 销毁）消费；
-    /// 缺失时给空表，下游归 `completed_unverified`。
-    /// 平台过滤经 `detail_assets::checksum_asset_platform_eligible` 单口。
+    /// Checksum Manifest〈校验清单〉拉取 adapter：3s 硬超时抓取，失败置空不阻塞；
+    /// 返回 `(map, step_label, skip_or_fail_reason)` 供宽事件汇总。
     async fn extract_checksums_map(
         assets: &[GitHubAssetResponse],
         client: &reqwest::Client,
         headers: &HeaderMap,
-        app_id: &str,
-        sid: &str,
-        req_id: &str,
-    ) -> HashMap<String, String> {
+    ) -> (HashMap<String, String>, String, Option<String>) {
         let start = std::time::Instant::now();
-        log::debug!(
-            "checksum start id={} sid={} req={} assets={}",
-            app_id,
-            sid,
-            req_id,
-            assets.len()
-        );
         let mut map = HashMap::new();
-        // 平台过滤：仅当 checksum 文件名暗示 Windows 相关（msi/exe/zip/setup/portable/win）
-        // 或为通用文件（checksum/sha256 命名且不带 linux/mac/dmg/appimage/deb/rpm/aarch64 等）
-        // 时才发起请求；Linux-aarch64-only 文件直接跳过，不产生任何网络请求。
         let mut first_ineligible: Option<(String, &'static str)> = None;
         let mut candidate: Option<&GitHubAssetResponse> = None;
         for a in assets {
@@ -964,93 +829,36 @@ impl CatalogService {
 
         let Some(asset) = candidate else {
             let reason = first_ineligible
-                .map(|(f, r)| format!("platform_filtered file='{}' hint={}", f, r))
-                .unwrap_or_else(|| "no_checksum_asset".to_string());
-            log::debug!(
-                "checksum skip id={} sid={} req={} reason={} assets={} elapsed_ms={}",
-                app_id,
-                sid,
-                req_id,
-                reason,
-                assets.len(),
-                start.elapsed().as_millis()
-            );
-            return map;
+                .map(|(f, r)| format!("filtered({}:{})", f, r))
+                .unwrap_or_else(|| "no_asset".to_string());
+            let step = format!("chk:skip({})", reason);
+            return (map, step, Some(reason));
         };
-        // 仅记文件名 + 字节数 + 脱敏 URL/host，永不记 body/hash 值。
-        let file_name = asset.name.clone();
-        let file_bytes = asset.size;
-        // 用原 URL 抓取（失败置空不阻塞）。
         let effective_url = asset.browser_download_url.clone();
-        let safe_url = crate::log_support::sanitize_url(&asset.browser_download_url);
-        let host = crate::log_support::host_of(&effective_url);
-        log::debug!(
-            "checksum fetch start id={} sid={} req={} file='{}' bytes={} url='{}' mirror=false",
-            app_id,
-            sid,
-            req_id,
-            file_name,
-            file_bytes,
-            safe_url,
-        );
-        // 3s 硬超时：checksum 为尽力填充，绝不允许 10s 级阻塞首屏。
         let checksum_timeout = std::time::Duration::from_secs(3);
         let send_fut = client.get(&effective_url).headers(headers.clone()).send();
         let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => {
-                log::debug!(
-                    "checksum fail id={} sid={} req={} file='{}' host={} reason={} elapsed_ms={}",
-                    app_id,
-                    sid,
-                    req_id,
-                    file_name,
-                    host,
-                    crate::log_support::short_reason(&e.to_string()),
-                    start.elapsed().as_millis()
-                );
-                return map;
+                let reason = crate::log_support::short_reason(&e.to_string());
+                let step = format!("chk:err({}ms)", start.elapsed().as_millis());
+                return (map, step, Some(reason));
             }
             Err(_) => {
-                log::debug!(
-                    "checksum fail id={} sid={} req={} file='{}' host={} reason=checksum_timeout_3s elapsed_ms={}",
-                    app_id,
-                    sid,
-                    req_id,
-                    file_name,
-                    host,
-                    start.elapsed().as_millis()
-                );
-                return map;
+                let step = format!("chk:timeout({}ms)", start.elapsed().as_millis());
+                return (map, step, Some("timeout_3s".to_string()));
             }
         };
         let status = res.status().as_u16();
         if !res.status().is_success() {
-            log::debug!(
-                "checksum fail id={} sid={} req={} file='{}' host={} status={} elapsed_ms={}",
-                app_id,
-                sid,
-                req_id,
-                file_name,
-                host,
-                status,
-                start.elapsed().as_millis()
-            );
-            return map;
+            let step = format!("chk:{}({}ms)", status, start.elapsed().as_millis());
+            return (map, step, Some(format!("http_{}", status)));
         }
         let text = match tokio::time::timeout(checksum_timeout, res.text()).await {
             Ok(Ok(t)) => t,
             _ => {
-                log::debug!(
-                    "checksum fail id={} sid={} req={} file='{}' host={} reason=read_body_failed_or_timeout elapsed_ms={}",
-                    app_id,
-                    sid,
-                    req_id,
-                    file_name,
-                    host,
-                    start.elapsed().as_millis()
-                );
-                return map;
+                let step = format!("chk:read_err({}ms)", start.elapsed().as_millis());
+                return (map, step, Some("read_timeout".to_string()));
             }
         };
         for line in text.lines() {
@@ -1063,17 +871,8 @@ impl CatalogService {
                 }
             }
         }
-        log::debug!(
-            "checksum done id={} sid={} req={} file='{}' host={} entries={} elapsed_ms={}",
-            app_id,
-            sid,
-            req_id,
-            file_name,
-            host,
-            map.len(),
-            start.elapsed().as_millis()
-        );
-        map
+        let step = format!("chk:ok({},{}ms)", map.len(), start.elapsed().as_millis());
+        (map, step, None)
     }
 }
 
@@ -1093,9 +892,7 @@ mod tests {
         }];
         let client = reqwest::Client::new();
         let headers = reqwest::header::HeaderMap::new();
-        let map =
-            CatalogService::extract_checksums_map(&assets, &client, &headers, "t/t", "sid", "req")
-                .await;
+        let (map, _, _) = CatalogService::extract_checksums_map(&assets, &client, &headers).await;
         assert!(map.is_empty());
     }
 

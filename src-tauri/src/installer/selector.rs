@@ -221,23 +221,8 @@ pub fn select_best_asset(
     // 故障阻断：产物非空但操作系统匹配结果为空时返回 None ——
     // 绝不可跨系统回退选择产物。
     if os_matches.is_empty() {
-        log::debug!("selector decision none candidates={}", assets.len());
         return None;
     }
 
-    let candidates = os_matches;
-
-    let best = candidates.iter().max_by_key(|a| score_asset(a)).copied();
-    // 决策 debug：只记 basename + 分数 + 候选数，不记全路径/URL。
-    if let Some(b) = best {
-        log::debug!(
-            "selector decision file={} score={} candidates={}",
-            crate::log_support::file_base(&b.name),
-            score_asset(b),
-            assets.len()
-        );
-    } else {
-        log::debug!("selector decision none candidates={}", assets.len());
-    }
-    best
+    os_matches.iter().max_by_key(|a| score_asset(a)).copied()
 }

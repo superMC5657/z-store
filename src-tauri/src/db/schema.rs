@@ -235,7 +235,8 @@ impl Database {
         let version = self.user_version()?;
         if version > CURRENT_USER_VERSION {
             log::warn!(
-                "db user_version={} 高于当前支持的 {}，跳过迁移、仅跑幂等基底",
+                target: "app",
+                "db user_version={} > supported={} (skipping migrations)",
                 version,
                 CURRENT_USER_VERSION
             );

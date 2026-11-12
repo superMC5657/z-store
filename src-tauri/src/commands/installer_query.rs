@@ -70,10 +70,9 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
     // （不得调用 remove_installed_app）；
     // 数据库行予以保留，幽灵应用仅在返回视图中隐藏，并在日志中体现数量。
     if !ghost_app_ids.is_empty() {
-        log::warn!(
-            "installed scan hid {} ghost app(s); rows kept, delete only via uninstall/unmanage",
-            ghost_app_ids.len()
-        );
+        let mut ev = crate::z_log::WideEvent::new("scanner", "ghosts hidden");
+        ev.field("count", ghost_app_ids.len());
+        ev.warn();
     }
     let apps = super::installer_uninstall::hide_ghost_apps(apps, &ghost_app_ids);
 

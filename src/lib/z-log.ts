@@ -21,31 +21,6 @@ function redact(msg: string): string {
   );
 }
 
-/** 前端会话 ID：进程级一次生成全局复用，与后端 sid 行为链对齐。 */
-let frontendSid = '';
-function getSid(): string {
-  if (!frontendSid) {
-    frontendSid = `s${Date.now().toString(36)}${Math.floor(Math.random() * 0xffff)
-      .toString(16)
-      .padStart(4, '0')}`;
-  }
-  return frontendSid;
-}
-
-interface ZLogMeta {
-  sid?: string;
-  req?: string;
-}
-
-function withPrefix(msg: string, meta?: ZLogMeta): string {
-  const sid = meta?.sid ?? getSid();
-  const req = meta?.req ?? '';
-  let prefix = '';
-  if (sid) prefix += `[sid=${sid}]`;
-  if (req) prefix += `[req=${req}]`;
-  return prefix ? `${prefix} ${msg}` : msg;
-}
-
 // StrictMode 双调用去重窗（毫秒）：同一行 1s 内重复只送一行，
 // 去重发生在日志送达前，不影响业务行为。
 let lastLine = '';
@@ -59,30 +34,26 @@ function isDuplicate(line: string): boolean {
   return false;
 }
 
-/** 前端直透刷盘：即时上送，杜绝 3 秒时钟延迟造成的因果颠倒与崩溃丢日志。 */
-export function zlogInfo(msg: string, meta?: ZLogMeta): void {
-  const line = withPrefix(msg, meta);
-  if (isDuplicate(line)) return;
-  void info(redact(line)).catch(() => undefined);
+/** 前端直透刷盘：即时上送，由后端格式器统一落盘至 [ui] 标签。 */
+export function zlogInfo(msg: string): void {
+  if (isDuplicate(msg)) return;
+  void info(redact(msg)).catch(() => undefined);
 }
 
 export function zlogWarn(msg: string): void {
-  const line = withPrefix(msg);
-  if (isDuplicate(line)) return;
-  void warn(redact(line)).catch(() => undefined);
+  if (isDuplicate(msg)) return;
+  void warn(redact(msg)).catch(() => undefined);
 }
 
 export function zlogError(msg: string): void {
-  const line = withPrefix(msg);
-  if (isDuplicate(line)) return;
-  void error(redact(line)).catch(() => undefined);
+  if (isDuplicate(msg)) return;
+  void error(redact(msg)).catch(() => undefined);
 }
 
 /**
  * 前端日志入口初始化：在 main.tsx 最早调用。
- * - 直透模式：所有 UI 日志纳秒级即时进 IPC，确保时序严格真实
- * - DEV 才 attachConsole（把 console 转发到后端）
- * - 接管 onerror / unhandledrejection
+ * - DEV 才 attachConsole（将后端日志转发到浏览器控制台）
+ * - 接管 onerror / unhandledrejection 并脱敏直透 error
  */
 export async function initZLog(): Promise<void> {
   if (isInitialized) return;
@@ -105,6 +76,4 @@ export async function initZLog(): Promise<void> {
       ev.reason instanceof Error ? `${ev.reason.message}\n${ev.reason.stack ?? ''}` : String(ev.reason);
     void error(`[unhandledrejection] ${redact(reason)}`).catch(() => undefined);
   });
-
-  zlogInfo('frontend log inited');
 }

@@ -30,7 +30,7 @@ import {
   type LiteFetch,
   type LoadingLiteTarget,
 } from '../../lib/platformFilter';
-import { zlogInfo, zlogWarn } from '../../lib/z-log';
+import { zlogWarn } from '../../lib/z-log';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import {
   buildDoforceCacheKey,
@@ -193,7 +193,6 @@ async function runBoardFetch(
   try {
     const repos = await load();
     if (repos.length === 0) return { repos: [], status: 'empty', stale: false };
-    zlogInfo(`[trends] board=${board} source=${source} ok count=${repos.length}`);
     return { repos, status: 'ok', stale: false };
   } catch (err) {
     const errorKind = classifyTrendsError(err);
@@ -227,16 +226,6 @@ function emitBoardHydrated(board: string, key: string): void {
   }
 }
 
-function l2HitLog(board: string, key: string, dbHit: TrendRepo[]): void {
-  const enrich = (dbHit as { enrich?: Record<string, unknown> }).enrich;
-  const hasEnrich = !!enrich && typeof enrich === 'object';
-  const enrichCount = hasEnrich ? Object.keys(enrich as Record<string, unknown>).length : 0;
-  zlogInfo(
-    `[trends] board=${board} L2-cache hit key=${key} hasEnrich=${hasEnrich} ` +
-      `enrichCount=${enrichCount} reposCount=${dbHit.length}`,
-  );
-}
-
 function hydrateBoardDbHit(dbHit: TrendRepo[]): void {
   const enrich = (dbHit as { enrich?: Record<string, AppSummary> }).enrich;
   if (enrich) putTrendEnrichMemory(enrich);
@@ -261,7 +250,6 @@ async function fetchBoardWithL2(
     if (dbHit && dbHit.length > 0) {
       hydrateBoardDbHit(dbHit);
       writeTrendsCache(key, dbHit);
-      l2HitLog(board, key, dbHit);
       emitBoardHydrated(board, key);
       return { repos: dbHit, status: 'ok', stale: false };
     }
@@ -279,7 +267,6 @@ async function fetchBoardWithL2(
     if (staleHit && staleHit.length > 0) {
       hydrateBoardDbHit(staleHit);
       writeTrendsCache(key, staleHit);
-      l2HitLog(board, key, staleHit);
       emitBoardHydrated(board, key);
       return { repos: staleHit, status: 'ok', stale: true };
     }
@@ -328,13 +315,11 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
   if (!forceRefresh) {
     const hit = readDoforceShared();
     if (hit) {
-      zlogInfo('[trends] doforce shared-cache hit');
       emitBoardHydrated('doforce', key);
       return hit;
     }
     const inflight = getDoforceInflight();
     if (inflight) {
-      zlogInfo('[trends] doforce single-flight shared-hit');
       return inflight;
     }
   }
@@ -346,7 +331,6 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
         if (dbHit && dbHit.length > 0) {
           hydrateBoardDbHit(dbHit);
           writeDoforceShared(dbHit);
-          l2HitLog('doforce', key, dbHit);
           emitBoardHydrated('doforce', key);
           return dbHit;
         }
@@ -449,12 +433,10 @@ function flushBoardRef(ref: BoardCacheRef, latest?: Record<string, AppSummary>):
   }
   const { cacheKey, cacheBoard, repos } = ref;
   if (!cacheKey || repos.length === 0) {
-    zlogWarn(`[trends] persist skipped reason=no-key-or-empty-repos hasKey=${cacheKey !== ''} repos=${repos.length}`);
     return;
   }
   const snapSize = Object.keys(snapshotTrendEnrichCache(repos)).length;
   if (snapSize === 0) {
-    zlogWarn(`[trends] persist skipped reason=empty-enrich-snapshot repos=${repos.length}`);
     return;
   }
   void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
@@ -1635,7 +1617,7 @@ export function createTrendBoardSession(
       );
     },
 
-    syncLiteVerify({ trendResult, rawItems, activeBoard, globalConfirmed, fetchLite }) {
+    syncLiteVerify({ trendResult, rawItems, globalConfirmed, fetchLite }) {
       if (trendResult?.status !== 'ok' || globalConfirmed === undefined) return;
       const combinedConfirmed = unionConfirmedSets(globalConfirmed, confirmedOtherIds);
       const seq = liteSeqGuard.capture();
@@ -1648,10 +1630,6 @@ export function createTrendBoardSession(
         inflight: liteInflightGuard.snapshot(),
         trusted,
       });
-      zlogInfo(
-        `[trends] lite-skip board=${activeBoard} trustedConcrete=${sel.trustedConcrete} ` +
-          `trustedLoading=${sel.trustedLoading} skipped=${sel.skipped} targets=${sel.targets.length}`,
-      );
       if (sel.targets.length === 0) return;
       const claimed = new Set(liteInflightGuard.take(sel.targets.map((t) => t.key)));
       const runTargets = sel.targets.filter((t) => claimed.has(t.key));

@@ -17,128 +17,63 @@
 
 ## 2. dev / release 矩阵
 
-| | release | dev（`debug_assertions` / `import.meta.env.DEV`） |
+| | release | dev（`debug_assertions` / `ZSTORE_LOG=debug`） |
 |---|---|---|
 | 后端 targets（`z_log::init`） | 仅 `LogDir`（Level::Info） | `Stdout` + `LogDir` + `Webview`（Level::Debug） |
+| 宽事件诊断扩展（`WideEvent`） | 仅输出核心字段（操作/对象/结果/耗时/短原因） | **不增加行数**，在同一行追加 `steps=`、`url=`、`rate=`、缓存与淘汰原因 |
 | 单文件与轮转 | 单文件 5MB 滚动（`KeepSome(5)`） | 同左 |
 | 时区策略 | 本地时区（`TimezoneStrategy::UseLocal`） | 同左 |
 | 第三方降噪 | reqwest / hyper / tao / wry / h2 / rustls 过滤为 `Warn` | 同左 |
 | 前端 `attachConsole` | 不调用 | 仅 DEV 调用（`src/lib/z-log.ts::initZLog`） |
 | capabilities | `log:default`（`src-tauri/capabilities/default.json`） | 同左 |
 
-v2 API 对齐：`tauri_plugin_log::Builder::new()` 配置轮转、时区、模块过滤与 targets 后以插件形式接入
-（`lib.rs::run` 中 `.plugin(z_log::init())`）。
+## 3. 行格式与领域标签
 
-## 3. 级别与直透
+统一格式：`[YYYY-MM-DD HH:MM:SS][LVL][tag] <event> <k=v...>`
 
-- 后端：`log::error!`（panic hook）、`log_session_start()`（会话横幅）等标准 `log` 级别直写。
-- 前端：直透刷盘模式。`info / warn / error` 即时经 IPC 写入日志文件，确保严格时序与崩溃不丢失；前端使用这 3 个级别（不含 `debug`）。
-- Target 规范化：Webview 上送的调用栈 Target 统一由后端重写为精简的 `[ui]`，提升日志可读性。
-- `window.onerror` / `unhandledrejection` 直透 `error()`。
+- **级别短标签**：等宽 3 字符 `INF` / `WRN` / `ERR` / `DBG`。
+- **会话 ID（`sid`）**：仅启动横幅 `[app] start ... sid=...` 记录一次，不在每行重复；前端不单独生成 `frontendSid`。
+- **链路 ID（`t=...`）**：不使用 `thread_local!`（避免 Tokio 多线程 `.await` 串台），仅长耗时并发任务（如下载、安装）显式生成并传递 6 位 `new_trace_id()`。
+- **领域短标签 `[tag]`**（`z_log::domain_tag` 统一映射）：
+  - `app`：启动横幅、配置/DB 异常、Panic、用户数据导入、深链解析失败
+  - `catalog`：清单同步、自定义源审计、License Gate 审计
+  - `search`：在线搜索与直查
+  - `detail`：应用详情、Multi-Forge、`platforms-lite` 失败降级
+  - `trends`：抓榜失败 / 429 限流 / 截断 / enrich 部分缺席汇总
+  - `download`：安装包下载起止、镜像自动兜底、SHA-256 校验失败、本地命中跳过
+  - `installer`：安装/卸载起止、MSI 静默降级向导、用户取消、幽灵应用隐藏
+  - `updater`：批量更新检查汇总、单项失败
+  - `scanner`：本地软件扫描汇总
+  - `oauth`：OAuth 登录/登出、401 过期（30s 去重）、403 禁用、轮询/刷新失败
+  - `network`：镜像切换、测速、Host API 限流低水位/耗尽、无效环境变量代理
+  - `ui`：前端渲染崩溃（`ErrorBoundary`）、全局异常（`onerror`/`unhandledrejection`）、IPC 参数违规、接口失败告警
 
-## 4. 前端直透与脱敏（redact）
+## 4. 宽事件（Wide Event）与 Dev 诊断设计
 
-入口 `main.tsx` 最早调用 `initZLog()`（见 `src/main.tsx`）。
-- 公开 API 为 `zlogInfo / zlogWarn / zlogError` 与 `initZLog`（见 `src/lib/z-log.ts`，幂等守卫为内部变量）；
-- 各级别即时异步落盘（`@tauri-apps/plugin-log` 的 `info / warn / error` 直写，失败吞错，不影响业务）；
-- 每行自动加 `[sid=…]` 前缀（未传取前端 sid）+ 可选 `[req=…]`，同一行 1s 内重复去重一行（仅影响送达、不影响业务）；
-- DEV 环境自动执行 `attachConsole()` 桥接；`window.onerror` / `unhandledrejection` 先脱敏后直透 `error()`。
-- 脱敏规则（后端 `z_log::redact` 无正则、按字符/字节边界安全切片）：邮箱掩码；`code` / `device_code` / `user_code` / `api_key` 系（含 JSON `"key": "值"` 形态）掩码；`Bearer` / `Token` 后紧跟原文打码为 `***`；后端在写盘前与导出打包前各执行一次，panic hook 入参先脱敏再记 `error`。
-- 前端等价脱敏为 `src/lib/z-log.ts::redact` 的单处正则实现（同一组邮箱/键值/Bearer 规则），处理前端上送消息并与后端写盘前脱敏共同生效。
+- **一件事一行**：底层 HTTP（`github/http.rs`、`forge/*`、`github/search.rs`、`github/readme_fetch.rs`）不直接打印 `start`/`resp` 双行或双级别日志，而是通过 `HttpDiag` / `DetailFetchDiag` 将状态码、耗时与脱敏 URL 回传上层命令，由上层 `WideEvent` 统一发射 **1 行**。
+- **Dev 增量诊断**：通过 `WideEvent::dev` / `dev_url` / `step` 仅在 `is_dev_mode()` 生效时在同一行追加：
+  - 缓存与决策原因（如 `cache_why=ttl_hit`、`chk=no_asset` / `filtered(...)`）
+  - 子阶段耗时拆解（如 `steps=rel:200(873ms),repo:200(842ms),readme:200(442ms),icon:simple-icons,chk:skip(no_asset),db:3ms`）
+  - 完整脱敏 `url='...'` 与剩余配额 `rate=56/60`
 
-## 5. 保留与清理（prune 14d / 25MB，仅清理 `*.log`（含 `*.log.bak`），实现以 `src-tauri/src/z_log.rs::prune` 为准）
+## 5. 前端直透与脱敏（redact）
 
-`z_log::prune` 在 `setup` 中对 `app_log_dir` 执行（`KEEP_DAYS = 14`，`MAX_TOTAL_BYTES = 25MB`；单文件 5MB + `KeepSome(5)` 轮转，常量名与实现对照 `z_log.rs`）：
+入口 `main.tsx` 最早调用 `initZLog()`（见 `src/main.tsx`）：
 
-- `KEEP_DAYS = 14`：mtime 超 14 天删；
-- `MAX_TOTAL_BYTES = 25MB`：超量按 mtime 最旧先删；
-- **仅作用于日志文件**（判定逻辑见 `z_log::prune`，文件名小写以后缀 `.log` / `.log.bak` 判定，或扩展名 `log` / `bak` 大小写不敏感判定）：`.zip` 导出包、`.txt`、
-  业务 SQLite（`z_store.db` 在 AppDataDir，与 LogDir 分离）均保留不清理。
+- 公开 API 为 `zlogInfo / zlogWarn / zlogError` 与 `initZLog`（见 `src/lib/z-log.ts`）；
+- `window.onerror` / `unhandledrejection` 脱敏后直透 `error()`；1s 窗口内相同行去重；
+- 脱敏规则（前后端双侧同规则）：邮箱掩码 `***@***`；`code` / `device_code` / `user_code` / `api_key` 系掩码（不误杀 `vscode` 等路径段）；`Bearer` / `Token` 后跟凭据掩码为 `***`；
+- URL 脱敏（`log_support::sanitize_url`）保留协议、Host、Path 及搜索参数（`q=`、`per_page=`、`sort=`），仅对敏感签名/令牌 query 键替换为 `***`；`http_err_reason` 剥离 reqwest 错误回显的签名 query 后取首行 160 字符。
 
-## 6. 导出命令
+## 6. 保留、清理与导出（prune 14d / 25MB）
 
-- `zlog_get_dir(app) -> String`：返回 LogDir 路径。
-- `zlog_export_bundle(app) -> String`：把 LogDir 内 `*.log`（含 `*.log.bak`）打成
-  `zstore-logs-<unix_secs>.zip`（deflate，附 `README.txt` 记 identifier / keep_days /
-  max_total_bytes），返回 bundle 路径；跳过自身与一切 `.zip`。
+- `z_log::prune` 在 `setup` 中执行：`KEEP_DAYS = 14`、`MAX_TOTAL_BYTES = 25MB`、`MAX_SINGLE_FILE_BYTES = 5MB`、`ROTATION_KEEP_COUNT = 5`。仅清理 `*.log` / `*.log.bak`，不动 `.zip` 与业务 SQLite（`z_store.db`）。
+- 导出命令：`zlog_get_dir` / `zlog_export_bundle`（打包前再过一次 `redact()`）。
+- 禁止将日志写入业务 SQLite；`z_store.db` 打开失败回退内存库时在 `setup()` 中记一条 `[ERR][app] db open failed fallback to in-memory`。
 
-两命令均在 `lib.rs` 的 `tauri::generate_handler!` 注册。
+## 7. 静默策略（禁止刷屏点位）
 
-## 7. 禁 sqlite 声明
-
-- 日志**只进 LogDir**，禁止写入业务 SQLite（`z_store.db`，表清单以 `src-tauri/src/db/schema.rs` 为准，与日志物理隔离）。
-- panic hook 仅记 `log::error!` 落盘，不写 DB、不上报。
-- 磁盘库（`z_store.db`）打不开回退内存库时记一条 `error`
- （`src-tauri/src/lib.rs::run` 的库打开失败回退分支，
-  `db open failed fallback to in-memory`）：使用静态文案（不记录任何路径值），以 `error` 级别确保静默丢数据风险可见。
-
-## 8. 接线位置速查
-
-- `src-tauri/src/z_log.rs`：init / prune / redact / panic hook / 导出命令。
-- `src-tauri/src/log_support.rs`：脱敏与 URL 处理（`sanitize_url` / `http_err_reason` / `short_reason`）。
-- `src-tauri/src/lib.rs::run`：首行 `install_panic_hook()` + `.plugin(z_log::init())` +
-  `setup` 内 `prune` + commands 注册。
-- `src-tauri/src/main.rs`：首行 `install_panic_hook()`（与 `run` 双入口，`OnceLock` 幂等）。
-- `src/lib/z-log.ts` + `src/main.tsx`：前端直透入口（`initZLog / zlogInfo / zlogWarn / zlogError`）。
-- 定位点位用 `rg` 现查，例如：`rg -n "download start|download done|oauth login ok" src-tauri/src`。
-
-## 9. 业务打点三层设计
-
-> release 落盘级别为 Info：第一层可见，第二层 `debug!` 仅 dev 可见，
-> 第三层禁止（零打点）。级别规则：失败 `error`（下载/安装/校验/超限用尽）、
-> 可恢复 `warn`、里程碑 `info`、细节 `debug`；单仓成功禁止 `info` 化。
-
-### 第一层：release 可见
-
-| 点位 | 级别 | 消息样例 |
-|---|---|---|
-| 更新检查轮结束 `commands/updates_check.rs` | info | `update batch check done sid=… total=12 updates=2 failures=1 elapsed_ms=4321 persisted=true` |
-| 单仓抓取失败 `commands/updates_check.rs`（更新项） | warn | `update check item failed id=rustdesk/rustdesk host=github.com reason=检查更新网络不可达且无本地缓存` |
-| 单仓详情失败 `commands/catalog_detail.rs` | warn | `fetch app detail failed id={} url='{}' reason={}` |
-| 下载开始 `installer/downloader_http.rs` | info | `download start id=rustdesk/rustdesk file=rustdesk.msi host=objects.githubusercontent.com` |
-| 下载完成 `installer/downloader_http.rs` | info | `download done id=rustdesk/rustdesk file=rustdesk.msi bytes=12345678 elapsed_ms=4321` |
-| 下载失败 `installer/downloader_http.rs`（各终端分支记一次） | error | `download failed id=… file=… host=… reason=…首行…` / `download verify failed id=… file=…` |
-| 安装启动 `installer/executor.rs` | info | `install start id=… kind=Msi\|SetupExe\|…` |
-| 安装静默失败降级向导 `installer/executor_windows.rs` | info | `install silent failed code=1603, fallback to interactive wizard id=…` |
-| 安装用户主动取消 `installer/executor.rs` | info | `install cancelled by user id=… reason=用户取消了 MSI 安装向导` |
-| 安装结果 `installer/executor.rs`（唯一出入口） | info/error | `install done id=…` / `install failed id=… reason=…首行…` |
-| 校验结果 `installer/downloader_progress.rs::verify_terminal_state`（不单独打点） | — | 终态随进度事件下发 `verified` / `completed_unverified`，不写日志 |
-| 校验失败 `installer/downloader_http.rs` | error | `download verify failed id=… file=…` |
-| 扫描起止 `commands/scanner.rs` | info | `scanner start` / `scanner done scanned=… unmanaged=…` |
-| 卸载起止 `commands/installer_uninstall.rs` / `installer/executor_uninstall.rs` | info/error | `uninstall start/done/failed`（原因首行，不记全路径） |
-| 限额低水位 `lib.rs::log_rate_limit_water_mark`（每进程每 host 每种一次） | warn | `rate limit low host=github.com remaining=6/60` |
-| 限额用尽 `lib.rs::log_rate_limit_water_mark`（每进程每 host 一次） | error | `rate limit exhausted host=github.com remaining=0 limit=60` |
-| 登录成功 `commands/oauth.rs` | info | `oauth login ok user=octocat`（只记 login，不记 token/device_code/user_code） |
-| 登出 `commands/oauth.rs` | info | `oauth logout ok` |
-| 换 token/刷新/轮询失败 `commands/oauth.rs` | warn | `oauth poll failed reason=…` / `oauth refresh failed reason=…` / `oauth device start failed reason=…` |
-| 镜像切换 `mirror.rs::set_active_mirror` | info | `mirror switch id=… proxy='…'`（代理只记脱敏展示值） |
-| 测速结果 `commands/network.rs::test_proxy`（命令自记） | info/warn | `proxy test ok latency_ms=210` / `proxy test failed latency_ms=9999 reason=…`（不记被测 URL） |
-| 下载命中跳过 `installer/downloader_progress.rs::SkipDone::finish` | info | `download skipped sid=… req=… id=… host=… file=… bytes=… elapsed_ms=…`（零网络，`should_skip_download` 命中：本地存在且大小>0 且 SHA-256 与期望一致） |
-| 趋势文本拒绝/失败 `commands/network.rs::fetch_trends_text` | warn | `trends text rejected sid=… req=… reason=…` / `trends text timeout …` / `trends text network fail …` / `trends text upstream … status=…` / `trends text rate-limited … status=429 retry_after='…' retry_after_ms=…` / `trends text read fail …` / `trends text truncated … bytes=…`（超 2MB 截断到字符边界，仍返回前段正文） / `trends text decode fail …`（只记 host，不记 query/URL；429 不占单飞槽计数） |
-
-### 第二层：debug（release 不可见）
-
-| 点位 | 消息样例 |
-|---|---|
-| 单仓/详情/搜索成功 `commands/catalog_detail.rs` / `commands/catalog_search.rs` | `fetch app detail done id=… url='…' cache=…` / `fetch repo ok id=…` / `search done sid=… query='…' hits=…` |
-| 关注挂起 `commands/updates_check.rs::notify_watched_updates` | `watch deferred id=… reason=daily-throttle\|baseline-init\|…首行…` |
-| device 取消 `commands/oauth.rs` | `oauth device denied`（正常流程，不记 token/user_code） |
-| 拉取层正常请求 `github/*`、`forge/*` | `http fetch … / http forge …`（成功/304 一律 debug；失败 warn，错误上浮到命令层记一次） |
-| 趋势文本起止 `commands/network.rs::fetch_trends_text` | `trends text fetch start sid=… req=… host='…' path='…'` / `trends text ok sid=… req=… host='…' bytes=… elapsed_ms=…`（成功/开始一律 debug；失败 warn 见第一层） |
-
-### 第三层：禁止（零打点）
-
-- 下载进度循环 / 字节回调：零 `log!`（进度只走 `zstore://download-progress` 事件）。
-- 完整 URL（含 release 资产签名 query）、token / user_code / device_code、
-  响应 body、文件全路径、私钥、`tick`：一律不记。
-- `println!` / `eprint!` / `dbg!`：业务代码禁用（`scanner/tests.rs` 内测试输出保留）。
-- 循环内打点：禁止 `info`，只许 `debug` 且须可聚合；单项未命中类 debug 禁止（仅允许可聚合的汇总计数）。
-
-## 10. 网络透明化与 URL 脱敏（sanitize_url）
-
-- **网络请求透明化**：客户端对外拉取的所有远端数据（收录清单、Release 资产、README、更新检查、在线搜索、多源 Forge），均在业务层打印出目标 URL、状态码与耗时，保证排查与网络环境审计可知可控。
-- **URL 脱敏与签名保护（`log_support::sanitize_url`）**：
-  - 保留完整协议、Host、端口与 Path 路径（包括镜像代理前缀，如 `https://ghproxy.net/https://github.com/...`）；
-  - 对 Query 参数执行敏感词扫描，自动将 `token`、`sig`、`signature`、`secret`、`key`、`X-Amz-*` 等敏感签名键值替换为 `***`；
-  - 保留常规业务查询参数（如 `q=...`, `per_page=...`, `sort=...`），便于直接在日志中排查搜索请求与参数。
-- **上游错误脱敏（`log_support::http_err_reason`）**：reqwest 0.12 `Display` 回显完整 URL，先剥离签名 query 再取首行（160 字符安全截断）。
+- 下载进度回调、字节流循环：零日志（走 `zstore://download-progress` 事件）。
+- 后台图标补探（`icons/fetch.rs`、`icons/probe.rs`）、单张图标下载/404/格式校验（`icons/mod.rs`、`asset_fetch.rs`）：零独立日志，详情图标来源仅折叠在 `[detail]` 宽事件的 Dev `steps` 中。
+- 高频状态流水：本地 0~5ms 搜索（`search_apps`）、DB-only 快照读（`get_cached_updates`）、Trends 正常抓榜/缓存命中/`lite-skip`、页面切换（`switch view`）、点击按钮埋点、常规 Toast 提示、OAuth 正常轮询过程，一律静音不落盘。
+- 业务代码禁用 `println!` / `eprint!` / `dbg!`。

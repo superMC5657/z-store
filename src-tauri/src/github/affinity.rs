@@ -136,7 +136,6 @@ impl CatalogService {
                 api_base,
                 &headers,
                 starred_etag.as_deref(),
-                "affinity-starred",
             ),
             Self::get_with_etag(
                 &client,
@@ -144,7 +143,6 @@ impl CatalogService {
                 api_base,
                 &headers,
                 repos_etag.as_deref(),
-                "affinity-repos",
             )
         );
 

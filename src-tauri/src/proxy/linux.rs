@@ -129,18 +129,16 @@ pub struct GnomeProxy {
     pub ignore_hosts: Vec<String>,
 }
 
-/// 只做 `manual` 静态代理；`auto/pac` 记 warn 后返回 `None`（保持直连）。
-pub fn read_gnome_proxy() -> Option<GnomeProxy> {
-    let mode_raw = gsettings_get("org.gnome.system.proxy", "mode")?;
+/// 仅支持 `manual` 静态代理；若为 `auto`/`pac` 等非 `manual` 非 `none` 模式，
+/// 额外返回被跳过的模式名供启动期告警记录。
+fn read_gnome_proxy_with_mode() -> (Option<GnomeProxy>, Option<String>) {
+    let Some(mode_raw) = gsettings_get("org.gnome.system.proxy", "mode") else {
+        return (None, None);
+    };
     let mode = mode_raw.trim().to_ascii_lowercase();
     if mode != "manual" {
-        if mode.contains("auto") || mode.contains("pac") {
-            log::warn!(
-                "proxy gnome mode={} skip (auto/pac unsupported, keep direct)",
-                mode
-            );
-        }
-        return None;
+        let skipped = (!mode.is_empty() && mode != "none").then_some(mode);
+        return (None, skipped);
     }
     let http = gnome_host_port("org.gnome.system.proxy.http");
     let mut https = gnome_host_port("org.gnome.system.proxy.https");
@@ -151,14 +149,22 @@ pub fn read_gnome_proxy() -> Option<GnomeProxy> {
     }
     let ignore_hosts = gnome_ignore_hosts();
     if http.is_none() && https.is_none() && socks_all.is_none() {
-        return None;
+        return (None, None);
     }
-    Some(GnomeProxy {
-        http,
-        https,
-        socks_all,
-        ignore_hosts,
-    })
+    (
+        Some(GnomeProxy {
+            http,
+            https,
+            socks_all,
+            ignore_hosts,
+        }),
+        None,
+    )
+}
+
+/// 读取 GNOME 静态（`manual`）代理配置。
+pub fn read_gnome_proxy() -> Option<GnomeProxy> {
+    read_gnome_proxy_with_mode().0
 }
 
 fn has_any_proxy_env() -> bool {
@@ -201,23 +207,15 @@ fn first_proxy_env_host() -> Option<String> {
     None
 }
 
-/// Linux 启动期代理初始化（对标 Windows：env 为空才写，不覆盖终端 export）。
-///
-/// - env 已有任一 `HTTP(S)_PROXY/ALL_PROXY`：不写代理变量，仅补 `no_proxy`
-///   默认豁免，记 `source=env`；
-/// - env 为空且 GNOME `manual` 有效：写小写 `http_proxy/https_proxy`
-///   （+ 大写镜像，供仅读大写的工具）与 `all_proxy`（仅 socks 有效时），
-///   `no_proxy/NO_PROXY` 合并 GNOME `ignore-hosts` + 默认豁免，记 `source=gnome`；
-/// - 其余：仅补 `no_proxy` 默认豁免，记 `source=none`。
-/// - 日志只记 host（脱敏），永不记 query/凭证。
-pub fn init_linux_system_proxy() {
+/// Linux 启动期代理初始化（对标 Windows：env 为空才写，不覆盖终端 export），返回启动摘要字符串。
+pub fn init_linux_system_proxy() -> String {
     if has_any_proxy_env() {
         ensure_no_proxy_env(&[]);
         let host = first_proxy_env_host().unwrap_or_else(|| "unknown".to_string());
-        log::info!("proxy init source=env host={}", host);
-        return;
+        return format!("env({})", host);
     }
-    match read_gnome_proxy() {
+    let (gnome, skipped_mode) = read_gnome_proxy_with_mode();
+    match gnome {
         Some(g) => {
             let mut host_log = "unknown".to_string();
             if let Some(ref http) = g.http {
@@ -246,11 +244,16 @@ pub fn init_linux_system_proxy() {
                 }
             }
             ensure_no_proxy_env(&g.ignore_hosts);
-            log::info!("proxy init source=gnome host={}", host_log);
+            format!("gnome({})", host_log)
         }
         None => {
+            if let Some(mode) = skipped_mode {
+                let mut ev = crate::z_log::WideEvent::new("network", "proxy skipped");
+                ev.field("mode", &mode).field("reason", "unsupported_gnome_mode");
+                ev.warn();
+            }
             ensure_no_proxy_env(&[]);
-            log::info!("proxy init source=none host=direct");
+            "none".to_string()
         }
     }
 }

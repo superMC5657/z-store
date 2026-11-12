@@ -161,25 +161,10 @@ describe('z-log 通道与前缀/去重（前端特有行为）', () => {
     expect(pluginLog.error.mock.calls[0][0]).not.toContain('zzz999');
   });
 
-  it('meta 提供 sid/req 时前缀逐字使用；无 req 时省略段', async () => {
+  it('不附加冗余 sid/req 前缀，由后端统一按 [ui] 格式化', async () => {
     const { zlogInfo } = await loadZLog();
-    zlogInfo('hello', { sid: 's1', req: 'r1' });
-    expect(lastInfo()).toBe('[sid=s1][req=r1] hello');
-    pluginLog.info.mockClear();
-    zlogInfo('plain', { sid: 's2' });
-    expect(lastInfo()).toBe('[sid=s2] plain');
-  });
-
-  it('无 meta 时进程级 sid 自动生成且跨行复用', async () => {
-    const { zlogInfo } = await loadZLog();
-    zlogInfo('first');
-    zlogInfo('second');
-    const sidOf = (line: string): string => /^\[sid=([^\]]+)\]/.exec(line)?.[1] ?? '';
-    const sid1 = sidOf(lastInfo());
-    expect(sid1).toMatch(/^s/);
-    pluginLog.info.mockClear();
-    zlogInfo('third');
-    expect(sidOf(lastInfo())).toBe(sid1);
+    zlogInfo('hello');
+    expect(lastInfo()).toBe('hello');
   });
 
   it('同一行 1s 内重复只送达一行（StrictMode 双调用去重）', async () => {
@@ -193,11 +178,11 @@ describe('z-log 通道与前缀/去重（前端特有行为）', () => {
 });
 
 describe('initZLog：全局错误钩子脱敏', () => {
-  it('window.onerror / unhandledrejection 均经脱敏上送，重复初始化只挂一次', async () => {
+  it('window.onerror / unhandledrejection 均经脱敏上送，重复初始化只挂一次且不刷启动行', async () => {
     const { initZLog } = await loadZLog();
     await initZLog();
     expect(pluginLog.attachConsole).toHaveBeenCalledTimes(1);
-    expect(lastInfo()).toContain('frontend log inited');
+    expect(pluginLog.info).not.toHaveBeenCalled();
 
     window.dispatchEvent(
       new ErrorEvent('error', { message: 'boom at Bearer aaabbb', filename: 'app.js', lineno: 1, colno: 2 }),

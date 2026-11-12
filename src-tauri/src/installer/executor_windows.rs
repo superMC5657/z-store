@@ -31,12 +31,11 @@ pub async fn install_msi(installer_path: &Path, app_id: &str) -> Result<InstallO
         return Err("用户取消了 MSI 安装向导".to_string());
     }
 
-    log::info!(
-        "install silent failed sid={} code={}, fallback to interactive wizard id={}",
-        crate::z_log::new_session_id(),
-        code,
-        app_id
-    );
+    let mut ev = crate::z_log::WideEvent::new("installer", "msi silent fallback");
+    ev.field("id", app_id)
+        .field("code", code)
+        .dev("mode", "interactive_wizard");
+    ev.warn();
 
     // 静默被拒绝或非零退出：降级拉起原生 GUI 向导，并等待用户在向导中完成或取消
     let mut fallback = tokio::process::Command::new("msiexec.exe")
@@ -66,22 +65,13 @@ pub async fn install_msi(installer_path: &Path, app_id: &str) -> Result<InstallO
 
 /// Windows SetupExe 安装体。
 #[cfg(target_os = "windows")]
-pub async fn install_setup_exe(
-    installer_path: &Path,
-    app_id: &str,
-) -> Result<InstallOutcome, String> {
+pub async fn install_setup_exe(installer_path: &Path) -> Result<InstallOutcome, String> {
     use std::time::Duration;
     // 与 MSI 行为对齐：setup_exe 无 NSIS/Inno 引擎可调用（exe 本体即安装器），
     // 不带任何静默参数直接拉起，由其自带向导控制流程（可见进度、可取消），
     // 调用方 `.wait()` 等待用户完成或取消；退出码 1602/1/2 仍映射为用户取消。
     let setup_kind = sniff_setup_kind_from_file(installer_path);
     let silent_args = silent_args_for_setup_kind(&setup_kind);
-    log::info!(
-        "install setup interactive sid={} kind={:?} id={}",
-        crate::z_log::new_session_id(),
-        setup_kind,
-        app_id
-    );
     let mut child = tokio::process::Command::new(installer_path)
         .args(&silent_args)
         .spawn()

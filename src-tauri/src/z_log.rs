@@ -1,7 +1,8 @@
 //! 统一日志能力（z-store）：只落盘到 LogDir，release 仅 LogDir，dev 附加 Stdout + Webview。
 //!
-//! - 日志只进 LogDir（Win `%LOCALAPPDATA%/com.zstore.app/logs`），禁止写 sqlite 业务库。
-//! - 保留策略：14 天 / 总量 25MB（store 联网，日志价值高保留更久）。
+//! - 格式：`[YYYY-MM-DD HH:MM:SS][LVL][tag] <event> <k=v...>`（`INF`/`WRN`/`ERR`/`DBG`）。
+//! - 宽事件原则：一个业务操作只记一条结论行；Dev 模式不拆分多行，在同一行追加诊断维度。
+//! - 保留策略：14 天 / 总量 25MB，单文件 5MB 滚动（KeepSome(5)）。
 //! - 自动上报网络：当前默认关闭，仅落盘 + 导出。
 
 use std::path::{Path, PathBuf};
@@ -17,23 +18,108 @@ pub const MAX_SINGLE_FILE_BYTES: u128 = 5 * 1024 * 1024;
 /// 保留的已归档日志切片数量上限。
 pub const ROTATION_KEEP_COUNT: usize = 5;
 
+/// 级别短标签（等宽 3 字符，方便对齐扫读）。
+pub fn short_level(level: log::Level) -> &'static str {
+    match level {
+        log::Level::Error => "ERR",
+        log::Level::Warn => "WRN",
+        log::Level::Info => "INF",
+        log::Level::Debug => "DBG",
+        log::Level::Trace => "TRC",
+    }
+}
+
+/// 将 Webview 前端消息中的已知子标签提取为规范 `(domain_tag, prefix, body)`，
+/// 消除 `[LVL][ui] [trends] ...` / `[LVL][ui] [onerror] ...` 重复方括号前缀。
+pub fn resolve_webview_tag_and_body(msg: &str) -> (&'static str, &'static str, &str) {
+    if let Some(rest) = msg.strip_prefix("[trends] ") {
+        return ("trends", "", rest);
+    }
+    for (bracketed, plain) in [
+        ("[onerror] ", "onerror "),
+        ("[unhandledrejection] ", "unhandledrejection "),
+        ("[ipc-args] ", "ipc-args "),
+        ("[demo-mock] ", "demo-mock "),
+    ] {
+        if let Some(rest) = msg.strip_prefix(bracketed) {
+            return ("ui", plain, rest);
+        }
+    }
+    ("ui", "", msg)
+}
+
+/// 将 Rust 模块路径与 Webview 目标统一映射为紧凑领域标签。
+pub fn domain_tag(target: &str) -> &str {
+    if target.starts_with("webview") {
+        return "ui";
+    }
+    let stripped = target
+        .strip_prefix("zstore_lib::")
+        .or_else(|| target.strip_prefix("z_store::"))
+        .unwrap_or(target);
+
+    match stripped {
+        "app" | "z_log" | "config" | "db::schema" | "lib" | "" | "commands::history"
+        | "commands::system" => "app",
+        "catalog" | "commands::catalog_sync" | "commands::catalog_custom"
+        | "github::catalog_service" | "db::custom_apps" => "catalog",
+        "search" | "commands::catalog_search" | "github::search" => "search",
+        "detail"
+        | "commands::catalog_detail"
+        | "github::detail_fetch"
+        | "github::readme_fetch"
+        | "github::release_fetch"
+        | "github::developer_profile"
+        | "github::developer_starred"
+        | "github::http" => "detail",
+        "trends" => "trends",
+        "download"
+        | "commands::installer_download"
+        | "installer::downloader_http"
+        | "installer::downloader_progress" => "download",
+        "installer"
+        | "commands::installer_install"
+        | "commands::installer_uninstall"
+        | "commands::installer_query"
+        | "installer::selector" => "installer",
+        "updater" | "commands::updates_check" => "updater",
+        "scanner" | "commands::scanner" => "scanner",
+        "oauth" | "commands::oauth" => "oauth",
+        "network" | "commands::network" | "mirror" => "network",
+        "ui" => "ui",
+        other => {
+            if other.starts_with("forge::") {
+                "detail"
+            } else if other.starts_with("installer::executor") {
+                "installer"
+            } else if other.starts_with("oauth::") {
+                "oauth"
+            } else if other.starts_with("proxy::") {
+                "network"
+            } else if other.starts_with("icons::") {
+                "detail"
+            } else {
+                other.rsplit("::").next().unwrap_or(other)
+            }
+        }
+    }
+}
+
+/// 运行时是否处于诊断模式（Dev 默认 Debug，或 Release 通过 `ZSTORE_LOG=debug` 开启）。
+pub fn is_dev_mode() -> bool {
+    log::log_enabled!(log::Level::Debug)
+}
+
 /// 初始化 tauri-plugin-log v2。
 ///
-/// - Release 生产模式：只写 `LogDir`（Level::Info 级别）
-/// - Dev 开发模式：同时输出到 `Stdout` + `LogDir` + `Webview`（Level::Debug 级别）
-/// - 显式配置 5MB 轮转与本地时区，避免 40KB 静默删除与时区偏差
-/// - 降低 reqwest / hyper / tao / wry 等高噪音第三方库级别为 Warn
-/// - 统一将 webview 前端长路径 target 规整为简洁的 [ui]
-///
-/// 级别策略（INFO 契约）：INFO 只记行为摘要（结果 / 计数 / 耗时 / host），
-/// DEBUG 才记完整 URL 与细节正文；release 默认 Info，故 DEBUG 的完整 URL
-/// 默认不可见（后续任务按需提升）。调用方另用 `log_support::sanitize_url` /
-/// `host_of` / `short_reason` 先脱敏再记行。
+/// - Release 生产模式：只写 `LogDir`（Level::Info）
+/// - Dev 开发模式：同时输出到 `Stdout` + `LogDir` + `Webview`（Level::Debug）
+/// - 统一使用 `[YYYY-MM-DD HH:MM:SS][LVL][tag] ...` 紧凑格式，写盘前过 `redact`。
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
     let format =
-        time::macros::format_description!("[[[year]-[month]-[day]][[[hour]:[minute]:[second]]");
+        time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
     let builder = Builder::default()
         .max_file_size(MAX_SINGLE_FILE_BYTES)
         .rotation_strategy(RotationStrategy::KeepSome(ROTATION_KEEP_COUNT))
@@ -41,24 +127,19 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .format(move |out, message, record| {
             let now = time::OffsetDateTime::now_local()
                 .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
-            let target = if record.target().starts_with("webview") {
-                "ui"
-            } else {
-                record.target()
-            };
-            // 落盘前统一脱敏：禁止 token / code / body 原文落盘。
             let clean = redact(&message.to_string());
-            // 会话/请求关联前缀：未供给（空串）时整体省略，行首干净。
-            let sid = SESSION_ID.get().cloned().unwrap_or_default();
-            let req = REQ_ID.with(|c| c.borrow().clone());
-            let prefix = prefix_sid_req(&sid, &req);
+            let (tag, prefix, body) = if record.target().starts_with("webview") {
+                resolve_webview_tag_and_body(&clean)
+            } else {
+                (domain_tag(record.target()), "", clean.as_str())
+            };
             out.finish(format_args!(
-                "{}{}[{}][{}] {}",
+                "[{}][{}][{}] {}{}",
                 now.format(&format).unwrap_or_default(),
+                short_level(record.level()),
+                tag,
                 prefix,
-                record.level(),
-                target,
-                clean
+                body
             ))
         })
         .level_for("reqwest", log::LevelFilter::Warn)
@@ -90,17 +171,11 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     }
 }
 
-/// 会话 / 请求关联 ID：`sid` 进程级 `OnceLock` 生成一次全局复用；
-/// `req` 线程级短 ID，随请求设置、随行输出。
+/// 会话 ID：进程级 `OnceLock` 生成一次，仅用于启动横幅。
 static SESSION_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-static REQ_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-thread_local! {
-    static REQ_ID: std::cell::RefCell<String> =
-        const { std::cell::RefCell::new(String::new()) };
-}
+static TRACE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// 进程级会话 ID：首次调用生成并冻结，后续调用返回同一值。
-/// 与 `log_session_start` 横幅及每行 `[sid=..]` 共用。
 pub fn new_session_id() -> String {
     SESSION_ID
         .get_or_init(|| {
@@ -108,56 +183,155 @@ pub fn new_session_id() -> String {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
                 .unwrap_or(0);
-            // 短 ID：`s` + pid(hex) + 时间低 32 位(hex)，无额外依赖。
             format!("s{:x}{:08x}", std::process::id(), nanos & 0xffff_ffff)
         })
         .clone()
 }
 
-/// 当前线程请求短 ID（未设置时为空串，由 format 层省略）。
-pub fn current_req_id() -> String {
-    REQ_ID.with(|c| c.borrow().clone())
-}
-
-/// 生成并安装当前线程请求短 ID（8 位 hex），返回该 ID。
-pub fn new_req_id() -> String {
+/// 生成跨 `await` 显式传递的 6 位短链路 ID（无 TLS 串台风险）。
+pub fn new_trace_id() -> String {
     use std::sync::atomic::Ordering;
-    let n = REQ_SEQ.fetch_add(1, Ordering::Relaxed);
+    let n = TRACE_SEQ.fetch_add(1, Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
-    let id = format!("{:04x}{:04x}", (nanos ^ n) & 0xffff, n & 0xffff);
-    REQ_ID.with(|c| *c.borrow_mut() = id.clone());
-    id
+    format!("{:02x}{:04x}", (nanos ^ n) & 0xff, n & 0xffff)
 }
 
-/// 显式设置当前线程请求 ID（为空则后续行省略 `[req=..]`）。仅测试使用。
-#[cfg(test)]
-pub fn set_req_id(id: &str) {
-    REQ_ID.with(|c| *c.borrow_mut() = id.to_string());
+/// 宽事件单行构建器：一个业务操作只输出 1 行，Dev 模式在同行末尾追加诊断上下文。
+pub struct WideEvent {
+    tag: &'static str,
+    action: String,
+    started: Option<std::time::Instant>,
+    core: Vec<(&'static str, String)>,
+    dev: Vec<(&'static str, String)>,
+    steps: Vec<String>,
+    dev_enabled: bool,
 }
 
-/// 清除当前线程请求 ID。仅测试使用。
-#[cfg(test)]
-pub fn clear_req_id() {
-    REQ_ID.with(|c| c.borrow_mut().clear());
-}
-
-/// 纯函数：`[sid=..][req=..]` 前缀合成，两者为空即整体省略（行首干净无多余空格）。
-fn prefix_sid_req(sid: &str, req: &str) -> String {
-    let mut p = String::new();
-    if !sid.is_empty() {
-        p.push_str("[sid=");
-        p.push_str(sid);
-        p.push(']');
+impl WideEvent {
+    pub fn new(tag: &'static str, action: impl Into<String>) -> Self {
+        Self {
+            tag,
+            action: action.into(),
+            started: None,
+            core: Vec::new(),
+            dev: Vec::new(),
+            steps: Vec::new(),
+            dev_enabled: is_dev_mode(),
+        }
     }
-    if !req.is_empty() {
-        p.push_str("[req=");
-        p.push_str(req);
-        p.push(']');
+
+    pub fn timed(tag: &'static str, action: impl Into<String>) -> Self {
+        let mut ev = Self::new(tag, action);
+        ev.started = Some(std::time::Instant::now());
+        ev
     }
-    p
+
+    pub fn with_started(mut self, started: std::time::Instant) -> Self {
+        self.started = Some(started);
+        self
+    }
+
+    pub fn set_action(&mut self, action: impl Into<String>) -> &mut Self {
+        self.action = action.into();
+        self
+    }
+
+    pub fn field(&mut self, k: &'static str, v: impl std::fmt::Display) -> &mut Self {
+        self.core
+            .push((k, crate::log_support::format_kv_value(&v.to_string())));
+        self
+    }
+
+    pub fn field_opt<V: std::fmt::Display>(&mut self, k: &'static str, v: Option<V>) -> &mut Self {
+        if let Some(val) = v {
+            self.field(k, val);
+        }
+        self
+    }
+
+    pub fn dev(&mut self, k: &'static str, v: impl std::fmt::Display) -> &mut Self {
+        if self.dev_enabled {
+            self.dev
+                .push((k, crate::log_support::format_kv_value(&v.to_string())));
+        }
+        self
+    }
+
+    pub fn dev_opt<V: std::fmt::Display>(&mut self, k: &'static str, v: Option<V>) -> &mut Self {
+        if self.dev_enabled {
+            if let Some(val) = v {
+                self.dev(k, val);
+            }
+        }
+        self
+    }
+
+    pub fn dev_url(&mut self, k: &'static str, raw_url: &str) -> &mut Self {
+        if self.dev_enabled {
+            let safe = crate::log_support::sanitize_url(raw_url);
+            self.dev.push((k, format!("'{}'", safe.replace('\'', "\""))));
+        }
+        self
+    }
+
+    pub fn step(&mut self, s: impl Into<String>) -> &mut Self {
+        if self.dev_enabled {
+            let item = s.into();
+            if !item.trim().is_empty() {
+                self.steps.push(item);
+            }
+        }
+        self
+    }
+
+    pub fn build_line(&self) -> String {
+        let mut parts: Vec<String> = Vec::with_capacity(2 + self.core.len() + self.dev.len() + 2);
+        parts.push(self.action.clone());
+        for (k, v) in &self.core {
+            parts.push(format!("{}={}", k, v));
+        }
+        if let Some(started) = self.started {
+            parts.push(format!("ms={}", started.elapsed().as_millis()));
+        }
+        if self.dev_enabled {
+            for (k, v) in &self.dev {
+                parts.push(format!("{}={}", k, v));
+            }
+            if !self.steps.is_empty() {
+                parts.push(format!("steps={}", self.steps.join(",")));
+            }
+        }
+        parts.join(" ")
+    }
+
+    pub fn emit(self, level: log::Level) {
+        let line = self.build_line();
+        log::log!(target: self.tag, level, "{}", line);
+    }
+
+    pub fn info(self) {
+        self.emit(log::Level::Info);
+    }
+
+    pub fn warn(self) {
+        self.emit(log::Level::Warn);
+    }
+
+    pub fn error(self) {
+        self.emit(log::Level::Error);
+    }
+}
+
+/// 启动横幅上下文（在 `.plugin(z_log::init())` 之后的 `setup()` 中统一打印）。
+pub struct StartupBanner<'a> {
+    pub config_source: &'a str,
+    pub proxy: &'a str,
+    pub mirror: &'a str,
+    pub strict_errors: bool,
+    pub db_mode: &'a str,
 }
 
 /// 日志级别覆盖：`ZSTORE_LOG` 优先，`RUST_LOG` 兜底，均缺失时用编译期默认。
@@ -189,17 +363,21 @@ pub fn resolve_level(default: log::LevelFilter) -> log::LevelFilter {
     }
     default
 }
-/// 记录新会话启动横幅，明确会话生命周期边界（含进程级 `sid` 便于跨行关联）。
-pub fn log_session_start() {
+
+/// 记录新会话启动横幅（包含版本、会话 ID、平台与运行环境摘要）。
+pub fn log_startup_banner(banner: &StartupBanner<'_>) {
     let sid = new_session_id();
-    log::info!(
-        "=== ZStore v{} started sid={} (os={} arch={} pid={}) ===",
-        env!("CARGO_PKG_VERSION"),
-        sid,
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-        std::process::id()
-    );
+    let mut ev = WideEvent::new("app", format!("start v{}", env!("CARGO_PKG_VERSION")));
+    ev.field("sid", sid)
+        .field("os", std::env::consts::OS)
+        .field("arch", std::env::consts::ARCH)
+        .field("pid", std::process::id())
+        .field("proxy", banner.proxy)
+        .field("mirror", banner.mirror)
+        .field("strict", banner.strict_errors)
+        .dev("config", banner.config_source)
+        .dev("db", banner.db_mode);
+    ev.info();
 }
 
 /// 脱敏：遮蔽常见 token / Authorization 头 / 邮箱 / code / api_key，避免密钥落盘。
@@ -456,7 +634,7 @@ pub fn install_panic_hook() {
                 .location()
                 .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
                 .unwrap_or_else(|| "unknown location".to_string());
-            log::error!("[panic] {} at {}", redact(&payload), location);
+            log::error!(target: "app", "panic {} at {}", redact(&payload), location);
             prev(info);
         }));
     });
@@ -623,22 +801,72 @@ mod tests {
     }
 
     #[test]
-    fn test_sid_req_prefix() {
-        // 空值整体省略，行首干净。
-        assert_eq!(prefix_sid_req("", ""), "");
-        assert_eq!(prefix_sid_req("s1", ""), "[sid=s1]");
-        assert_eq!(prefix_sid_req("", "a1"), "[req=a1]");
-        assert_eq!(prefix_sid_req("s1", "a1"), "[sid=s1][req=a1]");
-        // sid 进程级稳定，req 短 ID 非空且互异（线程级隔离天然成立）。
+    fn test_domain_tags_trace_and_wide_event() {
+        assert_eq!(short_level(log::Level::Info), "INF");
+        assert_eq!(short_level(log::Level::Warn), "WRN");
+        assert_eq!(short_level(log::Level::Error), "ERR");
+        assert_eq!(short_level(log::Level::Debug), "DBG");
+
+        assert_eq!(domain_tag("webview:home"), "ui");
+        assert_eq!(domain_tag("zstore_lib::commands::catalog_detail"), "detail");
+        assert_eq!(domain_tag("zstore_lib::commands::updates_check"), "updater");
+        assert_eq!(domain_tag("zstore_lib::installer::downloader_http"), "download");
+        assert_eq!(domain_tag("zstore_lib::mirror"), "network");
+        assert_eq!(domain_tag("zstore_lib::config"), "app");
+
+        assert_eq!(
+            resolve_webview_tag_and_body("[trends] board=daily error"),
+            ("trends", "", "board=daily error")
+        );
+        assert_eq!(
+            resolve_webview_tag_and_body("[onerror] boom @a.ts:1:1"),
+            ("ui", "onerror ", "boom @a.ts:1:1")
+        );
+        assert_eq!(
+            resolve_webview_tag_and_body("[unhandledrejection] rejected"),
+            ("ui", "unhandledrejection ", "rejected")
+        );
+        assert_eq!(
+            resolve_webview_tag_and_body("[ipc-args] snake_case key"),
+            ("ui", "ipc-args ", "snake_case key")
+        );
+        assert_eq!(
+            resolve_webview_tag_and_body("render crash: oops"),
+            ("ui", "", "render crash: oops")
+        );
+
         assert_eq!(new_session_id(), new_session_id());
-        let r1 = new_req_id();
-        assert_eq!(r1.len(), 8);
-        assert_eq!(current_req_id(), r1);
-        clear_req_id();
-        assert_eq!(current_req_id(), "");
-        set_req_id("q9");
-        assert_eq!(current_req_id(), "q9");
-        clear_req_id();
+        let t1 = new_trace_id();
+        let t2 = new_trace_id();
+        assert_eq!(t1.len(), 6);
+        assert_ne!(t1, t2);
+
+        let mut release_ev = WideEvent::new("detail", "fetch ok");
+        release_ev.dev_enabled = false;
+        release_ev
+            .field("id", "kong/insomnia")
+            .field("via", "network")
+            .dev("rate", "56/60")
+            .dev_url("url", "https://api.github.com/repos/Kong/insomnia/releases/latest?token=abc")
+            .step("rel:200(10ms)")
+            .step("repo:304(5ms)");
+        let rel_line = release_ev.build_line();
+        assert_eq!(rel_line, "fetch ok id=kong/insomnia via=network");
+
+        let mut dev_ev = WideEvent::new("detail", "fetch ok");
+        dev_ev.dev_enabled = true;
+        dev_ev
+            .field("id", "kong/insomnia")
+            .field("via", "network")
+            .dev("rate", "56/60")
+            .dev_url("url", "https://api.github.com/repos/Kong/insomnia/releases/latest?token=abc")
+            .step("rel:200(10ms)")
+            .step("repo:304(5ms)");
+        let dev_line = dev_ev.build_line();
+        assert!(dev_line.contains("fetch ok id=kong/insomnia via=network"));
+        assert!(dev_line.contains("rate=56/60"));
+        assert!(dev_line.contains("url='https://api.github.com/repos/Kong/insomnia/releases/latest?token=***'"));
+        assert!(dev_line.contains("steps=rel:200(10ms),repo:304(5ms)"));
     }
 
     #[test]

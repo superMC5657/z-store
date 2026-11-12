@@ -72,15 +72,6 @@ async fn save_and_emit(
         let old_selected = cycle.selected_url.clone();
         let current_gen_value = gen_counter.load(Ordering::SeqCst);
         let fresh = current_gen_value == expected_gen;
-        if !fresh {
-            log::debug!(
-                "icon stale store id={} level={} expected_gen={} current_gen={}",
-                job.id,
-                level,
-                expected_gen,
-                current_gen_value
-            );
-        }
         let was_pinned = merge_stream_hit(
             &mut cycle,
             level,
@@ -102,12 +93,6 @@ async fn save_and_emit(
     // emit 前查 gen：过期只拦发送，不拦上面的入库（过期写库攒槽）。
     let current_emit_gen = gen_counter.load(Ordering::SeqCst);
     if current_emit_gen != expected_gen {
-        log::debug!(
-            "icon emit suppressed id={} expected_gen={} current_gen={}",
-            job.id,
-            expected_gen,
-            current_emit_gen
-        );
         return;
     }
     // 单发：新统一事件（载荷 schema 归 core 所有，见 `icons`）。
@@ -232,7 +217,6 @@ pub async fn search_apps(
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> crate::AppResult<Vec<AppSummary>> {
-    let search_start = std::time::Instant::now();
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
     // 本地收录叠加搜索（含本地，可搜与远端同行为）：目录模块统一合并远端 + 本地收录。
@@ -245,19 +229,7 @@ pub async fn search_apps(
             .filter(|a| !hidden_ids.contains(&a.core.id))
             .collect()
     };
-    // 分页经 `catalog_feed_score::paginate_optional`（域内 SSOT）：None=全量，Some 切 slice。
-    // 空查询 stars 降序、非空线性打分由 `CatalogService::search_local_catalog` 承担，此处仅切片。
-    let total = filtered.len();
     let paged = crate::github::catalog_feed_score::paginate_optional(filtered, limit, offset);
-
-    log::info!(
-        "search done sid={} query='{}' hits={} total={} elapsed_ms={}",
-        crate::z_log::new_session_id(),
-        crate::log_support::short_reason(&query),
-        paged.len(),
-        total,
-        search_start.elapsed().as_millis()
-    );
     Ok(paged)
 }
 
@@ -314,13 +286,14 @@ pub async fn search_apps_online(
                     }
                     Err(_) => ("latest".to_string(), Vec::new()),
                 };
-                log::info!(
-                    "search done sid={} query='{}' hits=1 elapsed_ms={} force={}",
-                    crate::z_log::new_session_id(),
-                    crate::log_support::short_reason(&query),
-                    search_start.elapsed().as_millis(),
-                    is_force
-                );
+                let mut ev =
+                    crate::z_log::WideEvent::new("search", "online ok").with_started(search_start);
+                ev.field("query", crate::log_support::short_reason(&query))
+                    .field("hits", 1)
+                    .dev("mode", "forge")
+                    .dev("forge", coord.forge.as_str())
+                    .dev("force", is_force);
+                ev.info();
                 let app_id = coord.to_app_id();
                 let icon = if let Ok(db) = state.db() {
                     crate::icons::resolve_confirmed_icon_from_db(
@@ -431,14 +404,13 @@ pub async fn search_apps_online(
                     }
                 }
                 state.catalog.stamp_summary(&mut item);
-                log::debug!("fetch repo ok id={}", item.core.id);
-                log::info!(
-                    "search done sid={} query='{}' hits=1 elapsed_ms={} force={}",
-                    crate::z_log::new_session_id(),
-                    crate::log_support::short_reason(&query),
-                    search_start.elapsed().as_millis(),
-                    is_force
-                );
+                let mut ev =
+                    crate::z_log::WideEvent::new("search", "online ok").with_started(search_start);
+                ev.field("query", crate::log_support::short_reason(&query))
+                    .field("hits", 1)
+                    .dev("mode", "direct")
+                    .dev("force", is_force);
+                ev.info();
                 return Ok(OnlineSearchResult {
                     rows: vec![item],
                     sid: actual_search_id.clone(),
@@ -476,10 +448,23 @@ pub async fn search_apps_online(
             None
         }
     };
-    let mut results = state
+    let mut results = match state
         .catalog
         .search_github_online(&query, token.as_deref(), pre_for_direct, page, per_page)
-        .await?;
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let mut ev =
+                crate::z_log::WideEvent::new("search", "online failed").with_started(search_start);
+            ev.field("query", crate::log_support::short_reason(&query))
+                .field("reason", crate::log_support::short_reason(&e))
+                .dev("page", eff_page)
+                .dev("force", is_force);
+            ev.warn();
+            return Err(e.into());
+        }
+    };
 
     // Top1+2：循环外一次取 `db` 锁复用（单临界区同步无 `await`），读解析 + 写包事务化。
     // 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`（N=当页条数逐条提交变 1 提交），
@@ -535,14 +520,14 @@ pub async fn search_apps_online(
             .collect()
     };
 
-    log::info!(
-        "search done sid={} query='{}' hits={} elapsed_ms={} force={}",
-        crate::z_log::new_session_id(),
-        crate::log_support::short_reason(&query),
-        results.len(),
-        search_start.elapsed().as_millis(),
-        is_force
-    );
+    let mut ev = crate::z_log::WideEvent::new("search", "online ok").with_started(search_start);
+    ev.field("query", crate::log_support::short_reason(&query))
+        .field("hits", results.len())
+        .dev("mode", "keyword")
+        .dev("page", eff_page)
+        .dev("force", is_force)
+        .dev("icon_jobs", candidates.len());
+    ev.info();
 
     let filtered_results: Vec<AppSummary> = {
         let rows: Vec<AppSummary> = if hidden_ids.is_empty() {
@@ -723,18 +708,7 @@ async fn fetch_enrich_batch(
             .await
             {
                 Ok(Ok((item, etag_to_save))) => (Some(item), etag_to_save),
-                Ok(Err(e)) => {
-                    log::debug!(
-                        "trend enrich miss id={} reason={}",
-                        job.coord.id,
-                        crate::log_support::short_reason(&e)
-                    );
-                    (job.fallback_detail, None)
-                }
-                Err(_) => {
-                    log::debug!("trend enrich timeout id={}", job.coord.id);
-                    (job.fallback_detail, None)
-                }
+                Ok(Err(_)) | Err(_) => (job.fallback_detail, None),
             }
         }
     }))
@@ -922,14 +896,18 @@ pub async fn enrich_trend_repos(
         state.catalog.stamp_summary(row);
     }
 
-    log::info!(
-        "trend enrich done requested={} hits={} elapsed_ms={} streamed_gen={} force={}",
-        requested,
-        results.iter().filter(|r| r.is_some()).count(),
-        enrich_start.elapsed().as_millis(),
-        current_gen,
-        is_force,
-    );
+    let hits = results.iter().filter(|r| r.is_some()).count();
+    let missed = requested.saturating_sub(hits);
+    if missed > 0 {
+        let mut ev =
+            crate::z_log::WideEvent::new("trends", "enrich partial").with_started(enrich_start);
+        ev.field("requested", requested)
+            .field("hits", hits)
+            .field("missed", missed)
+            .dev("board", &board_name)
+            .dev("force", is_force);
+        ev.warn();
+    }
     Ok(results)
 }
 

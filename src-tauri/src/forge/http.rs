@@ -160,129 +160,16 @@ pub(crate) async fn get_with_retry_after_once(
         return Ok(resp);
     }
     let delay_ms = retry_after_delay_ms(resp.headers());
-    log::debug!(
-        "forge http 429 retry url='{}' retry_after_ms={}",
-        crate::log_support::sanitize_url(url),
-        delay_ms
-    );
     tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
     client.get(url).headers(headers.clone()).send().await
 }
 
-/// 统一 HTTP 跨度：req_id/sid/host/safe_url/start + 统一日志/rate_limit 入口。
-/// 只收敛 id 生成与日志字段组装，不改变请求语义；
-/// rate_limit 由调用方显式触发：GitHub 传 "github.com"，gitea/gitlab 传实际 host
-///（三家口径一致；x-ratelimit 头不存在时 notify 为 no-op）。
-pub struct HttpSpan {
-    pub req_id: String,
-    pub sid: String,
-    pub host: String,
-    pub safe_url: String,
-    pub start: std::time::Instant,
-}
+/// 统一 HTTP 限流上报跨度（只负责 `x-ratelimit` 上报，不直接刷屏打日志）。
+pub struct HttpSpan;
 
 impl HttpSpan {
-    pub fn start(url: &str) -> Self {
-        Self {
-            req_id: crate::z_log::new_req_id(),
-            sid: crate::z_log::new_session_id(),
-            host: crate::log_support::host_of(url),
-            safe_url: crate::log_support::sanitize_url(url),
-            start: std::time::Instant::now(),
-        }
-    }
-
-    pub fn elapsed_ms(&self) -> u128 {
-        self.start.elapsed().as_millis()
-    }
-
-    pub fn log_start(&self, op: &str, id: &str) {
-        log::debug!(
-            "forge http {} id={} sid={} req={} url='{}'",
-            op,
-            id,
-            self.sid,
-            self.req_id,
-            self.safe_url
-        );
-    }
-
-    pub fn log_search_start(&self, op: &str) {
-        log::debug!(
-            "forge http {} sid={} req={} url='{}'",
-            op,
-            self.sid,
-            self.req_id,
-            self.safe_url
-        );
-    }
-
-    pub fn log_fail(&self, op: &str, id: &str, reason: &str) {
-        log::warn!(
-            "forge http {} failed id={} sid={} req={} host={} reason={}",
-            op,
-            id,
-            self.sid,
-            self.req_id,
-            self.host,
-            crate::log_support::short_reason(reason)
-        );
-    }
-
-    pub fn log_search_fail(&self, op: &str, reason: &str) {
-        log::warn!(
-            "forge http {} failed sid={} req={} host={} reason={}",
-            op,
-            self.sid,
-            self.req_id,
-            self.host,
-            crate::log_support::short_reason(reason)
-        );
-    }
-
-    pub fn log_done(&self, op: &str, id: &str, status: u16) {
-        let ms = self.elapsed_ms();
-        log::debug!(
-            "forge http {} done id={} sid={} req={} url='{}' status={} elapsed_ms={}",
-            op,
-            id,
-            self.sid,
-            self.req_id,
-            self.safe_url,
-            status,
-            ms
-        );
-        log::info!(
-            "http resp forge {} id={} sid={} req={} host={} status={} elapsed_ms={}",
-            op,
-            id,
-            self.sid,
-            self.req_id,
-            self.host,
-            status,
-            ms
-        );
-    }
-
-    pub fn log_search_done(&self, op: &str, status: u16) {
-        let ms = self.elapsed_ms();
-        log::debug!(
-            "forge http {} done sid={} req={} status={} elapsed_ms={}",
-            op,
-            self.sid,
-            self.req_id,
-            status,
-            ms
-        );
-        log::info!(
-            "http resp forge {} sid={} req={} host={} status={} elapsed_ms={}",
-            op,
-            self.sid,
-            self.req_id,
-            self.host,
-            status,
-            ms
-        );
+    pub fn start() -> Self {
+        Self
     }
 
     /// 统一 rate_limit 入口：透传给 `crate::notify_rate_limit`。

@@ -102,11 +102,21 @@ impl AppState {
 }
 
 /// 401 统一收敛（通知 + warn 日志），返回是否命中过期。
-/// `ctx` 仅传 `op=...` 及必要的 `owner/repo` 上下文，不含 token/body。
+/// 30 秒内并发请求命中 401 仅记录一条日志，避免详情并发子请求重复刷屏。
 pub(crate) fn check_auth_expired(status: u16, ctx: &str) -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST_401_LOG_MS: AtomicU64 = AtomicU64::new(0);
     if status == 401 {
         notify_auth_expired();
-        log::warn!("oauth auth expired status=401 {}", ctx);
+        let now = now_ms();
+        let prev = LAST_401_LOG_MS.load(Ordering::Relaxed);
+        if now.saturating_sub(prev) >= 30_000
+            && LAST_401_LOG_MS
+                .compare_exchange(prev, now, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+        {
+            log::warn!(target: "oauth", "auth expired status=401 {}", ctx);
+        }
         true
     } else {
         false
@@ -215,12 +225,14 @@ fn log_rate_limit_water_mark(host: &str, remaining: u32, limit: u32) {
     }
     if kind == "exhausted" {
         log::error!(
+            target: "network",
             "rate limit exhausted host={} remaining=0 limit={}",
             host.to_lowercase(),
             limit
         );
     } else {
         log::warn!(
+            target: "network",
             "rate limit low host={} remaining={}/{}",
             host.to_lowercase(),
             remaining,
@@ -308,27 +320,31 @@ pub fn resolve_default_app_data_dir() -> std::path::PathBuf {
 }
 
 #[cfg(target_os = "windows")]
-fn init_windows_system_proxy() {
-    if std::env::var("http_proxy").is_err() && std::env::var("HTTP_PROXY").is_err() {
-        use winreg::enums::HKEY_CURRENT_USER;
-        use winreg::RegKey;
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if let Ok(settings) =
-            hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
-        {
-            let proxy_enable: u32 = settings.get_value("ProxyEnable").unwrap_or(0);
-            if proxy_enable == 1 {
-                if let Ok(proxy_server) = settings.get_value::<String, _>("ProxyServer") {
-                    // 注册表可能是多协议形态（http=..;https=..;socks=..），需解析；
-                    // 解析失败返回 None 时不设置，避免污染环境变量导致直连也被拖累。
-                    if let Some(full) = normalize_windows_proxy_server(&proxy_server) {
-                        std::env::set_var("http_proxy", &full);
-                        std::env::set_var("https_proxy", &full);
-                    }
+fn init_windows_system_proxy() -> String {
+    if let Ok(v) = std::env::var("http_proxy").or_else(|_| std::env::var("HTTP_PROXY")) {
+        let host = log_support::host_of(&v);
+        return format!("env({})", host);
+    }
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(settings) =
+        hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+    {
+        let proxy_enable: u32 = settings.get_value("ProxyEnable").unwrap_or(0);
+        if proxy_enable == 1 {
+            if let Ok(proxy_server) = settings.get_value::<String, _>("ProxyServer") {
+                // 注册表可能是多协议形态（http=..;https=..;socks=..），需解析；
+                // 解析失败返回 None 时不设置，避免污染环境变量导致直连也被拖累。
+                if let Some(full) = normalize_windows_proxy_server(&proxy_server) {
+                    std::env::set_var("http_proxy", &full);
+                    std::env::set_var("https_proxy", &full);
+                    return format!("win({})", log_support::host_of(&full));
                 }
             }
         }
     }
+    "none".to_string()
 }
 
 /// 解析 Windows 注册表 `ProxyServer` 值（纯函数，可单元测试）。
@@ -440,114 +456,126 @@ mod proxy_tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     z_log::install_panic_hook();
-    #[cfg(target_os = "windows")]
-    init_windows_system_proxy();
-    #[cfg(target_os = "linux")]
-    crate::proxy::linux::init_linux_system_proxy();
-
-    let db_dir = get_app_data_dir();
-    let _ = std::fs::create_dir_all(&db_dir);
-    let db_path = db_dir.join("z_store.db");
-
-    let strict_errors = crate::config::is_strict_errors();
-    log::info!(
-        "strict_errors={} runtime error policy loaded",
-        strict_errors
-    );
-
-    let db = match Database::open(&db_path) {
-        Ok(db) => db,
-        Err(open_err) => {
-            if strict_errors {
-                log::error!(
-                    "db open failed strict abort path='{}' reason={}",
-                    db_path.display(),
-                    open_err
-                );
-                panic!("db open failed strict_errors=true: {open_err}");
-            }
-            log::error!("db open failed fallback to in-memory");
-            Database::open_in_memory().expect("failed to init database")
-        }
-    };
-
-    // 趋势榜与 ETag/详情缓存：启动后 best-effort 清扫过期/超量快照（吞错，不阻塞启动）。
-    {
-        let _ = db.prune_expired_trend_board_cache(now_secs());
-        let _ = db.prune_bounded_caches(
-            crate::db::cache::API_ETAG_CACHE_MAX_ROWS,
-            crate::db::cache::APP_DETAILS_CACHE_MAX_ROWS,
-        );
-        let assets_dir = db_dir.join("cache").join("assets");
-        let _ = db.enforce_asset_quota_lru(&assets_dir);
-    }
-
-    let saved_token = db
-        .get_setting(crate::oauth::SETTING_OAUTH_TOKEN)
-        .ok()
-        .flatten()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            db.get_host_token("github.com")
-                .ok()
-                .flatten()
-                .filter(|s| !s.trim().is_empty())
-        });
-    let saved_mirror = db.get_setting("active_mirror").ok().flatten();
-
-    let catalog = CatalogService::new();
-    // 本地收录 overlay 启动同步：目录模块启动即持有远端 + 本地收录合并视图，
-    // 收藏/关注收录标记回填与详情/安装/更新读路径同源（零网络）。
-    catalog.sync_collected_from_db(&db);
-    // 启动时从 SQLite app_details_cache 水合已刷新过的应用详情（星数、版本、平台、协议、主页、图标）
-    catalog.hydrate_from_details_cache(&db);
-    let mut mirror = MirrorManager::new();
-    if let Some(ref m_id) = saved_mirror {
-        mirror.set_active_mirror(m_id);
-    }
-
-    let (quota_tx, mut quota_rx) = tokio::sync::mpsc::unbounded_channel::<models::HostQuotaEvent>();
-    let _ = GLOBAL_QUOTA_TX.set(quota_tx);
-    let (watch_tx, mut watch_rx) =
-        tokio::sync::mpsc::unbounded_channel::<models::WatchUpdatedPayload>();
-    let _ = GLOBAL_WATCH_TX.set(watch_tx);
-    let (auth_tx, mut auth_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-    let _ = GLOBAL_AUTH_EXPIRED_TX.set(auth_tx);
-    let (affinity_tx, mut affinity_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-    let _ = GLOBAL_AFFINITY_TX.set(affinity_tx);
-
-    let db_arc = Arc::new(Mutex::new(db));
-    let http = shared_http_client();
-    let state = AppState {
-        db: Arc::clone(&db_arc),
-        catalog,
-        mirror: Mutex::new(mirror),
-        github_token: Mutex::new(saved_token.clone()),
-        http,
-    };
-    // 收藏/关注收录标记回填：存量行按内存目录一次性校准（目录构造时已同步加载，零网络）；
-    // 最佳努力，不阻塞启动（行级失败记 warn 日志，由下次启动/同步/写入重试）。
-    crate::commands::backfill_cataloged_flags(&state);
-
-    let db_for_worker = Arc::clone(&db_arc);
-    let db_for_auth = Arc::clone(&db_arc);
-    let db_for_startup_affinity = Arc::clone(&db_arc);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(z_log::init())
-        .manage(state)
         .setup(move |app| {
             use tauri::Manager;
-            // 记录新会话启动横幅
-            z_log::log_session_start();
-            // setup 之前先 prune：清理过期/超量日志
+            // 在执行任何 DB / proxy / mirror / config 逻辑前，logger 已由 z_log::init() 就绪；
+            // 先清理过期切片并记录 data_dir，保证后续所有告警与 panic 都能落盘。
             if let Ok(log_dir) = app.path().app_log_dir() {
                 z_log::prune(&log_dir);
             }
             if let Ok(data_dir) = app.path().app_data_dir() {
                 let _ = APP_DATA_DIR.set(data_dir);
             }
+
+            #[cfg(target_os = "windows")]
+            let proxy_summary = init_windows_system_proxy();
+            #[cfg(target_os = "linux")]
+            let proxy_summary = crate::proxy::linux::init_linux_system_proxy();
+            #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+            let proxy_summary = "none".to_string();
+
+            let db_dir = get_app_data_dir();
+            let _ = std::fs::create_dir_all(&db_dir);
+            let db_path = db_dir.join("z_store.db");
+
+            let config_source = crate::config::config_source_summary();
+            let strict_errors = crate::config::is_strict_errors();
+
+            let (db, db_mode, db_fallback_err) = match Database::open(&db_path) {
+                Ok(db) => (db, "disk", None),
+                Err(open_err) => {
+                    if strict_errors {
+                        panic!("db open failed strict_errors=true: {open_err}");
+                    }
+                    (
+                        Database::open_in_memory().expect("failed to init database"),
+                        "memory",
+                        Some(open_err.to_string()),
+                    )
+                }
+            };
+
+            // 趋势榜与 ETag/详情缓存：启动后 best-effort 清扫过期/超量快照（吞错，不阻塞启动）。
+            {
+                let _ = db.prune_expired_trend_board_cache(now_secs());
+                let _ = db.prune_bounded_caches(
+                    crate::db::cache::API_ETAG_CACHE_MAX_ROWS,
+                    crate::db::cache::APP_DETAILS_CACHE_MAX_ROWS,
+                );
+                let assets_dir = db_dir.join("cache").join("assets");
+                let _ = db.enforce_asset_quota_lru(&assets_dir);
+            }
+
+            let saved_token = db
+                .get_setting(crate::oauth::SETTING_OAUTH_TOKEN)
+                .ok()
+                .flatten()
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| {
+                    db.get_host_token("github.com")
+                        .ok()
+                        .flatten()
+                        .filter(|s| !s.trim().is_empty())
+                });
+            let saved_mirror = db.get_setting("active_mirror").ok().flatten();
+
+            let catalog = CatalogService::new();
+            // 本地收录 overlay 启动同步：目录模块启动即持有远端 + 本地收录合并视图，
+            // 收藏/关注收录标记回填与详情/安装/更新读路径同源（零网络）。
+            catalog.sync_collected_from_db(&db);
+            // 启动时从 SQLite app_details_cache 水合已刷新过的应用详情（星数、版本、平台、协议、主页、图标）
+            catalog.hydrate_from_details_cache(&db);
+            let mut mirror = MirrorManager::new();
+            if let Some(ref m_id) = saved_mirror {
+                mirror.apply_initial_mirror(m_id);
+            }
+            let mirror_summary = mirror.active_summary();
+
+            let (quota_tx, mut quota_rx) =
+                tokio::sync::mpsc::unbounded_channel::<models::HostQuotaEvent>();
+            let _ = GLOBAL_QUOTA_TX.set(quota_tx);
+            let (watch_tx, mut watch_rx) =
+                tokio::sync::mpsc::unbounded_channel::<models::WatchUpdatedPayload>();
+            let _ = GLOBAL_WATCH_TX.set(watch_tx);
+            let (auth_tx, mut auth_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let _ = GLOBAL_AUTH_EXPIRED_TX.set(auth_tx);
+            let (affinity_tx, mut affinity_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let _ = GLOBAL_AFFINITY_TX.set(affinity_tx);
+
+            let db_arc = Arc::new(Mutex::new(db));
+            let http = shared_http_client();
+            let state = AppState {
+                db: Arc::clone(&db_arc),
+                catalog,
+                mirror: Mutex::new(mirror),
+                github_token: Mutex::new(saved_token.clone()),
+                http,
+            };
+            app.manage(state);
+
+            let db_for_worker = Arc::clone(&db_arc);
+            let db_for_auth = Arc::clone(&db_arc);
+            let db_for_startup_affinity = Arc::clone(&db_arc);
+
+            z_log::log_startup_banner(&z_log::StartupBanner {
+                config_source,
+                proxy: &proxy_summary,
+                mirror: &mirror_summary,
+                strict_errors,
+                db_mode,
+            });
+            if db_fallback_err.is_some() {
+                log::error!(target: "app", "db open failed fallback to in-memory");
+            }
+            for warn_msg in crate::config::take_startup_warnings() {
+                log::warn!(target: "app", "{}", warn_msg);
+            }
+            // 收藏/关注收录标记回填：存量行按内存目录一次性校准（零网络）。
+            crate::commands::backfill_cataloged_flags(app.state::<AppState>().inner());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 use tauri::Emitter;
@@ -587,7 +615,8 @@ pub fn run() {
                                 Err(e) => {
                                     // 无法解析的损坏快照直接清理，避免坏行永久残留。
                                     log::warn!(
-                                        "oauth user snapshot invalid reason={} action=clear-and-relogin",
+                                        target: "oauth",
+                                        "user snapshot invalid reason={} action=clear-and-relogin",
                                         crate::log_support::short_reason(&e.to_string())
                                     );
                                     let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_USER);

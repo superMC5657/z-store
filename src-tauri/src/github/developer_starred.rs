@@ -62,50 +62,14 @@ impl CatalogService {
 
         let catalog_list = self.get_catalog_items();
         let request_target = Self::request_url(&target_url, api_base);
-        let safe_starred = crate::log_support::sanitize_url(&request_target);
-        let (starred_req, starred_sid) = super::http::new_log_ctx();
-        let starred_host = crate::log_support::host_of(&request_target);
-        log::debug!(
-            "http get starred sid={} req={} url='{}'",
-            starred_sid,
-            starred_req,
-            safe_starred
-        );
-        let start_starred = std::time::Instant::now();
         let resp = match client
             .get(&request_target)
             .headers(headers.clone())
             .send()
             .await
         {
-            Ok(r) => {
-                log::debug!(
-                    "http resp starred sid={} req={} url='{}' status={} elapsed_ms={}",
-                    starred_sid,
-                    starred_req,
-                    safe_starred,
-                    r.status().as_u16(),
-                    start_starred.elapsed().as_millis()
-                );
-                log::info!(
-                    "http resp starred sid={} req={} host={} status={} elapsed_ms={}",
-                    starred_sid,
-                    starred_req,
-                    starred_host,
-                    r.status().as_u16(),
-                    start_starred.elapsed().as_millis()
-                );
-                r
-            }
+            Ok(r) => r,
             Err(e) => {
-                log::warn!(
-                    "http get starred failed sid={} req={} host={} reason={} elapsed_ms={}",
-                    starred_sid,
-                    starred_req,
-                    starred_host,
-                    crate::log_support::short_reason(&e.to_string()),
-                    start_starred.elapsed().as_millis()
-                );
                 return Err(format!(
                     "连接 GitHub API 失败: {}. 如遇国内网络阻断，请检查网络设置或配置下载加速代理。",
                     e
@@ -221,10 +185,6 @@ impl CatalogService {
                 continue;
             }
             if !live.contains(&i) {
-                log::debug!(
-                    "starred release skip over budget full_name='{}'",
-                    p.full_name
-                );
                 resolved[i] = Some((false, None));
             }
         }
@@ -236,7 +196,6 @@ impl CatalogService {
                 let headers = headers.clone();
                 let api_base_owned = api_base_owned.clone();
                 let key = Self::starred_release_endpoint(&staged[idx].full_name);
-                let full_name = staged[idx].full_name.clone();
                 let cached_etag = release_cache.get(&key).and_then(|(e, _)| e.clone());
                 async move {
                     let outcome = Self::get_with_etag(
@@ -245,18 +204,17 @@ impl CatalogService {
                         api_base_owned.as_deref(),
                         &headers,
                         cached_etag.as_deref(),
-                        "starred-release",
                     )
                     .await;
-                    (idx, key, full_name, outcome)
+                    (idx, key, outcome)
                 }
             });
-            let outcomes: Vec<(usize, String, String, EtagGetOutcome)> =
+            let outcomes: Vec<(usize, String, EtagGetOutcome)> =
                 futures_util::stream::iter(fetches)
                     .buffered(4)
                     .collect()
                     .await;
-            for (i, key, full_name, outcome) in outcomes {
+            for (i, key, outcome) in outcomes {
                 match outcome {
                     EtagGetOutcome::Fresh { text, etag } => match Self::parse_release_tag(&text) {
                         Some(tag) => {
@@ -266,7 +224,6 @@ impl CatalogService {
                             resolved[i] = Some((true, Some(tag)));
                         }
                         None => {
-                            log::debug!("starred release no tag full_name='{}'", full_name);
                             resolved[i] = Some((false, None));
                         }
                     },
@@ -281,10 +238,6 @@ impl CatalogService {
                         });
                     }
                     EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => {
-                        log::debug!(
-                            "starred release check failed full_name='{}' keep has_releases=false",
-                            full_name
-                        );
                         resolved[i] = Some((false, None));
                     }
                 }

@@ -23,10 +23,9 @@ pub async fn oauth_device_start(
     Ok(crate::oauth::request_device_code(&client_id)
         .await
         .inspect_err(|e| {
-            log::warn!(
-                "oauth device start failed reason={}",
-                crate::log_support::short_reason(e)
-            );
+            let mut ev = crate::z_log::WideEvent::new("oauth", "device start failed");
+            ev.field("reason", crate::log_support::short_reason(e));
+            ev.warn();
         })?)
 }
 
@@ -45,26 +44,23 @@ pub async fn oauth_device_poll(
     let outcome = crate::oauth::poll_device_once(&client_id, &code)
         .await
         .inspect_err(|e| {
-            log::warn!(
-                "oauth poll failed reason={}",
-                crate::log_support::short_reason(e)
-            );
+            let mut ev = crate::z_log::WideEvent::new("oauth", "poll failed");
+            ev.field("reason", crate::log_support::short_reason(e));
+            ev.warn();
         })?;
     match outcome {
         crate::oauth::DevicePollOutcome::Authorized { access_token } => {
             let clean_token = access_token.trim().to_string();
             let user = crate::oauth::fetch_oauth_user(&clean_token).await.ok();
             // 登录成功：只记 GitHub login 用户名，不记 token/device_code/user_code。
-            // 幂等去重 + sid 关联，窗口内重复授权只记一行 INFO。
-            let sid = crate::z_log::new_session_id();
             let now = crate::now_ms();
             let last = LAST_LOGIN_INFO_MS.swap(now, Ordering::SeqCst);
-            if now.saturating_sub(last) < LOGIN_DEDUP_WINDOW_MS {
-                log::debug!("oauth login skipped reason=duplicate sid={}", sid);
-            } else if let Some(ref u) = user {
-                log::info!("oauth login ok sid={} user={}", sid, u.login);
-            } else {
-                log::info!("oauth login ok sid={}", sid);
+            if now.saturating_sub(last) >= LOGIN_DEDUP_WINDOW_MS {
+                let mut ev = crate::z_log::WideEvent::new("oauth", "login ok");
+                if let Some(ref u) = user {
+                    ev.field("user", &u.login);
+                }
+                ev.info();
             }
             if let Ok(db) = state.db() {
                 crate::oauth::save_oauth_session(&db, &clean_token, user.as_ref());
@@ -90,19 +86,14 @@ pub async fn oauth_device_poll(
             status: "expired".to_string(),
             message: Some(message),
         }),
-        crate::oauth::DevicePollOutcome::Denied { message } => {
-            // 用户取消授权属正常流程：debug，不记 token/user_code。
-            log::debug!("oauth device denied");
-            Ok(DevicePollResult {
-                status: "denied".to_string(),
-                message: Some(message),
-            })
-        }
+        crate::oauth::DevicePollOutcome::Denied { message } => Ok(DevicePollResult {
+            status: "denied".to_string(),
+            message: Some(message),
+        }),
         crate::oauth::DevicePollOutcome::Error { message } => {
-            log::warn!(
-                "oauth poll failed reason={}",
-                crate::log_support::short_reason(&message)
-            );
+            let mut ev = crate::z_log::WideEvent::new("oauth", "poll failed");
+            ev.field("reason", crate::log_support::short_reason(&message));
+            ev.warn();
             Ok(DevicePollResult {
                 status: "error".to_string(),
                 message: Some(message),
@@ -136,10 +127,9 @@ pub async fn get_oauth_user(
                     return Ok(Some(user));
                 }
                 Err(e) => {
-                    log::warn!(
-                        "oauth refresh failed reason={}",
-                        crate::log_support::short_reason(&e)
-                    );
+                    let mut ev = crate::z_log::WideEvent::new("oauth", "refresh failed");
+                    ev.field("reason", crate::log_support::short_reason(&e));
+                    ev.warn();
                 }
             }
         }
@@ -156,14 +146,10 @@ pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> 
     if let Ok(mut t) = state.github_token.lock() {
         *t = fallback_pat.clone();
     }
-    // 登出幂等去重 + sid 关联，清理行为每次都执行，INFO 窗口内只记一行。
-    let sid = crate::z_log::new_session_id();
     let now = crate::now_ms();
     let last = LAST_LOGOUT_INFO_MS.swap(now, Ordering::SeqCst);
-    if now.saturating_sub(last) < LOGOUT_DEDUP_WINDOW_MS {
-        log::debug!("oauth logout skipped reason=duplicate sid={}", sid);
-    } else {
-        log::info!("oauth logout ok sid={}", sid);
+    if now.saturating_sub(last) >= LOGOUT_DEDUP_WINDOW_MS {
+        crate::z_log::WideEvent::new("oauth", "logout ok").info();
     }
     crate::probe_and_announce_rate_limit(fallback_pat.as_deref()).await;
     Ok(true)

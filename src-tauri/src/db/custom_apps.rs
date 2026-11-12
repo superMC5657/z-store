@@ -173,11 +173,9 @@ pub fn validate_custom_item(
     }
     if !gate.enabled {
         // 门禁关闭：仅本地放行（官方生态仓仍以 OSI 为准），记 WARN 供审计。
-        log::warn!(
-            "license gate DISABLED id='{}' license='{}' (local-only bypass, non-official)",
-            item.id,
-            item.license
-        );
+        let mut ev = crate::z_log::WideEvent::new("catalog", "license gate disabled");
+        ev.field("id", &item.id).field("license", &item.license);
+        ev.warn();
         return Ok(canonical);
     }
     if !is_allowed_license(&item.license, &gate.allowed) {

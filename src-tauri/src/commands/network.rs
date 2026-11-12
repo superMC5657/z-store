@@ -11,21 +11,31 @@ pub struct ProxyTestResult {
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn test_proxy(proxy_url: Option<String>) -> crate::AppResult<ProxyTestResult> {
-    let (success, latency_ms, message) =
+    let (success, latency_ms, message, status, tested_url) =
         crate::mirror::MirrorManager::test_proxy_latency(proxy_url.as_deref()).await;
-    // 结果由调用方记 info/warn：延迟毫秒可进消息，不记被测 URL 值。
+    let mut ev = crate::z_log::WideEvent::new(
+        "network",
+        if success {
+            "proxy test ok"
+        } else {
+            "proxy test failed"
+        },
+    );
+    if !tested_url.is_empty() {
+        ev.field("host", crate::log_support::host_of(&tested_url));
+    }
+    ev.field("latency_ms", latency_ms);
+    if !success {
+        ev.field("reason", crate::log_support::short_reason(&message));
+    }
+    ev.field_opt("status", status);
+    if !tested_url.is_empty() {
+        ev.dev_url("url", &tested_url);
+    }
     if success {
-        log::info!(
-            "proxy test ok sid={} latency_ms={}",
-            crate::z_log::new_session_id(),
-            latency_ms
-        );
+        ev.info();
     } else {
-        log::warn!(
-            "proxy test failed latency_ms={} reason={}",
-            latency_ms,
-            crate::log_support::short_reason(&message)
-        );
+        ev.warn();
     }
     Ok(ProxyTestResult {
         success,
@@ -80,29 +90,32 @@ fn decode_truncated_utf8(buf: Vec<u8>) -> String {
     }
 }
 
+/// 构造 `[trends]` 告警宽事件的公共骨架（带 host / dev path / started 耗时）。
+fn trends_warn_event(
+    action: &str,
+    host: &str,
+    path: &str,
+    started: std::time::Instant,
+) -> crate::z_log::WideEvent {
+    let mut ev = crate::z_log::WideEvent::new("trends", action).with_started(started);
+    ev.field("host", host).dev("path", path);
+    ev
+}
+
 /// 趋势榜单 HTTP 直取（绕过 WebView CORS；Rust 侧无 CORS 概念）。
 /// 10s 超时；成功返回 body 文本。错误串内含可机读标记供前端映射：
 /// `upstream status {code}`（HTTP 状态）、`request timeout`（超时）、
 /// `network error`（连接/DNS 等）。完整 URL 永不回显（query 可能含参）。
 #[tauri::command]
 pub async fn fetch_trends_text(url: String) -> Result<String, String> {
-    let sid = crate::z_log::new_session_id();
-    let req = crate::z_log::new_req_id();
-    let parsed = check_trends_text_url(&url).map_err(|e| {
-        log::warn!("trends text rejected sid={} req={} reason={}", sid, req, e);
-        e
+    let start = std::time::Instant::now();
+    let parsed = check_trends_text_url(&url).inspect_err(|e| {
+        let mut ev = crate::z_log::WideEvent::new("trends", "fetch rejected").with_started(start);
+        ev.field("reason", e);
+        ev.warn();
     })?;
-    // 最小记录：host + path，不记 query（调用方当前无秘密参数，仍保持最小）。
     let host = parsed.host_str().unwrap_or("?").to_string();
     let path = parsed.path().to_string();
-    log::debug!(
-        "trends text fetch start sid={} req={} host='{}' path='{}'",
-        sid,
-        req,
-        host,
-        path
-    );
-    let start = std::time::Instant::now();
     // 复用共享 Client（避免每次新建连接池）；10s 语义由外层 timeout 保留。
     let client = crate::shared_http_client();
     let send_fut = client
@@ -111,51 +124,29 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
         .send();
     let resp = match tokio::time::timeout(std::time::Duration::from_secs(10), send_fut).await {
         Err(_) => {
-            let elapsed_ms = start.elapsed().as_millis();
-            log::warn!(
-                "trends text timeout sid={} req={} host='{}' elapsed_ms={} reason=timeout",
-                sid,
-                req,
-                host,
-                elapsed_ms
-            );
+            trends_warn_event("fetch timeout", &host, &path, start).warn();
             return Err("trends: request timeout: timeout".to_string());
         }
         Ok(Err(e)) => {
-            let elapsed_ms = start.elapsed().as_millis();
+            let reason = crate::log_support::http_err_reason(&e);
+            let action = if e.is_timeout() {
+                "fetch timeout"
+            } else {
+                "fetch failed"
+            };
+            let mut ev = trends_warn_event(action, &host, &path, start);
+            ev.field("reason", &reason);
+            ev.warn();
             if e.is_timeout() {
-                log::warn!(
-                    "trends text timeout sid={} req={} host='{}' elapsed_ms={} reason={}",
-                    sid,
-                    req,
-                    host,
-                    elapsed_ms,
-                    crate::log_support::http_err_reason(&e)
-                );
-                return Err(format!(
-                    "trends: request timeout: {}",
-                    crate::log_support::http_err_reason(&e)
-                ));
+                return Err(format!("trends: request timeout: {}", reason));
             }
-            log::warn!(
-                "trends text network fail sid={} req={} host='{}' elapsed_ms={} reason={}",
-                sid,
-                req,
-                host,
-                elapsed_ms,
-                crate::log_support::http_err_reason(&e)
-            );
-            return Err(format!(
-                "trends: network error: {}",
-                crate::log_support::http_err_reason(&e)
-            ));
+            return Err(format!("trends: network error: {}", reason));
         }
         Ok(Ok(resp)) => resp,
     };
     let status = resp.status();
     if !status.is_success() {
         // 429 透传 Retry-After（FE doforceRetryDelayMs 按秒/HTTP-date 或 retry_after_ms 毫秒兑现）。
-        // 限流日志不占单飞槽计数：此处仅打日志，无额外状态/槽位占用。
         if status.as_u16() == 429 {
             let raw_retry_after = resp
                 .headers()
@@ -168,56 +159,28 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
                 .parse::<u64>()
                 .ok()
                 .map(|s| s.saturating_mul(1000));
-            match (raw_retry_after.is_empty(), retry_after_ms_opt) {
-                (true, _) => {
-                    log::warn!(
-                        "trends text rate-limited sid={} req={} host='{}' status=429 elapsed_ms={}",
-                        sid,
-                        req,
-                        host,
-                        start.elapsed().as_millis()
-                    );
-                    return Err("trends: upstream status 429".to_string());
-                }
-                (false, Some(ms)) => {
-                    log::warn!(
-                        "trends text rate-limited sid={} req={} host='{}' status=429 retry_after='{}' retry_after_ms={} elapsed_ms={}",
-                        sid,
-                        req,
-                        host,
-                        raw_retry_after,
-                        ms,
-                        start.elapsed().as_millis()
-                    );
-                    return Err(format!(
-                        "trends: upstream status 429 retry-after: {} retry_after_ms={}",
-                        raw_retry_after, ms
-                    ));
-                }
-                (false, None) => {
-                    log::warn!(
-                        "trends text rate-limited sid={} req={} host='{}' status=429 retry_after='{}' elapsed_ms={}",
-                        sid,
-                        req,
-                        host,
-                        raw_retry_after,
-                        start.elapsed().as_millis()
-                    );
-                    return Err(format!(
-                        "trends: upstream status 429 retry-after: {}",
-                        raw_retry_after
-                    ));
-                }
+            let mut ev = trends_warn_event("fetch rate-limited", &host, &path, start);
+            ev.field("status", 429)
+                .field_opt("retry_after_ms", retry_after_ms_opt);
+            if retry_after_ms_opt.is_none() && !raw_retry_after.is_empty() {
+                ev.dev("retry_after", &raw_retry_after);
             }
+            ev.warn();
+            return match (raw_retry_after.is_empty(), retry_after_ms_opt) {
+                (true, _) => Err("trends: upstream status 429".to_string()),
+                (false, Some(ms)) => Err(format!(
+                    "trends: upstream status 429 retry-after: {} retry_after_ms={}",
+                    raw_retry_after, ms
+                )),
+                (false, None) => Err(format!(
+                    "trends: upstream status 429 retry-after: {}",
+                    raw_retry_after
+                )),
+            };
         }
-        log::warn!(
-            "trends text upstream sid={} req={} host='{}' status={} elapsed_ms={}",
-            sid,
-            req,
-            host,
-            status.as_u16(),
-            start.elapsed().as_millis()
-        );
+        let mut ev = trends_warn_event("fetch failed", &host, &path, start);
+        ev.field("status", status.as_u16());
+        ev.warn();
         return Err(format!("trends: upstream status {}", status.as_u16()));
     }
     // 流式读取并截断至 2MB（D9 截断语义）：避免全量缓冲超大响应体，
@@ -230,14 +193,9 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
     while let Some(chunk_res) = stream.next().await {
         let chunk = chunk_res.map_err(|e| {
             let reason = crate::log_support::short_reason(&e.to_string());
-            log::warn!(
-                "trends text read fail sid={} req={} host='{}' elapsed_ms={} reason={}",
-                sid,
-                req,
-                host,
-                start.elapsed().as_millis(),
-                reason
-            );
+            let mut ev = trends_warn_event("read failed", &host, &path, start);
+            ev.field("reason", &reason);
+            ev.warn();
             format!("trends: read body failed: {}", reason)
         })?;
         let remaining = MAX_TRENDS_BYTES - buf.len();
@@ -249,43 +207,21 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
         buf.extend_from_slice(&chunk);
     }
     if truncated {
-        log::warn!(
-            "trends text truncated sid={} req={} host='{}' bytes={} elapsed_ms={}",
-            sid,
-            req,
-            host,
-            buf.len(),
-            start.elapsed().as_millis()
-        );
+        let mut ev = trends_warn_event("body truncated", &host, &path, start);
+        ev.field("bytes", buf.len());
+        ev.warn();
     }
     let body = if truncated {
-        // 截断点可能落在多字节字符中间：截到最后一个完整字符边界再解码，
-        // 调用方拿到前 2MB 有效前缀而非解码错误。
         decode_truncated_utf8(buf)
     } else {
         String::from_utf8(buf).map_err(|e| {
-            log::warn!(
-                "trends text decode fail sid={} req={} host='{}' elapsed_ms={} reason={}",
-                sid,
-                req,
-                host,
-                start.elapsed().as_millis(),
-                crate::log_support::short_reason(&e.to_string())
-            );
-            format!(
-                "trends: read body failed: {}",
-                crate::log_support::short_reason(&e.to_string())
-            )
+            let reason = crate::log_support::short_reason(&e.to_string());
+            let mut ev = trends_warn_event("decode failed", &host, &path, start);
+            ev.field("reason", &reason);
+            ev.warn();
+            format!("trends: read body failed: {}", reason)
         })?
     };
-    log::debug!(
-        "trends text ok sid={} req={} host='{}' bytes={} elapsed_ms={}",
-        sid,
-        req,
-        host,
-        body.len(),
-        start.elapsed().as_millis()
-    );
     Ok(body)
 }
 

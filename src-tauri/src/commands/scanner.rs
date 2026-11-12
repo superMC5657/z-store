@@ -11,10 +11,7 @@ pub async fn scan_and_match_local_apps(
     let unmanaged = tokio::task::spawn_blocking(
         move || -> crate::AppResult<Vec<crate::scanner::AppMatchResult>> {
             let state = app_handle.state::<AppState>();
-            // 行为链 sid 关联 + 耗时，汇总行只记数量。
-            let sid = crate::z_log::new_session_id();
             let scan_start = std::time::Instant::now();
-            log::info!("scanner start sid={}", sid);
             let catalog_items = state.catalog.get_catalog_items();
             let installed_ids: Vec<String> = {
                 let db = state.db()?;
@@ -29,13 +26,11 @@ pub async fn scan_and_match_local_apps(
                 crate::scanner::AppScanner::scan_unmanaged(&catalog_items, installed_ids);
 
             // 汇总一行 info：只记数量，不记路径/名称原文。
-            log::info!(
-                "scanner done sid={} scanned={} unmanaged={} elapsed_ms={}",
-                sid,
-                outcome.scanned_count,
-                outcome.unmanaged.len(),
-                scan_start.elapsed().as_millis()
-            );
+            let mut ev = crate::z_log::WideEvent::new("scanner", "scan done")
+                .with_started(scan_start);
+            ev.field("scanned", outcome.scanned_count)
+                .field("unmanaged", outcome.unmanaged.len());
+            ev.info();
 
             Ok(outcome.unmanaged)
         },

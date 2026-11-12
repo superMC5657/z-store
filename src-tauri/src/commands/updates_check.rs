@@ -100,7 +100,6 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         None,
         &base_headers,
         cached_etag.as_deref(),
-        "updates",
     )
     .await;
 
@@ -143,8 +142,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             ))
     ) {
         let retry_outcome =
-            crate::github::http::get_with_etag(&state.http, &ep, None, &base_headers, None, "updates")
-                .await;
+            crate::github::http::get_with_etag(&state.http, &ep, None, &base_headers, None).await;
         if matches!(retry_outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
             crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
         }
@@ -374,11 +372,11 @@ pub async fn check_for_updates(
                     }
                     Err(e) => {
                         failed_count.fetch_add(1, Ordering::SeqCst);
-                        log::warn!(
-                            "update check item failed id={} host=github.com reason={}",
-                            app.app_id,
-                            crate::log_support::short_reason(&e)
-                        );
+                        let mut ev = crate::z_log::WideEvent::new("updater", "item failed");
+                        ev.field("id", &app.app_id)
+                            .field("host", "github.com")
+                            .field("reason", crate::log_support::short_reason(&e));
+                        ev.warn();
                     }
                 }
 
@@ -420,17 +418,6 @@ pub async fn check_for_updates(
         }
     }
 
-    // 一轮一行：更新检查轮结束 info（new/failures 计数 + 耗时 + sid）。
-    log::info!(
-        "update batch check done sid={} total={} updates={} failures={} elapsed_ms={} persisted={}",
-        crate::z_log::new_session_id(),
-        total,
-        updates.len(),
-        failed_count.load(Ordering::SeqCst),
-        check_start.elapsed().as_millis(),
-        if is_force { write_rows.len() } else { 0 },
-    );
-
     // 发送检查完成事件
     let _ = app_handle.emit(
         "zstore://update-check-finished",
@@ -440,8 +427,17 @@ pub async fn check_for_updates(
         }),
     );
 
-    // 关注订阅检查（最佳努力，失败不影响更新列表返回）
-    notify_watched_updates(&state, &rules_map, force_refresh).await;
+    // 关注订阅检查（最佳努力，汇总结果折叠进本轮宽事件）
+    let watch = notify_watched_updates(&state, &rules_map, force_refresh).await;
+
+    let mut ev = crate::z_log::WideEvent::new("updater", "check done").with_started(check_start);
+    ev.field("total", total)
+        .field("updates", updates.len())
+        .field("failures", failed_count.load(Ordering::SeqCst))
+        .dev("persisted", if is_force { write_rows.len() } else { 0 })
+        .dev("watch_notified", watch.notified)
+        .dev("watch_deferred", watch.deferred());
+    ev.info();
 
     Ok(updates)
 }
@@ -454,7 +450,6 @@ pub async fn check_for_updates(
 /// - 幽灵隐藏语义沿用 `get_installed_apps`（未安装/幽灵不行，`stale_passthrough` 不动）。
 #[tauri::command]
 pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<UpdateItem>> {
-    let start = std::time::Instant::now();
     let installed = crate::commands::get_installed_apps(state.clone())?;
     let installed_map: HashMap<String, String> = installed
         .into_iter()
@@ -497,49 +492,59 @@ pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<Up
         item.current_version = current.clone();
         out.push(item);
     }
-    log::debug!(
-        "cached updates done rows={} hits={} elapsed_ms={}",
-        installed_map.len(),
-        out.len(),
-        start.elapsed().as_millis()
-    );
     Ok(out)
+}
+
+#[derive(Default)]
+struct WatchCheckSummary {
+    notified: usize,
+    deferred_err: usize,
+    deferred_baseline: usize,
+    deferred_throttle: usize,
+}
+
+impl WatchCheckSummary {
+    fn deferred(&self) -> usize {
+        self.deferred_err + self.deferred_baseline + self.deferred_throttle
+    }
 }
 
 /// 遍历被关注应用，若出现较 `last_notified_version` 更新的
 /// Release，按 `watch_notify_frequency`（`startup`|`daily`）决定是否经由
-/// `zstore://watch-updated` 事件应用内通知。`daily` 下每应用 24h 内至多
-/// 通知一次；首次建立基线时静默记录，不打扰用户。
+/// `zstore://watch-updated` 事件应用内通知。
 async fn notify_watched_updates(
     state: &AppState,
     rules_map: &HashMap<String, UpdateRule>,
     force_refresh: Option<bool>,
-) {
+) -> WatchCheckSummary {
     let watched: Vec<WatchedApp> = match state.db() {
         Ok(db) => db.get_watched_apps().unwrap_or_default(),
-        Err(_) => return,
+        Err(_) => return WatchCheckSummary::default(),
     };
     if watched.is_empty() {
-        return;
+        return WatchCheckSummary::default();
     }
     let frequency = match state.db() {
         Ok(db) => db.get_watch_notify_frequency(),
         Err(_) => crate::db::WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string(),
     };
     let now = crate::now_secs();
-
-    // 关注通知路径用 buffer_unordered(6) 并发，
-    // 每项经 GLOBAL_WATCH_TX 无序发送，前端按 app_id 去重，不依赖顺序；
-    // frozen/hidden 过滤、baseline 静默、daily 24h 节流语义照常。
-    // frequency 按引用复用（is_daily 预计算，Copy 无每项 String clone）；
-    // 终端用 for_each 驱动流，避免分配中间 Vec。
     let is_daily = frequency.as_str() == "daily";
+    let notified = Arc::new(AtomicUsize::new(0));
+    let deferred_err = Arc::new(AtomicUsize::new(0));
+    let deferred_baseline = Arc::new(AtomicUsize::new(0));
+    let deferred_throttle = Arc::new(AtomicUsize::new(0));
+
     stream::iter(watched)
         .map(|w| {
             let skip_by_rule = matches!(
                 rules_map.get(&w.app_id),
                 Some(rule) if rule.is_frozen || rule.is_hidden
             );
+            let notified = Arc::clone(&notified);
+            let deferred_err = Arc::clone(&deferred_err);
+            let deferred_baseline = Arc::clone(&deferred_baseline);
+            let deferred_throttle = Arc::clone(&deferred_throttle);
             async move {
                 if skip_by_rule {
                     return;
@@ -549,12 +554,8 @@ async fn notify_watched_updates(
                         .await
                     {
                         Ok(res) => res,
-                        Err(e) => {
-                            log::debug!(
-                                "watch deferred id={} reason={}",
-                                w.app_id,
-                                crate::log_support::short_reason(&e)
-                            );
+                        Err(_) => {
+                            deferred_err.fetch_add(1, Ordering::Relaxed);
                             return;
                         }
                     };
@@ -563,11 +564,10 @@ async fn notify_watched_updates(
                     return;
                 }
                 let Some(base) = w.last_notified_version.clone() else {
-                    // 首次关注：静默建立基线
                     if let Ok(db) = state.db() {
                         let _ = db.init_watch_baseline(&w.app_id, &latest);
                     }
-                    log::debug!("watch deferred id={} reason=baseline-init", w.app_id);
+                    deferred_baseline.fetch_add(1, Ordering::Relaxed);
                     return;
                 };
                 if !is_version_newer(&base, &latest) {
@@ -581,7 +581,7 @@ async fn notify_watched_updates(
                         .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten());
                     if let Some(t) = last_at {
                         if now.saturating_sub(t) < DAILY_NOTIFY_INTERVAL_SECONDS {
-                            log::debug!("watch deferred id={} reason=daily-throttle", w.app_id);
+                            deferred_throttle.fetch_add(1, Ordering::Relaxed);
                             return;
                         }
                     }
@@ -589,6 +589,7 @@ async fn notify_watched_updates(
                 if let Ok(db) = state.db() {
                     let _ = db.set_watch_notified(&w.app_id, &latest, now);
                 }
+                notified.fetch_add(1, Ordering::Relaxed);
                 if let Some(tx) = crate::GLOBAL_WATCH_TX.get() {
                     let _ = tx.send(WatchUpdatedPayload {
                         app_id: w.app_id.clone(),
@@ -600,6 +601,13 @@ async fn notify_watched_updates(
         .buffer_unordered(6)
         .for_each(|_| async {})
         .await;
+
+    WatchCheckSummary {
+        notified: notified.load(Ordering::Relaxed),
+        deferred_err: deferred_err.load(Ordering::Relaxed),
+        deferred_baseline: deferred_baseline.load(Ordering::Relaxed),
+        deferred_throttle: deferred_throttle.load(Ordering::Relaxed),
+    }
 }
 
 #[cfg(test)]

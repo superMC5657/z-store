@@ -580,11 +580,6 @@ pub(crate) async fn resolve_probe_branches(
             }
         }
     }
-    log::debug!(
-        "icon probe default_branch fallback to HEAD for {}/{}",
-        owner,
-        repo
-    );
     normalize_probe_branches(None)
 }
 
@@ -624,11 +619,6 @@ async fn read_bounded_tree_bytes(resp: reqwest::Response, cap: usize) -> Option<
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.ok()?;
         if !tree_body_within_cap(buf.len(), chunk.len(), cap) {
-            log::warn!(
-                "icon probe trees skip oversized stream streamed={} > {}",
-                buf.len().saturating_add(chunk.len()),
-                cap
-            );
             return None;
         }
         buf.extend_from_slice(&chunk);
@@ -701,13 +691,6 @@ pub(crate) async fn probe_trees(
                 .and_then(|s| s.parse::<usize>().ok())
             {
                 if len > MAX_TREE_BYTES {
-                    log::warn!(
-                        "icon probe trees skip {}/{} oversized content-length={} > {}",
-                        owner,
-                        repo,
-                        len,
-                        MAX_TREE_BYTES
-                    );
                     return None;
                 }
             }
@@ -717,13 +700,6 @@ pub(crate) async fn probe_trees(
             let tree: GitTree = serde_json::from_slice(&bytes).ok()?;
             // 层3：节点数上限。
             if tree.tree.len() > MAX_TREE_NODES {
-                log::warn!(
-                    "icon probe trees skip {}/{} too many nodes={} > {}",
-                    owner,
-                    repo,
-                    tree.tree.len(),
-                    MAX_TREE_NODES
-                );
                 return None;
             }
             let mut best: Option<(i32, u64, String)> = None;
@@ -744,14 +720,7 @@ pub(crate) async fn probe_trees(
                     }
                 }
             }
-            if let Some((_, size, path)) = best {
-                log::debug!(
-                    "icon probe trees hit {}/{} path='{}' size={}",
-                    owner,
-                    repo,
-                    path,
-                    size
-                );
+            if let Some((_, _size, path)) = best {
                 return Some(ProbedIcon {
                     url: raw_url(owner, repo, branch, &path),
                     source: "trees",

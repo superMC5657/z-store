@@ -55,7 +55,9 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
     }
     if !resp.status().is_success() {
         if resp.status().as_u16() == 403 {
-            log::warn!("oauth forbidden status=403 op=fetch_user");
+            let mut ev = crate::z_log::WideEvent::new("oauth", "forbidden");
+            ev.field("status", 403).dev("op", "fetch_user");
+            ev.warn();
         }
         return Err(format!(
             "获取 GitHub 用户信息失败，HTTP 状态码: {}",

@@ -122,45 +122,7 @@ impl CatalogService {
             eff_page
         );
 
-        let safe_url = crate::log_support::sanitize_url(&url);
-        let (req_id, sid) = super::http::new_log_ctx();
-        let req_host = crate::log_support::host_of(&url);
-        log::debug!(
-            "http search start sid={} req={} url='{}'",
-            sid,
-            req_id,
-            safe_url
-        );
-        let start_search = std::time::Instant::now();
         let resp = client.get(&url).headers(headers).send().await;
-        let elapsed = start_search.elapsed().as_millis();
-        if let Ok(ref res) = resp {
-            log::debug!(
-                "http search resp sid={} req={} url='{}' status={} elapsed_ms={}",
-                sid,
-                req_id,
-                safe_url,
-                res.status().as_u16(),
-                elapsed
-            );
-            log::info!(
-                "http resp search sid={} req={} host={} status={} elapsed_ms={}",
-                sid,
-                req_id,
-                req_host,
-                res.status().as_u16(),
-                elapsed
-            );
-        } else if let Err(ref e) = resp {
-            log::warn!(
-                "http search failed sid={} req={} host={} reason={} elapsed_ms={}",
-                sid,
-                req_id,
-                req_host,
-                crate::log_support::short_reason(&e.to_string()),
-                elapsed
-            );
-        }
 
         // 失败上浮错误态（区分 空结果 / 网络失败）：网络错误、非 2xx、
         // JSON 解析失败一律返回 Err，不返回空结果冒充"无命中"；前端 `useSearchState`
@@ -225,23 +187,6 @@ impl CatalogService {
                 }
             }))
             .await;
-        log::debug!(
-            "http search done sid={} req={} url='{}' hits={}",
-            sid,
-            req_id,
-            safe_url,
-            summaries.len()
-        );
-        // `search done` 的 INFO 唯一归属 commands::catalog_search，此处结论降级为 debug，
-        // 单次搜索只产生一行 INFO `search done`（行为链），避免双 INFO。
-        log::debug!(
-            "http resp search done sid={} req={} host={} hits={} elapsed_ms={}",
-            sid,
-            req_id,
-            req_host,
-            summaries.len(),
-            start_search.elapsed().as_millis()
-        );
         Ok(summaries)
     }
 
@@ -352,15 +297,8 @@ impl CatalogService {
             urlencoding::encode(repo)
         );
 
-        match super::http::get_with_etag(
-            &client,
-            &url,
-            None,
-            &headers,
-            cached_etag.as_deref(),
-            "online_repo",
-        )
-        .await
+        match super::http::get_with_etag(&client, &url, None, &headers, cached_etag.as_deref())
+            .await
         {
             super::http::EtagGetOutcome::Fresh { text, etag } => {
                 let item = Self::build_summary_from_repo_json(

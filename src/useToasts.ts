@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ToastMessage } from './types';
-import { zlogError, zlogInfo, zlogWarn } from './lib/z-log';
 
 /**
  * 轻量应用内通知发送器：通过 `zstore:toast` CustomEvent 请求由 App 根组件统一展示 Toast，
@@ -21,13 +20,6 @@ export function notifyToast(text: string, type: ToastMessage['type'] = 'info'): 
 export function useToasts() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const showToast = useCallback((text: string, type: ToastMessage['type'] = 'info') => {
-    if (type === 'error') {
-      zlogError(`[toast] ${text}`);
-    } else if (type === 'warning') {
-      zlogWarn(`[toast] ${text}`);
-    } else {
-      zlogInfo(`[toast] ${text}`);
-    }
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     setToasts((prev) => [...prev.slice(-2), { id, text, type }]);
     setTimeout(() => {

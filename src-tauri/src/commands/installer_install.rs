@@ -64,8 +64,6 @@ pub async fn install_app(
         &app_id,
         &asset,
         custom_download_dir.as_deref(),
-        "download init",
-        "download direct failed, retrying via fallback mirror",
     )
     .await?;
 

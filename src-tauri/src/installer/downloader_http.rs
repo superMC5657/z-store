@@ -1,8 +1,8 @@
 use super::downloader_progress::{
     persist_stream_to_file, sha256_of_file, should_skip_download, verify_terminal_state,
-    PersistError, SkipDone,
+    DownloadTraceMeta, PersistError, SkipDone,
 };
-use crate::log_support::{file_base, http_err_reason, sanitize_url, short_reason};
+use crate::log_support::{file_base, http_err_reason, short_reason};
 use crate::models::DownloadProgressPayload;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -42,6 +42,14 @@ fn resolve_download_client(dl_extra: &[String]) -> Result<reqwest::Client, Strin
     Ok(client)
 }
 
+fn log_download_fail(meta: DownloadTraceMeta<'_>, reason: &str) {
+    let mut ev = meta.wide_event("failed", true);
+    ev.field("host", meta.dl_host)
+        .field("reason", reason)
+        .dev_url("url", meta.download_url);
+    ev.error();
+}
+
 pub async fn download_with_progress(
     app_handle: &tauri::AppHandle,
     task_id: &str,
@@ -59,19 +67,21 @@ pub async fn download_with_progress(
 
     let started = Instant::now();
     let log_file = file_base(asset_name);
-    let safe_url = sanitize_url(download_url);
-    let dl_req = crate::z_log::new_req_id();
-    let dl_sid = crate::z_log::new_session_id();
+    let dl_trace = crate::z_log::new_trace_id();
     let dl_host = crate::log_support::host_of(download_url);
-    log::info!(
-        "download start sid={} req={} id={} host={} file={} url='{}'",
-        dl_sid,
-        dl_req,
+    let trace_meta = DownloadTraceMeta {
         task_id,
-        dl_host,
-        log_file,
-        safe_url
-    );
+        dl_trace: &dl_trace,
+        dl_host: &dl_host,
+        log_file: &log_file,
+        download_url,
+        started,
+    };
+    let mut start_ev = trace_meta.wide_event("start", false);
+    start_ev
+        .field("host", &dl_host)
+        .dev_url("url", download_url);
+    start_ev.info();
 
     // 落盘目标：直接写入最终文件（失败时落盘函数清理半文件）。
     let temp_dir = if let Some(custom) = custom_download_dir {
@@ -113,15 +123,10 @@ pub async fn download_with_progress(
                     if should_skip_download(local_len, &actual, expected) {
                         return SkipDone {
                             app_handle,
-                            task_id,
-                            dl_sid: &dl_sid,
-                            dl_req: &dl_req,
-                            dl_host: &dl_host,
-                            log_file: &log_file,
+                            meta: trace_meta,
                             path: final_path,
                             hash: actual,
                             size: local_len,
-                            started,
                             expected: expected_sha256,
                         }
                         .finish();
@@ -136,16 +141,7 @@ pub async fn download_with_progress(
         Ok(r) => {
             if !r.status().is_success() {
                 let err_msg = format!("下载请求失败，HTTP 状态码: {}", r.status());
-                log::error!(
-                    "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                    task_id,
-                    dl_sid,
-                    dl_req,
-                    dl_host,
-                    log_file,
-                    safe_url,
-                    short_reason(&err_msg)
-                );
+                log_download_fail(trace_meta, &short_reason(&err_msg));
                 DownloadProgressPayload::emit_event(
                     app_handle,
                     task_id,
@@ -163,16 +159,7 @@ pub async fn download_with_progress(
             // reqwest Display 回显完整 URL（含签名 query）：先脱敏再记/再返回。
             let reason = http_err_reason(&e);
             let err_msg = format!("无法连接下载服务器: {}", reason);
-            log::error!(
-                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                task_id,
-                dl_sid,
-                dl_req,
-                dl_host,
-                log_file,
-                safe_url,
-                reason
-            );
+            log_download_fail(trace_meta, &reason);
             DownloadProgressPayload::emit_event(
                 app_handle,
                 task_id,
@@ -239,16 +226,7 @@ pub async fn download_with_progress(
         Ok(ok) => ok,
         Err(PersistError::Create(e)) => {
             let err_msg = format!("创建临时文件失败: {}", e);
-            log::error!(
-                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                task_id,
-                dl_sid,
-                dl_req,
-                dl_host,
-                log_file,
-                safe_url,
-                short_reason(&err_msg)
-            );
+            log_download_fail(trace_meta, &short_reason(&err_msg));
             DownloadProgressPayload::emit_event(
                 app_handle,
                 task_id,
@@ -263,16 +241,7 @@ pub async fn download_with_progress(
         Err(PersistError::Stream { downloaded, source }) => {
             let reason = http_err_reason(&source);
             let err_msg = format!("下载数据流中断: {}", reason);
-            log::error!(
-                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                task_id,
-                dl_sid,
-                dl_req,
-                dl_host,
-                log_file,
-                safe_url,
-                reason
-            );
+            log_download_fail(trace_meta, &reason);
             DownloadProgressPayload::emit_event(
                 app_handle,
                 task_id,
@@ -289,16 +258,7 @@ pub async fn download_with_progress(
                 "下载超时：超过 {} 秒未接收到数据块，已中断连接",
                 net_conf.chunk_timeout_seconds
             );
-            log::error!(
-                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                task_id,
-                dl_sid,
-                dl_req,
-                dl_host,
-                log_file,
-                safe_url,
-                short_reason(&err_msg)
-            );
+            log_download_fail(trace_meta, &short_reason(&err_msg));
             DownloadProgressPayload::emit_event(
                 app_handle,
                 task_id,
@@ -315,16 +275,7 @@ pub async fn download_with_progress(
             source: e,
         }) => {
             let err_msg = format!("写入磁盘失败: {}", e);
-            log::error!(
-                "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-                task_id,
-                dl_sid,
-                dl_req,
-                dl_host,
-                log_file,
-                safe_url,
-                short_reason(&err_msg)
-            );
+            log_download_fail(trace_meta, &short_reason(&err_msg));
             DownloadProgressPayload::emit_event(
                 app_handle,
                 task_id,
@@ -350,15 +301,9 @@ pub async fn download_with_progress(
                 "tampered",
                 Some(format!("哈希不符！期望: {}, 实际: {}", expected, actual)),
             );
-            // 校验失败：只记结论与短原因，不记哈希明细与路径。
-            log::error!(
-                "download verify failed id={} sid={} req={} host={} file={}",
-                task_id,
-                dl_sid,
-                dl_req,
-                dl_host,
-                log_file
-            );
+            let mut ev = trace_meta.wide_event("verify failed", true);
+            ev.dev("host", &dl_host);
+            ev.error();
             return Err(format!(
                 "安全拦截：SHA-256 完整性校验不符！官方校验值: {}，实际下载文件: {}。已阻止潜在篡改软件的安装执行。",
                 expected, actual
@@ -367,14 +312,10 @@ pub async fn download_with_progress(
     };
 
     // 成功后 rename 到最终路径；Windows rename 不覆盖已存在目标，先删后改。
-    // 此处旧最终文件（若有）必是哈希未命中的脏文件，删了重建即可。
-    // 并发同名任务可能在「删后改名前」再次落盘同名文件（或持旧句柄）：
-    // 对 删+改 做有界重试（5 次 × 100ms），仍失败才报错并清理本次临时文件。
-    // 任一时刻最终路径上只会有某个任务的完整已校验文件，交换无实害。
     let mut rename_ok = false;
     let mut last_rename_err: Option<std::io::Error> = None;
     for _ in 0..5 {
-        let _ = tokio::fs::remove_file(&final_path).await; // 不存在属预期
+        let _ = tokio::fs::remove_file(&final_path).await;
         match tokio::fs::rename(&tmp_path, &final_path).await {
             Ok(()) => {
                 rename_ok = true;
@@ -394,16 +335,7 @@ pub async fn download_with_progress(
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "未知错误".to_string())
         );
-        log::error!(
-            "download failed id={} sid={} req={} host={} file={} url='{}' reason={}",
-            task_id,
-            dl_sid,
-            dl_req,
-            dl_host,
-            log_file,
-            safe_url,
-            short_reason(&err_msg)
-        );
+        log_download_fail(trace_meta, &short_reason(&err_msg));
         DownloadProgressPayload::emit_event(
             app_handle,
             task_id,
@@ -416,9 +348,6 @@ pub async fn download_with_progress(
         return Err(err_msg);
     }
 
-    // 零信任哈希终态判定：不符已在落盘时以 Tampered 中断并删文件，
-    // 执行至此处表示已通过校验或上游未提供期望值，直接进入终态分支。
-    // 与 `SkipDone::finish` 复用同一 fetch→verify 契约终态（`verify_terminal_state`）。
     let (verified_state, verified_msg) = verify_terminal_state(expected_sha256, &actual_hash);
 
     DownloadProgressPayload::emit_event(
@@ -431,15 +360,12 @@ pub async fn download_with_progress(
         Some(verified_msg),
     );
 
-    log::info!(
-        "download done sid={} req={} id={} host={} file={} bytes={} elapsed_ms={}",
-        dl_sid,
-        dl_req,
-        task_id,
-        dl_host,
-        log_file,
-        downloaded,
-        started.elapsed().as_millis()
-    );
+    let mut done_ev = trace_meta.wide_event("done", true);
+    done_ev
+        .field("bytes", downloaded)
+        .dev("host", &dl_host)
+        .dev("verified", verified_state == "verified")
+        .dev_url("url", download_url);
+    done_ev.info();
     Ok((final_path, actual_hash))
 }

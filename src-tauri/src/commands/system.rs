@@ -9,10 +9,9 @@ pub fn register_deep_link_scheme() -> crate::AppResult<bool> {
 pub fn handle_deep_link(url: String) -> crate::AppResult<DeepLinkAction> {
     crate::deeplink::DeepLinkParser::parse(&url).ok_or_else(|| {
         // 失败 warn：只记首行短原因，不记完整 query / token。
-        log::warn!(
-            "deeplink parse failed reason={}",
-            crate::log_support::short_reason(&url)
-        );
+        let mut ev = crate::z_log::WideEvent::new("app", "deeplink parse failed");
+        ev.field("reason", crate::log_support::short_reason(&url));
+        ev.warn();
         crate::AppError::new(format!("无法识别的 ZStore 深度链接: {}", url))
     })
 }

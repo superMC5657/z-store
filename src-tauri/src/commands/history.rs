@@ -18,11 +18,10 @@ pub fn get_favorite_entries(state: State<'_, AppState>) -> crate::AppResult<Vec<
 
 /// 回填失败单行 warn：只记操作、行 id 与首行原因。
 fn log_backfill_warn(op: &str, id: Option<&str>, reason: impl std::fmt::Display) {
-    let reason = crate::log_support::short_reason(&reason.to_string());
-    match id {
-        Some(id) => log::warn!("{} id={} reason={}", op, id, reason),
-        None => log::warn!("{} reason={}", op, reason),
-    }
+    let mut ev = crate::z_log::WideEvent::new("app", op);
+    ev.field_opt("id", id)
+        .field("reason", crate::log_support::short_reason(&reason.to_string()));
+    ev.warn();
 }
 
 /// 收录标记全量回填（启动 + 清单同步完成后）：收藏/关注逐行按内存目录校准，零网络；
@@ -286,12 +285,11 @@ pub fn import_user_data(
     if result.favorites_added > 0 || result.watched_added > 0 {
         crate::notify_affinity_updated();
     }
-    log::info!(
-        "userdata import ok favorites={} watched={} settings={}",
-        result.favorites_added,
-        result.watched_added,
-        result.settings_applied
-    );
+    let mut ev = crate::z_log::WideEvent::new("app", "userdata import ok");
+    ev.field("favorites", result.favorites_added)
+        .field("watched", result.watched_added)
+        .field("settings", result.settings_applied);
+    ev.info();
     Ok(result)
 }
 

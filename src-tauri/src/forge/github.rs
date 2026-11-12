@@ -33,19 +33,13 @@ impl ForgeProvider for GitHubProvider {
                 urlencoding::encode(owner),
                 urlencoding::encode(repo)
             );
-            let span = HttpSpan::start(&url);
-            let repo_id = format!("{owner}/{repo}");
-            span.log_start("fetch repo", &repo_id);
+            let span = HttpSpan::start();
             let resp = client
                 .get(&url)
                 .headers(headers)
                 .send()
                 .await
-                .map_err(|e| {
-                    span.log_fail("fetch repo", &repo_id, &e.to_string());
-                    e.to_string()
-                })?;
-            span.log_done("fetch repo", &repo_id, resp.status().as_u16());
+                .map_err(|e| e.to_string())?;
             span.notify(&resp, "github.com");
 
             if !resp.status().is_success() {
@@ -96,19 +90,13 @@ impl ForgeProvider for GitHubProvider {
                 urlencoding::encode(owner),
                 urlencoding::encode(repo)
             );
-            let span = HttpSpan::start(&url);
-            let repo_id = format!("{owner}/{repo}");
-            span.log_start("fetch release", &repo_id);
+            let span = HttpSpan::start();
             let resp = client
                 .get(&url)
                 .headers(headers)
                 .send()
                 .await
-                .map_err(|e| {
-                    span.log_fail("fetch release", &repo_id, &e.to_string());
-                    e.to_string()
-                })?;
-            span.log_done("fetch release", &repo_id, resp.status().as_u16());
+                .map_err(|e| e.to_string())?;
             span.notify(&resp, "github.com");
 
             if !resp.status().is_success() {

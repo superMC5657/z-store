@@ -73,19 +73,39 @@ pub fn verify_terminal_state(expected_sha256: Option<&str>, actual_hash: &str) -
     }
 }
 
+/// 单次下载任务的日志/追踪元数据（由起止、跳过与失败宽事件共用）。
+#[derive(Clone, Copy)]
+pub struct DownloadTraceMeta<'a> {
+    pub task_id: &'a str,
+    pub dl_trace: &'a str,
+    pub dl_host: &'a str,
+    pub log_file: &'a str,
+    pub download_url: &'a str,
+    pub started: Instant,
+}
+
+impl<'a> DownloadTraceMeta<'a> {
+    /// 构造 `[download]` 宽事件并预填任务标识、文件名与追踪号；`with_duration` 为 true 时附带耗时。
+    pub fn wide_event(self, action: &str, with_duration: bool) -> crate::z_log::WideEvent {
+        let mut ev = crate::z_log::WideEvent::new("download", action);
+        if with_duration {
+            ev = ev.with_started(self.started);
+        }
+        ev.field("id", self.task_id)
+            .field("file", self.log_file)
+            .field("t", self.dl_trace);
+        ev
+    }
+}
+
 /// 已下载命中的终态收尾上下文：补发与正常成功一致的终态事件
 /// （`verified`/`completed_unverified`）并直接返回，不发起/不消费网络 body。
 pub struct SkipDone<'a> {
     pub app_handle: &'a tauri::AppHandle,
-    pub task_id: &'a str,
-    pub dl_sid: &'a str,
-    pub dl_req: &'a str,
-    pub dl_host: &'a str,
-    pub log_file: &'a str,
+    pub meta: DownloadTraceMeta<'a>,
     pub path: PathBuf,
     pub hash: String,
     pub size: u64,
-    pub started: Instant,
     pub expected: Option<&'a str>,
 }
 
@@ -94,23 +114,18 @@ impl<'a> SkipDone<'a> {
         let (verified_state, verified_msg) = verify_terminal_state(self.expected, &self.hash);
         DownloadProgressPayload::emit_event(
             self.app_handle,
-            self.task_id,
+            self.meta.task_id,
             self.size,
             self.size,
             0,
             &verified_state,
             Some(verified_msg),
         );
-        log::info!(
-            "download skipped sid={} req={} id={} host={} file={} bytes={} elapsed_ms={}",
-            self.dl_sid,
-            self.dl_req,
-            self.task_id,
-            self.dl_host,
-            self.log_file,
-            self.size,
-            self.started.elapsed().as_millis()
-        );
+        let mut ev = self.meta.wide_event("skipped", true);
+        ev.field("bytes", self.size)
+            .dev("host", self.meta.dl_host)
+            .dev("reason", "sha256_match");
+        ev.info();
         Ok((self.path, self.hash))
     }
 }

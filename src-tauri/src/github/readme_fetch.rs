@@ -171,27 +171,14 @@ async fn fetch_repo_default_branch(
 ) -> Option<String> {
     let canonical = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}");
     let url = CatalogService::request_url(&canonical, api_base);
-    let span = crate::forge::http::HttpSpan::start(&url);
-    span.log_search_start("readme-repo");
+    let span = crate::forge::http::HttpSpan::start();
     let req = client.get(&url).headers(headers.clone()).send();
-    let resp = match tokio::time::timeout(api_timeout, req).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => {
-            span.log_search_fail("readme-repo", &e.to_string());
-            return None;
-        }
-        Err(_) => {
-            span.log_search_fail("readme-repo", "timeout");
-            return None;
-        }
-    };
+    let resp = tokio::time::timeout(api_timeout, req).await.ok()?.ok()?;
     span.notify(&resp, "github.com");
     crate::check_auth_expired(
         resp.status().as_u16(),
         &format!("op=readme-repo owner={owner} repo={repo}"),
     );
-    let status = resp.status().as_u16();
-    span.log_search_done("readme-repo", status);
     if !resp.status().is_success() {
         return None;
     }
@@ -221,82 +208,61 @@ async fn list_root_paths(
         urlencoding::encode(branch)
     );
     let contents_url = CatalogService::request_url(&canonical_contents, api_base);
-    let span = crate::forge::http::HttpSpan::start(&contents_url);
-    span.log_search_start("readme-contents");
+    let span = crate::forge::http::HttpSpan::start();
     let req = client.get(&contents_url).headers(headers.clone()).send();
-    match tokio::time::timeout(api_timeout, req).await {
-        Ok(Ok(resp)) => {
-            span.notify(&resp, "github.com");
-            crate::check_auth_expired(
-                resp.status().as_u16(),
-                &format!("op=readme-contents owner={owner} repo={repo}"),
-            );
-            let status = resp.status().as_u16();
-            span.log_search_done("readme-contents", status);
-            if resp.status().is_success() {
-                if let Ok(entries) = resp.json::<Vec<ContentsEntry>>().await {
-                    let mut paths = Vec::new();
-                    for e in entries {
-                        if e.entry_type.as_deref() == Some("dir") {
-                            continue;
-                        }
-                        let p = e.path.or(e.name).unwrap_or_default();
-                        let p = p.trim().to_string();
-                        if !p.is_empty() && !p.contains('/') {
-                            paths.push(p);
-                        }
+    if let Ok(Ok(resp)) = tokio::time::timeout(api_timeout, req).await {
+        span.notify(&resp, "github.com");
+        crate::check_auth_expired(
+            resp.status().as_u16(),
+            &format!("op=readme-contents owner={owner} repo={repo}"),
+        );
+        if resp.status().is_success() {
+            if let Ok(entries) = resp.json::<Vec<ContentsEntry>>().await {
+                let mut paths = Vec::new();
+                for e in entries {
+                    if e.entry_type.as_deref() == Some("dir") {
+                        continue;
                     }
-                    return Some(paths);
+                    let p = e.path.or(e.name).unwrap_or_default();
+                    let p = p.trim().to_string();
+                    if !p.is_empty() && !p.contains('/') {
+                        paths.push(p);
+                    }
                 }
-                return Some(Vec::new());
+                return Some(paths);
             }
+            return Some(Vec::new());
         }
-        Ok(Err(e)) => span.log_search_fail("readme-contents", &e.to_string()),
-        Err(_) => span.log_search_fail("readme-contents", "timeout"),
     }
 
     // 回退：git trees 全量，过滤根文件。
     let canonical_tree =
         format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1");
     let tree_url = CatalogService::request_url(&canonical_tree, api_base);
-    let tree_span = crate::forge::http::HttpSpan::start(&tree_url);
-    tree_span.log_search_start("readme-trees");
+    let tree_span = crate::forge::http::HttpSpan::start();
     let req = client.get(&tree_url).headers(headers.clone()).send();
-    match tokio::time::timeout(api_timeout, req).await {
-        Ok(Ok(resp)) => {
-            tree_span.notify(&resp, "github.com");
-            crate::check_auth_expired(
-                resp.status().as_u16(),
-                &format!("op=readme-trees owner={owner} repo={repo}"),
-            );
-            let status = resp.status().as_u16();
-            tree_span.log_search_done("readme-trees", status);
-            if !resp.status().is_success() {
-                return None;
-            }
-            match resp.json::<GitTreeResponse>().await {
-                Ok(tree) => {
-                    let paths = tree
-                        .tree
-                        .into_iter()
-                        .filter(|n| n.node_type.as_deref() == Some("blob"))
-                        .filter_map(|n| n.path)
-                        .map(|p| p.trim().to_string())
-                        .filter(|p| !p.is_empty() && !p.contains('/'))
-                        .collect::<Vec<_>>();
-                    Some(paths)
-                }
-                Err(_) => Some(Vec::new()),
-            }
+    let resp = tokio::time::timeout(api_timeout, req).await.ok()?.ok()?;
+    tree_span.notify(&resp, "github.com");
+    crate::check_auth_expired(
+        resp.status().as_u16(),
+        &format!("op=readme-trees owner={owner} repo={repo}"),
+    );
+    if !resp.status().is_success() {
+        return None;
+    }
+    match resp.json::<GitTreeResponse>().await {
+        Ok(tree) => {
+            let paths = tree
+                .tree
+                .into_iter()
+                .filter(|n| n.node_type.as_deref() == Some("blob"))
+                .filter_map(|n| n.path)
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty() && !p.contains('/'))
+                .collect::<Vec<_>>();
+            Some(paths)
         }
-        Ok(Err(e)) => {
-            tree_span.log_search_fail("readme-trees", &e.to_string());
-            None
-        }
-        Err(_) => {
-            tree_span.log_search_fail("readme-trees", "timeout");
-            None
-        }
+        Err(_) => Some(Vec::new()),
     }
 }
 
@@ -327,28 +293,21 @@ async fn fetch_readme_text(
         ACCEPT,
         HeaderValue::from_static("application/vnd.github.v3.raw"),
     );
-    let span = crate::forge::http::HttpSpan::start(&url);
-    span.log_search_start("readme-raw");
+    let span = crate::forge::http::HttpSpan::start();
     let req = client.get(&url).headers(raw_headers).send();
-    match tokio::time::timeout(api_timeout, req).await {
-        Ok(Ok(resp)) => {
-            span.notify(&resp, "github.com");
-            crate::check_auth_expired(
-                resp.status().as_u16(),
-                &format!("op=readme-raw owner={owner} repo={repo}"),
-            );
-            let status = resp.status().as_u16();
-            span.log_search_done("readme-raw", status);
-            if resp.status().is_success() {
-                if let Ok(text) = resp.text().await {
-                    if !text.trim().is_empty() {
-                        return Some(text);
-                    }
+    if let Ok(Ok(resp)) = tokio::time::timeout(api_timeout, req).await {
+        span.notify(&resp, "github.com");
+        crate::check_auth_expired(
+            resp.status().as_u16(),
+            &format!("op=readme-raw owner={owner} repo={repo}"),
+        );
+        if resp.status().is_success() {
+            if let Ok(text) = resp.text().await {
+                if !text.trim().is_empty() {
+                    return Some(text);
                 }
             }
         }
-        Ok(Err(e)) => span.log_search_fail("readme-raw", &e.to_string()),
-        Err(_) => span.log_search_fail("readme-raw", "timeout"),
     }
 
     // 测试模式（api_base 覆写）不打真实 raw 域，避免单测外网依赖。
@@ -362,30 +321,18 @@ async fn fetch_readme_text(
         urlencoding::encode(branch),
         encode_path_segments(path)
     );
-    let raw_span = crate::forge::http::HttpSpan::start(&raw_url);
-    raw_span.log_search_start("readme-raw-direct");
     let req = client.get(&raw_url).header(
         reqwest::header::USER_AGENT,
         crate::forge::http::USER_AGENT_VALUE,
     );
-    match tokio::time::timeout(api_timeout, req.send()).await {
-        Ok(Ok(resp)) => {
-            let status = resp.status().as_u16();
-            raw_span.log_search_done("readme-raw-direct", status);
-            if !resp.status().is_success() {
-                return None;
-            }
-            resp.text().await.ok().filter(|t| !t.trim().is_empty())
-        }
-        Ok(Err(e)) => {
-            raw_span.log_search_fail("readme-raw-direct", &e.to_string());
-            None
-        }
-        Err(_) => {
-            raw_span.log_search_fail("readme-raw-direct", "timeout");
-            None
-        }
+    let resp = tokio::time::timeout(api_timeout, req.send())
+        .await
+        .ok()?
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
     }
+    resp.text().await.ok().filter(|t| !t.trim().is_empty())
 }
 
 impl CatalogService {
