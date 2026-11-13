@@ -61,7 +61,7 @@ function compareIconPriority(a: number, b: number): number {
 
 /** 图标事件上下文（后端 `icons::IconFetchCtx` 的前端镜像）。 */
 interface IconHitContext {
-  kind: 'search' | 'trend' | string;
+  kind: 'search' | 'trend' | 'starred' | string;
   search_id?: string;
   board?: string;
   gen?: number;

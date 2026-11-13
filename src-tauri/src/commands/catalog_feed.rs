@@ -105,6 +105,18 @@ pub fn get_affinity_profile_summary(
     build_affinity_profile_summary(&db, &catalog_items, crate::now_secs())
 }
 
+/// 立即同步推荐画像：拉取登录账号的 Star / Fork / 自有仓库写入 `user_repo_signals`（ETag 条件请求）。
+#[tauri::command]
+pub async fn sync_affinity_signals(state: State<'_, AppState>) -> crate::AppResult<usize> {
+    let token = crate::commands::resolve_active_github_token(&state)
+        .ok_or_else(|| "请先在「设置」中登录 GitHub 账号".to_string())?;
+    let count =
+        crate::github::CatalogService::sync_github_affinity_signals_bg(&state.db, &token, None)
+            .await?;
+    crate::notify_affinity_updated();
+    Ok(count)
+}
+
 #[tauri::command]
 pub fn reset_affinity_profile(state: State<'_, AppState>) -> crate::AppResult<bool> {
     let db = state.db()?;

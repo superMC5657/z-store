@@ -1,270 +1,136 @@
-use super::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE, STARRED_RELEASE_ENRICH_LIMIT};
-use super::developer_profile::EtagGetOutcome;
-use super::models::GitHubRepoResponse;
-use super::CatalogService;
-use crate::models::{DeveloperRepoItem, StarredSyncResult};
-use reqwest::header::AUTHORIZATION;
-use std::collections::HashMap;
+use super::{CatalogService, GITHUB_API_BASE};
+use reqwest::header::{AUTHORIZATION, LINK};
+
+/// Star 列表单页上限（GitHub `per_page` 最大值）。
+pub const STARRED_PAGE_MAX: u32 = 100;
+
+/// 单页 Star 列表中的一项：仓库坐标 + 原始仓库 JSON。
+/// `/users/{u}/starred` 每项与 `/repos/{o}/{r}` 同形，组卡时直接解析该 JSON，无需逐仓请求。
+#[derive(Debug)]
+pub struct StarredRepoPayload {
+    pub coord: crate::icons::RepoCoord,
+    pub payload: String,
+}
+
+/// GitHub 单页 Star 列表（按 Star 时间倒序）。
+#[derive(Debug)]
+pub struct StarredPage {
+    pub repos: Vec<StarredRepoPayload>,
+    pub has_more: bool,
+}
+
+/// Star 列表请求地址：用户名为空且已登录时查自己（`/user/starred`，含私有 Star），否则查指定用户。
+pub fn starred_page_url(
+    username: Option<&str>,
+    has_token: bool,
+    page: u32,
+    per_page: u32,
+) -> Result<String, String> {
+    let user = username.map(str::trim).filter(|u| !u.is_empty());
+    let page = page.max(1);
+    let per_page = per_page.clamp(1, STARRED_PAGE_MAX);
+    match user {
+        Some(u) => Ok(format!(
+            "{}/users/{}/starred?per_page={}&page={}",
+            GITHUB_API_BASE,
+            urlencoding::encode(u),
+            per_page,
+            page
+        )),
+        None if has_token => Ok(format!(
+            "{}/user/starred?per_page={}&page={}",
+            GITHUB_API_BASE, per_page, page
+        )),
+        None => Err("请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string()),
+    }
+}
+
+/// GitHub 分页 `Link` 头是否含下一页（`rel="next"`）；缺头即最后一页。
+pub fn link_has_next(link: Option<&str>) -> bool {
+    link.map(|l| {
+        l.split(',')
+            .any(|part| part.split(';').skip(1).any(|p| p.trim() == "rel=\"next\""))
+    })
+    .unwrap_or(false)
+}
+
+/// 原始 Star 列表 JSON → 逐项坐标与仓库 JSON（无 `full_name` 或非 `owner/repo` 形态的项跳过）。
+pub fn parse_starred_payloads(body: &str) -> Result<Vec<StarredRepoPayload>, String> {
+    let items: Vec<serde_json::Value> = serde_json::from_str(body)
+        .map_err(|e| format!("解析 GitHub Starred 列表数据失败: {}", e))?;
+    Ok(items
+        .into_iter()
+        .filter_map(|item| {
+            let full_name = item.get("full_name")?.as_str()?.trim().to_string();
+            let (owner, repo) = full_name.split_once('/')?;
+            if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+                return None;
+            }
+            let id = crate::forge::canonical_app_id(&full_name)?;
+            Some(StarredRepoPayload {
+                coord: crate::icons::RepoCoord {
+                    id,
+                    owner: owner.to_string(),
+                    repo: repo.to_string(),
+                },
+                payload: item.to_string(),
+            })
+        })
+        .collect())
+}
 
 impl CatalogService {
-    pub async fn sync_starred_repos(
+    /// 拉取一页 Star 列表（一次请求；是否有下一页取自 `Link` 头）。
+    pub async fn fetch_starred_page(
         &self,
         username: Option<&str>,
         token: Option<&str>,
-    ) -> Result<StarredSyncResult, String> {
-        // 无持久化入口：缓存仅为本轮调用内去重。
-        // 持有 DB 的调用方应使用 sync_starred_repos_with_cache，传入经
-        // db.get_etag 预填、`save_etag` 回写的 map（key 见 starred_release_endpoint）。
-        let mut ephemeral: HashMap<String, (Option<String>, Option<String>)> = HashMap::new();
-        self.sync_starred_repos_with_cache(username, token, &mut ephemeral, None)
-            .await
-    }
-
-    /// Star 同步（含目录外仓库 release 真实性探测）：
-    /// - 缓存优先：`release_cache`（key = `starred_release_endpoint`，与
-    ///   `api_etag_cache.endpoint_url` 同键）命中且 payload 可解析出 tag 时零网络直接认定；
-    /// - 配额护栏：每轮 live `releases/latest` 探测不超过 `STARRED_RELEASE_ENRICH_LIMIT`，
-    ///   超限仓库 `has_releases: false`（安装状态未知），不发请求；
-    /// - 失败/限流/404 时 `has_releases: false` + 日志，不抛错；
-    /// - 200 命中且带 ETag 时回填 `release_cache` 供调用方 `save_etag` 持久化，复同步零配额。
-    pub async fn sync_starred_repos_with_cache(
-        &self,
-        username: Option<&str>,
-        token: Option<&str>,
-        release_cache: &mut HashMap<String, (Option<String>, Option<String>)>,
+        page: u32,
+        per_page: u32,
         api_base: Option<&str>,
-    ) -> Result<StarredSyncResult, String> {
+    ) -> Result<StarredPage, String> {
         let client = super::http::build_api_client()?;
-
         let headers = super::http::bearer_headers(token);
         let has_token = headers.contains_key(AUTHORIZATION);
-
-        let target_url = if has_token && username.map(|u| u.trim().is_empty()).unwrap_or(true) {
-            format!(
-                "{}/user/starred?per_page={}",
-                GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE
-            )
-        } else if let Some(u) = username {
-            let clean_u = u.trim();
-            if clean_u.is_empty() {
-                return Err("请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string());
-            }
-            format!(
-                "{}/users/{}/starred?per_page={}",
-                GITHUB_API_BASE, clean_u, GITHUB_STARRED_MAX_PAGE_SIZE
-            )
-        } else {
-            return Err("请提供 GitHub 用户名或先在「设置」中登录 GitHub 账号".to_string());
-        };
-
-        let mut catalog_matches = Vec::new();
-        let mut other_repos = Vec::new();
-
-        let catalog_list = self.get_catalog_items();
-        let request_target = Self::request_url(&target_url, api_base);
-        let resp = match client
-            .get(&request_target)
-            .headers(headers.clone())
+        let target_url = starred_page_url(username, has_token, page, per_page)?;
+        let resp = client
+            .get(Self::request_url(&target_url, api_base))
+            .headers(headers)
             .send()
             .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(format!(
+            .map_err(|e| {
+                format!(
                     "连接 GitHub API 失败: {}. 如遇国内网络阻断，请检查网络设置或配置下载加速代理。",
                     e
-                ));
-            }
-        };
+                )
+            })?;
 
         crate::notify_rate_limit("github.com", resp.headers());
         let status = resp.status();
         if !status.is_success() {
             let code = status.as_u16();
-            if code == 401 {
-                return Err("GitHub 认证失败 (401)：登录凭据无效或已过期，请在「设置」中重新登录 GitHub 账号。".to_string());
-            } else if code == 403 {
-                return Err("GitHub API 限额已耗尽 (403): 触发了未登录 API 每小时 60 次的速率限制。请在「设置」中填入个人 GitHub Token (PAT) 即可免费提升至 5000 次/小时配额。".to_string());
-            } else if code == 404 {
-                let user_hint = username.unwrap_or("当前用户");
-                return Err(format!(
+            return Err(match code {
+                401 => "GitHub 认证失败 (401)：登录凭据无效或已过期，请在「设置」中重新登录 GitHub 账号。".to_string(),
+                403 => "GitHub API 限额已耗尽 (403): 触发了未登录 API 每小时 60 次的速率限制。请在「设置」中填入个人 GitHub Token (PAT) 即可免费提升至 5000 次/小时配额。".to_string(),
+                404 => format!(
                     "未在 GitHub 上找到用户「{}」，请检查用户名拼写是否正确。",
-                    user_hint
-                ));
-            } else {
-                return Err(format!(
+                    username.map(str::trim).filter(|u| !u.is_empty()).unwrap_or("当前用户")
+                ),
+                _ => format!(
                     "GitHub API 响应异常 (HTTP {}): {}",
                     code,
                     status.canonical_reason().unwrap_or("未知错误")
-                ));
-            }
+                ),
+            });
         }
-
-        let starred_list = resp
-            .json::<Vec<GitHubRepoResponse>>()
+        let has_more = link_has_next(resp.headers().get(LINK).and_then(|v| v.to_str().ok()));
+        let body = resp
+            .text()
             .await
-            .map_err(|e| format!("解析 GitHub Starred 列表数据失败: {}", e))?;
-
-        let total_starred = starred_list.len();
-        struct StagedStar {
-            full_name: String,
-            repo_name: String,
-            description: Option<String>,
-            html_url: String,
-            stars: u64,
-            forks: u64,
-            language: Option<String>,
-        }
-        let mut staged: Vec<StagedStar> = Vec::new();
-        for r in starred_list {
-            let full_name = r.full_name.clone().unwrap_or_default();
-            let repo_name = r.name.clone().unwrap_or_default();
-
-            // ADR-0010：远端 full_name 归一化为 canonical id 后与收录库精确对齐，
-            // 杜绝因用户 Star 了同名第三方 Fork（如 someone/rustdesk）而被错误误判为官方应用
-            if let Some(cat) = catalog_list.iter().find(|c| {
-                crate::forge::canonical_app_id(&full_name).as_deref() == Some(c.id.as_str())
-            }) {
-                catalog_matches.push(self.item_to_stamped_summary(cat));
-            } else {
-                let html_url = r
-                    .html_url
-                    .unwrap_or_else(|| format!("https://github.com/{}", full_name));
-                staged.push(StagedStar {
-                    full_name,
-                    repo_name,
-                    description: r.description,
-                    html_url,
-                    stars: r.stargazers_count.unwrap_or(0),
-                    forks: r.forks_count.unwrap_or(0),
-                    language: r.language,
-                });
-            }
-        }
-
-        // 第一遍：缓存优先（零网络）。payload 可解析出 tag 即认定有 release，
-        // 复同步走 SQLite etag 层时命中即 0 配额。
-        let mut resolved: Vec<Option<(bool, Option<String>)>> = vec![None; staged.len()];
-        for (i, p) in staged.iter().enumerate() {
-            if p.full_name.trim().is_empty() {
-                resolved[i] = Some((false, None));
-                continue;
-            }
-            let key = Self::starred_release_endpoint(&p.full_name);
-            if let Some((_, Some(payload))) = release_cache.get(&key) {
-                if let Some(tag) = Self::parse_release_tag(payload) {
-                    resolved[i] = Some((true, Some(tag)));
-                }
-            }
-        }
-
-        // 第二遍：live 轻量探测（`releases/latest` 单请求/库），预算上限
-        // STARRED_RELEASE_ENRICH_LIMIT；失败/限流/404 记 false + 日志。
-        // 并发 buffered(4)：预先按预算截断需探测下标，并发取回后按 index 回填 resolved。
-        let needy: Vec<usize> = staged
-            .iter()
-            .enumerate()
-            .filter_map(|(i, p)| {
-                if resolved[i].is_none() && !p.full_name.trim().is_empty() {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let live: Vec<usize> = needy
-            .into_iter()
-            .take(STARRED_RELEASE_ENRICH_LIMIT)
-            .collect();
-        for (i, p) in staged.iter().enumerate() {
-            if resolved[i].is_some() {
-                continue;
-            }
-            if p.full_name.trim().is_empty() {
-                resolved[i] = Some((false, None));
-                continue;
-            }
-            if !live.contains(&i) {
-                resolved[i] = Some((false, None));
-            }
-        }
-        if !live.is_empty() {
-            use futures_util::StreamExt as _;
-            let api_base_owned = api_base.map(|s| s.to_string());
-            let fetches = live.into_iter().map(|idx| {
-                let client = client.clone();
-                let headers = headers.clone();
-                let api_base_owned = api_base_owned.clone();
-                let key = Self::starred_release_endpoint(&staged[idx].full_name);
-                let cached_etag = release_cache.get(&key).and_then(|(e, _)| e.clone());
-                async move {
-                    let outcome = Self::get_with_etag(
-                        &client,
-                        &key,
-                        api_base_owned.as_deref(),
-                        &headers,
-                        cached_etag.as_deref(),
-                    )
-                    .await;
-                    (idx, key, outcome)
-                }
-            });
-            let outcomes: Vec<(usize, String, EtagGetOutcome)> =
-                futures_util::stream::iter(fetches)
-                    .buffered(4)
-                    .collect()
-                    .await;
-            for (i, key, outcome) in outcomes {
-                match outcome {
-                    EtagGetOutcome::Fresh { text, etag } => match Self::parse_release_tag(&text) {
-                        Some(tag) => {
-                            if let Some(et) = etag {
-                                release_cache.insert(key, (Some(et), Some(text)));
-                            }
-                            resolved[i] = Some((true, Some(tag)));
-                        }
-                        None => {
-                            resolved[i] = Some((false, None));
-                        }
-                    },
-                    EtagGetOutcome::NotModified => {
-                        let tag = release_cache
-                            .get(&key)
-                            .and_then(|(_, pl)| pl.as_ref())
-                            .and_then(|pl| Self::parse_release_tag(pl));
-                        resolved[i] = Some(match tag {
-                            Some(t) => (true, Some(t)),
-                            None => (false, None),
-                        });
-                    }
-                    EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => {
-                        resolved[i] = Some((false, None));
-                    }
-                }
-            }
-        }
-
-        for (p, r) in staged.into_iter().zip(resolved) {
-            let (has_releases, latest_release_tag) = r.unwrap_or((false, None));
-            other_repos.push(DeveloperRepoItem {
-                id: p.full_name.clone(),
-                name: p.repo_name.clone(),
-                full_name: p.full_name,
-                description: p.description,
-                html_url: p.html_url,
-                stars: p.stars,
-                forks: p.forks,
-                language: p.language,
-                has_releases,
-                in_catalog: false,
-                latest_release_tag,
-            });
-        }
-
-        Ok(StarredSyncResult {
-            total_starred,
-            catalog_matches,
-            other_repos,
+            .map_err(|e| format!("读取 GitHub Starred 列表失败: {}", e))?;
+        Ok(StarredPage {
+            repos: parse_starred_payloads(&body)?,
+            has_more,
         })
     }
 }

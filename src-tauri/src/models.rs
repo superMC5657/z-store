@@ -305,11 +305,11 @@ pub struct DeveloperRepoItem {
     pub latest_release_tag: Option<String>,
 }
 
+/// Star 列表单页：按 Star 时间倒序的应用卡片；已收录行带收录标记，未收录行由仓库 JSON 本地组卡。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StarredSyncResult {
-    pub total_starred: usize,
-    pub catalog_matches: Vec<AppSummary>,
-    pub other_repos: Vec<DeveloperRepoItem>,
+pub struct StarredPageResult {
+    pub rows: Vec<AppSummary>,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

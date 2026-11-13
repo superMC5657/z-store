@@ -90,7 +90,7 @@ import {
   handleOAuthDeviceStart,
   handleOAuthLogout,
   handleStarApp,
-  handleSyncGithubStarred,
+  handleListGithubStarred,
   handleToggleFavorite,
   handleUnstarApp,
   handleUnwatchApp,
@@ -233,6 +233,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetAffinityProfileSummary();
     case 'reset_affinity_profile':
       return handleResetAffinityProfile();
+    case 'sync_affinity_signals':
+      return 0;
     case 'get_category_apps':
       return handleGetCategoryApps(a);
     case 'get_latest_catalog_apps':
@@ -330,8 +332,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleToggleFavorite(a);
     case 'get_developer_profile':
       return handleGetDeveloperProfile(a);
-    case 'sync_github_starred':
-      return handleSyncGithubStarred();
+    case 'list_github_starred':
+      return handleListGithubStarred(a);
     case 'get_watched_apps':
       return handleGetWatchedApps();
     case 'watch_app':

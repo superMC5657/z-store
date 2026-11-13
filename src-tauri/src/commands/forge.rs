@@ -1,7 +1,7 @@
 use super::resolve_active_github_token;
-use crate::models::{DeveloperProfile, StarredSyncResult};
+use crate::models::{DeveloperProfile, StarredPageResult};
 use crate::AppState;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub async fn get_developer_profile(
@@ -15,29 +15,35 @@ pub async fn get_developer_profile(
         .await?)
 }
 
-#[tauri::command]
-pub async fn sync_github_starred(
+/// Star 列表单页查询（收藏页「Star 同步」）：任意用户名或当前登录账号，按 Star 时间倒序。
+/// 每页一次 GitHub 请求，卡片由列表里的仓库 JSON 本地组装，图标后台补齐；结果不落库。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_github_starred(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     username: Option<String>,
-) -> crate::AppResult<StarredSyncResult> {
+    page: Option<u32>,
+    per_page: Option<u32>,
+) -> crate::AppResult<StarredPageResult> {
     let token = resolve_active_github_token(&state);
-    let is_self_sync = username
-        .as_deref()
-        .map(|u| u.trim().is_empty())
-        .unwrap_or(true);
-    if is_self_sync {
-        if let Some(ref tok) = token {
-            crate::github::CatalogService::sync_github_affinity_signals_bg(&state.db, tok, None)
-                .await?;
-            crate::notify_affinity_updated();
-            return Ok(state
-                .catalog
-                .build_starred_sync_result_from_cached(&state.db)?);
-        }
-    }
-    let res = state
+    let page = page.unwrap_or(1).max(1);
+    let fetched = state
         .catalog
-        .sync_starred_repos(username.as_deref(), token.as_deref())
+        .fetch_starred_page(
+            username.as_deref(),
+            token.as_deref(),
+            page,
+            per_page.unwrap_or(20),
+            None,
+        )
         .await?;
-    Ok(res)
+    let (rows, need_icon) = {
+        let db = state.db()?;
+        super::catalog_search::cards_from_repo_payloads(&db, &state.catalog, fetched.repos)
+    };
+    super::catalog_search::spawn_starred_icon_stream(&app_handle, need_icon, token, page == 1);
+    Ok(StarredPageResult {
+        rows,
+        has_more: fetched.has_more,
+    })
 }

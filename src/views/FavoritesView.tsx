@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CountLabel } from '../components/CountBadge';
-import { Bookmark, Eye, Star, RotateCcw, Zap, BookmarkPlus, Search } from 'lucide-react';
+import { Bookmark, Eye, Star, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppCard } from '../components/AppCard';
 import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { AppSummary, OAuthUser, StarredSyncResult, WatchUpdatedPayload } from '../types';
-import { tauriApi } from '../services/api';
+import { AppSummary, OAuthUser, WatchUpdatedPayload } from '../types';
 import { ViewAppActions, ViewShell } from './ViewShell';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
@@ -15,6 +14,7 @@ import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { isInstalled as selectIsInstalled, matchesAppText, selectManagedState } from '../app/selectors';
 import { WatchReleasesPanel } from './FavoritesView/WatchReleasesPanel';
+import { StarredFeed } from './FavoritesView/StarredFeed';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
@@ -58,17 +58,6 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     if (watchNotifications.length > 0 && !userPickedTabRef.current) setActiveTab('watched');
   }, [watchNotifications.length]);
   const [searchText, setSearchText] = useState('');
-  const [githubUser, setGithubUser] = useState(oauthUser?.login || '');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<StarredSyncResult | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (oauthUser?.login && !githubUser) {
-      setGithubUser(oauthUser.login);
-    }
-  }, [oauthUser?.login]);
-
   const watchedSet = watchedIds || new Set<string>();
   // loading 徽标口径统一经选择器接口。
 
@@ -84,66 +73,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   const favoriteApps = apps.filter((a) => favoriteIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
   const watchedApps = apps.filter((a) => watchedIdsLower.has(normalizeId(a.id)) && matchesSearch(a));
 
-  // 组装落盘补齐：收藏/关注/标星匹配列表 http 远端图标入队（优先命中本地磁盘缓存，未命中/过期时后台拉取落盘，前 30 上限，`data:`/空跳过）。
+  // 组装落盘补齐：收藏/关注列表 http 远端图标入队（优先命中本地磁盘缓存，未命中/过期时后台拉取落盘，前 30 上限，`data:`/空跳过）。
   useEffect(() => {
     queueAssembledRowIcons(favoriteApps);
     queueAssembledRowIcons(watchedApps);
   }, [favoriteApps, watchedApps]);
-  useEffect(() => {
-    if (syncResult?.catalog_matches && syncResult.catalog_matches.length > 0) {
-      queueAssembledRowIcons(syncResult.catalog_matches);
-    }
-  }, [syncResult]);
-
-  const handleSyncStarred = async () => {
-    setIsSyncing(true);
-    setSyncError(null);
-    setSyncResult(null);
-    try {
-      const res = await tauriApi.syncGithubStarred(githubUser.trim() || undefined);
-      setSyncResult(res);
-    } catch (err) {
-      setSyncError(String(err));
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const [isBatchInstalling, setIsBatchInstalling] = useState(false);
-  const [batchError, setBatchError] = useState<string | null>(null);
-
-  const handleAddAllToFavorites = () => {
-    if (!syncResult) return;
-    for (const app of syncResult.catalog_matches) {
-      if (!favoriteIdsLower.has(normalizeId(app.id))) {
-        onToggleFavorite(app.id);
-      }
-    }
-  };
-
-  const handleBatchInstallAll = async () => {
-    if (!syncResult) return;
-    const toInstall = syncResult.catalog_matches.filter((app) => !selectIsInstalled(app.id, installedIds));
-    if (toInstall.length === 0) return;
-    setIsBatchInstalling(true);
-    setBatchError(null);
-    try {
-      const failures: string[] = [];
-      for (const app of toInstall) {
-        try {
-          await onQuickInstall(app.id);
-        } catch (err) {
-          failures.push(`${app.name || app.id}: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-      if (failures.length > 0) {
-        setBatchError(t('favorites.batch_error', { failed: failures.length, total: toInstall.length, errors: failures.join('；') }));
-      }
-    } finally {
-      setIsBatchInstalling(false);
-    }
-  };
-
   return (
     <ViewShell viewClass="favorites-view">
       {/* 标签导航栏（Linear Segmented Control） */}
@@ -282,164 +216,19 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           )}
         </>
       ) : (
-        <div>
-          {/* Starred 标星同步操作横幅 */}
-          <div
-            style={{
-              padding: '20px 24px',
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--bg-acrylic-card)',
-              border: '1px solid var(--border-color)',
-              marginBottom: '20px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                  <h4 style={{ margin: 0, fontSize: 'var(--font-lg)', fontWeight: 590, letterSpacing: '-0.015em' }}>
-                    {t('favorites.sync_starred_title')}
-                  </h4>
-                  {oauthUser?.login && (
-                    <span
-                      style={{
-                        fontSize: 'var(--font-xs)',
-                        padding: '2px 8px',
-                        borderRadius: 'var(--radius-xs)',
-                        background: 'var(--brand-subtle)',
-                        color: 'var(--brand-primary)',
-                        border: '1px solid var(--border-nav-active)',
-                        fontWeight: 510,
-                      }}
-                    >
-                      {t('favorites.logged_in_as', { user: oauthUser.login })}
-                    </span>
-                  )}
-                </div>
-                <p style={{ margin: 0, fontSize: 'var(--font-base)', color: 'var(--text-secondary)' }}>
-                  {t('favorites.sync_starred_desc')}
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  placeholder={t('favorites.username_placeholder')}
-                  value={githubUser}
-                  onChange={(e) => setGithubUser(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSyncStarred()}
-                  className="settings-input"
-                  style={{
-                    height: '28px',
-                    minWidth: '220px',
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn-fluent btn-primary btn-compact"
-                  disabled={isSyncing}
-                  onClick={handleSyncStarred}
-                >
-                  <RotateCcw size={13} strokeWidth={1.5} className={isSyncing ? 'icon-spin' : ''} />
-                  <span>{isSyncing ? t('favorites.syncing') : t('favorites.sync_now')}</span>
-                </button>
-              </div>
-            </div>
-
-            {syncError && (
-              <div style={{ marginTop: '12px', fontSize: 'calc(12.5px * var(--font-scale))', color: '#f87171' }}>
-                {t('favorites.sync_error', { error: syncError })}
-              </div>
-            )}
-          </div>
-
-          {/* 同步结果展示 */}
-          {syncResult ? (
-            <div>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '16px',
-                  padding: '10px 16px',
-                  borderRadius: '6px',
-                  background: 'var(--brand-subtle)',
-                  border: '1px solid var(--border-nav-active)',
-                }}
-              >
-                <span style={{ fontSize: 'var(--font-base)', color: 'var(--brand-primary)', fontWeight: 500 }}>
-                  {syncResult.total_starred === 0
-                    ? t('favorites.starred_zero')
-                    : t('favorites.starred_summary', { total: syncResult.total_starred, matched: syncResult.catalog_matches.length })}
-                </span>
-
-                {syncResult.catalog_matches.length > 0 && (
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button
-                      type="button"
-                      className="btn-fluent btn-primary btn-compact"
-                      disabled={isBatchInstalling || syncResult.catalog_matches.every((a) => selectIsInstalled(a.id, installedIds))}
-                      onClick={handleBatchInstallAll}
-                    >
-                      {isBatchInstalling ? <RotateCcw size={13} className="icon-spin" /> : <Zap size={13} />}
-                      <span>{isBatchInstalling ? t('favorites.batch_installing') : t('favorites.batch_install_btn')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-fluent btn-secondary btn-compact"
-                      onClick={handleAddAllToFavorites}
-                    >
-                      <BookmarkPlus size={13} />
-                      <span>{t('favorites.add_all_favorites')}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-              {batchError && (
-                <div style={{ marginTop: '8px', fontSize: 'calc(12.5px * var(--font-scale))', color: '#f87171' }}>
-                  {batchError}
-                </div>
-              )}
-
-              {syncResult.catalog_matches.length > 0 ? (
-                <div className="app-grid">
-                  {syncResult.catalog_matches.map((app, index) => (
-                    <AppCard
-                      key={app.id}
-                      app={app}
-                      eager={index < 6}
-                      platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                      isInstalled={selectIsInstalled(app.id, installedIds)}
-                      isManaged={selectManagedState(app.id, managedIds)}
-                      isInstalling={installingIds?.has(app.id)}
-                      isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
-                      isWatched={watchedIdsLower.has(normalizeId(app.id))}
-                      onOpenDetail={onOpenDetail}
-                      onQuickInstall={onQuickInstall}
-                      onToggleFavorite={onToggleFavorite}
-                      onToggleWatch={onToggleWatch}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <EmptyState
-                  style={{ marginTop: '20px' }}
-                  description={
-                    syncResult.total_starred === 0
-                      ? t('favorites.starred_zero_desc')
-                      : t('favorites.starred_no_match_desc', { total: syncResult.total_starred })
-                  }
-                />
-              )}
-            </div>
-          ) : (
-            <EmptyState
-              icon={<Star size={40} strokeWidth={1.5} />}
-              title={t('favorites.not_synced_title')}
-              description={t('favorites.not_synced_desc')}
-            />
-          )}
-        </div>
+        <StarredFeed
+          oauthUser={oauthUser}
+          platformResolvedOtherIds={platformResolvedOtherIds}
+          favoriteIds={favoriteIds}
+          watchedIds={watchedIds}
+          installedIds={installedIds}
+          installingIds={installingIds}
+          managedIds={managedIds}
+          onOpenDetail={onOpenDetail}
+          onQuickInstall={onQuickInstall}
+          onToggleFavorite={onToggleFavorite}
+          onToggleWatch={onToggleWatch}
+        />
       )}
     </ViewShell>
   );

@@ -6,7 +6,7 @@ import type {
   OAuthPollResult,
   OAuthUser,
   StarAppResult,
-  StarredSyncResult,
+  StarredPageResult,
   WatchDismissedEntry,
   WatchedAppEntry,
   WatchUpdatedPayload,
@@ -34,8 +34,17 @@ export async function getDeveloperProfile(developer: string): Promise<DeveloperP
   return tauriInvoke<DeveloperProfile>(CMD.getDeveloperProfile, { developer });
 }
 
-export async function syncGithubStarred(username?: string): Promise<StarredSyncResult> {
-  return tauriInvoke<StarredSyncResult>(CMD.syncGithubStarred, { username });
+// Star 列表单页：`username` 缺省即当前登录账号（含私有 Star）；缺字段回包按空页计。
+export async function listGithubStarred(
+  username: string | undefined,
+  page: number,
+  perPage: number,
+): Promise<StarredPageResult> {
+  const res = await tauriInvoke<StarredPageResult>(CMD.listGithubStarred, { username, page, perPage });
+  return {
+    rows: Array.isArray(res?.rows) ? res.rows : [],
+    has_more: res?.has_more === true,
+  };
 }
 
 export async function getWatchedApps(): Promise<WatchedAppEntry[]> {

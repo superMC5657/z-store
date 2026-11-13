@@ -767,6 +767,86 @@
   margin-bottom: 16px;
 }
 
+/* 收藏页「Star 同步」：查询横幅 + 按 Star 时间倒序的卡片流 */
+.starred-banner {
+  padding: 20px 24px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-acrylic-card);
+  border: 1px solid var(--border-color);
+  margin-bottom: 20px;
+}
+
+.starred-banner-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.starred-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.starred-banner-title h4 {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: 590;
+  letter-spacing: -0.015em;
+}
+
+.starred-login-chip {
+  font-size: var(--font-xs);
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--brand-subtle);
+  color: var(--brand-primary);
+  border: 1px solid var(--border-nav-active);
+  font-weight: 510;
+}
+
+.starred-banner-desc {
+  margin: 0;
+  font-size: var(--font-base);
+  color: var(--text-secondary);
+}
+
+.starred-banner-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.starred-banner-actions .settings-input {
+  height: 28px;
+  min-width: 220px;
+}
+
+.starred-error {
+  margin-top: 12px;
+  font-size: calc(12.5px * var(--font-scale));
+  color: #f87171;
+}
+
+.starred-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: var(--font-base);
+  color: var(--text-secondary);
+}
+
+.starred-loading {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
 /* ==========================================================================
    7. 响应式断点
    ========================================================================== */

@@ -30,9 +30,6 @@ pub const GITHUB_STARRED_MAX_PAGE_SIZE: usize = 100;
 /// GitHub API 基址（生产默认；测试经 `api_base` 覆写指向本地 mock，键仍用此基址保持与
 /// `api_etag_cache` 表中既有 `https://api.github.com/...` 键一致）。
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
-/// 配额护栏：单次 Star 同步中最多对多少个目录外仓库做 live `releases/latest` 探测。
-/// 缓存命中不计入该预算；超限仓库 `has_releases: false`（安装状态未知），不发网络请求。
-pub const STARRED_RELEASE_ENRICH_LIMIT: usize = 20;
 
 pub struct CatalogService {
     pub(crate) items: RwLock<Vec<CatalogItem>>,
@@ -56,24 +53,6 @@ impl CatalogService {
             developer.trim(),
             DEVELOPER_REPOS_PAGE_SIZE
         )
-    }
-
-    /// 目录外 Star 仓库的 `releases/latest` 端点（canonical cache key，与
-    /// `commands::updates_check`/`commands::catalog_detail` 共用 `api_etag_cache` 表，零新 schema）。
-    pub fn starred_release_endpoint(full_name: &str) -> String {
-        let key = crate::forge::canonical_app_id(full_name)
-            .unwrap_or_else(|| full_name.trim().to_lowercase());
-        format!("{}/repos/{}/releases/latest", GITHUB_API_BASE, key)
-    }
-
-    /// 从缓存 payload（`GitHubReleaseResponse` JSON）提取 `tag_name`，独立真相源。
-    pub fn parse_release_tag(payload: &str) -> Option<String> {
-        serde_json::from_str::<serde_json::Value>(payload)
-            .ok()?
-            .get("tag_name")?
-            .as_str()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
     }
 
     /// canonical key → 实际请求 URL（测试覆写 `api_base` 时仅换前缀，key 不变）。

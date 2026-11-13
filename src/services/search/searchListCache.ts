@@ -2,7 +2,10 @@ import type { AppSummary } from '../../types';
 import { TREND_DB_PAYLOAD_MAX_BYTES, utf8ByteLength } from '../trends';
 import { normalizeId } from '../normalizeId';
 
-/** 搜索列表缓存：M1 内存。key=`search|norm|page|perPage`，TTL 30min，50 条 FIFO，无 timer（提交/翻页时 sweep）。 */
+/**
+ * 分页列表缓存：M1 内存。key=`namespace|norm|page|perPage`（`namespace` 缺省为 `search`，
+ * Star 列表用 `starred` 与搜索词隔离），TTL 30min，50 条 FIFO，无 timer（提交/翻页时 sweep）。
+ */
 
 /** 搜索列表缓存 TTL 30min。 */
 const SEARCH_LIST_TTL_MS = 30 * 60 * 1000;
@@ -14,11 +17,12 @@ interface SearchListCacheEntry {
   rows: AppSummary[];
 }
 
-/** 搜索列表键：归一词 + 页码 + 页大小。 */
+/** 搜索列表键：归一词 + 页码 + 页大小，可选命名空间。 */
 interface SearchListKey {
   query: string;
   page: number;
   perPage: number;
+  namespace?: string;
 }
 
 const searchListCache = new Map<string, SearchListCacheEntry>();
@@ -50,10 +54,11 @@ function sanitizeSearchListKey(key: SearchListKey): {
   };
 }
 
-/** 缓存键 = search + 归一词 + 页码 + 页大小（翻页不串；大小写/多空格同键）。 */
+/** 缓存键 = 命名空间 + 归一词 + 页码 + 页大小（翻页不串；大小写/多空格同键）。 */
 function buildSearchListCacheKey(key: SearchListKey): string {
   const { norm, page, perPage } = sanitizeSearchListKey(key);
-  return `search|${norm}|${page}|${perPage}`;
+  const ns = typeof key.namespace === 'string' && key.namespace.trim() ? key.namespace.trim() : 'search';
+  return `${ns}|${norm}|${page}|${perPage}`;
 }
 
 /** 读搜索列表缓存。 */

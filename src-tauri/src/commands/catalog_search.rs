@@ -17,6 +17,10 @@ fn next_board_gen() -> u64 {
     BOARD_GEN.fetch_add(1, Ordering::SeqCst) + 1
 }
 
+/// Star 列表补图世代：每次新查询（第 1 页）+1，续拉页沿用当前值。
+/// 换查询后上一查询的在途补图开探前即止、命中只落库不发送；与趋势/搜索世代互不影响。
+static STARRED_GEN: AtomicU64 = AtomicU64::new(0);
+
 /// 在线搜索回包：行 + 后端拍板的 search_id 回声。
 /// 前端以此 sid 为准做图标门控（以后端为准，后端说什么前端认什么）。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -29,11 +33,12 @@ pub struct OnlineSearchResult {
 // 本模块一律直调 `crate::config`。
 
 /// emit 世代通道选择（纯选择器，可单测）：`ctx` 决定查哪一个全局世代计数器 + 期望 gen。
-/// 搜索与趋势共用同一套落库/emit，仅世代计数器不同。
+/// 搜索、趋势与 Star 列表共用同一套落库/emit，仅世代计数器不同。
 fn select_gen_lane(ctx: &crate::icons::IconFetchCtx) -> (&'static AtomicU64, u64) {
     match ctx {
         crate::icons::IconFetchCtx::Search { gen, .. } => (&SEARCH_GEN, *gen),
         crate::icons::IconFetchCtx::Trend { gen, .. } => (&BOARD_GEN, *gen),
+        crate::icons::IconFetchCtx::Starred { gen } => (&STARRED_GEN, *gen),
     }
 }
 
@@ -911,6 +916,82 @@ pub async fn enrich_trend_repos(
     Ok(results)
 }
 
+/// 仓库 JSON 批量本地组卡（零网络，保序）：收录命中出收录卡，详情缓存命中出详情卡，
+/// 否则解析仓库 JSON（与搜索单仓直查同形）。所有行统一盖收录章。
+/// 返回卡片与无确认图标、需后台补图的坐标。
+pub(crate) fn cards_from_repo_payloads(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    items: Vec<crate::github::developer_starred::StarredRepoPayload>,
+) -> (Vec<AppSummary>, Vec<crate::icons::RepoCoord>) {
+    let coords: Vec<crate::icons::RepoCoord> = items.iter().map(|i| i.coord.clone()).collect();
+    let pre_confirmed = enrich_pre_confirmed(Some(db), &coords);
+    let mut rows = Vec::with_capacity(items.len());
+    let mut need_icon = Vec::new();
+    let mut staged = Vec::new();
+    for (item, pre) in items.into_iter().zip(pre_confirmed) {
+        let Some(mut card) = resolve_local_enrich_hit(
+            db,
+            catalog,
+            &item.coord,
+            pre.as_deref(),
+            Some(&item.payload),
+        ) else {
+            continue;
+        };
+        if let Some(cycle) = backfill_uncataloged_card(db, &mut card) {
+            staged.push(cycle);
+        }
+        catalog.stamp_summary(&mut card);
+        if pre.is_none() {
+            need_icon.push(item.coord);
+        }
+        rows.push(card);
+    }
+    flush_icon_cycle_staged(db, &staged);
+    (rows, need_icon)
+}
+
+/// Star 列表补图世代：新查询（第 1 页）推进 `STARRED_GEN`，续拉页沿用当前值，
+/// 同一查询的各页互不打断。
+fn starred_icon_gen(new_query: bool) -> u64 {
+    if new_query {
+        STARRED_GEN.fetch_add(1, Ordering::SeqCst) + 1
+    } else {
+        STARRED_GEN.load(Ordering::SeqCst)
+    }
+}
+
+/// Star 列表卡片后台补图（`IconFetchCtx::Starred`）：新查询即令上一查询的在途补图停止；
+/// 续拉页不推进世代，前一页的补图照常送达。
+pub(crate) fn spawn_starred_icon_stream(
+    app_handle: &AppHandle,
+    coords: Vec<crate::icons::RepoCoord>,
+    token: Option<String>,
+    new_query: bool,
+) {
+    // 先推进世代再判空：本页无需补图时也要让上一查询的流停下。
+    let gen = starred_icon_gen(new_query);
+    if coords.is_empty() {
+        return;
+    }
+    let jobs: Vec<crate::icons::IconFetchJob> = coords
+        .into_iter()
+        .map(|coord| coord.into_job(crate::icons::IconFetchCtx::Starred { gen }))
+        .collect();
+    let cfg_icon = crate::config::get_project_config().limits.icon_fetch;
+    let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
+        std::sync::Arc::new(move || STARRED_GEN.load(Ordering::SeqCst) != gen);
+    tokio::spawn(crate::icons::fetch_icons_stream(
+        app_handle.clone(),
+        jobs,
+        token,
+        cfg_icon,
+        emit_icon_job,
+        Some(should_stop),
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1020,6 +1101,10 @@ mod tests {
         let (counter, gen) = super::select_gen_lane(&trend);
         assert_eq!(gen, 3);
         assert!(std::ptr::eq(counter, &super::BOARD_GEN));
+        let starred = crate::icons::IconFetchCtx::Starred { gen: 5 };
+        let (counter, gen) = super::select_gen_lane(&starred);
+        assert_eq!(gen, 5);
+        assert!(std::ptr::eq(counter, &super::STARRED_GEN));
         assert!(!std::ptr::eq(counter, &super::SEARCH_GEN));
     }
 
@@ -1272,6 +1357,37 @@ mod tests {
         assert_eq!(hit2.core.license, "BSD-3-Clause");
         assert_eq!(hit2.core.platforms, vec!["linux"]);
         assert_eq!(hit2.core.latest_version, "v1.5.0");
+    }
+
+    #[test]
+    fn starred_icon_gen_advances_only_for_new_queries() {
+        let first = super::starred_icon_gen(true);
+        assert_eq!(super::starred_icon_gen(false), first);
+        let second = super::starred_icon_gen(true);
+        assert_eq!(second, first + 1);
+        assert_eq!(super::starred_icon_gen(false), second);
+    }
+
+    #[test]
+    fn starred_payload_cards_keep_order_and_stamp_uncataloged() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let catalog = crate::github::CatalogService::new();
+        let body = serde_json::json!([
+            {"name": "Zeta", "full_name": "acme/zeta", "description": "Zeta tool",
+             "stargazers_count": 42u64, "forks_count": 3u64},
+            {"name": "Alpha", "full_name": "acme/alpha", "description": "Alpha lib",
+             "stargazers_count": 7u64}
+        ])
+        .to_string();
+        let items = crate::github::developer_starred::parse_starred_payloads(&body).unwrap();
+        let (rows, need_icon) = cards_from_repo_payloads(&db, &catalog, items);
+        let ids: Vec<&str> = rows.iter().map(|r| r.core.id.as_str()).collect();
+        assert_eq!(ids, vec!["acme/zeta", "acme/alpha"]);
+        assert_eq!(rows[0].core.description, "Zeta tool");
+        assert_eq!(rows[0].core.stars, 42);
+        assert_eq!(rows[0].core.is_cataloged, Some(false));
+        // 无确认图标的行全部进入后台补图。
+        assert_eq!(need_icon.len(), 2);
     }
 
     #[test]

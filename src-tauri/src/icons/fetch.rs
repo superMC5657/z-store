@@ -74,12 +74,14 @@ impl RepoCoord {
     }
 }
 
-/// 补探上下文：搜索 `Search` 与趋势 `Trend` 共用（世代防串由调用方按 `gen` 执行）。
+/// 补探上下文：搜索 `Search`、趋势 `Trend` 与收藏页 Star 列表 `Starred` 共用
+/// （世代防串由调用方按 `gen` 执行，三者各有独立世代计数器）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum IconFetchCtx {
     Search { search_id: String, gen: u64 },
     Trend { board: String, gen: u64 },
+    Starred { gen: u64 },
 }
 
 /// 图标就绪事件载荷（`zstore://icon-ready`）。
@@ -368,6 +370,8 @@ mod tests {
             gen: 1,
         };
         assert_eq!(serde_json::to_value(&t).unwrap()["kind"], "trend");
+        let s = IconFetchCtx::Starred { gen: 2 };
+        assert_eq!(serde_json::to_value(&s).unwrap()["kind"], "starred");
     }
 
     #[test]

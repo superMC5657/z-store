@@ -67,7 +67,7 @@ export const AffinityPrivacyRow: React.FC = () => {
     if (busyAction !== null) return;
     setBusyAction('sync');
     try {
-      await tauriApi.syncGithubStarred();
+      await tauriApi.syncAffinitySignals();
       await loadSummary();
       window.dispatchEvent(new CustomEvent('zstore:affinity-updated'));
       showFeedback(t('affinity_privacy.sync_ok'), false);

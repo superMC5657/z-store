@@ -3,7 +3,7 @@ use super::developer_profile::EtagGetOutcome;
 use super::models::{CatalogItem, GitHubRepoResponse};
 use super::CatalogService;
 use crate::db::{Database, RawAffinitySignals, RepoRelation, UserRepoSignal};
-use crate::models::{AppSummary, DeveloperRepoItem, StarredSyncResult};
+use crate::models::AppSummary;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -186,71 +186,6 @@ impl CatalogService {
 
         let final_count = db.get_user_repo_signals().map(|v| v.len()).unwrap_or(0);
         Ok(final_count)
-    }
-
-    /// 从本地 `api_etag_cache` 已缓存的 `/user/starred` 响应组装 `StarredSyncResult`（零额外网络请求）。
-    pub fn build_starred_sync_result_from_cached(
-        &self,
-        db_mutex: &Mutex<Database>,
-    ) -> Result<StarredSyncResult, String> {
-        let starred_ep = Self::affinity_starred_endpoint();
-        let db = db_mutex.lock().map_err(|e| e.to_string())?;
-        let payload = db
-            .get_cached_payload(&starred_ep)
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "[]".to_string());
-        let starred_list: Vec<GitHubRepoResponse> = serde_json::from_str(&payload)
-            .map_err(|e| format!("解析本地 Starred 缓存数据失败: {}", e))?;
-
-        let total_starred = starred_list.len();
-        let catalog_list = self.get_catalog_items();
-        let catalog_by_id: HashMap<&str, &CatalogItem> =
-            catalog_list.iter().map(|c| (c.id.as_str(), c)).collect();
-        let mut catalog_matches = Vec::new();
-        let mut other_repos = Vec::new();
-
-        for r in starred_list {
-            let full_name = r.full_name.clone().unwrap_or_default();
-            let repo_name = r.name.clone().unwrap_or_default();
-            let canonical = crate::forge::canonical_app_id(&full_name);
-            if let Some(cat) = canonical
-                .as_deref()
-                .and_then(|key| catalog_by_id.get(key).copied())
-            {
-                catalog_matches.push(self.item_to_stamped_summary(cat));
-            } else {
-                let html_url = r
-                    .html_url
-                    .unwrap_or_else(|| format!("https://github.com/{}", full_name));
-                let rel_ep = Self::starred_release_endpoint(&full_name);
-                let latest_release_tag = db
-                    .get_cached_payload(&rel_ep)
-                    .ok()
-                    .flatten()
-                    .and_then(|pl| Self::parse_release_tag(&pl));
-                let has_releases = latest_release_tag.is_some();
-                other_repos.push(DeveloperRepoItem {
-                    id: full_name.clone(),
-                    name: repo_name,
-                    full_name,
-                    description: r.description,
-                    html_url,
-                    stars: r.stargazers_count.unwrap_or(0),
-                    forks: r.forks_count.unwrap_or(0),
-                    language: r.language,
-                    has_releases,
-                    in_catalog: false,
-                    latest_release_tag,
-                });
-            }
-        }
-
-        Ok(StarredSyncResult {
-            total_starred,
-            catalog_matches,
-            other_repos,
-        })
     }
 }
 

@@ -324,10 +324,10 @@ interface DeveloperRepoItem {
   latest_release_tag?: string | null;
 }
 
-export interface StarredSyncResult {
-  total_starred: number;
-  catalog_matches: AppSummary[];
-  other_repos: DeveloperRepoItem[];
+/** Star 列表单页（按 Star 时间倒序的应用卡片）。 */
+export interface StarredPageResult {
+  rows: AppSummary[];
+  has_more: boolean;
 }
 
 export type DeepLinkAction =

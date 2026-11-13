@@ -2,12 +2,12 @@ import type {
   DeveloperProfile,
   FavoriteEntry,
   StarAppResult,
-  StarredSyncResult,
+  StarredPageResult,
   WatchedAppEntry,
 } from '../../types';
 import { summaries, findSummary } from '../fixtures';
 import { getFavSet, getStarSet, getWatchSet, persistSets } from '../demoState';
-import { argStr, type InvokeArgs } from './common';
+import { argNum, argStr, type InvokeArgs } from './common';
 
 export function handleGetFavorites(): string[] {
   const favSet = getFavSet();
@@ -88,8 +88,18 @@ export function handleGetDeveloperProfile(a: InvokeArgs): DeveloperProfile {
   };
 }
 
-export function handleSyncGithubStarred(): StarredSyncResult {
-  return { total_starred: 0, catalog_matches: [], other_repos: [] };
+/** demo Star 列表：固定取目录前 45 个当作「已 Star」，按页切片，形态与后端一致。 */
+const DEMO_STARRED_TOTAL = 45;
+
+export function handleListGithubStarred(a: InvokeArgs): StarredPageResult {
+  const page = Math.max(1, Math.floor(argNum(a, 'page') ?? 1));
+  const perPage = Math.min(100, Math.max(1, Math.floor(argNum(a, 'perPage') ?? 20)));
+  const starred = summaries.slice(0, DEMO_STARRED_TOTAL);
+  const start = (page - 1) * perPage;
+  return {
+    rows: starred.slice(start, start + perPage).map((s) => ({ ...s, is_cataloged: true })),
+    has_more: start + perPage < starred.length,
+  };
 }
 
 export function handleGetOAuthUser(): null {
