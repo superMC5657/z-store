@@ -22,7 +22,6 @@ function renderSidebar(extraProps?: Partial<React.ComponentProps<typeof Sidebar>
     <Sidebar
       currentView="home"
       onSelectView={() => {}}
-      installedCount={0}
       onOpenAccount={() => {}}
       {...extraProps}
     />,
@@ -196,22 +195,21 @@ describe('Sidebar: nav items follow VIEW_TYPES', () => {
 });
 
 describe('Sidebar: updates and favorites numerical badges', () => {
-  it('renders numerical badge for updates and favorites, without blue dot', () => {
+  it('renders the update count on My Apps and favorites badge, without blue dot', () => {
     const { container } = renderSidebar({
       updatesCount: 7,
       favoritesCount: 15,
-      installedCount: 13,
       pendingCount: 5,
     });
 
-    const updatesItem = container.querySelector('[data-view-id="updates"]');
     const favoritesItem = container.querySelector('[data-view-id="favorites"]');
     const installedItem = container.querySelector('[data-view-id="installed"]');
     const pendingItem = container.querySelector('[data-view-id="pending"]');
 
-    expect(updatesItem?.querySelector('.count-badge')?.textContent).toBe('7');
+    // 可用更新数挂在「我的应用」上，侧栏没有单独的更新入口
+    expect(container.querySelector('[data-view-id="updates"]')).toBeNull();
+    expect(installedItem?.querySelector('.count-badge')?.textContent).toBe('7');
     expect(favoritesItem?.querySelector('.count-badge')?.textContent).toBe('15');
-    expect(installedItem?.querySelector('.count-badge')?.textContent).toBe('13');
     expect(pendingItem?.querySelector('.count-badge')?.textContent).toBe('5');
 
     // 验证不渲染圆点指示器
@@ -225,10 +223,10 @@ describe('Sidebar: updates and favorites numerical badges', () => {
       favoritesCount: 0,
     });
 
-    const updatesItem = container.querySelector('[data-view-id="updates"]');
+    const installedItem = container.querySelector('[data-view-id="installed"]');
     const favoritesItem = container.querySelector('[data-view-id="favorites"]');
 
-    expect(updatesItem?.querySelector('.count-badge')).toBeNull();
+    expect(installedItem?.querySelector('.count-badge')).toBeNull();
     expect(favoritesItem?.querySelector('.count-badge')).toBeNull();
     expect(container.querySelector('.nav-badge-dot')).toBeNull();
   });

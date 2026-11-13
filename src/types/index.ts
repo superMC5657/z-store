@@ -151,7 +151,6 @@ export const VIEW_TYPES = [
   'trends',
   'pending',
   'installed',
-  'updates',
   'favorites',
   'settings',
 ] as const;
@@ -161,6 +160,32 @@ export type ViewType = (typeof VIEW_TYPES)[number];
 /** 运行时守卫：未知值（深链载荷/URL 参数等）判定为非法视图。 */
 export function isViewType(value: unknown): value is ViewType {
   return typeof value === 'string' && (VIEW_TYPES as readonly string[]).includes(value);
+}
+
+/** 视图内的落点：`updates` = 「我的应用」的「有更新」筛选签。 */
+export type ViewFocus = 'updates';
+
+/** 外部入口解析出的目标：视图 + 可选的视图内落点。 */
+export interface ViewTarget {
+  view: ViewType;
+  focus?: ViewFocus;
+}
+
+/**
+ * 不在 `VIEW_TYPES` 里、但外部链接仍会用到的视图 id。仅供外部入口（深链载荷）解析：
+ * `zstore://view/updates` 打开「我的应用」并落在「有更新」筛选签。
+ */
+const VIEW_LINK_ALIASES: Readonly<Record<string, ViewTarget>> = {
+  updates: { view: 'installed', focus: 'updates' },
+};
+
+/** 外部字符串 → 视图目标：先认现行视图，再认别名；都不是则返回 null。 */
+export function resolveViewTarget(value: unknown): ViewTarget | null {
+  if (isViewType(value)) return { view: value };
+  if (typeof value === 'string' && Object.prototype.hasOwnProperty.call(VIEW_LINK_ALIASES, value)) {
+    return VIEW_LINK_ALIASES[value];
+  }
+  return null;
 }
 
 /** 集中导航函数签名：编译期仅接受合法视图。 */

@@ -95,7 +95,7 @@ function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
 
 /**
  * 应用级订阅总线（C3 自 App.tsx 抽出，原 L193-305 + L316-438，以及
- * 更新中心切签检查 L440-450 与视图切换日志 L452-464）。
+ * 进入「我的应用」读更新快照与视图切换日志，见文件末尾两个 effect）。
  *
  * - 初始拉取 + `zstore:catalog-synced` +
  *   `onIconReady`（回声窗内首个回声立期望，`admitIconHit` sole 写；双订阅正交门控，
@@ -198,7 +198,7 @@ export function useAppSubscriptions({
     tauriApi.getInstalledApps().then(setInstalledApps);
     tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     tauriApi.getUpdateRules().then(setUpdateRules);
-    // 更新中心首屏读 DB 快照（get_cached_updates，零网络；空快照即空列表，等手动 Refresh）。
+    // 可用更新首屏读 DB 快照（get_cached_updates，零网络；空快照即空列表，等手动检查更新）。
     tauriApi.getCachedUpdates().then((rows) => {
       if (Array.isArray(rows)) setUpdates(rows);
     }).catch(() => {});
@@ -217,8 +217,8 @@ export function useAppSubscriptions({
     // 加载持久化设置（DB/local，保持自动；更新检查仅手动触发检查更新按钮）
     tauriApi.getSettings().then((persisted) => {
       applyPersistedSettingsRef.current(persisted);
-      // 更新中心属资产区：启动时不自动检查（忽略 update_frequency startup 自动项）；
-      // 用户经更新中心检查更新按钮手动触发。
+      // 「我的应用」属资产区：启动时不自动检查（忽略 update_frequency startup 自动项）；
+      // 用户经「我的应用」顶栏的检查更新按钮手动触发。
     });
 
     const handleCatalogSynced = () => {
@@ -387,7 +387,7 @@ export function useAppSubscriptions({
     loadOAuthUser();
     const handleOAuthChanged = () => {
       loadOAuthUser();
-      // 登录态切换后更新中心读 DB 快照（零网络；写仅手动 Refresh）。
+      // 登录态切换后重读可用更新 DB 快照（零网络；写仅手动检查更新）。
       tauriApi.getCachedUpdates().then((rows) => {
         if (ctx.mounted && Array.isArray(rows)) setUpdates(rows);
       }).catch(() => {});
@@ -426,10 +426,10 @@ export function useAppSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 更新中心属资产区：进 tab 只读 DB 快照（getCachedUpdates，零网络），不自动检查更新。
+  // 「我的应用」属资产区：进页只读更新 DB 快照（getCachedUpdates，零网络），不自动检查更新。
   // 网络仅经检查更新按钮手动触发（handleCheckUpdates：force 写库后重读快照）；进度监听保持被动。
   useEffect(() => {
-    if (currentView !== 'updates') return;
+    if (currentView !== 'installed') return;
     tauriApi.getCachedUpdates().then((rows) => {
       if (Array.isArray(rows)) setUpdates(rows);
     }).catch(() => {});

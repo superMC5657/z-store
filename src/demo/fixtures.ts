@@ -145,19 +145,28 @@ export function summaryToInstalled(s: AppSummary): InstalledApp {
   };
 }
 
+/** 末段数字 +1（`1.5.1` → `1.5.2`、`v1.18.2` → `v1.18.3`）；无数字时追加 `-next`。 */
+function bumpDemoVersion(version: string): string {
+  const m = version.match(/^(.*?)(\d+)(\D*)$/);
+  if (!m) return `${version}-next`;
+  return `${m[1]}${Number(m[2]) + 1}${m[3]}`;
+}
+
+/** 演示更新：与真实后端一致，只为已安装应用产出更新项（取首个已装应用，目标版本为其下一补丁版）。 */
 export function buildDemoUpdates(installed: InstalledApp[]): UpdateItem[] {
-  const target = summaries[2] ?? summaries[0];
-  if (!target) return [];
-  const current = installed.find((i) => i.app_id.toLowerCase() === target.id.toLowerCase());
+  const current = installed[0];
+  if (!current) return [];
+  const summary = summaries.find((s) => s.id.toLowerCase() === current.app_id.toLowerCase());
   return [
     {
-      app_id: target.id,
-      app_name: target.name,
-      current_version: current?.version ?? '1.0.0-demo',
-      latest_version: target.latest_version,
-      changelog: `Demo update for ${target.name} — desktop app applies it for real.`,
-      icon: target.icon,
-      icon_bg: target.icon_bg,
+      app_id: current.app_id,
+      app_name: summary?.name ?? current.app_name,
+      current_version: current.version,
+      latest_version: bumpDemoVersion(current.version),
+      changelog: `### Demo release
+- Update for ${summary?.name ?? current.app_name} — the desktop app applies it for real.`,
+      icon: summary?.icon ?? current.icon,
+      icon_bg: summary?.icon_bg ?? current.icon_bg,
     },
   ];
 }

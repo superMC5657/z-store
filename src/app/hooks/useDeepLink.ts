@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import { useEffect, useState } from 'react';
 import { tauriApi } from '../../services/api';
-import { isViewType, type Navigate } from '../../types';
+import { resolveViewTarget, type Navigate, type ViewFocus } from '../../types';
 
 interface UseDeepLinkParams {
   handleOpenDetail: (id: string) => void;
@@ -9,6 +9,8 @@ interface UseDeepLinkParams {
   setSelectedDeveloper: (dev: string | null) => void;
   /** 集中导航入口（App.createNavigate 产物；合法 ViewType 校验收口于 types）。 */
   navigate: Navigate;
+  /** 视图内落点（如「我的应用」的「有更新」签）；导航之后调用。 */
+  focusView?: (focus: ViewFocus) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
 }
@@ -25,6 +27,7 @@ export function useDeepLink({
   handleSearchChange,
   setSelectedDeveloper,
   navigate,
+  focusView,
   showToast,
   t,
 }: UseDeepLinkParams) {
@@ -47,8 +50,12 @@ export function useDeepLink({
       } else if (action.action === 'developer_profile') {
         setSelectedDeveloper(action.payload.owner);
       } else if (action.action === 'open_view') {
-        // 深链载荷是外部字符串：先经 isViewType 收窄，未知视图静默忽略。
-        if (isViewType(action.payload.view)) navigate(action.payload.view);
+        // 深链载荷是外部字符串：经 resolveViewTarget 收窄（含别名），未知视图静默忽略。
+        const target = resolveViewTarget(action.payload.view);
+        if (target) {
+          navigate(target.view);
+          if (target.focus) focusView?.(target.focus);
+        }
       }
       showToast(t('toast.deeplink_responded', { url: rawUrl }), 'info');
     } catch (e) {

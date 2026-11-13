@@ -78,16 +78,3 @@
     opacity: 1;
   }
 }
-
-@keyframes updateItemPopIn {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-.update-item-entrance {
-  animation: updateItemPopIn 0.12s var(--ease-smooth) forwards;
-}

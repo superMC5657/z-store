@@ -67,7 +67,7 @@ export async function checkForUpdates(forceRefresh = false): Promise<UpdateItem[
   return tauriInvoke<UpdateItem[]>(CMD.checkForUpdates, { forceRefresh });
 }
 
-// 更新中心列表读（DB-only，零网络）：登录/切签首屏直读上次手动刷新快照。
+// 可用更新快照读（DB-only，零网络）：启动、登录与进入「我的应用」时直读上次手动检查的结果。
 // 空快照即空列表（等手动 Refresh），调用方以 Array.isArray 防御后端缺席。
 export async function getCachedUpdates(): Promise<UpdateItem[]> {
   return tauriInvoke<UpdateItem[]>(CMD.getCachedUpdates);

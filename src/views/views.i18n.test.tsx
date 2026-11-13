@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import i18n from '../i18n';
 import { CategoriesView } from './CategoriesView';
 import { InstalledView } from './InstalledView';
 import { FavoritesView } from './FavoritesView';
-import { UpdatesView } from './UpdatesView';
 import { RulesManagerModal } from '../components/RulesManagerModal';
 import { AppDetailViewModel, AppSummary, InstalledApp, UpdateRule } from '../types';
 
@@ -104,16 +103,15 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
           onLaunch={() => {}}
           onUninstall={() => {}}
           onOpenRules={() => {}}
-          onExportAppsJson={() => {}}
           onScanSystemApps={() => {}}
         />,
       );
 
-      expect(screen.getByText('已安装')).toBeTruthy();
+      expect(screen.getByText('我的应用')).toBeTruthy();
       expect(document.querySelector('.manage-title .count-badge')).toBeNull();
       expect(screen.getByText('规则')).toBeTruthy();
-      expect(screen.getByText('导出清单')).toBeTruthy();
-      expect(screen.getByText('扫描本地')).toBeTruthy();
+      // 顶栏与空列表态各有一个「扫描本地」
+      expect(screen.getAllByRole('button', { name: '扫描本地' })).toHaveLength(2);
       expect(screen.getByText('暂无已安装应用')).toBeTruthy();
       unmount();
 
@@ -124,16 +122,14 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
           onLaunch={() => {}}
           onUninstall={() => {}}
           onOpenRules={() => {}}
-          onExportAppsJson={() => {}}
           onScanSystemApps={() => {}}
         />,
       );
 
-      expect(screen.getByText('Installed')).toBeTruthy();
+      expect(screen.getByText('My Apps')).toBeTruthy();
       expect(document.querySelector('.manage-title .count-badge')).toBeNull();
       expect(screen.getByText('Rules')).toBeTruthy();
-      expect(screen.getByText('Export List')).toBeTruthy();
-      expect(screen.getByText('Scan Local')).toBeTruthy();
+      expect(screen.getAllByRole('button', { name: 'Scan Local' })).toHaveLength(2);
       expect(screen.getByText('No Installed Apps')).toBeTruthy();
     });
 
@@ -148,6 +144,8 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('启动')).toBeTruthy();
+      // 卸载收在更多菜单里
+      fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
       expect(screen.getByText('卸载')).toBeTruthy();
       unmount();
 
@@ -161,6 +159,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       );
 
       expect(screen.getByText('Launch')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'More' }));
       expect(screen.getByText('Uninstall')).toBeTruthy();
     });
 
@@ -284,50 +283,54 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
     });
   });
 
-  describe('UpdatesView i18n', () => {
-    it('switches updates header and empty state between Chinese and English', async () => {
+  describe('InstalledView updates i18n', () => {
+    it('switches the updates filter, check button and up-to-date state between Chinese and English', async () => {
       await i18n.changeLanguage('zh-CN');
       const { unmount } = render(
-        <UpdatesView
+        <InstalledView
+          installedApps={[MOCK_INSTALLED]}
           updates={[]}
           isChecking={false}
           onCheckUpdates={async () => {}}
           onApplyUpdate={async () => {}}
           onBatchUpdateAll={async () => {}}
+          onLaunch={() => {}}
+          onUninstall={() => {}}
         />,
       );
 
-      expect(screen.getByText('应用更新')).toBeTruthy();
-      expect(screen.getByRole('tab', { name: '待更新 0' })).toBeTruthy();
       expect(screen.getByText('检查更新')).toBeTruthy();
+      fireEvent.click(screen.getByRole('tab', { name: '有更新 0' }));
       expect(screen.getByText('已是最新版本')).toBeTruthy();
       unmount();
 
       await i18n.changeLanguage('en-US');
       render(
-        <UpdatesView
+        <InstalledView
+          installedApps={[MOCK_INSTALLED]}
           updates={[]}
           isChecking={false}
           onCheckUpdates={async () => {}}
           onApplyUpdate={async () => {}}
           onBatchUpdateAll={async () => {}}
+          onLaunch={() => {}}
+          onUninstall={() => {}}
         />,
       );
 
-      expect(screen.getByText('App Updates')).toBeTruthy();
-      expect(screen.getByRole('tab', { name: 'Updates 0' })).toBeTruthy();
       expect(screen.getByText('Check Updates')).toBeTruthy();
+      fireEvent.click(screen.getByRole('tab', { name: 'Updates 0' }));
       expect(screen.getByText('Up to Date')).toBeTruthy();
     });
 
-    it('renders updateRulesCount as a CountBadge on the rules button, consistent with InstalledView', () => {
+    it('renders updateRulesCount as a CountBadge on the rules button', () => {
       const { container } = render(
-        <UpdatesView
-          updates={[]}
+        <InstalledView
+          installedApps={[]}
           updateRulesCount={2}
           onOpenRules={() => {}}
-          onApplyUpdate={async () => {}}
-          onBatchUpdateAll={async () => {}}
+          onLaunch={() => {}}
+          onUninstall={() => {}}
         />,
       );
 

@@ -22,9 +22,10 @@
 | **校验清单** | `Checksum Manifest` | Release 附带的 `checksums.txt` / `SHA256SUMS`，记录官方预期 SHA-256 哈希值。 | 哈希表、签名文件 |
 | **加速镜像节点** | `MirrorNode` | 代理文件下载的反代节点（如 `gh-proxy.com`），支持在设置页手动切换前缀、`test_proxy` 手动测速与透明重写安装包下载 URL。 | 代理源、加速线路、CDN |
 | **已安装应用** | `InstalledApp` | 由 ZStore 管理且持久化存储在本地 SQLite 中的应用实体，包含本地路径与卸载入口。 | 本地应用、已装软件 |
+| **我的应用** | `My Apps` (`installed`) | 侧栏「管理」组下的一级视图，列出全部已安装应用，并就地呈现可用更新（版本差、更新日志、更新 / 全部更新）；深链 `zstore://view/updates` 打开此视图并落在「有更新」筛选签。详见 ADR-0022。 | 已安装页、更新中心、更新页 |
 | **条件请求缓存** | `ETag Cache` | 存储于本地 SQLite 中的 HTTP 304 缓存机制，通过 `If-None-Match` 实现零配额消耗更新检测。 | 本地缓存、HTTP缓存 |
 | **清单同步** | `Manifest Catalog Sync` | 客户端从独立开源收录仓库动态拉取或增量刷新应用元数据清单的机制，详见 ADR-0007 与 ADR-0009。 | 清单下载、列表更新 |
-| **缓存生存时效** | `Cache TTL` | 客户端本地持久化详情的有效周期（基线 60 分钟；设置页不暴露；后端对改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），过期后触发带 ETag 的条件重新验证；仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（已安装应用、更新中心、收藏）仅手动触发网络——更新中心列表为手动快照（仅显式刷新写 `update_results`，其余读库），收藏/关注凭记录自带收录标记就近读卡。 | 缓存过期时间、过期策略 |
+| **缓存生存时效** | `Cache TTL` | 客户端本地持久化详情的有效周期（基线 60 分钟；设置页不暴露；后端对改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），过期后触发带 ETag 的条件重新验证；仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（我的应用、收藏）仅手动触发网络——我的应用中的可用更新为手动快照（仅显式刷新写 `update_results`，其余读库），收藏/关注凭记录自带收录标记就近读卡。 | 缓存过期时间、过期策略 |
 | **应用内仅下载** | `Download-Only` | 宿主不可安装的资产经应用内通道下载落盘、不调用安装器的模式，复用安装通道的镜像改写、SHA-256 校验与下载进度事件，落盘后可一键定位文件。 | 浏览器下载、直链下载 |
 | **便携版应用** | `Portable App` | 免安装 ZIP/二进制tarball，剥顶层解压至AppData、Linux/macOS chmod兜底，仅本平台可装，自动创建桌面快捷方式与提供卸载清理。 | 绿色软件、免安装版 |
 | **双模标识系统** | `Adaptive Icon System` | 包含明亮模式 (雪白超椭圆实底 + 晴空天蓝双环) 与暗黑模式 (暗夜实底 `#08090A` + 紫蓝极光双环) 的三层图标分层架构，涵盖桌面打包与多端自适应，详见 ADR-0005。 | 软件LOGO、系统图标 |
@@ -38,7 +39,7 @@
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏底部常驻账号入口：未登录显示 GitHub 快捷登录入口，已登录显示用户头像与用户名；点击直达设置中心账号卡片（`#settings-account`）。 | 侧边栏按钮、用户面板 |
 | **设置中心分组** | `Settings Groups` | `SettingsView` 规范 5 组结构：外观与个性化 / 更新与规则 / 存储与安装 / 网络与数据（GitHub 账号卡片位于该组，锚点 `#settings-account`）/ 数据管理与备份。 | 设置页、选项卡 |
 | **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取自统一配置中枢 `config.toml`（支持设置项覆盖）；轮询连续失败 10 次熔断，请求超时随 `network.api_timeout_seconds`（默认 12s），轮询间隔下限 1s；`Expired` / `Denied` 独立状态机展示。 | 网页登录、PAT 登录 |
-| **流式更新检查** | `Streaming Update Check` | 更新中心采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动逐项跳出微动效。 | 批量更新、后台检测 |
+| **流式更新检查** | `Streaming Update Check` | 「我的应用」的检查更新采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动顶栏下方的检查进度条；检查期间沿用上一份更新快照，结果回来后整体替换。 | 批量更新、后台检测 |
 | **统一配置中枢** | `Unified Project Config` | `src-tauri/config.toml` 作为项目超参与默认配置的单一配置源 (SSOT)，结合编译期宏内置兜底与运行期动态重载。 | 配置文件、硬编码常量 |
 | **规范应用标识** | `Canonical App Id` | 全系统唯一应用标识，统一为小写 `owner/repo`（GitHub）或 `forge:owner/repo`（非 GitHub 默认主机）/ `forge:host/owner/repo`（自建主机，host 后接 `/`）；id 即仓库坐标本身。入站标识（命令/深链/导入）一律经 `canonical_app_id()` 归一化，目录检索仅按 id 唯一匹配。详见 ADR-0010。 | 随机 UUID、应用别名 ID |
 | **统一图标获取** | `IconFetch` | 后端统一图标补探核心（`src-tauri/src/icons/fetch.rs:fetch_icons_stream`），搜索与趋势后台均已接入流式补齐；仅负责探测与调度，不触 DB；逐张经统一事件 `zstore://icon-ready` 发射（`id` 即小写 `owner/repo`，与 DB 主键同源），前端统一由 `iconStore.admitIconHit` 收口。 | 图标管道、补图核心 |

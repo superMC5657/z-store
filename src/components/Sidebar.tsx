@@ -10,8 +10,7 @@ import { PLATFORM_IDS, PLATFORM_META, type PlatformId } from '../lib/platformFil
 interface SidebarProps {
   currentView: ViewType;
   onSelectView: (view: ViewType) => void;
-  installedCount: number;
-  /** 可用更新计数；>0 时以数字徽标渲染，缺席/0 时不渲染。 */
+  /** 「我的应用」角标：可用更新数（可操作的数字比已装总数更有用）；缺席/0 时不渲染。 */
   updatesCount?: number;
   /** 收藏应用计数；>0 时以数字徽标渲染，缺席/0 时不渲染。 */
   favoritesCount?: number;
@@ -119,17 +118,6 @@ const NAV_ITEM_META = {
       </svg>
     ),
   },
-  updates: {
-    groupId: 'assets',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-        <path d="M3 3v5h5" />
-        <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-        <path d="M16 21h5v-5" />
-      </svg>
-    ),
-  },
   favorites: {
     groupId: 'assets',
     icon: (
@@ -152,7 +140,6 @@ const NAV_ITEM_META = {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onSelectView,
-  installedCount,
   updatesCount = 0,
   favoritesCount = 0,
   onOpenAccount,
@@ -197,8 +184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
   const badgeOf = (id: ViewType): number | undefined => {
-    if (id === 'installed') return installedCount;
-    if (id === 'updates') return updatesCount;
+    if (id === 'installed') return updatesCount;
     if (id === 'favorites') return favoritesCount;
     if (id === 'pending') return pendingCount;
     return undefined;

@@ -5,7 +5,7 @@
  * 1. `components-buttons.css` 三档高度契约（30 / 28 / 26px）、`.btn-danger`/`.btn-warning` 存在性、
  *    `.btn-primary` 不覆写尺寸且启用 `padding-box`；
  * 2. `PlatformIcons` 实心品牌图标启用 `.icon-solid-optical` 缩比；
- * 3. 代表性组件（`AppCard`、`InlineConfirmButton`、`UpdatesView`、`InstalledView`、`RulesManagerModal`）
+ * 3. 代表性组件（`AppCard`、`InlineConfirmButton`、`InstalledView`、`WatchReleasesPanel`、`RulesManagerModal`）
  *    同排相邻按钮均挂载同档位尺寸类且不带破坏盒模型的内联 `padding`/`height`。
  */
 import { describe, expect, it, afterEach, vi } from 'vitest';
@@ -72,8 +72,8 @@ vi.mock('../services/api', () => {
 import { AppCard } from '../components/AppCard';
 import { InlineConfirmButton } from '../components/InlineConfirmButton';
 import { PlatformIcon, ForgeIcon } from '../components/icons/PlatformIcons';
-import { UpdatesView } from '../views/UpdatesView';
 import { InstalledView } from '../views/InstalledView';
+import { WatchReleasesPanel } from '../views/FavoritesView/WatchReleasesPanel';
 import { RulesManagerModal } from '../components/RulesManagerModal';
 import { DeveloperProfileModal } from '../components/DeveloperProfileModal';
 import { AppDetailModal } from '../components/AppDetailModal';
@@ -247,7 +247,19 @@ describe('Component sibling button parity', () => {
     expect(cancelBtn.style.height).toBe('');
   });
 
-  it('UpdatesView row & watch buttons align on 28px tier alongside manage-btn-action', () => {
+  it('InstalledView updatable row & watch panel buttons align on 28px tier alongside manage-btn-action', () => {
+    const installed: InstalledApp[] = [
+      {
+        app_id: 'acme/tool',
+        app_name: 'Acme Tool',
+        version: '1.0.0',
+        installed_at: 1700000000,
+        install_method: 'msi',
+        install_path: 'C:\\Acme',
+        asset_name: 'acme.msi',
+        asset_sha256: 'abc',
+      },
+    ];
     const updates: UpdateItem[] = [
       {
         app_id: 'acme/tool',
@@ -258,18 +270,29 @@ describe('Component sibling button parity', () => {
       },
     ];
     const { container } = render(
-      <UpdatesView
-        updates={updates}
-        apps={[SAMPLE_APP]}
-        onApplyUpdate={async () => {}}
-        onBatchUpdateAll={async () => {}}
-        onOpenWatchedApp={() => {}}
-        onDismissWatch={() => {}}
-        watchNotifications={[{ app_id: 'acme/tool', app_name: 'Acme Tool', version: '1.1.0' }]}
-      />,
+      <>
+        <InstalledView
+          installedApps={installed}
+          updates={updates}
+          apps={[SAMPLE_APP]}
+          onApplyUpdate={async () => {}}
+          onLaunch={() => {}}
+          onUninstall={() => {}}
+        />
+        <WatchReleasesPanel
+          notifications={[{ app_id: 'acme/tool', app_name: 'Acme Tool', version: '1.1.0' }]}
+          apps={[SAMPLE_APP]}
+          onOpenDetail={() => {}}
+          onDismiss={() => {}}
+        />
+      </>,
     );
+    // 关注「知道了」为 btn-compact；更新 / 查看为 28px 的 manage-btn-action；
+    // 更新日志开关与更多菜单为 28px 的 manage-btn-icon
     const rowCompactBtns = container.querySelectorAll('.manage-row-actions button.btn-compact');
-    expect(rowCompactBtns.length).toBe(2);
+    expect(rowCompactBtns.length).toBe(1);
+    expect(container.querySelectorAll('.manage-row-actions button.manage-btn-action').length).toBe(2);
+    expect(container.querySelectorAll('.manage-row-actions button.manage-btn-icon').length).toBe(2);
   });
 
   it('InstalledView sort button uses btn-compact (28px) matching search box', () => {

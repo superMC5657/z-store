@@ -43,6 +43,7 @@ function renderDeepLink() {
     handleSearchChange: vi.fn(async () => {}),
     setSelectedDeveloper: vi.fn(),
     navigate: vi.fn(),
+    focusView: vi.fn(),
     showToast: vi.fn(),
     t: ((key: string, opts?: Record<string, unknown>) => {
       const interpolation = opts ? ` ${JSON.stringify(opts)}` : '';
@@ -132,9 +133,21 @@ describe('useDeepLink：五类动作分发', () => {
     await act(async () => {
       await rendered.result.current.handleDispatchDeepLink('zstore://view/hax');
     });
-    // 非法视图在 useDeepLink 侧即被 isViewType 拒绝，不下发给集中导航。
+    // 非法视图在 useDeepLink 侧即被 resolveViewTarget 拒绝，不下发给集中导航。
     expect(handlers.navigate).toHaveBeenCalledTimes(1);
     expect(handlers.navigate).toHaveBeenCalledWith('trends');
+    expect(handlers.focusView).not.toHaveBeenCalled();
+  });
+
+  it('open_view updates 别名：进入我的应用并落在「有更新」签', async () => {
+    const { rendered, handlers } = renderDeepLink();
+    mocks.handleDeepLink.mockResolvedValue({ action: 'open_view', payload: { view: 'updates' } });
+
+    await act(async () => {
+      await rendered.result.current.handleDispatchDeepLink('zstore://view/updates');
+    });
+    expect(handlers.navigate).toHaveBeenCalledWith('installed');
+    expect(handlers.focusView).toHaveBeenCalledWith('updates');
   });
 });
 

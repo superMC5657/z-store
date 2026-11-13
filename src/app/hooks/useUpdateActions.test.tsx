@@ -124,25 +124,14 @@ describe('useUpdateActions：单项动作', () => {
     expect(deps.setUpdates).not.toHaveBeenCalled();
   });
 
-  it('跳过指定版本 / 锁定 / 隐藏：写后重读规则；隐藏还刷新目录', async () => {
+  it('跳过指定版本：写后剔除该更新项并重读规则', async () => {
     const { rendered, deps } = renderActions([makeUpdate('acme/atlas')], 'query-x');
     await act(async () => {
       await rendered.result.current.handleSkipVersion('acme/atlas', '2.0.0');
     });
     expect(mocks.setAppSkipVersion).toHaveBeenCalledWith('acme/atlas', '2.0.0');
-
-    await act(async () => {
-      await rendered.result.current.handleFreezeVersion('acme/atlas');
-    });
-    expect(mocks.setAppFrozen).toHaveBeenCalledWith('acme/atlas', true);
-
-    deps.setUpdates.mockClear();
-    await act(async () => {
-      await rendered.result.current.handleHideApp('acme/atlas');
-    });
-    expect(mocks.setAppHidden).toHaveBeenCalledWith('acme/atlas', true);
-    expect(mocks.searchApps).toHaveBeenCalledWith('query-x');
-    expect(deps.setApps).toHaveBeenCalled();
+    expect(deps.setUpdates).toHaveBeenCalled();
+    expect(mocks.getUpdateRules).toHaveBeenCalled();
   });
 
   it('移除规则 / 清除跳过：重读规则 + checkForUpdates 网络刷新', async () => {
@@ -190,18 +179,37 @@ describe('useUpdateActions：批量升级', () => {
     });
 
     expect(mocks.installApp).toHaveBeenCalledTimes(2);
-    expect(deps.setUpdates).toHaveBeenCalledWith([b]);
+    const updater = deps.setUpdates.mock.calls.at(-1)?.[0] as (prev: UpdateItem[]) => UpdateItem[];
+    expect(updater([a, b])).toEqual([b]);
     expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.batch_update_partial'), 'warning');
   });
 
   it('全部成功：success toast 且 updates 清空', async () => {
-    const { rendered, deps } = renderActions([makeUpdate('acme/atlas')]);
+    const a = makeUpdate('acme/atlas');
+    const { rendered, deps } = renderActions([a]);
     mocks.installApp.mockResolvedValue(makeInstalled('acme/atlas'));
     await act(async () => {
       await rendered.result.current.handleBatchUpdateAll();
     });
-    expect(deps.setUpdates).toHaveBeenCalledWith([]);
+    const updater = deps.setUpdates.mock.calls.at(-1)?.[0] as (prev: UpdateItem[]) => UpdateItem[];
+    expect(updater([a])).toEqual([]);
     expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.batch_update_success'), 'success');
+  });
+});
+
+describe('useUpdateActions：批量升级只升给定目标', () => {
+  it('targets 之外的更新项既不安装也不剔除', async () => {
+    const a = makeUpdate('acme/atlas');
+    const b = makeUpdate('beta/bravo');
+    const { rendered, deps } = renderActions([a, b]);
+    mocks.installApp.mockResolvedValue(makeInstalled('acme/atlas'));
+    await act(async () => {
+      await rendered.result.current.handleBatchUpdateAll([a]);
+    });
+    expect(mocks.installApp).toHaveBeenCalledTimes(1);
+    expect(mocks.installApp).toHaveBeenCalledWith('acme/atlas');
+    const updater = deps.setUpdates.mock.calls.at(-1)?.[0] as (prev: UpdateItem[]) => UpdateItem[];
+    expect(updater([a, b])).toEqual([b]);
   });
 });
 

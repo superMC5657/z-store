@@ -1,4 +1,4 @@
-/* components-manage.css · Linear Design System Management Workbench (Installed & Updates) */
+/* components-manage.css · 管理工作台（我的应用 / 收藏页关注提醒） */
 /* 仅作用于 .manage-view 内部，确保 TrendsView / Modal 消费的 .fluent-list-row 零回归 */
 
 .manage-view {
@@ -13,11 +13,12 @@
    1. 顶栏 Header（标题 + 摘要 + 主次分离按钮簇）
    ========================================================================== */
 .manage-header {
+  container-type: inline-size;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding-top: 2px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-subtle);
@@ -28,7 +29,7 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  flex: 1 1 260px;
+  flex: 1 1 auto;
 }
 
 .manage-title-row {
@@ -76,7 +77,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex-shrink: 0;
 }
 
@@ -84,11 +85,12 @@
    2. 筛选控制带（下划线筛选标签 + 排序 + 内联搜索框）
    ========================================================================== */
 .manage-controls-bar {
+  container-type: inline-size;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
 }
 
@@ -96,6 +98,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -107,6 +110,7 @@
 
 .manage-filter-tab {
   position: relative;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -161,8 +165,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
   margin-left: auto;
+}
+
+.manage-controls-right > .btn-fluent {
+  flex-shrink: 0;
 }
 
 .manage-search-box {
@@ -171,8 +180,9 @@
   gap: 6px;
   height: 28px;
   padding: 0 8px;
+  flex: 0 1 220px;
   width: 220px;
-  max-width: 100%;
+  min-width: 120px;
   box-sizing: border-box;
   border-radius: var(--radius-sm);
   background: var(--bg-input);
@@ -253,6 +263,7 @@
 
 .manage-panel,
 .manage-view .installed-list-container.manage-panel {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -322,12 +333,6 @@
   z-index: 40;
 }
 
-.manage-row.is-fading {
-  opacity: 0;
-  transform: scale(0.985) translateY(-4px);
-  transition: opacity 0.24s var(--ease-smooth), transform 0.24s var(--ease-smooth);
-}
-
 .manage-row-main {
   display: flex;
   align-items: center;
@@ -345,7 +350,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  flex: 1 1 240px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -357,12 +362,18 @@
   min-width: 0;
 }
 
+/* 标题行：名称先收缩（省略号），版本与状态标记不收缩；整行不换行 */
 .manage-title-line {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.manage-title-line > * {
+  flex-shrink: 0;
 }
 
 .manage-app-name {
@@ -376,6 +387,11 @@
   max-width: 100%;
 }
 
+.manage-title-line > .manage-app-name {
+  flex: 0 1 auto;
+  min-width: 4em;
+}
+
 .manage-app-name.is-clickable {
   cursor: pointer;
 }
@@ -386,15 +402,7 @@
   text-decoration-color: var(--border-highlight);
 }
 
-.manage-repo-slug {
-  font-family: var(--font-mono);
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* 元信息行：安装日期不收缩，路径胶囊占余下宽度并在内部截断；整行不换行 */
 .manage-meta-line {
   display: flex;
   align-items: center;
@@ -402,7 +410,8 @@
   min-width: 0;
   font-size: var(--font-xs);
   color: var(--text-tertiary);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 .manage-meta-sep {
@@ -447,22 +456,21 @@
   color: var(--brand-primary);
 }
 
-.manage-version-diff {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 1 264px;
-  min-width: 190px;
-  max-width: 300px;
-  justify-content: flex-start;
-}
-
 .manage-version-arrow {
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
-/* 轻量微标签（安装方式 / 更新提示） */
+/* 标题行内的版本差（当前 → 最新），有可用更新的已装行替代单版本胶囊 */
+.manage-version-inline-diff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* 轻量微标签（安装方式） */
 .manage-micro-tag {
   display: inline-flex;
   align-items: center;
@@ -481,20 +489,14 @@
   flex-shrink: 0;
 }
 
-.manage-micro-tag.is-updatable {
-  background: var(--brand-subtle);
-  border-color: var(--border-nav-active);
-  color: var(--brand-primary);
-  font-family: inherit;
-}
-
 /* 集成式等宽路径胶囊（内置尾随复制控件） */
 .manage-path-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 20px;
-  max-width: 380px;
+  flex: 0 1 auto;
+  max-width: 560px;
   min-width: 0;
   padding: 0 5px 0 7px;
   border-radius: var(--radius-xs);
@@ -519,12 +521,29 @@
   color: var(--status-success);
 }
 
+/* 路径中段省略：目录段先截断，文件名段尽量完整（过长时自身也截断） */
 .manage-path-text {
+  display: inline-flex;
   min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  direction: ltr;
+}
+
+.manage-path-head {
+  flex: 0 1 auto;
+  min-width: 2ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: ltr;
+}
+
+.manage-path-tail {
+  flex: 0 0 auto;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .manage-path-copy-badge {
@@ -543,6 +562,9 @@
 }
 
 .manage-path-missing {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -740,20 +762,32 @@
   transition: width 0.18s var(--ease-smooth);
 }
 
+/* 收藏页「关注」签顶部的新版本提醒分节，与下方关注卡片网格留出间距 */
+.watch-releases-panel {
+  margin-bottom: 16px;
+}
+
 /* ==========================================================================
    7. 响应式断点
    ========================================================================== */
-@media (max-width: 900px) {
-  .manage-row-main {
-    flex-wrap: wrap;
-    gap: 10px;
+/* 以所在面板 / 控制带 / 顶栏的实际宽度为准（与侧栏是否折叠、界面缩放无关），
+   宽度不够时逐级收起次要信息，而不是换行。 */
+
+/* 列表面板 */
+@container (max-width: 760px) {
+  .manage-micro-tag.is-method {
+    display: none;
+  }
+}
+
+@container (max-width: 640px) {
+  .manage-date-text,
+  .manage-meta-sep {
+    display: none;
   }
 
-  .manage-version-diff {
-    flex: 1 1 100%;
-    min-width: 0;
-    max-width: none;
-    padding-left: 48px;
+  .manage-title-line .app-tag > span {
+    display: none;
   }
 
   .manage-changelog-drawer {
@@ -761,41 +795,25 @@
   }
 }
 
-@media (max-width: 640px) {
-  .manage-subtitle {
-    padding-left: 0;
+/* 筛选带：排序按钮只留图标 */
+@container (max-width: 720px) {
+  .manage-sort-label {
+    display: none;
   }
+}
 
-  .manage-search-box {
-    width: 100%;
-  }
-
-  .manage-controls-right {
-    width: 100%;
-  }
-
-  .manage-version-diff {
-    padding-left: 0;
-  }
-
-  .manage-repo-slug,
-  .manage-date-text,
-  .manage-meta-sep {
+/* 顶栏：按钮只留图标（文字仍在 title / aria-label） */
+@container (max-width: 560px) {
+  .manage-actions-cluster .btn-fluent > span:not(.count-badge) {
     display: none;
   }
 
-  .manage-path-chip {
-    max-width: 100%;
-  }
-
-  .manage-row-actions {
-    width: 100%;
-    justify-content: flex-end;
+  .manage-subtitle {
+    padding-left: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .manage-row.is-fading,
   .manage-chevron-rotate,
   .manage-progress-fill {
     transition: none;

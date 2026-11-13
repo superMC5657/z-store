@@ -211,7 +211,7 @@ describe('global platform filter applies to Favorites/Installed/Updates', () => 
   ];
 
   // 与 App.tsx 逻辑严格对齐：收藏页渲染 platformFilteredApps；
-  // 已安装/更新页通过 matchPlatformSet 将 ID 列表与全量收录库关联匹配，
+  // 「我的应用」的已装行与更新项通过 matchPlatformSet 将 ID 列表与全量收录库关联匹配，
   // 保持未收录条目依然可见。
   const iosOnly = new Set<string>(['ios']);
   const filterCatalog = (sel: ReadonlySet<string>) =>

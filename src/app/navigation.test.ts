@@ -6,7 +6,7 @@
  *   不回落 home；合法视图才写入 `setCurrentView`。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { createNavigate, isViewType, VIEW_TYPES, type ViewType } from '../types';
+import { createNavigate, isViewType, resolveViewTarget, VIEW_TYPES, type ViewType } from '../types';
 
 // 编译期反向校验：`satisfies ViewType[]` 要求联合每项都在此列出；
 // 漏掉清单项时本文件先失败，再由运行时对比兜住反向漏项。
@@ -17,7 +17,6 @@ const unionMembers = [
   'trends',
   'pending',
   'installed',
-  'updates',
   'favorites',
   'settings',
 ] satisfies ViewType[];
@@ -34,6 +33,15 @@ describe('navigation：合法视图清单', () => {
     expect(isViewType('')).toBe(false);
     expect(isViewType(42)).toBe(false);
     expect(isViewType(null)).toBe(false);
+  });
+
+  it('resolveViewTarget 认现行视图与别名：updates → 我的应用的「有更新」签', () => {
+    expect(isViewType('updates')).toBe(false);
+    expect(resolveViewTarget('updates')).toEqual({ view: 'installed', focus: 'updates' });
+    expect(resolveViewTarget('trends')).toEqual({ view: 'trends' });
+    expect(resolveViewTarget('toString')).toBeNull();
+    expect(resolveViewTarget('trens')).toBeNull();
+    expect(resolveViewTarget(42)).toBeNull();
   });
 });
 

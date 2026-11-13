@@ -1,11 +1,11 @@
 /**
- * 关注动态持久化（真实 <App/> 链路）：
- * 启动时经 getWatchNotifications 读回后端保存的待处理提醒并在更新中心「关注动态」列出；
- * 「知道了」经 dismissWatchNotification 落库后移出；列表清空后「关注动态」签保留并显示空态；
- * 已确认项在规则管理「关注已读」签列出，「恢复提醒」后回到关注动态。
+ * 关注提醒持久化（真实 <App/> 链路）：
+ * 启动时经 getWatchNotifications 读回后端保存的待处理提醒，在收藏页「关注」签顶部「有新版本」分节列出；
+ * 「知道了」经 dismissWatchNotification 落库后移出，列表清空后分节不再渲染；
+ * 已确认项在规则管理「关注已读」签列出（规则入口在「我的应用」），「恢复提醒」后回到关注签。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { WatchDismissedEntry, WatchUpdatedPayload } from './types';
 
 const hooks = vi.hoisted(() => {
@@ -109,37 +109,52 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+const RELEASE_V2 = '你关注的 owner/watched-app 发布了 v2.0.0';
+
+/** 进入收藏页「关注」签（签名带关注总数角标）。 */
+async function openWatchedTab() {
+  fireEvent.click(screen.getByRole('button', { name: /^收藏/ }));
+  fireEvent.click(await screen.findByRole('tab', { name: /^关注/ }));
+}
+
+/** 进入「我的应用」，规则按钮在其顶栏。 */
+function openMyApps() {
+  fireEvent.click(screen.getByRole('button', { name: /^我的应用/ }));
+}
+
 describe('watch notifications persistence (real App path)', () => {
   it('lists persisted alerts on startup and dismisses them through the backend', async () => {
     hooks.pending.push({ app_id: 'owner/watched-app', version: 'v2.0.0' });
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: /^更新/ }));
-    fireEvent.click(await screen.findByRole('tab', { name: '关注动态 1' }));
-    expect(await screen.findByText('你关注的 owner/watched-app 发布了 v2.0.0')).toBeTruthy();
+    await openWatchedTab();
+    expect(await screen.findByText(RELEASE_V2)).toBeTruthy();
+    expect(screen.getByText('有新版本')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '知道了' }));
     await waitFor(() => {
       expect(hooks.dismissWatchNotification).toHaveBeenCalledWith('owner/watched-app');
     });
     await waitFor(() => {
-      expect(screen.queryByText('你关注的 owner/watched-app 发布了 v2.0.0')).toBeNull();
+      expect(screen.queryByText(RELEASE_V2)).toBeNull();
     });
-    // 清空后仍停留在关注动态签，显示空态
-    expect(screen.getByRole('tab', { name: /关注动态/ }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByText('暂无关注动态')).toBeTruthy();
+    // 清空后仍停留在关注签，提醒分节不再渲染
+    expect(screen.getByRole('tab', { name: /^关注/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByText('有新版本')).toBeNull();
   });
 
   it('lists confirmed alerts in the rules manager and restores them to the watch feed', async () => {
     hooks.pending.push({ app_id: 'owner/watched-app', version: 'v2.0.0' });
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: /^更新/ }));
-    fireEvent.click(await screen.findByRole('tab', { name: '关注动态 1' }));
+    await openWatchedTab();
     fireEvent.click(await screen.findByRole('button', { name: '知道了' }));
-    expect(await screen.findByText('暂无关注动态')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText(RELEASE_V2)).toBeNull();
+    });
 
     // 已读计入规则数，规则管理「关注已读」签列出
+    openMyApps();
     fireEvent.click(await screen.findByRole('button', { name: /规则\s*1$/ }));
     expect(await screen.findByRole('heading', { name: '规则管理' })).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: '关注已读 1' }));
@@ -153,10 +168,10 @@ describe('watch notifications persistence (real App path)', () => {
       expect(screen.queryByText('已读 v2.0.0')).toBeNull();
     });
 
-    // 回到关注动态
+    // 回到收藏页关注签，提醒重新出现
     fireEvent.click(screen.getByRole('button', { name: '完成' }));
-    expect(await screen.findByText('你关注的 owner/watched-app 发布了 v2.0.0')).toBeTruthy();
-    expect(screen.getByRole('tab', { name: '关注动态 1' })).toBeTruthy();
+    await openWatchedTab();
+    expect(await screen.findByText(RELEASE_V2)).toBeTruthy();
   });
 
   it('reports a failed restore in the rules manager instead of claiming success', async () => {
@@ -164,7 +179,7 @@ describe('watch notifications persistence (real App path)', () => {
     hooks.restoreWatchNotification.mockRejectedValueOnce(new Error('db locked'));
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: /^更新/ }));
+    openMyApps();
     fireEvent.click(await screen.findByRole('button', { name: /规则\s*1$/ }));
     fireEvent.click(await screen.findByRole('tab', { name: '关注已读 1' }));
     fireEvent.click(await screen.findByRole('button', { name: '恢复提醒' }));
@@ -178,7 +193,7 @@ describe('watch notifications persistence (real App path)', () => {
     hooks.dismissed.push({ app_id: 'owner/watched-app', version: 'v2.0.0', dismissed_at: 1_794_528_000 });
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: /^更新/ }));
+    openMyApps();
     expect(await screen.findByRole('button', { name: /规则\s*1$/ })).toBeTruthy();
 
     await waitFor(() => expect(hooks.live.emit).not.toBeNull());
@@ -189,7 +204,14 @@ describe('watch notifications persistence (real App path)', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /规则\s*1$/ })).toBeNull();
     });
-    expect(screen.getByRole('tab', { name: '关注动态 1' })).toBeTruthy();
+    await openWatchedTab();
+    // 实时事件同时弹出同文案 Toast，这里只看关注签里的提醒分节
+    const panel = (await waitFor(() => {
+      const el = document.querySelector('.watch-releases-panel');
+      expect(el).toBeTruthy();
+      return el;
+    })) as HTMLElement;
+    expect(within(panel).getByText('你关注的 owner/watched-app 发布了 v2.1.0')).toBeTruthy();
   });
 
   it('keeps the alert when the backend dismiss fails', async () => {
@@ -197,11 +219,11 @@ describe('watch notifications persistence (real App path)', () => {
     hooks.dismissWatchNotification.mockRejectedValueOnce(new Error('db locked'));
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: /^更新/ }));
-    expect(await screen.findByText('你关注的 owner/watched-app 发布了 v2.0.0')).toBeTruthy();
+    await openWatchedTab();
+    expect(await screen.findByText(RELEASE_V2)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '知道了' }));
     expect(await screen.findByText(/关注操作失败: Error: db locked/)).toBeTruthy();
-    expect(screen.getByText('你关注的 owner/watched-app 发布了 v2.0.0')).toBeTruthy();
+    expect(screen.getByText(RELEASE_V2)).toBeTruthy();
   });
 });

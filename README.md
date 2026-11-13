@@ -36,7 +36,7 @@
 ### 1. 🌐 解耦清单同步与按需详情获取
 - **离线秒开与种子兜底**：客户端启动优先读取本地 `catalog.json` 种子清单，保证零网络延迟立即可用。
 - **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，同步源可自定义（填写非官方源属破坏性替换）。清单同步为直连通道，不套加速前缀；加速前缀只改写安装包下载 URL。
-- **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览。资产面（更新中心、收藏）只在显式手动刷新时做 ETag 轻量探查并写 `update_results`，其余时间读本地快照；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用。
+- **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览。资产面（我的应用、收藏）只在显式手动刷新时做 ETag 轻量探查并写 `update_results`，其余时间读本地快照；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用。
 - **发现流分页与搜索翻页**：发现 Feed 首屏 20、触底续 20 无限滑（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=20`、钳制 1–50，满页即 `hasMore` 续拉下一页。
 - **首页排序锁定**：首页固定 `balanced + seed 7`，无排序切换工具条。
 - **最新入库时效视图**：以清单 `added_at` 收录时间为轴的「最新入库」独立视图，支持最近一周/一月/一季度时效过滤并由近及远倒排展示（详见 [ADR-0021](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)）。
@@ -86,7 +86,7 @@
 - 设置中心规范分为 5 个业务分组：`外观与个性化`、`更新与规则`、`存储与安装`、`网络与数据`（GitHub 账号卡片位于该组，锚点 `#settings-account`）、`数据管理与备份`。
 - 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
 - **数据备份范围**：备份覆盖 13 个设置项（`components/DataBackupRow.tsx::buildBackupSettings` 的 12 个显式字段 + `showCustom` 自维护 overlay 开关；导入侧白名单 `userdata/mod.rs::IMPORT_SETTINGS_ALLOWLIST` 同时支持 `show_custom` 与 `showCustom` 两种键名），`github_token` 凭据键刻意排除，永不经备份文件流转。
-- **更新频率选项**：设置页提供“启动时检测”与“仅手动检查”；更新中心属资产面（`MANUAL_ONLY_NETWORK`），启动时不自动触网，实际生效路径为手动检查。
+- **更新频率选项**：设置页提供“启动时检测”与“仅手动检查”；「我的应用」属资产面（`MANUAL_ONLY_NETWORK`），启动时不自动触网，实际生效路径为手动检查。
 - **自定义清单源**：填写非官方同步源属于破坏性替换，需经过显式二次确认；留空即恢复官方默认流程。
 
 ---
@@ -160,6 +160,7 @@ pnpm tauri build
 - [ADR-0019: 资产面手动缓存与非资产面自动拉取](docs/adr/0019-asset-manual-cache-and-non-asset-auto-fetch.md)
 - [ADR-0020: 令牌本地明文存储的风险接受](docs/adr/0020-token-plaintext-risk-acceptance.md)
 - [ADR-0021: 最新入库独立视图与收录时间倒排](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)
+- [ADR-0022: 「我的应用」合并已安装与更新视图](docs/adr/0022-my-apps-merges-installed-and-updates.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---

@@ -4,10 +4,12 @@ import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
   AlertTriangle,
+  ArrowRight,
   ArrowUpDown,
   Check,
+  CheckCircle2,
   Copy,
-  Download,
+  DownloadCloud,
   EyeOff,
   FolderOpen,
   Lock,
@@ -17,7 +19,13 @@ import {
   Search,
   Shield,
 } from 'lucide-react';
-import { AppSummary, InstalledApp, UpdateRule } from '../types';
+import {
+  AppSummary,
+  InstalledApp,
+  UpdateCheckProgressPayload,
+  UpdateItem,
+  UpdateRule,
+} from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { ViewShell } from './ViewShell';
 import {
@@ -26,7 +34,10 @@ import {
   resolveAppIconInfo,
   resolveInstalledAppName,
 } from '../utils/appHelper';
-import { InstalledItemActions } from './InstalledView/InstalledItemActions';
+import { InstalledItemActions, type RowUpdateActions } from './InstalledView/InstalledItemActions';
+import { PathText } from './InstalledView/PathText';
+import { CheckProgressBanner } from './InstalledView/CheckProgressBanner';
+import { ChangelogDrawer } from './InstalledView/ChangelogDrawer';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { AppIconFrame } from '../components/AppIconFrame';
 import { ManageHeader } from './manage/ManageHeader';
@@ -34,7 +45,9 @@ import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar'
 import {
   buildCatalogLookup,
   buildRulesMap,
+  buildUpdatesMap,
   computeInstalledStats,
+  selectUpdatableInstalled,
   filterAndSortInstalledApps,
   formatInstallMethodLabel,
   type InstalledFilterTabId,
@@ -42,45 +55,61 @@ import {
 } from './manage/manageModel';
 
 interface InstalledViewProps {
+  /** 一次性落点请求：为 true 时切到「有更新」签并清空搜索，随后调用 onFocusConsumed。 */
+  focusUpdates?: boolean;
+  onFocusConsumed?: () => void;
   installedApps: InstalledApp[];
   apps?: AppSummary[];
   uninstallingAppIds?: Set<string>;
-  /** 存在可用更新的小写规范 app_id 集合，用于展示轻量更新联动徽标。 */
-  updatableIds?: ReadonlySet<string>;
+  /** 可用更新快照（读库或手动检查结果）；命中的已装行就地呈现版本差与更新动作。 */
+  updates?: UpdateItem[];
+  isChecking?: boolean;
+  checkProgress?: UpdateCheckProgressPayload | null;
+  /** 联网检查更新：本页唯一的网络入口。 */
+  onCheckUpdates?: () => Promise<void>;
+  onApplyUpdate?: (id: string) => Promise<void>;
+  /** 批量更新：参数为当前「有更新」口径下的全部目标（不含被平台筛选或隐藏规则排除的项）。 */
+  onBatchUpdateAll?: (targets: UpdateItem[]) => Promise<void>;
+  onSkipVersion?: (id: string, version: string) => Promise<void>;
   onOpenDetail?: (id: string) => void;
   onLaunch: (id: string) => void;
   onUninstall: (id: string) => void;
   onUnmanage?: (id: string) => void;
   onScanSystemApps?: () => void;
-  onExportAppsJson?: () => void;
   updateRules?: UpdateRule[];
+  /** 规则按钮角标；缺席时按 `updateRules.length` 计。 */
+  updateRulesCount?: number;
   onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<void>;
   onToggleRuleHidden?: (appId: string, isHidden: boolean) => Promise<void>;
   onOpenRules?: () => void;
-  onRefresh?: () => Promise<void> | void;
-  isRefreshing?: boolean;
   /** 初始加载错误（非空且列表为空时呈现错误卡，与空态区分）；重试经 onRetryLoad。 */
   loadError?: string | null;
   onRetryLoad?: () => void;
 }
 
 export const InstalledView: React.FC<InstalledViewProps> = ({
+  focusUpdates = false,
+  onFocusConsumed,
   installedApps,
   apps = [],
   uninstallingAppIds,
-  updatableIds,
+  updates = [],
+  isChecking = false,
+  checkProgress,
+  onCheckUpdates,
+  onApplyUpdate,
+  onBatchUpdateAll,
+  onSkipVersion,
   onOpenDetail,
   onLaunch,
   onUninstall,
   onUnmanage,
   onScanSystemApps,
-  onExportAppsJson,
   updateRules = [],
+  updateRulesCount,
   onToggleRuleFrozen,
   onToggleRuleHidden,
   onOpenRules,
-  onRefresh,
-  isRefreshing = false,
   loadError = null,
   onRetryLoad,
 }) => {
@@ -89,9 +118,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<InstalledFilterTabId>('all');
+  const [activeTab, setActiveTab] = useState<InstalledFilterTabId>(focusUpdates ? 'updatable' : 'all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<InstalledSortOrder>('recent');
+  const [expandedChangelogId, setExpandedChangelogId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [isUpdatingAll, setIsUpdatingAll] = useState(false);
 
   const catalogById = useMemo(() => buildCatalogLookup(apps), [apps]);
 
@@ -106,11 +138,24 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     );
   }, [installedApps, catalogById]);
 
+  useEffect(() => {
+    if (!focusUpdates) return;
+    setActiveTab('updatable');
+    setSearchQuery('');
+    onFocusConsumed?.();
+  }, [focusUpdates, onFocusConsumed]);
+
   const rulesByAppId = useMemo(() => buildRulesMap(updateRules), [updateRules]);
+  const updatesById = useMemo(() => buildUpdatesMap(updates), [updates]);
   const stats = useMemo(
-    () => computeInstalledStats(installedApps, rulesByAppId),
-    [installedApps, rulesByAppId],
+    () => computeInstalledStats(installedApps, rulesByAppId, updatesById),
+    [installedApps, rulesByAppId, updatesById],
   );
+  const updatableItems = useMemo(
+    () => selectUpdatableInstalled(installedApps, rulesByAppId, updatesById),
+    [installedApps, rulesByAppId, updatesById],
+  );
+  const hasUpdates = updatableItems.length > 0;
 
   const visibleApps = useMemo(
     () =>
@@ -121,9 +166,30 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
         activeTab,
         searchQuery,
         sortOrder,
+        updatesById,
       ),
-    [installedApps, apps, rulesByAppId, activeTab, searchQuery, sortOrder],
+    [installedApps, apps, rulesByAppId, activeTab, searchQuery, sortOrder, updatesById],
   );
+
+  const handleApplyUpdate = async (id: string) => {
+    if (!onApplyUpdate) return;
+    try {
+      setUpdatingId(id);
+      await onApplyUpdate(id);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleUpdateAll = async () => {
+    if (!onBatchUpdateAll) return;
+    try {
+      setIsUpdatingAll(true);
+      await onBatchUpdateAll(updatableItems);
+    } finally {
+      setIsUpdatingAll(false);
+    }
+  };
 
   const handleTriggerUninstall = (id: string) => {
     if (uninstallingAppIds?.has(id)) return;
@@ -166,7 +232,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   };
 
   const filterTabs: ManageFilterTab<InstalledFilterTabId>[] = [
-    { id: 'all', label: t('installed.filter_all'), count: installedApps.length },
+    { id: 'all', label: t('installed.filter_all'), count: installedApps.length - stats.hiddenCount },
+    { id: 'updatable', label: t('installed.filter_updatable'), count: updatableItems.length },
     { id: 'frozen', label: t('installed.filter_frozen'), count: stats.frozenCount },
     { id: 'hidden', label: t('installed.filter_hidden'), count: stats.hiddenCount },
     { id: 'missing_path', label: t('installed.filter_missing_path'), count: stats.missingPathCount },
@@ -188,40 +255,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               >
                 <Shield size={13} strokeWidth={1.5} />
                 <span>{t('installed.rules')}</span>
-                <CountBadge value={updateRules.length} hideZero />
-              </button>
-            )}
-
-            {onRefresh && (
-              <button
-                type="button"
-                className="btn-fluent btn-secondary btn-compact"
-                onClick={onRefresh}
-                disabled={isRefreshing}
-                title={t('installed.refresh_status_tooltip')}
-              >
-                <RotateCcw size={13} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
-                <span>{isRefreshing ? t('installed.refreshing') : t('installed.refresh_status')}</span>
-              </button>
-            )}
-
-            {onExportAppsJson && (
-              <button
-                type="button"
-                className="btn-fluent btn-secondary btn-compact"
-                onClick={onExportAppsJson}
-                title={t('installed.export_list_tooltip')}
-                disabled={installedApps.length === 0}
-              >
-                <Download size={13} strokeWidth={1.5} />
-                <span>{t('installed.export_list')}</span>
+                <CountBadge value={updateRulesCount ?? updateRules.length} hideZero />
               </button>
             )}
 
             {onScanSystemApps && (
               <button
                 type="button"
-                className="btn-fluent btn-primary btn-compact"
+                className="btn-fluent btn-secondary btn-compact"
                 onClick={onScanSystemApps}
                 title={t('installed.scan_local_tooltip')}
               >
@@ -229,9 +270,38 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                 <span>{t('installed.scan_local_apps')}</span>
               </button>
             )}
+
+            {onCheckUpdates && (
+              <button
+                type="button"
+                // 有可用更新时主色让给「全部更新」，顶栏同时只有一个主按钮。
+                className={`btn-fluent btn-compact ${hasUpdates && onBatchUpdateAll ? 'btn-secondary' : 'btn-primary'}`}
+                onClick={() => void onCheckUpdates()}
+                disabled={isChecking || isUpdatingAll}
+                title={t('installed.check_tooltip')}
+              >
+                <RotateCcw size={13} strokeWidth={1.5} className={isChecking ? 'icon-spin' : ''} />
+                <span>{isChecking ? t('installed.checking') : t('installed.check_updates')}</span>
+              </button>
+            )}
+
+            {hasUpdates && onBatchUpdateAll && (
+              <button
+                type="button"
+                className="btn-fluent btn-primary btn-compact"
+                onClick={() => void handleUpdateAll()}
+                disabled={isUpdatingAll || isChecking}
+                title={t('installed.update_all')}
+              >
+                <DownloadCloud size={13} strokeWidth={1.5} />
+                <span>{isUpdatingAll ? t('installed.updating_all') : t('installed.update_all')}</span>
+              </button>
+            )}
           </>
         }
       />
+
+      {isChecking && <CheckProgressBanner progress={checkProgress} />}
 
       {installedApps.length > 0 && (
         <ManageFilterBar<InstalledFilterTabId>
@@ -250,10 +320,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               type="button"
               className="btn-fluent btn-secondary btn-compact"
               onClick={() => setSortOrder((prev) => (prev === 'recent' ? 'name' : 'recent'))}
-              title={t('installed.sort_tooltip')}
+              title={`${t('installed.sort_tooltip')} · ${
+                sortOrder === 'recent' ? t('installed.sort_recent') : t('installed.sort_name')
+              }`}
             >
               <ArrowUpDown size={13} strokeWidth={1.5} />
-              <span>
+              <span className="manage-sort-label">
                 {sortOrder === 'recent' ? t('installed.sort_recent') : t('installed.sort_name')}
               </span>
             </button>
@@ -285,19 +357,37 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
           title={t('installed.empty_title')}
           description={t('installed.empty_desc')}
           action={
-            onRefresh && (
+            onScanSystemApps && (
               <button
                 type="button"
                 className="btn-fluent btn-secondary"
-                onClick={onRefresh}
-                disabled={isRefreshing}
+                onClick={onScanSystemApps}
               >
-                <RotateCcw size={14} strokeWidth={1.5} className={isRefreshing ? 'icon-spin' : ''} />
-                <span>{isRefreshing ? t('installed.refreshing_list') : t('installed.refresh_list')}</span>
+                <ScanLine size={14} strokeWidth={1.5} />
+                <span>{t('installed.scan_local_apps')}</span>
               </button>
             )
           }
         />
+      ) : visibleApps.length === 0 && activeTab === 'updatable' && searchQuery.trim() === '' ? (
+        isChecking ? (
+          <EmptyState
+            icon={
+              <div
+                className="spinner-icon"
+                style={{ width: '36px', height: '36px', borderWidth: '3px' }}
+              />
+            }
+            title={t('installed.stream_checking_title')}
+            description={t('installed.stream_checking_desc')}
+          />
+        ) : (
+          <EmptyState
+            icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
+            title={t('installed.all_latest_title')}
+            description={t('installed.all_latest_desc')}
+          />
+        )
       ) : visibleApps.length === 0 ? (
         <EmptyState
           icon={<Search size={36} strokeWidth={1.5} />}
@@ -322,9 +412,25 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
             const rule = rulesByAppId.get(app.app_id.toLowerCase());
             const isFrozen = Boolean(rule?.is_frozen);
             const isHidden = Boolean(rule?.is_hidden);
-            const isUpdatable = Boolean(updatableIds?.has(app.app_id.toLowerCase()));
+            const update = updatesById.get(app.app_id.toLowerCase());
+            const isChangelogOpen = Boolean(update) && expandedChangelogId === app.app_id;
             const isMenuOpen = activeMenuId === app.app_id;
             const isCopied = copiedId === app.app_id;
+            const updateActions: RowUpdateActions | undefined =
+              update && onApplyUpdate
+                ? {
+                    item: update,
+                    isUpdating: updatingId === app.app_id,
+                    isBlocked: isUpdatingAll || isChecking,
+                    isChangelogOpen,
+                    onToggleChangelog: () =>
+                      setExpandedChangelogId((prev) => (prev === app.app_id ? null : app.app_id)),
+                    onApply: () => void handleApplyUpdate(app.app_id),
+                    onSkip: onSkipVersion
+                      ? () => onSkipVersion(app.app_id, update.latest_version)
+                      : undefined,
+                  }
+                : undefined;
             const iconInfo = resolveAppIconInfo(app.app_id, apps, app.icon, app.icon_bg);
             const appDisplayName = resolveInstalledAppName(app, apps);
             const methodLabel = formatInstallMethodLabel(app.install_method);
@@ -355,26 +461,42 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                         >
                           {appDisplayName}
                         </span>
-                        <span className="manage-version-chip is-neutral">{app.version}</span>
-                        {methodLabel && <span className="manage-micro-tag">{methodLabel}</span>}
-                        {isUpdatable && (
-                          <span className="manage-micro-tag is-updatable">
+                        {update ? (
+                          <span
+                            className="manage-version-inline-diff"
+                            aria-label={t('installed.update_available')}
+                          >
                             <span
-                              className="status-dot"
-                              style={{ background: 'var(--brand-primary)' }}
+                              className="manage-version-chip is-neutral"
+                              title={t('installed.current_version', { version: update.current_version })}
+                            >
+                              {update.current_version}
+                            </span>
+                            <ArrowRight
+                              size={12}
+                              strokeWidth={1.5}
+                              className="manage-version-arrow"
                               aria-hidden="true"
                             />
-                            <span>{t('installed.update_available')}</span>
+                            <span
+                              className="manage-version-chip is-target"
+                              title={t('installed.latest_version', { version: update.latest_version })}
+                            >
+                              {update.latest_version}
+                            </span>
                           </span>
+                        ) : (
+                          <span className="manage-version-chip is-neutral">{app.version}</span>
                         )}
+                        {methodLabel && <span className="manage-micro-tag is-method">{methodLabel}</span>}
                         {isFrozen && (
-                          <span className="app-tag app-tag-locked">
+                          <span className="app-tag app-tag-locked" title={t('installed.locked')}>
                             <Lock size={10} strokeWidth={1.5} />
                             <span>{t('installed.locked')}</span>
                           </span>
                         )}
                         {isHidden && (
-                          <span className="app-tag app-tag-hidden">
+                          <span className="app-tag app-tag-hidden" title={t('installed.hidden')}>
                             <EyeOff size={10} strokeWidth={1.5} />
                             <span>{t('installed.hidden')}</span>
                           </span>
@@ -398,7 +520,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                             title={`${app.install_path} — ${t('installed.copy_path_tooltip')}`}
                             aria-label={t('installed.copy_path_tooltip')}
                           >
-                            <span className="manage-path-text">{app.install_path}</span>
+                            <PathText path={app.install_path} />
                             <span className="manage-path-copy-badge">
                               {isCopied ? (
                                 <>
@@ -454,9 +576,17 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       onCloseMenu={() => setActiveMenuId(null)}
                       onToggleRuleFrozen={onToggleRuleFrozen}
                       onToggleRuleHidden={onToggleRuleHidden}
+                      updateActions={updateActions}
                     />
                   </div>
                 </div>
+
+                {update && isChangelogOpen && (
+                  <ChangelogDrawer
+                    update={update}
+                    onOpenDetail={onOpenDetail ? () => onOpenDetail(app.app_id) : undefined}
+                  />
+                )}
               </div>
             );
           })}

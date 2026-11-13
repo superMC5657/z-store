@@ -208,24 +208,6 @@ describe('useInstallState：卸载 / 启动 / 管理 / 刷新', () => {
     expect(rendered.result.current.installedApps).toEqual([]);
     expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.unmanage_success'), 'info');
   });
-
-  it('刷新已装列表：成功替换 + success；失败 error；isRefreshing 复位', async () => {
-    const { rendered, deps } = renderInstall();
-    mocks.getInstalledApps.mockResolvedValueOnce([makeInstalled('acme/atlas')]);
-    await act(async () => {
-      await rendered.result.current.handleRefreshInstalledApps();
-    });
-    expect(rendered.result.current.installedApps).toHaveLength(1);
-    expect(deps.showToast).toHaveBeenCalledWith(expect.any(String), 'success');
-    expect(rendered.result.current.isRefreshingInstalled).toBe(false);
-
-    deps.showToast.mockClear();
-    mocks.getInstalledApps.mockRejectedValueOnce(new Error('db gone'));
-    await act(async () => {
-      await rendered.result.current.handleRefreshInstalledApps();
-    });
-    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.refresh_installed_failed'), 'error');
-  });
 });
 
 describe('useInstallState：已装列表加载（installed 视图驱动）', () => {

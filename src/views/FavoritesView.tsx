@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CountLabel } from '../components/CountBadge';
 import { Bookmark, Eye, Star, RotateCcw, Zap, BookmarkPlus, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +6,7 @@ import '../i18n';
 import { AppCard } from '../components/AppCard';
 import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { AppSummary, OAuthUser, StarredSyncResult } from '../types';
+import { AppSummary, OAuthUser, StarredSyncResult, WatchUpdatedPayload } from '../types';
 import { tauriApi } from '../services/api';
 import { ViewAppActions, ViewShell } from './ViewShell';
 import { isPlatformLoading } from '../lib/platformFilter';
@@ -14,12 +14,16 @@ import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { isInstalled as selectIsInstalled, matchesAppText, selectManagedState } from '../app/selectors';
+import { WatchReleasesPanel } from './FavoritesView/WatchReleasesPanel';
 
 interface FavoritesViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
   oauthUser?: OAuthUser | null;
   /** 占位行手动加载（缓存缺失空壳行经行内按钮拉详情升级富卡；缺席即无按钮）。 */
   onLoadUncatalogedDetail?: (id: string) => void;
+  /** 关注应用的待处理新版本提醒（经 zstore://watch-updated 聚合）；有提醒时默认落在「关注」签。 */
+  watchNotifications?: WatchUpdatedPayload[];
+  onDismissWatch?: (appId: string) => void;
 }
 
 export const FavoritesView: React.FC<FavoritesViewProps> = ({
@@ -36,9 +40,23 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   onToggleFavorite,
   onToggleWatch,
   onLoadUncatalogedDetail,
+  watchNotifications = [],
+  onDismissWatch,
 }) => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<'local' | 'watched' | 'starred'>('local');
+  type FavoritesTab = 'local' | 'watched' | 'starred';
+  const [activeTab, setActiveTab] = useState<FavoritesTab>(() =>
+    watchNotifications.length > 0 ? 'watched' : 'local',
+  );
+  // 有待处理提醒时落在「关注」签：页面打开后才到的提醒也切过去，但用户手动选过签就不再打扰
+  const userPickedTabRef = useRef(false);
+  const handleTabChange = (tab: FavoritesTab) => {
+    userPickedTabRef.current = true;
+    setActiveTab(tab);
+  };
+  useEffect(() => {
+    if (watchNotifications.length > 0 && !userPickedTabRef.current) setActiveTab('watched');
+  }, [watchNotifications.length]);
   const [searchText, setSearchText] = useState('');
   const [githubUser, setGithubUser] = useState(oauthUser?.login || '');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -132,7 +150,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <SegmentedControl
           value={activeTab}
-          onChange={setActiveTab}
+          onChange={handleTabChange}
           size="compact"
           options={[
             {
@@ -216,45 +234,53 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
           </div>
         )
       ) : activeTab === 'watched' ? (
-        watchedApps.length === 0 ? (
-          <EmptyState
-            icon={<Eye size={40} strokeWidth={1.5} />}
-            title={
-              searchText.trim()
-                ? t('favorites.no_match_watch')
-                : watchedSet.size > 0
-                ? t('favorites.watch_not_in_catalog')
-                : t('favorites.empty_watch_title')
-            }
-            description={
-              searchText.trim()
-                ? t('favorites.no_match_watch_desc')
-                : t('favorites.empty_watch_desc')
-            }
+        <>
+          <WatchReleasesPanel
+            notifications={watchNotifications}
+            apps={apps}
+            onOpenDetail={onOpenDetail}
+            onDismiss={onDismissWatch}
           />
-        ) : (
-          <div className="app-grid">
-            {watchedApps.map((app, index) => (
-              <AppCard
-                key={app.id}
-                app={app}
-                eager={index < 6}
-                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                isInstalled={selectIsInstalled(app.id, installedIds)}
-                isManaged={selectManagedState(app.id, managedIds)}
-                isInstalling={installingIds?.has(app.id)}
-                isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
-                isWatched={true}
-                showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
-                onLoadDetail={onLoadUncatalogedDetail}
-                onOpenDetail={onOpenDetail}
-                onQuickInstall={onQuickInstall}
-                onToggleFavorite={onToggleFavorite}
-                onToggleWatch={onToggleWatch}
-              />
-            ))}
-          </div>
-        )
+          {watchedApps.length === 0 ? (
+            <EmptyState
+              icon={<Eye size={40} strokeWidth={1.5} />}
+              title={
+                searchText.trim()
+                  ? t('favorites.no_match_watch')
+                  : watchedSet.size > 0
+                  ? t('favorites.watch_not_in_catalog')
+                  : t('favorites.empty_watch_title')
+              }
+              description={
+                searchText.trim()
+                  ? t('favorites.no_match_watch_desc')
+                  : t('favorites.empty_watch_desc')
+              }
+            />
+          ) : (
+            <div className="app-grid">
+              {watchedApps.map((app, index) => (
+                <AppCard
+                  key={app.id}
+                  app={app}
+                  eager={index < 6}
+                  platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
+                  isInstalled={selectIsInstalled(app.id, installedIds)}
+                  isManaged={selectManagedState(app.id, managedIds)}
+                  isInstalling={installingIds?.has(app.id)}
+                  isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
+                  isWatched={true}
+                  showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
+                  onLoadDetail={onLoadUncatalogedDetail}
+                  onOpenDetail={onOpenDetail}
+                  onQuickInstall={onQuickInstall}
+                  onToggleFavorite={onToggleFavorite}
+                  onToggleWatch={onToggleWatch}
+                />
+              ))}
+            </div>
+          )}
+        </>
       ) : (
         <div>
           {/* Starred 标星同步操作横幅 */}

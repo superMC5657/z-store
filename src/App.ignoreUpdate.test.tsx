@@ -1,13 +1,13 @@
 /**
  * 忽略更新持久化测试（真实 <App/> 链路）。
  *
- * 更新菜单的 `跳过版本` 走 tauriApi.setAppSkipVersion + 规则刷新：
+ * 「我的应用」行内更多菜单的 `跳过此版本` 走 tauriApi.setAppSkipVersion + 规则刷新：
  * 被跳过的更新在重新检查后依然保持排除状态，
  * 且规则管理弹窗界面需准确反映该持久化的跳过规则。
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { UpdateItem, UpdateRule } from './types';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { InstalledApp, UpdateItem, UpdateRule } from './types';
 
 const APP_ID = 'owner/ignored-app';
 const LATEST = '2.0.0';
@@ -18,6 +18,17 @@ const UPDATE_FIXTURE: UpdateItem = {
   current_version: '1.0.0',
   latest_version: LATEST,
   changelog: '',
+};
+
+const INSTALLED_FIXTURE: InstalledApp = {
+  app_id: APP_ID,
+  app_name: 'Ignored App',
+  version: '1.0.0',
+  installed_at: 1790000000,
+  install_method: 'msi',
+  install_path: 'C:\\Apps\\Ignored',
+  asset_name: 'ignored.msi',
+  asset_sha256: 'abc',
 };
 
 const hooks = vi.hoisted(() => {
@@ -60,6 +71,7 @@ vi.mock('./services/api', () => {
         if (prop === 'checkForUpdates') return (f?: boolean) => hooks.checkForUpdates(f);
         if (prop === 'setAppSkipVersion') return (id: string, v: string | null) => hooks.setAppSkipVersion(id, v);
         if (prop === 'getUpdateRules') return () => hooks.getUpdateRules();
+        if (prop === 'getInstalledApps') return async () => [{ ...INSTALLED_FIXTURE }];
         if (prop === 'getSettings') return async () => ({ update_frequency: 'startup', language: 'zh-CN' });
         if (prop === 'getOAuthUser' || prop === 'getCliDeepLink') return async () => null;
         if (listMethods.has(prop)) return async () => [];
@@ -102,15 +114,17 @@ describe('ignore-update persistence (real App path)', () => {
   it('ignore persists via setAppSkipVersion; re-check keeps it absent and rules UI reflects it', async () => {
     render(<App />);
 
-    // 更新中心属资产区：打开/切签不自动检查，经检查更新按钮显式刷新。
-    // 导航至更新中心后手动触发检查，后端供给的测试用例项列出。
-    fireEvent.click(screen.getByRole('button', { name: '更新' }));
-    fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
+    // 「我的应用」属资产区：打开/切签不自动检查，经检查更新按钮显式刷新。
+    // 导航后手动触发检查，已装行就地呈现目标版本与「更新」按钮。
+    fireEvent.click(screen.getByRole('button', { name: '我的应用' }));
     expect(await screen.findByText('Ignored App')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
+    expect(await screen.findByText(LATEST)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '更新' })).toBeTruthy();
 
     // 跳过该版本（入口与用户界面菜单一致）。
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
-    fireEvent.click(await screen.findByText('跳过版本'));
+    fireEvent.click(await screen.findByText('跳过此版本'));
 
     // 后端链路（对齐跳过版本流程）：跳过规则已持久化 + 规则列表已刷新。
     await waitFor(() => {
@@ -120,10 +134,12 @@ describe('ignore-update persistence (real App path)', () => {
       expect(hooks.getUpdateRules).toHaveBeenCalled();
     });
 
-    // 该更新项立即自列表中消失...
+    // 该行立即回到无更新态（行保留，目标版本与「更新」按钮消失）...
     await waitFor(() => {
-      expect(screen.queryByText('Ignored App')).toBeNull();
+      expect(screen.queryByText(LATEST)).toBeNull();
     });
+    expect(screen.getByText('Ignored App')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '更新' })).toBeNull();
 
     // ...且显式触发重新检查后依然保持排除状态（若无持久化则会重新出现）。
     const checksBefore = hooks.checkForUpdates.mock.calls.length;
@@ -132,8 +148,10 @@ describe('ignore-update persistence (real App path)', () => {
       expect(hooks.checkForUpdates.mock.calls.length).toBeGreaterThan(checksBefore);
     });
     await waitFor(() => {
-      expect(screen.queryByText('Ignored App')).toBeNull();
+      expect(screen.getByRole('button', { name: '检查更新' }).hasAttribute('disabled')).toBe(false);
     });
+    expect(screen.queryByText(LATEST)).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: '有更新 0' }));
     expect(await screen.findByText('已是最新版本')).toBeTruthy();
 
     // 规则管理界面反映该持久化跳过规则：更新头部统计...
@@ -143,8 +161,9 @@ describe('ignore-update persistence (real App path)', () => {
     // ...且规则管理器弹窗列出跳过的应用及其版本号。
     fireEvent.click(rulesBtn);
     expect(await screen.findByRole('heading', { name: '规则管理' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: '全部 1' })).toBeTruthy();
-    expect(screen.getByText(APP_ID)).toBeTruthy();
-    expect(screen.getByText(`跳过 ${LATEST}`)).toBeTruthy();
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('tab', { name: '全部 1' })).toBeTruthy();
+    expect(within(dialog).getByText(APP_ID)).toBeTruthy();
+    expect(within(dialog).getByText(`跳过 ${LATEST}`)).toBeTruthy();
   });
 });

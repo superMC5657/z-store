@@ -52,26 +52,6 @@ export function useUpdateActions({
     showToast(t('toast.skip_version', { id, version }), 'info');
   };
 
-  // 锁定当前版本（功能 C）
-  const handleFreezeVersion = async (id: string) => {
-    await tauriApi.setAppFrozen(id, true);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await tauriApi.getUpdateRules();
-    setUpdateRules(rules);
-    showToast(t('toast.lock_version', { id }), 'info');
-  };
-
-  // 隐藏应用（功能 C）
-  const handleHideApp = async (id: string) => {
-    await tauriApi.setAppHidden(id, true);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
-    const rules = await tauriApi.getUpdateRules();
-    setUpdateRules(rules);
-    const catalogApps = await tauriApi.searchApps(searchQuery);
-    setApps(catalogApps);
-    showToast(t('toast.hide_app', { id }), 'info');
-  };
-
   // 移除规则（功能 C）
   const handleRemoveRule = async (appId: string) => {
     await tauriApi.removeUpdateRule(appId);
@@ -116,25 +96,26 @@ export function useUpdateActions({
     showToast(isHidden ? t('toast.rule_hidden', { id: appId }) : t('toast.rule_unhidden', { id: appId }), 'info');
   };
 
-  // 批量升级
-  const handleBatchUpdateAll = async () => {
+  // 批量升级：只升 `targets`（「我的应用」当前可见的可更新行）；缺省为全部更新项。
+  // 成功项从快照剔除，失败项与不在目标内的项保留。
+  const handleBatchUpdateAll = async (targets: UpdateItem[] = updates) => {
     showToast(t('toast.batch_update_starting'), 'info');
     let successCount = 0;
     let failCount = 0;
-    const remainingUpdates: UpdateItem[] = [];
+    const updatedIds = new Set<string>();
 
-    for (const u of updates) {
+    for (const u of targets) {
       try {
         const updatedApp = await tauriApi.installApp(u.app_id);
         setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== u.app_id), updatedApp]);
+        updatedIds.add(u.app_id);
         successCount++;
       } catch {
         failCount++;
-        remainingUpdates.push(u);
       }
     }
 
-    setUpdates(remainingUpdates);
+    setUpdates((prev) => prev.filter((u) => !updatedIds.has(u.app_id)));
     if (failCount === 0) {
       showToast(t('toast.batch_update_success', { count: successCount }), 'success');
     } else {
@@ -146,7 +127,7 @@ export function useUpdateActions({
   const handleCheckUpdates = async () => {
     showToast(t('toast.checking_updates'), 'info');
     setIsCheckingUpdates(true);
-    setUpdates([]); // 清空旧列表，使最新检测出来的项目逐个跳出
+    // 检查期间保留旧快照：已装行的更新态与「全部更新」不因检查而闪没，结果回来后整体替换
     setUpdateCheckProgress({ checked: 0, total: 0, app_id: '', app_name: '' });
     try {
       const freshUpdates = await tauriApi.checkForUpdates(true);
@@ -175,8 +156,6 @@ export function useUpdateActions({
   return {
     handleApplyUpdate,
     handleSkipVersion,
-    handleFreezeVersion,
-    handleHideApp,
     handleRemoveRule,
     handleClearRuleSkip,
     handleToggleRuleFrozen,

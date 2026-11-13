@@ -56,7 +56,9 @@ const MIGRATED_FILES = [
   '../views/manage/ManageMenuItem.tsx',
   '../views/InstalledView/InstalledItemActions.tsx',
   '../views/InstalledView.tsx',
-  '../views/UpdatesView.tsx',
+  '../views/FavoritesView/WatchReleasesPanel.tsx',
+  '../views/InstalledView/CheckProgressBanner.tsx',
+  '../views/InstalledView/ChangelogDrawer.tsx',
   '../app/InstallConfirmDialog.tsx',
 ];
 

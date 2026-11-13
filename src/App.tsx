@@ -20,7 +20,7 @@ import { TrendsView } from './views/TrendsView';
 import { CategoriesView } from './views/CategoriesView';
 import { PendingView } from './views/PendingView';
 import { InstalledView } from './views/InstalledView';
-import { UpdatesView } from './views/UpdatesView';
+import { buildRulesMap, buildUpdatesMap, selectUpdatableInstalled } from './views/manage/manageModel';
 import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
@@ -78,6 +78,8 @@ export const App: React.FC = () => {
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
+  // 一次性落点请求：深链要求「我的应用」落在「有更新」签；InstalledView 消费后复位
+  const [focusMyAppsUpdates, setFocusMyAppsUpdates] = useState(false);
   const {
     theme,
     settings,
@@ -157,14 +159,12 @@ export const App: React.FC = () => {
     setInstalledApps,
     installingAppIds,
     uninstallingAppIds,
-    isRefreshingInstalled,
     installLoadError,
     loadInstalledApps,
     handleInstallApp,
     handleQuickInstall,
     handleLaunchApp,
     handleUnmanageApp,
-    handleRefreshInstalledApps,
     handleUninstallApp,
     unverifiedInstallPrompt,
     dismissUnverifiedInstall,
@@ -273,12 +273,15 @@ export const App: React.FC = () => {
     handleSearchChange,
     setSelectedDeveloper,
     navigate,
+    focusView: (focus) => {
+      if (focus === 'updates') setFocusMyAppsUpdates(true);
+    },
     showToast,
     t,
   });
 
   // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready/subscribeIconWrites +
-  // 关注/更新流/OAuth + 更新中心切签检查 + 视图切换日志）
+  // 关注/更新流/OAuth + 进入「我的应用」读更新快照 + 视图切换日志）
   useAppSubscriptions({
     setApps,
     setOnlineApps,
@@ -343,17 +346,18 @@ export const App: React.FC = () => {
     searchQuery,
   });
 
-  const updatableIdSet = useMemo(
-    () => new Set(updates.map((u) => u.app_id.toLowerCase())),
-    [updates],
+  // 侧栏「我的应用」角标：与页内「有更新」筛选签同一口径（selectUpdatableInstalled）
+  const updatableInstalledCount = useMemo(
+    () =>
+      selectUpdatableInstalled(filteredInstalledApps, buildRulesMap(updateRules), buildUpdatesMap(filteredUpdates))
+        .length,
+    [filteredInstalledApps, updateRules, filteredUpdates],
   );
 
   // 7. 更新规则动作簇（单项更新/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
   const {
     handleApplyUpdate,
     handleSkipVersion,
-    handleFreezeVersion,
-    handleHideApp,
     handleRemoveRule,
     handleClearRuleSkip,
     handleToggleRuleFrozen,
@@ -372,6 +376,12 @@ export const App: React.FC = () => {
     showToast,
     t,
   });
+
+  // 「我的应用」检查更新：联网检查的同时重读本地已装列表（零网络），页面只保留这一个刷新入口。
+  const handleCheckUpdatesAndRefresh = async () => {
+    void loadInstalledApps();
+    await handleCheckUpdates();
+  };
 
   // 平台选择变更时回写至 localStorage
   useEffect(() => {
@@ -606,8 +616,7 @@ export const App: React.FC = () => {
         <Sidebar
           currentView={currentView}
           onSelectView={navigate}
-          installedCount={installedApps.length}
-          updatesCount={updates.length + watchNotifications.length}
+          updatesCount={updatableInstalledCount}
           favoritesCount={favoriteIds.size}
           onOpenAccount={handleOpenAccountSettings}
           isCollapsed={isSidebarCollapsed}
@@ -776,49 +785,37 @@ export const App: React.FC = () => {
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onLoadUncatalogedDetail={loadUncatalogedDetail}
+              watchNotifications={watchNotifications}
+              onDismissWatch={handleDismissWatchNotification}
             />
           )}
 
           {currentView === 'installed' && (
             <InstalledView
+              focusUpdates={focusMyAppsUpdates}
+              onFocusConsumed={() => setFocusMyAppsUpdates(false)}
               installedApps={filteredInstalledApps}
               apps={platformFilteredApps}
               uninstallingAppIds={uninstallingAppIds}
-              updatableIds={updatableIdSet}
+              updates={filteredUpdates}
+              isChecking={isCheckingUpdates}
+              checkProgress={updateCheckProgress}
+              onCheckUpdates={handleCheckUpdatesAndRefresh}
+              onApplyUpdate={handleApplyUpdate}
+              onBatchUpdateAll={handleBatchUpdateAll}
+              onSkipVersion={handleSkipVersion}
               onOpenDetail={handleOpenDetail}
               onLaunch={handleLaunchApp}
               onUninstall={handleUninstallApp}
               onUnmanage={handleUnmanageApp}
               onScanSystemApps={handleScanSystemApps}
-              onExportAppsJson={handleExportAppsJson}
               updateRules={updateRules}
+              updateRulesCount={updateRules.length + activeDismissedWatches.length}
               onToggleRuleFrozen={handleToggleRuleFrozen}
               onToggleRuleHidden={handleToggleRuleHidden}
               onOpenRules={() => setIsRulesModalOpen(true)}
-              onRefresh={handleRefreshInstalledApps}
-              isRefreshing={isRefreshingInstalled}
               loadError={installLoadError}
               onRetryLoad={loadInstalledApps}
-            />
-          )}
-
-          {currentView === 'updates' && (
-            <UpdatesView
-              updates={filteredUpdates}
-              apps={platformFilteredApps}
-              isChecking={isCheckingUpdates}
-              checkProgress={updateCheckProgress}
-              onApplyUpdate={handleApplyUpdate}
-              onBatchUpdateAll={handleBatchUpdateAll}
-              onCheckUpdates={handleCheckUpdates}
-              onSkipVersion={handleSkipVersion}
-              onFreezeVersion={handleFreezeVersion}
-              onHideApp={handleHideApp}
-              updateRulesCount={updateRules.length + activeDismissedWatches.length}
-              onOpenRules={() => setIsRulesModalOpen(true)}
-              watchNotifications={watchNotifications}
-              onOpenWatchedApp={handleOpenDetail}
-              onDismissWatch={handleDismissWatchNotification}
             />
           )}
 

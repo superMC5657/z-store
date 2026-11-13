@@ -26,7 +26,6 @@ export function useInstallState({
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
   const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
-  const [isRefreshingInstalled, setIsRefreshingInstalled] = useState(false);
   // 已装列表初始加载错误（null = 无错误/未加载）：与空列表区分呈现，供 InstalledView 出重试
   const [installLoadError, setInstallLoadError] = useState<string | null>(null);
   // D3 门禁：无校验资产待用户确认（null = 无待确认安装）
@@ -98,22 +97,8 @@ export function useInstallState({
     showToast(t('toast.unmanage_success', { name: appName }), 'info');
   };
 
-  // 刷新已安装应用列表（幽灵应用自愈清理）
-  const handleRefreshInstalledApps = async () => {
-    setIsRefreshingInstalled(true);
-    try {
-      const freshInstalled = await tauriApi.getInstalledApps();
-      setInstalledApps(freshInstalled);
-      showToast(t('toast.refresh_installed_success'), 'success');
-    } catch (err) {
-      showToast(t('toast.refresh_installed_failed', { error: String(err) }), 'error');
-    } finally {
-      setIsRefreshingInstalled(false);
-    }
-  };
-
-  // 已装列表加载：进入「已安装」视图自动触发，失败保存错误态（避免与空列表混同静默）；
-  // 同一函数兼作 InstalledView 错误卡的重试入口。
+  // 已装列表加载：进入「我的应用」视图自动触发，失败保存错误态（避免与空列表混同静默）；
+  // 同一函数兼作 InstalledView 错误卡的重试入口，以及「检查更新」时的已装状态重读。
   const loadInstalledApps = useCallback(async () => {
     try {
       const freshInstalled = await tauriApi.getInstalledApps();
@@ -165,7 +150,6 @@ export function useInstallState({
     setInstallingAppIds,
     uninstallingAppIds,
     setUninstallingAppIds,
-    isRefreshingInstalled,
     installLoadError,
     loadInstalledApps,
     installingRef,
@@ -173,7 +157,6 @@ export function useInstallState({
     handleQuickInstall,
     handleLaunchApp,
     handleUnmanageApp,
-    handleRefreshInstalledApps,
     handleUninstallApp,
     unverifiedInstallPrompt,
     dismissUnverifiedInstall,

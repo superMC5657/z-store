@@ -224,7 +224,6 @@ describe('Sidebar pending nav (discovery group + badge slot)', () => {  it('rend
       <Sidebar
         currentView="pending"
         onSelectView={() => {}}
-        installedCount={0}
         onOpenAccount={() => {}}
         pendingCount={2}
       />,

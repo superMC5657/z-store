@@ -6,7 +6,7 @@
  * 并展示错误汇总（包含失败数量），对齐 `handleSyncStarred` 现有的 syncError 模式。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import i18n from '../i18n';
 import { FavoritesView } from './FavoritesView';
 import { tauriApi } from '../services/api';
@@ -196,5 +196,78 @@ describe('rows kept and counts from full sets', () => {
       />,
     );
     expect(container.querySelectorAll('[data-testid^="load-detail-"]')).toHaveLength(0);
+  });
+});
+
+describe('watch release alerts live on the Watched tab', () => {
+  it('opens on the Watched tab when alerts are pending and routes view / dismiss actions', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const watched = makeApp({ id: 'rustdesk/rustdesk', name: 'RustDesk' });
+    const onOpenDetail = vi.fn();
+    const onDismissWatch = vi.fn();
+    render(
+      <FavoritesView
+        apps={[watched]}
+        favoriteIds={new Set<string>()}
+        watchedIds={new Set<string>(['rustdesk/rustdesk'])}
+        installedIds={new Set<string>()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        watchNotifications={[{ app_id: 'rustdesk/rustdesk', app_name: 'RustDesk', version: 'v1.5.0' }]}
+        onDismissWatch={onDismissWatch}
+      />,
+    );
+
+    expect(screen.getByText('有新版本')).toBeTruthy();
+    expect(screen.getByText('你关注的 RustDesk 发布了 v1.5.0')).toBeTruthy();
+
+    const panel = document.querySelector('.watch-releases-panel') as HTMLElement;
+    fireEvent.click(within(panel).getByRole('button', { name: '查看' }));
+    expect(onOpenDetail).toHaveBeenCalledWith('rustdesk/rustdesk');
+    fireEvent.click(within(panel).getByRole('button', { name: '知道了' }));
+    expect(onDismissWatch).toHaveBeenCalledWith('rustdesk/rustdesk');
+  });
+
+  it('stays on the Favorites tab and renders no alert section when nothing is pending', () => {
+    render(
+      <FavoritesView
+        apps={[]}
+        favoriteIds={new Set<string>()}
+        watchedIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+      />,
+    );
+    expect(screen.queryByText('有新版本')).toBeNull();
+    expect(document.querySelector('.watch-releases-panel')).toBeNull();
+  });
+});
+
+describe('watch release alerts arriving after the page opened', () => {
+  it('switches to the Watched tab unless the user already picked a tab', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const props = {
+      apps: [],
+      favoriteIds: new Set<string>(),
+      watchedIds: new Set<string>(),
+      installedIds: new Set<string>(),
+      onOpenDetail: () => {},
+      onQuickInstall: () => {},
+      onToggleFavorite: () => {},
+    };
+    const alert = [{ app_id: 'rustdesk/rustdesk', app_name: 'RustDesk', version: 'v1.5.0' }];
+
+    const { rerender, unmount } = render(<FavoritesView {...props} watchNotifications={[]} />);
+    rerender(<FavoritesView {...props} watchNotifications={alert} />);
+    expect(screen.getByText('你关注的 RustDesk 发布了 v1.5.0')).toBeTruthy();
+    unmount();
+
+    const second = render(<FavoritesView {...props} watchNotifications={[]} />);
+    fireEvent.click(screen.getByRole('tab', { name: /^收藏/ }));
+    second.rerender(<FavoritesView {...props} watchNotifications={alert} />);
+    expect(screen.queryByText('你关注的 RustDesk 发布了 v1.5.0')).toBeNull();
   });
 });
