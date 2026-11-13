@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import { HomeView } from './HomeView';
+import { SearchResultsView } from './SearchResultsView';
 import type { AppSummary } from '../types';
 import { makeApp } from './test-utils/filterFixture';
 
@@ -20,14 +20,13 @@ function localRow(id: string, owner: string, repo: string): AppSummary {
 
 function renderSearchLocal(apps: AppSummary[], localApps?: readonly AppSummary[]) {
   return render(
-    <HomeView
+    <SearchResultsView
       apps={apps}
       installedIds={new Set<string>()}
       favoriteIds={new Set<string>()}
       onOpenDetail={() => {}}
       onQuickInstall={() => {}}
       onToggleFavorite={() => {}}
-      onNavigateTrends={() => {}}
       searchQuery="openchamber"
       onlineApps={[]}
       localApps={localApps}
@@ -35,7 +34,7 @@ function renderSearchLocal(apps: AppSummary[], localApps?: readonly AppSummary[]
   );
 }
 
-describe('HomeView 本地段首刷补黄', () => {
+describe('SearchResultsView 本地段首刷补黄', () => {
   it('首刷无 localApps 即无标，就绪后远端同仓行补黄（含大小写归一）', () => {
     const remote = [
       // 远端大写变体，本地小写收录：归一后应命中

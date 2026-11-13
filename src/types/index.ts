@@ -242,7 +242,53 @@ export interface AffinityProfileSummary {
   top_categories: AffinityCategoryStat[];
   top_languages: string[];
   last_synced_at?: number | null;
+  installed_count?: number;
+  viewed_count?: number;
+  search_query_count?: number;
+  interest_seeds?: string[];
+  feedback_count?: number;
+  signal_count?: number;
 }
+
+/** 推荐种子与用户的关系（「因为你 X 了 Y」中的 X）。 */
+export type SeedRelation = 'favorite' | 'installed' | 'watched' | 'starred' | 'forked' | 'owned';
+
+/** 推荐理由：与后端打分同源（`affinity_explain`）。 */
+export type FeaturedReason =
+  | { kind: 'seed'; seed_id: string; relation: SeedRelation }
+  | { kind: 'category'; category: string }
+  | { kind: 'owner'; owner: string }
+  | { kind: 'keywords'; tokens: string[] }
+  | { kind: 'fresh'; added_at: string }
+  | { kind: 'explore'; category: string };
+
+export interface FeaturedPick {
+  app: AppSummary;
+  reasons: FeaturedReason[];
+}
+
+export type FeaturedShelfKind = 'because_you' | 'category_pick' | 'explore' | 'fresh';
+
+export interface FeaturedShelf {
+  kind: FeaturedShelfKind;
+  seed_id?: string;
+  seed_relation?: SeedRelation;
+  category?: string;
+  items: FeaturedPick[];
+}
+
+export type ProfileState = 'off' | 'cold' | 'warm' | 'rich';
+
+/** 精选页整页货架（`get_featured_page`）。 */
+export interface FeaturedPage {
+  profile_state: ProfileState;
+  signal_count: number;
+  top_categories: string[];
+  hero: FeaturedPick[];
+  shelves: FeaturedShelf[];
+}
+
+export type FeedbackScope = 'app' | 'category';
 
 export interface SyncCatalogResult {
   updated: boolean;

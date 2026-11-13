@@ -272,6 +272,20 @@ impl Database {
             );
 
             CREATE INDEX IF NOT EXISTS idx_user_repo_signals_updated_at ON user_repo_signals(updated_at);
+
+            -- 精选页冷启动：用户显式选择的兴趣分类（ADR-0023）
+            CREATE TABLE IF NOT EXISTS user_interest_seeds (
+                category TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL
+            );
+
+            -- 精选页推荐负反馈：scope = 'app'（target 为规范应用标识）| 'category'（target 为分类 key）
+            CREATE TABLE IF NOT EXISTS user_feed_feedback (
+                target TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (target, scope)
+            );
             "#,
         )?;
         // 幂等补列：缺列时执行 `ADD COLUMN` 补齐 `is_cataloged`（默认 0 fail-closed，启动回填按目录校准），

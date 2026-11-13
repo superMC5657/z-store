@@ -2,7 +2,7 @@ use super::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE};
 use super::developer_profile::EtagGetOutcome;
 use super::models::{CatalogItem, GitHubRepoResponse};
 use super::CatalogService;
-use crate::db::{Database, RawAffinitySignals, RepoRelation, UserRepoSignal};
+use crate::db::{Database, FeedbackScope, RawAffinitySignals, RepoRelation, UserRepoSignal};
 use crate::models::AppSummary;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -255,6 +255,53 @@ where
     }
 }
 
+/// 推荐种子与用户的关系（推荐理由「因为你 X 了 Y」中的 X）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeedRelation {
+    Favorite,
+    Installed,
+    Watched,
+    Starred,
+    Forked,
+    Owned,
+}
+
+/// 画像中的一个推荐种子：命中目录、用户与之有显式关系的应用。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeedRef {
+    pub id: String,
+    pub relation: SeedRelation,
+    /// 基准权重 × 时间衰减，用于挑选近期最强的种子。
+    pub strength: f64,
+    pub category: String,
+}
+
+/// 推荐理由（与打分同源，见 `affinity_explain`）。
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Reason {
+    Seed {
+        seed_id: String,
+        relation: SeedRelation,
+    },
+    Category {
+        category: String,
+    },
+    Owner {
+        owner: String,
+    },
+    Keywords {
+        tokens: Vec<String>,
+    },
+    Fresh {
+        added_at: String,
+    },
+    Explore {
+        category: String,
+    },
+}
+
 /// 用户本地亲和度画像（内存中由 `RawAffinitySignals` 实时聚合）。
 #[derive(Debug, Clone, Default)]
 pub struct UserAffinityProfile {
@@ -263,19 +310,53 @@ pub struct UserAffinityProfile {
     pub owner_weights: HashMap<String, f64>,
     pub token_weights: HashMap<String, f64>,
     pub avg_fork_ratio: f64,
+    /// 已收藏 / 关注 / Star / 已安装的应用：推荐时让位推新。
     pub known_ids: HashSet<String>,
+    /// 参与聚合的信号条数（画像状态分档与隐私看板使用）。
+    pub signal_count: usize,
+    /// 已安装应用：不进精选页推荐区块。
+    pub installed_ids: HashSet<String>,
+    /// 有效期内被标记「不感兴趣」的应用。
+    pub dismissed_app_ids: HashSet<String>,
+    /// 推荐种子，按 `strength` 降序、同 id 只保留最强关系。
+    pub seeds: Vec<SeedRef>,
 }
+
+/// 各信号的时间衰减半衰期（天）。
+const DECAY_HALF_LIFE_DAYS: f64 = 30.0;
+const SHORT_DECAY_HALF_LIFE_DAYS: f64 = 7.0;
 
 /// 30 天半衰期时间衰减函数，保底系数 `0.25`。
 fn time_decay(timestamp: i64, now_secs: i64) -> f64 {
+    time_decay_with(timestamp, now_secs, DECAY_HALF_LIFE_DAYS, 0.25)
+}
+
+/// 指定半衰期与保底系数的时间衰减。
+fn time_decay_with(timestamp: i64, now_secs: i64, half_life_days: f64, floor: f64) -> f64 {
     if timestamp <= 0 || now_secs <= timestamp {
         return 1.0;
     }
     let dt = (now_secs - timestamp) as f64;
-    let half_life = 30.0 * 86400.0;
+    let half_life = half_life_days * 86400.0;
     let lambda = std::f64::consts::LN_2 / half_life;
-    (-lambda * dt).exp().max(0.25)
+    (-lambda * dt).exp().max(floor)
 }
+
+/// 分项亲和度（`affinity_boost` 与 `affinity_explain` 共用）。
+struct AffinityBreakdown {
+    cat: f64,
+    owner: f64,
+    tok: f64,
+    /// 命中的关键词（按权重降序，至多 3 个）。
+    matched_tokens: Vec<String>,
+    fork_resonance: f64,
+    known_penalty: f64,
+}
+
+/// 推荐理由的最低分项贡献：低于此值的分项不作为理由展示。
+const REASON_MIN_CONTRIBUTION: f64 = 0.25;
+/// 单个推荐条目最多展示的理由数。
+pub const MAX_REASONS: usize = 2;
 
 /// 信号源仓库 Stars & Forks 规模调制系数：
 /// `1.0 + 0.04 * ln(stars + 1) + 0.08 * ln(forks + 1)`
@@ -689,9 +770,30 @@ impl UserAffinityProfile {
             fork_ratio_sum: f64,
             fork_ratio_weight: f64,
             signal_count: usize,
+            seeds: HashMap<String, SeedRef>,
         }
 
         impl AffinityAcc {
+            fn add_seed(&mut self, item: &CatalogItem, relation: SeedRelation, strength: f64) {
+                let id = item.id.to_lowercase();
+                let replace = self
+                    .seeds
+                    .get(&id)
+                    .map(|s| strength > s.strength)
+                    .unwrap_or(true);
+                if replace {
+                    self.seeds.insert(
+                        id.clone(),
+                        SeedRef {
+                            id,
+                            relation,
+                            strength,
+                            category: item.category.trim().to_lowercase(),
+                        },
+                    );
+                }
+            }
+
             fn add_catalog_item(&mut self, item: &CatalogItem, weight: f64, mark_known: bool) {
                 self.signal_count += 1;
                 let cat_key = item.category.trim().to_lowercase();
@@ -737,6 +839,7 @@ impl UserAffinityProfile {
             if let Some(item) = by_id.get(&id_lower) {
                 let scale = repo_scale_factor(item.stars, item.forks);
                 acc.add_catalog_item(item, 4.0 * decay * scale, true);
+                acc.add_seed(item, SeedRelation::Favorite, 4.0 * decay);
             }
         }
 
@@ -751,6 +854,24 @@ impl UserAffinityProfile {
             if let Some(item) = by_id.get(&id_lower) {
                 let scale = repo_scale_factor(item.stars, item.forks);
                 acc.add_catalog_item(item, 3.5 * decay * scale, true);
+                acc.add_seed(item, SeedRelation::Watched, 3.5 * decay);
+            }
+        }
+
+        // 2b. 已安装 (installed_apps): 基准权重 3.2，30 天半衰期；已装应用不再推荐
+        let mut installed_ids: HashSet<String> = HashSet::new();
+        for (app_id, ts) in &raw.installed {
+            let id_lower = app_id.trim().to_lowercase();
+            if id_lower.is_empty() {
+                continue;
+            }
+            installed_ids.insert(id_lower.clone());
+            acc.known_ids.insert(id_lower.clone());
+            let decay = time_decay(*ts, now_secs);
+            if let Some(item) = by_id.get(&id_lower) {
+                let scale = repo_scale_factor(item.stars, item.forks);
+                acc.add_catalog_item(item, 3.2 * decay * scale, true);
+                acc.add_seed(item, SeedRelation::Installed, 3.2 * decay);
             }
         }
 
@@ -795,6 +916,15 @@ impl UserAffinityProfile {
                 let eff_forks = sig.forks.max(item.forks);
                 let eff_w = base_w * decay * repo_scale_factor(eff_stars, eff_forks);
                 acc.add_catalog_item(item, eff_w, true);
+                let relation = match rel_kind {
+                    Some(RepoRelation::Forked) => Some(SeedRelation::Forked),
+                    Some(RepoRelation::Starred) => Some(SeedRelation::Starred),
+                    Some(RepoRelation::Owned) => Some(SeedRelation::Owned),
+                    None => None,
+                };
+                if let Some(relation) = relation {
+                    acc.add_seed(item, relation, base_w * decay);
+                }
             } else {
                 acc.signal_count += 1;
                 let inferred =
@@ -832,6 +962,7 @@ impl UserAffinityProfile {
             if let Some(item) = by_id.get(&full_lower) {
                 let scale = repo_scale_factor(item.stars, item.forks);
                 acc.add_catalog_item(item, 3.0 * decay * scale, true);
+                acc.add_seed(item, SeedRelation::Starred, 3.0 * decay);
             } else if let Some((owner, repo)) = full_lower.split_once('/') {
                 acc.signal_count += 1;
                 let w = 3.0 * decay;
@@ -842,11 +973,63 @@ impl UserAffinityProfile {
             }
         }
 
-        if acc.signal_count == 0 {
-            return Self::default();
+        // 5. 浏览历史 (view_history): 基准权重 0.6，7 天半衰期，仅命中目录的条目；不计入已知
+        for (app_id, ts) in &raw.views {
+            let id_lower = app_id.trim().to_lowercase();
+            if let Some(item) = by_id.get(&id_lower) {
+                let decay = time_decay_with(*ts, now_secs, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
+                acc.add_catalog_item(item, 0.6 * decay, false);
+            }
         }
 
-        let category_weights = normalize_soft_saturated(acc.raw_cat, 2.2);
+        // 6. 搜索词 (search_history): 基准权重 0.4，7 天半衰期，只进关键词词袋
+        for (query, ts) in &raw.searches {
+            let toks = extract_affinity_tokens(query);
+            if toks.is_empty() {
+                continue;
+            }
+            acc.signal_count += 1;
+            let w = 0.4 * time_decay_with(*ts, now_secs, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
+            for tok in toks {
+                *acc.raw_tokens.entry(tok).or_insert(0.0) += w;
+            }
+        }
+
+        // 7. 兴趣种子 (user_interest_seeds): 基准权重 2.0，不衰减，只进分类权重
+        for cat in &raw.interest_seeds {
+            let key = cat.trim().to_lowercase();
+            if key.is_empty() {
+                continue;
+            }
+            acc.signal_count += 1;
+            *acc.raw_cat.entry(key).or_insert(0.0) += 2.0;
+        }
+
+        let mut dismissed_app_ids: HashSet<String> = HashSet::new();
+        let mut dismissed_categories: HashSet<String> = HashSet::new();
+        for fb in &raw.feedback {
+            let key = fb.target.trim().to_lowercase();
+            match fb.scope {
+                FeedbackScope::App => dismissed_app_ids.insert(key),
+                FeedbackScope::Category => dismissed_categories.insert(key),
+            };
+        }
+
+        if acc.signal_count == 0 {
+            return Self {
+                installed_ids,
+                dismissed_app_ids,
+                known_ids: acc.known_ids,
+                ..Self::default()
+            };
+        }
+
+        let mut category_weights = normalize_soft_saturated(acc.raw_cat, 2.2);
+        for cat in &dismissed_categories {
+            if let Some(w) = category_weights.get_mut(cat) {
+                *w *= 0.5;
+            }
+        }
         let owner_weights = normalize_soft_saturated(acc.raw_owner, 2.5);
         let token_weights = normalize_soft_saturated(acc.raw_tokens, 2.5);
         let avg_fork_ratio = if acc.fork_ratio_weight > 0.0 {
@@ -866,7 +1049,36 @@ impl UserAffinityProfile {
             token_weights,
             avg_fork_ratio,
             known_ids: acc.known_ids,
+            signal_count: acc.signal_count,
+            installed_ids,
+            dismissed_app_ids,
+            seeds: {
+                let mut seeds: Vec<SeedRef> = acc.seeds.into_values().collect();
+                seeds.sort_by(|a, b| {
+                    b.strength
+                        .partial_cmp(&a.strength)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                seeds
+            },
         }
+    }
+
+    /// 近期最强的推荐种子，分类互不相同。
+    pub fn top_seeds(&self, limit: usize) -> Vec<SeedRef> {
+        let mut used: HashSet<&str> = HashSet::new();
+        let mut out = Vec::new();
+        for seed in &self.seeds {
+            if out.len() >= limit {
+                break;
+            }
+            if seed.category.is_empty() || !used.insert(seed.category.as_str()) {
+                continue;
+            }
+            out.push(seed.clone());
+        }
+        out
     }
 
     /// 计算候选应用相对于当前用户画像的动态亲和度增益：
@@ -875,7 +1087,52 @@ impl UserAffinityProfile {
         if !self.has_signals {
             return 0.0;
         }
+        let b = self.breakdown(app);
+        3.2 * b.cat + 1.8 * b.owner + 1.8 * b.tok + b.fork_resonance - b.known_penalty
+    }
 
+    /// 推荐理由：取 `affinity_boost` 中贡献最大的分类 / 作者 / 关键词分项（贡献低于 0.25 的不出），
+    /// 至多 `MAX_REASONS` 条。
+    pub fn affinity_explain(&self, app: &AppSummary) -> Vec<Reason> {
+        if !self.has_signals {
+            return Vec::new();
+        }
+        let b = self.breakdown(app);
+        let mut parts: Vec<(f64, Reason)> = Vec::with_capacity(3);
+        if 3.2 * b.cat >= REASON_MIN_CONTRIBUTION {
+            parts.push((
+                3.2 * b.cat,
+                Reason::Category {
+                    category: app.core.category.trim().to_lowercase(),
+                },
+            ));
+        }
+        if 1.8 * b.owner >= REASON_MIN_CONTRIBUTION {
+            parts.push((
+                1.8 * b.owner,
+                Reason::Owner {
+                    owner: app.core.owner.trim().to_string(),
+                },
+            ));
+        }
+        if 1.8 * b.tok >= REASON_MIN_CONTRIBUTION && !b.matched_tokens.is_empty() {
+            parts.push((
+                1.8 * b.tok,
+                Reason::Keywords {
+                    tokens: b.matched_tokens.clone(),
+                },
+            ));
+        }
+        // 稳定排序：同贡献时保持分类 → 作者 → 关键词的固定顺序
+        parts.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        parts
+            .into_iter()
+            .take(MAX_REASONS)
+            .map(|(_, r)| r)
+            .collect()
+    }
+
+    fn breakdown(&self, app: &AppSummary) -> AffinityBreakdown {
         let is_known = self.known_ids.contains(&app.core.id.to_lowercase());
 
         let cat_key = app.core.category.trim().to_lowercase();
@@ -895,18 +1152,22 @@ impl UserAffinityProfile {
             app.core.description_en.as_deref().unwrap_or("")
         );
         let tokens = extract_affinity_tokens(&app_text);
-        let mut matched_tok_weights: Vec<f64> = tokens
-            .iter()
-            .filter_map(|t| self.token_weights.get(t).copied())
+        let mut matched: Vec<(String, f64)> = tokens
+            .into_iter()
+            .filter_map(|t| {
+                let w = self.token_weights.get(&t).copied()?;
+                Some((t, w))
+            })
             .collect();
-        matched_tok_weights.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-        let raw_tok_score = if matched_tok_weights.is_empty() {
+        matched.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let take_n = matched.len().min(3);
+        let raw_tok_score = if take_n == 0 {
             0.0
         } else {
-            let take_n = matched_tok_weights.len().min(3);
-            let sum: f64 = matched_tok_weights.iter().take(take_n).sum();
+            let sum: f64 = matched.iter().take(take_n).map(|(_, w)| *w).sum();
             (sum / (take_n as f64)).clamp(0.0, 1.0)
         };
+        let matched_tokens: Vec<String> = matched.into_iter().take(take_n).map(|(t, _)| t).collect();
         let tok_score = if is_known {
             raw_tok_score * 0.4
         } else {
@@ -924,7 +1185,14 @@ impl UserAffinityProfile {
 
         let known_penalty = if is_known { 1.2 } else { 0.0 };
 
-        3.2 * cat_score + 1.8 * owner_score + 1.8 * tok_score + fork_resonance - known_penalty
+        AffinityBreakdown {
+            cat: cat_score,
+            owner: owner_score,
+            tok: tok_score,
+            matched_tokens,
+            fork_resonance,
+            known_penalty,
+        }
     }
 
     /// 返回按归一化权重降序排列的 Top N 偏好分类。
@@ -942,6 +1210,31 @@ impl UserAffinityProfile {
         list.truncate(limit);
         list
     }
+}
+
+/// 候选应用与推荐种子的相似度：同分类 0.5 + 同作者 0.3 + 描述关键词 Jaccard × 0.2。
+pub fn seed_similarity(seed: &AppSummary, candidate: &AppSummary) -> f64 {
+    let same_cat = !seed.core.category.trim().is_empty()
+        && seed.core.category.trim().eq_ignore_ascii_case(candidate.core.category.trim());
+    let same_owner = !seed.core.owner.trim().is_empty()
+        && seed.core.owner.trim().eq_ignore_ascii_case(candidate.core.owner.trim());
+    let toks = |a: &AppSummary| -> HashSet<String> {
+        extract_affinity_tokens(&format!(
+            "{} {}",
+            a.core.description,
+            a.core.description_en.as_deref().unwrap_or("")
+        ))
+        .into_iter()
+        .collect()
+    };
+    let (ta, tb) = (toks(seed), toks(candidate));
+    let union = ta.union(&tb).count();
+    let jaccard = if union == 0 {
+        0.0
+    } else {
+        ta.intersection(&tb).count() as f64 / union as f64
+    };
+    (if same_cat { 0.5 } else { 0.0 }) + (if same_owner { 0.3 } else { 0.0 }) + 0.2 * jaccard
 }
 
 /// 统计信号仓库中最常出现的 Top N 编程语言（用于设置页隐私数据看板展示）。
@@ -1191,6 +1484,7 @@ mod tests {
             user_stars: vec![],
             favorites: vec![("mpv-player/mpv".to_string(), now - 1800)],
             watched: vec![],
+            ..Default::default()
         };
 
         let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
@@ -1246,5 +1540,136 @@ mod tests {
                 > 0.8,
             "Fork 的 myuser/rustdesk 应当反查命中上游 rustdesk/rustdesk 并赋予 system 分类权重"
         );
+    }
+
+    #[test]
+    fn installed_signal_alone_builds_profile_and_marks_known() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            installed: vec![("rustdesk/rustdesk".to_string(), now - 60)],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert!(profile.has_signals);
+        assert!(profile.category_weights.get("system").copied().unwrap_or(0.0) > 0.0);
+        assert!(profile.known_ids.contains("rustdesk/rustdesk"));
+        assert!(profile.installed_ids.contains("rustdesk/rustdesk"));
+        assert_eq!(profile.signal_count, 1);
+        assert_eq!(profile.seeds[0].relation, SeedRelation::Installed);
+    }
+
+    #[test]
+    fn short_decay_halves_after_seven_days() {
+        let now = 1_700_000_000i64;
+        let d = time_decay_with(now - 7 * 86400, now, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
+        assert!((d - 0.5).abs() < 0.005, "7 天前的浏览权重应约为一半，实际 {d}");
+    }
+
+    #[test]
+    fn search_queries_only_touch_token_weights() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            searches: vec![("remote desktop".to_string(), now)],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert!(profile.category_weights.is_empty());
+        assert!(profile.token_weights.contains_key("remote"));
+        assert!(profile.token_weights.contains_key("desktop"));
+    }
+
+    #[test]
+    fn interest_seeds_count_as_signals_and_category_feedback_halves_weight() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let mut raw = RawAffinitySignals {
+            interest_seeds: vec!["media".to_string(), "system".to_string()],
+            ..Default::default()
+        };
+        let base = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert!(base.has_signals);
+        assert_eq!(base.signal_count, 2);
+        let before = base.category_weights["media"];
+
+        raw.feedback = vec![crate::db::FeedFeedback {
+            target: "media".to_string(),
+            scope: FeedbackScope::Category,
+            created_at: now,
+        }];
+        let after = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert!((after.category_weights["media"] - before * 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn app_feedback_is_exposed_even_without_signals() {
+        let catalog = sample_catalog();
+        let raw = RawAffinitySignals {
+            feedback: vec![crate::db::FeedFeedback {
+                target: "mpv-player/mpv".to_string(),
+                scope: FeedbackScope::App,
+                created_at: 1,
+            }],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, 10);
+        assert!(!profile.has_signals);
+        assert!(profile.dismissed_app_ids.contains("mpv-player/mpv"));
+    }
+
+    #[test]
+    fn explain_matches_boost_sources_and_orders_category_first() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            favorites: vec![("mpv-player/mpv".to_string(), now)],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        let jellyfin = catalog[1].to_summary();
+        let reasons = profile.affinity_explain(&jellyfin);
+        assert!(!reasons.is_empty());
+        assert_eq!(
+            reasons[0],
+            Reason::Category {
+                category: "media".to_string()
+            }
+        );
+        // 已知条目自身不出作者理由
+        let mpv = catalog[0].to_summary();
+        assert!(!profile
+            .affinity_explain(&mpv)
+            .iter()
+            .any(|r| matches!(r, Reason::Owner { .. })));
+        assert!(reasons.len() <= MAX_REASONS);
+    }
+
+    #[test]
+    fn top_seeds_have_distinct_categories() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            favorites: vec![
+                ("mpv-player/mpv".to_string(), now),
+                ("jellyfin/jellyfin-media-player".to_string(), now),
+                ("rustdesk/rustdesk".to_string(), now),
+            ],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        let seeds = profile.top_seeds(5);
+        assert_eq!(seeds.len(), 2);
+        assert_ne!(seeds[0].category, seeds[1].category);
+    }
+
+    #[test]
+    fn seed_similarity_rewards_same_category_and_owner() {
+        let catalog = sample_catalog();
+        let mpv = catalog[0].to_summary();
+        let jellyfin = catalog[1].to_summary();
+        let rustdesk = catalog[2].to_summary();
+        assert!(seed_similarity(&mpv, &jellyfin) >= 0.5);
+        assert!(seed_similarity(&mpv, &rustdesk) < 0.35);
     }
 }

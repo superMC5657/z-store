@@ -35,6 +35,12 @@ pub struct AffinityProfileSummary {
     pub top_categories: Vec<AffinityCategoryStat>,
     pub top_languages: Vec<String>,
     pub last_synced_at: Option<i64>,
+    pub installed_count: usize,
+    pub viewed_count: usize,
+    pub search_query_count: usize,
+    pub interest_seeds: Vec<String>,
+    pub feedback_count: usize,
+    pub signal_count: usize,
 }
 
 pub fn build_affinity_profile_summary(
@@ -93,7 +99,93 @@ pub fn build_affinity_profile_summary(
         top_categories,
         top_languages,
         last_synced_at,
+        installed_count: raw.installed.len(),
+        viewed_count: raw.views.len(),
+        search_query_count: raw.searches.len(),
+        interest_seeds: raw.interest_seeds.clone(),
+        feedback_count: raw.feedback.len(),
+        signal_count: profile.signal_count,
     })
+}
+
+/// 精选页冷启动：整体替换兴趣分类（仅接受 10 个标准分类 key）。
+#[tauri::command]
+pub fn save_interest_seeds(
+    state: State<'_, AppState>,
+    categories: Vec<String>,
+) -> crate::AppResult<()> {
+    let normalized = normalize_interest_categories(&categories)?;
+    state.db()?.replace_interest_seeds(&normalized)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_interest_seeds(state: State<'_, AppState>) -> crate::AppResult<Vec<String>> {
+    Ok(state.db()?.get_interest_seeds()?)
+}
+
+/// 精选页「不感兴趣」（`scope = "app"`，`target` 为应用标识）或「少推这类」（`scope = "category"`，`target` 为分类 key）。
+#[tauri::command]
+pub fn dismiss_featured(
+    state: State<'_, AppState>,
+    target: String,
+    scope: String,
+) -> crate::AppResult<()> {
+    let parsed = crate::db::FeedbackScope::parse(&scope)
+        .ok_or_else(|| format!("未知的反馈范围：{scope}"))?;
+    let key = match parsed {
+        crate::db::FeedbackScope::App => crate::forge::canonical_app_id(&target)
+            .ok_or_else(|| format!("无效的应用标识：{target}"))?,
+        crate::db::FeedbackScope::Category => {
+            let mut v = normalize_interest_categories(&[target])?;
+            v.pop().ok_or_else(|| "分类不能为空".to_string())?
+        }
+    };
+    state
+        .db()?
+        .upsert_feed_feedback(&key, parsed, crate::now_secs())?;
+    Ok(())
+}
+
+/// 清空全部推荐负反馈，返回删除条数。
+#[tauri::command]
+pub fn clear_feed_feedback(state: State<'_, AppState>) -> crate::AppResult<usize> {
+    Ok(state.db()?.clear_feed_feedback()?)
+}
+
+fn normalize_interest_categories(categories: &[String]) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = Vec::new();
+    for raw in categories {
+        let key = raw.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        if !crate::db::custom_apps::OFFICIAL_CATEGORIES.contains(&key.as_str()) {
+            return Err(format!("未知的分类：{raw}"));
+        }
+        if !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    Ok(out)
+}
+
+/// 读取个性化开关并从本地信号构建画像（关闭时也构建：精选页仍需已安装与「不感兴趣」集合）。
+/// 数据库不可用时返回 `None`。
+pub(crate) fn load_affinity_profile(
+    state: &AppState,
+) -> Option<(bool, crate::github::affinity::UserAffinityProfile)> {
+    let db = state.db().ok()?;
+    let enabled = crate::github::affinity::is_local_affinity_enabled(&db);
+    let raw = db.load_raw_affinity_signals().ok()?;
+    drop(db);
+    let catalog_items = state.catalog.get_catalog_items();
+    let profile = crate::github::affinity::UserAffinityProfile::from_signals(
+        &raw,
+        &catalog_items,
+        crate::now_secs(),
+    );
+    Some((enabled, profile))
 }
 
 #[tauri::command]
@@ -151,34 +243,25 @@ pub fn get_home_feed(
             .collect()
     };
     let ranked = {
-        let parsed = crate::github::catalog_feed_score::parse_feed_strategy(strategy.as_deref());
-        let profile_opt = if parsed == crate::github::catalog_feed_score::FeedStrategy::Balanced {
-            state.db().ok().and_then(|db| {
-                if !crate::github::affinity::is_local_affinity_enabled(&db) {
-                    return None;
-                }
-                let raw = db.load_raw_affinity_signals().ok()?;
-                let catalog_items = state.catalog.get_catalog_items();
-                let profile = crate::github::affinity::UserAffinityProfile::from_signals(
-                    &raw,
-                    &catalog_items,
-                    crate::now_secs(),
-                );
-                if profile.has_signals {
-                    Some(profile)
-                } else {
-                    None
-                }
-            })
+        use crate::github::catalog_feed_score as score;
+        let parsed = score::parse_feed_strategy(strategy.as_deref());
+        if parsed == score::FeedStrategy::Balanced {
+            // 画像增益只在个性化开启且有信号时生效；「不感兴趣」沉底与打散不受开关影响。
+            let loaded = load_affinity_profile(&state);
+            let boost_profile = loaded
+                .as_ref()
+                .filter(|(enabled, p)| *enabled && p.has_signals)
+                .map(|(_, p)| p);
+            let ranked = score::rank_feed_with_profile(filtered, seed, parsed, boost_profile);
+            let empty = std::collections::HashSet::new();
+            let sunk_ids = loaded
+                .as_ref()
+                .map(|(_, p)| &p.dismissed_app_ids)
+                .unwrap_or(&empty);
+            score::diversify_and_sink(ranked, sunk_ids)
         } else {
-            None
-        };
-        crate::github::catalog_feed_score::rank_feed_with_profile(
-            filtered,
-            seed,
-            parsed,
-            profile_opt.as_ref(),
-        )
+            score::rank_feed_with_profile(filtered, seed, parsed, None)
+        }
     };
     let (items, total, has_more) =
         crate::github::catalog_feed_score::paginate_feed(&ranked, limit, offset);

@@ -508,27 +508,63 @@
     "skip_version": "Skip this version",
     "skip_version_tooltip": "Stop prompting for this version; later releases still notify"
   },
-  "home": {
+  "featured": {
     "empty_title": "No Cataloged Apps",
     "empty_desc": "No apps match current platform.",
     "reset_device_filter": "Reset Filter",
-    "hero_tag_featured": "Featured",
-    "hero_tag_cross_platform": "Cross-Platform",
-    "license_suffix": "License",
-    "rustdesk_subtitle": "Secure and fast open-source remote desktop",
-    "rustdesk_tag": "Self-hosted Relay · End-to-End Encrypted",
+    "hero_title": "Picked for you today",
+    "hero_title_editorial": "Today's picks",
     "ready_open": "Open",
-    "explore_trends": "Trends",
-    "verified_badge": "Verified",
-    "verified_tooltip": "Verified by official repo",
-    "recent_views": "Recent",
-    "clear_recent": "Clear",
-    "classic_featured": "Classics",
-    "all_featured": "All Featured",
+    "all": "All Featured",
+    "all_for_you": "All Featured · Sorted for you",
     "feed_loading": "Loading…",
     "feed_load_more": "More",
-    "feed_end_backend": "Reached the end · {{count}} apps",
-    "feed_end": "Reached the end · {{count}} apps"
+    "feed_end": "Reached the end · {{count}} apps",
+    "recent": "Continue browsing",
+    "clear_recent": "Clear history",
+    "status": {
+      "signals": "Based on {{count}} local signals · computed on this device only",
+      "preferences": "Preferences",
+      "off": "Personalized picks are off. Showing editorial picks.",
+      "turn_on": "Turn on",
+      "close_hint": "Dismiss"
+    },
+    "interest": {
+      "title": "Pick a few areas you're into",
+      "desc": "Stored on this device only and used to choose your picks. Clear it anytime in Settings.",
+      "save": "Start picking",
+      "skip": "Not now",
+      "pick_one": "Pick at least one area",
+      "failed": "Couldn't save your interests. Try again later."
+    },
+    "shelf": {
+      "category_for_you": "{{category}} · Picked for you",
+      "category_editorial": "{{category}} · Featured",
+      "open_category": "Open category",
+      "explore": "Try something new",
+      "explore_desc": "Top apps from categories you rarely visit",
+      "fresh": "New this month",
+      "view_all": "View all"
+    },
+    "reason": {
+      "seed_favorite": "Because you saved {{name}}",
+      "seed_installed": "Because you installed {{name}}",
+      "seed_watched": "Because you watch {{name}}",
+      "seed_starred": "Because you starred {{name}}",
+      "seed_forked": "Because you forked {{name}}",
+      "seed_owned": "Similar to your repo {{name}}",
+      "category": "You often browse {{category}}",
+      "owner": "From {{owner}}, an author you follow",
+      "keywords": "Related: {{tokens}}",
+      "fresh": "Added {{date}}",
+      "explore": "Something different: {{category}}"
+    },
+    "feedback": {
+      "menu": "Recommendation feedback",
+      "not_interested": "Not interested",
+      "less_category": "Fewer {{category}} picks",
+      "failed": "Feedback wasn't saved. Try again later."
+    }
   },
   "trends": {
     "title": "Trending",
@@ -852,10 +888,11 @@
     "sync_btn": "Sync",
     "syncing": "Syncing…",
     "reset_btn": "Reset",
+    "reset_confirm": "Also clear interests and feedback?",
     "enabled_toast": "Enabled local personalized recommendations",
     "disabled_toast": "Switched back to baseline star ranking",
     "sync_ok": "GitHub affinity signals synced incrementally",
-    "reset_ok": "Cleared local GitHub affinity signals",
+    "reset_ok": "Cleared GitHub signals, interests, and feedback",
     "action_failed": "Action failed: {{error}}",
     "never_synced": "Never synced",
     "stat_starred": "GitHub Stars: {{count}}",
@@ -865,7 +902,15 @@
     "stat_watched": "Watched: {{count}}",
     "last_synced": "Last Synced: {{time}}",
     "top_categories": "Top Categories: {{items}}",
-    "top_languages": "Top Languages: {{items}}"
+    "top_languages": "Top Languages: {{items}}",
+    "stat_installed": "Installed: {{count}}",
+    "stat_viewed": "Browsing history: {{count}}",
+    "stat_searches": "Search terms: {{count}}",
+    "stat_feedback": "Hidden picks: {{count}}",
+    "interest_seeds": "Interests: {{items}}",
+    "clear_feedback_btn": "Clear feedback",
+    "clear_feedback_confirm": "Clear all?",
+    "clear_feedback_ok": "Cleared {{count}} feedback entries"
   },
   "developer_profile": {
     "close": "Close",

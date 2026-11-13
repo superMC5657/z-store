@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 import { AppCard } from './AppCard';
-import { HomeView } from '../views/HomeView';
+import { SearchResultsView } from '../views/SearchResultsView';
 import { TrendsView } from '../views/TrendsView';
 import { tauriApi } from '../services/api';
 import { clearTrendEnrichCache, clearTrendsCache } from '../services/trends';
@@ -172,21 +172,20 @@ describe('AppCard 移入收录内部入口门控', () => {
   });
 });
 
-describe('HomeView 在线段内部入口接线', () => {
+describe('SearchResultsView 在线段内部入口接线', () => {
   beforeEach(() => {
     vi.spyOn(tauriApi, 'saveCustomApp').mockResolvedValue({ id: 'o/a' } as never);
   });
 
   function renderOnline(customIds?: ReadonlySet<string>) {
     return render(
-      <HomeView
+      <SearchResultsView
         apps={[makeApp({ id: 'local/a', name: 'LocalA' })]}
         installedIds={new Set<string>()}
         favoriteIds={new Set<string>()}
         onOpenDetail={() => {}}
         onQuickInstall={() => {}}
         onToggleFavorite={() => {}}
-        onNavigateTrends={() => {}}
         searchQuery="atlas"
         isOnlineResults
         onlineApps={[externalApp()]}
@@ -225,14 +224,13 @@ describe('HomeView 在线段内部入口接线', () => {
 
   it('dev 猜分类在线经显式标注仍显示入口（后端无 is_cataloged）', () => {
     render(
-      <HomeView
+      <SearchResultsView
         apps={[makeApp({ id: 'local/a', name: 'LocalA' })]}
         installedIds={new Set<string>()}
         favoriteIds={new Set<string>()}
         onOpenDetail={() => {}}
         onQuickInstall={() => {}}
         onToggleFavorite={() => {}}
-        onNavigateTrends={() => {}}
         searchQuery="atlas"
         isOnlineResults
         onlineApps={[
@@ -254,14 +252,13 @@ describe('HomeView 在线段内部入口接线', () => {
 
   it('在线已收录 dev 行隐藏入口（命中 catalog 即 true）', () => {
     render(
-      <HomeView
+      <SearchResultsView
         apps={[makeApp({ id: 'o/kept', name: 'Kept' })]}
         installedIds={new Set<string>()}
         favoriteIds={new Set<string>()}
         onOpenDetail={() => {}}
         onQuickInstall={() => {}}
         onToggleFavorite={() => {}}
-        onNavigateTrends={() => {}}
         searchQuery="kept"
         isOnlineResults
         onlineApps={[

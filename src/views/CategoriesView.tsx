@@ -33,6 +33,8 @@ import { isInstalled as selectIsInstalled, selectManagedState } from '../app/sel
 
 interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
+  /** 进入视图时直接打开的分类（精选页「进入分类」），缺席时停在分类大厅。 */
+  initialCategory?: string | null;
 }
 
 /** 分类匹配与 BE `get_category_apps` 同口径（`category`/`category_name` 大小写不敏感）；
@@ -71,9 +73,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onToggleFavorite,
   onToggleWatch,
   onResetPlatformFilter,
+  initialCategory = null,
 }) => {
   const { t } = useTranslation();
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(initialCategory);
 
   // 分类详情分页（BE `get_category_apps` page/per_page，首屏 20）：
   // - `pagedIds` 为 BE 顺序去重 id 序列（小写归一），行数据一律从 `apps` 属性按序取出——

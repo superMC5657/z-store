@@ -676,8 +676,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::search_apps,
             commands::get_home_feed,
+            commands::get_featured_page,
             commands::get_affinity_profile_summary,
             commands::reset_affinity_profile,
+            commands::save_interest_seeds,
+            commands::get_interest_seeds,
+            commands::dismiss_featured,
+            commands::clear_feed_feedback,
             commands::search_apps_online,
             commands::enrich_trend_repos,
             commands::get_category_apps,

@@ -1,12 +1,10 @@
 import type { AppSummary } from '../types';
 
 /**
- * 发现页推荐 feed 纯函数模块。
+ * 精选页主流 feed 纯函数模块（后端 `get_home_feed` 不可用时的前端回退排序）。
  *
- * 约定（与 HomeView 调用方对齐）：
- * - `resolveHero` 只负责挑出置顶 1 个（rustdesk 优先，结果集内回退首个）；
- * - `rankFeed` 只对「去掉 hero 后的剩余数组」做排序，不在内部挑 hero；
- *   hero 不参与打散，由调用方（HomeView）拼回：`[hero, ...featured, ...feed]`。
+ * 约定：
+ * - `rankFeed` 只对调用方传入的数组排序（精选页传入已滤掉 hero 与货架的剩余应用），不在内部挑 hero；
  * - 算法可插拔：`feedScorers` 按策略导出打分器，`rankFeed` 支持第 4 个可选
  *   `scorer` 参数覆盖内置策略。
  */
@@ -26,15 +24,6 @@ interface FrontendAffinityInput {
 
 /** balanced 策略的抖动半幅（总摆动 2 * HALF）。取 0.15 保证只有头部相近星数才会被打散，深部大差距不受影响。 */
 const FEED_JITTER_HALF = 0.15;
-
-/**
- * 置顶解析：结果集内优先 `rustdesk/rustdesk`（ADR-0010 canonical id），
- * 缺席时回退为结果集首个，空集返回 undefined。绝不跳出传入数组找 hero。
- */
-export function resolveHero(apps: AppSummary[]): AppSummary | undefined {
-  if (apps.length === 0) return undefined;
-  return apps.find((a) => a.id === 'rustdesk/rustdesk') ?? apps[0];
-}
 
 /**
  * FNV-1a 64 + seed 混合：同一 (id, seed) 必得同一抖动，换 seed 即换一批。

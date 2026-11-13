@@ -141,6 +141,62 @@ pub fn rank_feed_with_profile(
     scored.into_iter().map(|(_, app)| app).collect()
 }
 
+/// 主流打散窗口：只重排前 N 个，之后保持原序，保证分页稳定。
+pub const FEED_DIVERSIFY_WINDOW: usize = 60;
+/// 主流中同一分类最多连续出现的个数。
+pub const FEED_DIVERSIFY_MAX_RUN: usize = 2;
+
+/// 纯函数：在前 `window` 个内贪心重排，使同一分类连续不超过 `max_run` 个；
+/// 每步取剩余中最靠前且不违反约束的条目，没有可选时退回最靠前的条目。
+pub fn diversify_by_category(
+    items: Vec<AppSummary>,
+    window: usize,
+    max_run: usize,
+) -> Vec<AppSummary> {
+    if max_run == 0 || items.len() <= max_run {
+        return items;
+    }
+    let split = window.min(items.len());
+    let mut rest = items;
+    let tail = rest.split_off(split);
+    let mut pool = rest;
+    let mut out: Vec<AppSummary> = Vec::with_capacity(split + tail.len());
+    while !pool.is_empty() {
+        let run_cat = out.last().map(|a| a.core.category.to_lowercase());
+        let run_len = match &run_cat {
+            Some(cat) => out
+                .iter()
+                .rev()
+                .take_while(|a| a.core.category.to_lowercase() == *cat)
+                .count(),
+            None => 0,
+        };
+        let pick = pool
+            .iter()
+            .position(|a| {
+                run_len < max_run || run_cat.as_deref() != Some(&a.core.category.to_lowercase())
+            })
+            .unwrap_or(0);
+        out.push(pool.remove(pick));
+    }
+    out.extend(tail);
+    out
+}
+
+/// 纯函数：主流最终排列。`sunk_ids`（小写 id）命中的条目保持相对顺序接在末尾，
+/// 其余条目按 [`diversify_by_category`] 打散；沉底条目不参与打散，不会被换回前面。
+pub fn diversify_and_sink(
+    items: Vec<AppSummary>,
+    sunk_ids: &std::collections::HashSet<String>,
+) -> Vec<AppSummary> {
+    let (sunk, kept): (Vec<_>, Vec<_>) = items
+        .into_iter()
+        .partition(|a| sunk_ids.contains(&a.core.id.to_lowercase()));
+    let mut out = diversify_by_category(kept, FEED_DIVERSIFY_WINDOW, FEED_DIVERSIFY_MAX_RUN);
+    out.extend(sunk);
+    out
+}
+
 /// 纯函数：分页切片（供 get_home_feed / search_apps 分页复用，边界守好）。
 /// 返回 (page_items, total, has_more)，has_more = (offset+limit) < total（saturating）。
 pub fn paginate_feed<T: Clone>(items: &[T], limit: usize, offset: usize) -> (Vec<T>, usize, bool) {
@@ -261,7 +317,8 @@ mod tests {
         let summaries: Vec<AppSummary> = catalog.iter().map(|c| c.to_summary()).collect();
 
         // 无信号时：30000 星的 sys/giant 排第一
-        let baseline = rank_feed_with_profile(summaries.clone(), Some(7), FeedStrategy::Balanced, None);
+        let baseline =
+            rank_feed_with_profile(summaries.clone(), Some(7), FeedStrategy::Balanced, None);
         assert_eq!(baseline[0].core.id, "sys/giant");
 
         // 用户收藏了 sec/seed-vault 并在 GitHub Star 了安全类仓库：
@@ -279,11 +336,78 @@ mod tests {
             user_stars: vec![],
             favorites: vec![("sec/seed-vault".to_string(), 1700000000)],
             watched: vec![],
+            ..Default::default()
         };
         let profile = UserAffinityProfile::from_signals(&raw, &catalog, 1700000000);
         let ranked =
             rank_feed_with_profile(summaries, Some(7), FeedStrategy::Balanced, Some(&profile));
 
         assert_eq!(ranked[0].core.id, "sec/new-cipher");
+    }
+
+    fn cats(items: &[AppSummary]) -> Vec<String> {
+        items.iter().map(|a| a.core.category.clone()).collect()
+    }
+
+    #[test]
+    fn diversify_limits_runs_inside_window_and_keeps_tail() {
+        let mut items: Vec<AppSummary> = Vec::new();
+        for i in 0..6 {
+            items.push(make_item(&format!("d/dev{i}"), "dev", 1, 0).to_summary());
+        }
+        for i in 0..3 {
+            items.push(make_item(&format!("m/media{i}"), "media", 1, 0).to_summary());
+        }
+        items.push(make_item("g/tail", "games", 1, 0).to_summary());
+        let out = diversify_by_category(items.clone(), 9, 2);
+        let c = cats(&out);
+        assert_eq!(
+            &c[..9],
+            &["dev", "dev", "media", "dev", "dev", "media", "dev", "dev", "media"]
+        );
+        assert_eq!(out[9].core.id, "g/tail");
+        // 窗口外不重排
+        let untouched = diversify_by_category(items.clone(), 0, 2);
+        assert_eq!(cats(&untouched), cats(&items));
+    }
+
+    #[test]
+    fn diversify_falls_back_when_only_one_category_left() {
+        let items: Vec<AppSummary> = (0..4)
+            .map(|i| make_item(&format!("d/dev{i}"), "dev", 1, 0).to_summary())
+            .collect();
+        assert_eq!(diversify_by_category(items, 60, 2).len(), 4);
+    }
+
+    #[test]
+    fn sink_moves_dismissed_to_end_in_order() {
+        let items: Vec<AppSummary> = ["a/1", "b/2", "c/3", "d/4"]
+            .iter()
+            .map(|id| make_item(id, "dev", 1, 0).to_summary())
+            .collect();
+        let sunk: std::collections::HashSet<String> =
+            ["a/1".to_string(), "c/3".to_string()].into_iter().collect();
+        let ids: Vec<String> = diversify_and_sink(items, &sunk)
+            .into_iter()
+            .map(|a| a.core.id)
+            .collect();
+        assert_eq!(ids, vec!["b/2", "d/4", "a/1", "c/3"]);
+    }
+
+    #[test]
+    fn diversify_never_pulls_sunk_items_forward() {
+        // 只看未沉底条目会出现 dev×3 连串；唯一能打断它的 media 被沉底，打散不得把它换回前面。
+        let items: Vec<AppSummary> = vec![
+            make_item("d/1", "dev", 1, 0).to_summary(),
+            make_item("d/2", "dev", 1, 0).to_summary(),
+            make_item("d/3", "dev", 1, 0).to_summary(),
+            make_item("m/sunk", "media", 1, 0).to_summary(),
+        ];
+        let sunk: std::collections::HashSet<String> = ["m/sunk".to_string()].into_iter().collect();
+        let ids: Vec<String> = diversify_and_sink(items, &sunk)
+            .into_iter()
+            .map(|a| a.core.id)
+            .collect();
+        assert_eq!(ids.last().map(String::as_str), Some("m/sunk"));
     }
 }

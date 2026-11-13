@@ -48,14 +48,61 @@ impl UserRepoSignal {
     }
 }
 
-/// 本地亲和度画像的原始显式信号快照（零网络一次性从 SQLite 读取）。
-/// 汇总用户 GitHub Star/Fork/Owned 仓库特征与应用内 Star/收藏/关注记录。
+/// 推荐负反馈的作用范围。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FeedbackScope {
+    /// 单个应用：不进推荐区块，主流中沉底。
+    App,
+    /// 整个分类：画像中该分类权重减半。
+    Category,
+}
+
+impl FeedbackScope {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::App => "app",
+            Self::Category => "category",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "app" => Some(Self::App),
+            "category" => Some(Self::Category),
+            _ => None,
+        }
+    }
+}
+
+/// 一条推荐负反馈。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeedFeedback {
+    pub target: String,
+    pub scope: FeedbackScope,
+    pub created_at: i64,
+}
+
+/// 推荐负反馈有效期（秒）。
+pub const FEED_FEEDBACK_TTL_SECS: i64 = 90 * 86400;
+/// 画像读取的最近浏览条数上限。
+pub const AFFINITY_VIEW_LIMIT: usize = 50;
+/// 画像读取的最近搜索词条数上限。
+pub const AFFINITY_SEARCH_LIMIT: usize = 20;
+
+/// 本地亲和度画像的原始信号快照（零网络一次性从 SQLite 读取）。
+/// 汇总 GitHub Star/Fork/Owned 仓库特征、应用内 Star/收藏/关注、已安装、浏览与搜索历史、
+/// 兴趣种子以及有效期内的推荐负反馈。
 #[derive(Debug, Clone, Default)]
 pub struct RawAffinitySignals {
     pub repo_signals: Vec<UserRepoSignal>,
     pub user_stars: Vec<(String, i64)>,
     pub favorites: Vec<(String, i64)>,
     pub watched: Vec<(String, i64)>,
+    pub installed: Vec<(String, i64)>,
+    pub views: Vec<(String, i64)>,
+    pub searches: Vec<(String, i64)>,
+    pub interest_seeds: Vec<String>,
+    pub feedback: Vec<FeedFeedback>,
 }
 
 impl Database {
@@ -160,9 +207,91 @@ impl Database {
         Ok(())
     }
 
-    /// 隐私看板「清空本地画像」：清空 `user_repo_signals`、`user_stars` 表及 `affinity_github_synced_at` 时间戳。
+    /// 隐私看板「清空本地画像」：清空 GitHub 账号信号（`user_repo_signals`、`user_stars`、同步时间戳）、
+    /// 兴趣种子与推荐负反馈。收藏、关注、已安装与浏览/搜索历史属于各自功能的数据，不在此清除。
     pub fn clear_affinity_profile_signals(&self) -> Result<()> {
+        self.with_immediate_transaction(|| {
+            self.exec_write("DELETE FROM user_interest_seeds", [])?;
+            self.exec_write("DELETE FROM user_feed_feedback", [])?;
+            Ok(())
+        })?;
         self.clear_github_account_signals()
+    }
+
+    /// 整体替换兴趣种子（分类 key 小写去重；调用方负责校验取值）。
+    pub fn replace_interest_seeds(&self, categories: &[String]) -> Result<()> {
+        let now = now_secs();
+        self.with_immediate_transaction(|| {
+            self.exec_write("DELETE FROM user_interest_seeds", [])?;
+            for cat in categories {
+                let key = clean(cat).to_lowercase();
+                if key.is_empty() {
+                    continue;
+                }
+                self.exec_write(
+                    "INSERT OR IGNORE INTO user_interest_seeds (category, created_at) VALUES (?1, ?2)",
+                    params![key, now],
+                )?;
+            }
+            Ok(())
+        })?;
+        crate::notify_affinity_updated();
+        Ok(())
+    }
+
+    /// 读取兴趣种子（按分类 key 升序）。
+    pub fn get_interest_seeds(&self) -> Result<Vec<String>> {
+        self.query_vec(
+            "SELECT category FROM user_interest_seeds ORDER BY category ASC",
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    /// 记录一条推荐负反馈（同 target+scope 重复记录刷新时间）。
+    pub fn upsert_feed_feedback(&self, target: &str, scope: FeedbackScope, now: i64) -> Result<()> {
+        let key = clean(target).to_lowercase();
+        if key.is_empty() {
+            return Ok(());
+        }
+        self.exec_write(
+            r#"
+            INSERT INTO user_feed_feedback (target, scope, created_at) VALUES (?1, ?2, ?3)
+            ON CONFLICT(target, scope) DO UPDATE SET created_at = excluded.created_at
+            "#,
+            params![key, scope.as_str(), now],
+        )?;
+        crate::notify_affinity_updated();
+        Ok(())
+    }
+
+    /// 读取有效期内（`now - created_at < 90 天`）的推荐负反馈。
+    pub fn get_active_feed_feedback(&self, now: i64) -> Result<Vec<FeedFeedback>> {
+        let rows: Vec<(String, String, i64)> = self.query_vec(
+            "SELECT target, scope, created_at FROM user_feed_feedback WHERE created_at > ?1 ORDER BY created_at DESC",
+            params![now - FEED_FEEDBACK_TTL_SECS],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(target, scope, created_at)| {
+                Some(FeedFeedback {
+                    target,
+                    scope: FeedbackScope::parse(&scope)?,
+                    created_at,
+                })
+            })
+            .collect())
+    }
+
+    /// 清空全部推荐负反馈，返回删除行数。
+    pub fn clear_feed_feedback(&self) -> Result<usize> {
+        let count: i64 = self
+            .query_scalar_opt("SELECT COUNT(1) FROM user_feed_feedback", [])?
+            .unwrap_or(0);
+        self.exec_write("DELETE FROM user_feed_feedback", [])?;
+        crate::notify_affinity_updated();
+        Ok(count.max(0) as usize)
     }
 
     /// 判断本地是否已存在指定 `relations` 集合中的任意仓库特征信号。
@@ -210,7 +339,7 @@ impl Database {
         )
     }
 
-    /// 一次性加载本地显式偏好信号（`user_repo_signals`、`user_stars`、`user_favorites`、`watched_apps`）。
+    /// 一次性加载画像所需的全部本地信号。
     pub fn load_raw_affinity_signals(&self) -> Result<RawAffinitySignals> {
         let repo_signals = self.get_user_repo_signals()?;
         let user_stars = self.query_vec(
@@ -245,11 +374,48 @@ impl Database {
             },
         )?;
 
+        let installed = self.query_vec(
+            "SELECT app_id, installed_at FROM installed_apps ORDER BY installed_at DESC",
+            [],
+            |row| {
+                let app_id: String = row.get(0)?;
+                let installed_at: i64 = row.get(1)?;
+                Ok((app_id.to_lowercase(), installed_at))
+            },
+        )?;
+        let views = self.query_vec(
+            &format!(
+                "SELECT app_id, viewed_at FROM view_history ORDER BY viewed_at DESC LIMIT {}",
+                AFFINITY_VIEW_LIMIT
+            ),
+            [],
+            |row| {
+                let app_id: String = row.get(0)?;
+                let viewed_at: i64 = row.get(1)?;
+                Ok((app_id.to_lowercase(), viewed_at))
+            },
+        )?;
+        let searches = self.query_vec(
+            &format!(
+                "SELECT query, searched_at FROM search_history ORDER BY searched_at DESC LIMIT {}",
+                AFFINITY_SEARCH_LIMIT
+            ),
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )?;
+        let interest_seeds = self.get_interest_seeds()?;
+        let feedback = self.get_active_feed_feedback(now_secs())?;
+
         Ok(RawAffinitySignals {
             repo_signals,
             user_stars,
             favorites,
             watched,
+            installed,
+            views,
+            searches,
+            interest_seeds,
+            feedback,
         })
     }
 }
@@ -371,5 +537,71 @@ mod tests {
             .get_setting("affinity_github_synced_at")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn load_raw_affinity_signals_reads_installed_views_and_searches() {
+        let db = Database::open_in_memory().unwrap();
+        db.exec_write(
+            "INSERT INTO installed_apps (app_id, app_name, version, installed_at, install_method, install_path, asset_name, asset_sha256) VALUES ('Obsidian/Obsidian', 'Obsidian', '1.0', 1700000000, 'msi', 'C:/x', 'a.msi', '')",
+            [],
+        )
+        .unwrap();
+        db.record_app_view("logseq/logseq").unwrap();
+        db.record_search_query("markdown notes").unwrap();
+
+        let raw = db.load_raw_affinity_signals().unwrap();
+        assert_eq!(
+            raw.installed,
+            vec![("obsidian/obsidian".to_string(), 1700000000)]
+        );
+        assert_eq!(raw.views.len(), 1);
+        assert_eq!(raw.views[0].0, "logseq/logseq");
+        assert_eq!(raw.searches.len(), 1);
+        assert_eq!(raw.searches[0].0, "markdown notes");
+    }
+
+    #[test]
+    fn interest_seeds_replace_and_read() {
+        let db = Database::open_in_memory().unwrap();
+        db.replace_interest_seeds(&["Dev".to_string(), "media".to_string(), "dev".to_string()])
+            .unwrap();
+        assert_eq!(db.get_interest_seeds().unwrap(), vec!["dev", "media"]);
+        db.replace_interest_seeds(&["games".to_string()]).unwrap();
+        assert_eq!(db.get_interest_seeds().unwrap(), vec!["games"]);
+        assert_eq!(
+            db.load_raw_affinity_signals().unwrap().interest_seeds,
+            vec!["games"]
+        );
+    }
+
+    #[test]
+    fn feed_feedback_expires_after_ttl_and_clears() {
+        let db = Database::open_in_memory().unwrap();
+        let now = 1_800_000_000i64;
+        db.upsert_feed_feedback("Foo/Bar", FeedbackScope::App, now - 10)
+            .unwrap();
+        db.upsert_feed_feedback("games", FeedbackScope::Category, now - 91 * 86400)
+            .unwrap();
+        let active = db.get_active_feed_feedback(now).unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].target, "foo/bar");
+        assert_eq!(active[0].scope, FeedbackScope::App);
+        assert_eq!(db.clear_feed_feedback().unwrap(), 2);
+        assert!(db.get_active_feed_feedback(now).unwrap().is_empty());
+    }
+
+    #[test]
+    fn clear_affinity_profile_signals_also_clears_seeds_and_feedback() {
+        let db = Database::open_in_memory().unwrap();
+        db.replace_interest_seeds(&["dev".to_string()]).unwrap();
+        db.upsert_feed_feedback("a/b", FeedbackScope::App, now_secs())
+            .unwrap();
+        db.add_favorite("localsend/localsend", true).unwrap();
+        db.clear_affinity_profile_signals().unwrap();
+        let raw = db.load_raw_affinity_signals().unwrap();
+        assert!(raw.interest_seeds.is_empty());
+        assert!(raw.feedback.is_empty());
+        assert_eq!(raw.favorites.len(), 1);
     }
 }

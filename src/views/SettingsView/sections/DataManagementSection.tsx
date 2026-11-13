@@ -47,7 +47,9 @@ export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
         </div>
       </div>
 
-      <AffinityPrivacyRow />
+      <div id="settings-affinity">
+        <AffinityPrivacyRow />
+      </div>
       <DataBackupRow />
       <LogExportRow />
     </>

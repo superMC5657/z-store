@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import React from 'react';
-import { HomeView } from './HomeView';
+import { SearchResultsView } from './SearchResultsView';
 import { makeApp } from './test-utils/filterFixture';
 
 type IoCallback = (entries: Array<{ isIntersecting: boolean }>) => void;
@@ -63,7 +63,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderOnlineSearch(extraProps?: Partial<React.ComponentProps<typeof HomeView>>) {
+function renderOnlineSearch(extraProps?: Partial<React.ComponentProps<typeof SearchResultsView>>) {
   const onOnlineLoadMore = vi.fn();
   const onlineApps = Array.from({ length: 20 }, (_, i) =>
     makeApp({ id: `online/app-${i}`, name: `Online${i}` }),
@@ -73,14 +73,13 @@ function renderOnlineSearch(extraProps?: Partial<React.ComponentProps<typeof Hom
     makeApp({ id: 'local/b', name: 'LocalB' }),
   ];
   const view = render(
-    <HomeView
+    <SearchResultsView
       apps={localApps}
       installedIds={new Set<string>()}
       favoriteIds={new Set<string>()}
       onOpenDetail={() => {}}
       onQuickInstall={() => {}}
       onToggleFavorite={() => {}}
-      onNavigateTrends={() => {}}
       searchQuery="rustdesk"
       isOnlineResults
       onlineApps={onlineApps}
@@ -93,7 +92,7 @@ function renderOnlineSearch(extraProps?: Partial<React.ComponentProps<typeof Hom
   return { ...view, onOnlineLoadMore };
 }
 
-describe('HomeView online search armed boundary', () => {
+describe('SearchResultsView online search armed boundary', () => {
   it('reaching the bottom arms the boundary instead of auto-loading', () => {
     const { getByTestId, onOnlineLoadMore } = renderOnlineSearch();
     expect(getByTestId('online-armed-boundary').textContent).toContain('已到底 · 继续下拉加载更多');

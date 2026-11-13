@@ -6,6 +6,7 @@ pub mod detail_assets;
 pub mod detail_fetch;
 pub mod developer_profile;
 pub mod developer_starred;
+pub mod featured;
 #[cfg(test)]
 mod developer_starred_tests;
 pub mod http;

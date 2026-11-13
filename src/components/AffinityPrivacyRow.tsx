@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ShieldCheck, RefreshCw, Trash2, Sparkles, Check, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, RefreshCw, Trash2, Sparkles, Check, AlertTriangle, EyeOff } from 'lucide-react';
 import type { AffinityProfileSummary } from '../types';
 import { tauriApi } from '../services/api';
 import { subscribeAffinityUpdated } from '../services/feed';
@@ -22,7 +22,9 @@ const EMPTY_SUMMARY: AffinityProfileSummary = {
 export const AffinityPrivacyRow: React.FC = () => {
   const { t } = useTranslation();
   const [summary, setSummary] = useState<AffinityProfileSummary>(EMPTY_SUMMARY);
-  const [busyAction, setBusyAction] = useState<'toggle' | 'sync' | 'reset' | null>(null);
+  const [busyAction, setBusyAction] = useState<'toggle' | 'sync' | 'reset' | 'clear_feedback' | null>(null);
+  const [confirmClearFeedback, setConfirmClearFeedback] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const { text: feedbackText, isError: feedbackError, show: showFeedback } = useTransientFeedback();
 
   const loadSummary = useCallback(async () => {
@@ -79,8 +81,14 @@ export const AffinityPrivacyRow: React.FC = () => {
     }
   };
 
+  // 一键清空本地画像需二次确认：确认态文案说明会一并清除兴趣方向与推荐反馈。
   const handleResetProfile = async () => {
     if (busyAction !== null) return;
+    if (!confirmReset) {
+      setConfirmReset(true);
+      return;
+    }
+    setConfirmReset(false);
     setBusyAction('reset');
     try {
       await tauriApi.resetAffinityProfile();
@@ -94,6 +102,35 @@ export const AffinityPrivacyRow: React.FC = () => {
       setBusyAction(null);
     }
   };
+
+  // 清空推荐反馈需二次确认：第一次点击进入确认态，再点一次才执行。
+  const handleClearFeedback = async () => {
+    if (busyAction !== null) return;
+    if (!confirmClearFeedback) {
+      setConfirmClearFeedback(true);
+      return;
+    }
+    setConfirmClearFeedback(false);
+    setBusyAction('clear_feedback');
+    try {
+      const count = await tauriApi.clearFeedFeedback();
+      await loadSummary();
+      showFeedback(t('affinity_privacy.clear_feedback_ok', { count }), false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showFeedback(t('affinity_privacy.action_failed', { error: msg }), true);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const optionalStats: { key: string; value: number | undefined; label: string }[] = [
+    { key: 'installed', value: summary.installed_count, label: 'affinity_privacy.stat_installed' },
+    { key: 'viewed', value: summary.viewed_count, label: 'affinity_privacy.stat_viewed' },
+    { key: 'searches', value: summary.search_query_count, label: 'affinity_privacy.stat_searches' },
+    { key: 'feedback', value: summary.feedback_count, label: 'affinity_privacy.stat_feedback' },
+  ];
+  const interestSeeds = summary.interest_seeds ?? [];
 
   const formattedSyncTime = summary.last_synced_at
     ? new Date(summary.last_synced_at * 1000).toLocaleString()
@@ -184,11 +221,30 @@ export const AffinityPrivacyRow: React.FC = () => {
             data-testid="affinity-reset-btn"
             className="btn-fluent btn-secondary btn-compact"
             onClick={() => void handleResetProfile()}
+            onBlur={() => setConfirmReset(false)}
             disabled={busyAction !== null}
           >
             <Trash2 size={13} strokeWidth={1.5} />
-            <span>{t('affinity_privacy.reset_btn')}</span>
+            <span>{confirmReset ? t('affinity_privacy.reset_confirm') : t('affinity_privacy.reset_btn')}</span>
           </button>
+
+          {typeof summary.feedback_count === 'number' && summary.feedback_count > 0 && (
+            <button
+              type="button"
+              data-testid="affinity-clear-feedback-btn"
+              className="btn-fluent btn-secondary btn-compact"
+              onClick={() => void handleClearFeedback()}
+              onBlur={() => setConfirmClearFeedback(false)}
+              disabled={busyAction !== null}
+            >
+              <EyeOff size={13} strokeWidth={1.5} />
+              <span>
+                {confirmClearFeedback
+                  ? t('affinity_privacy.clear_feedback_confirm')
+                  : t('affinity_privacy.clear_feedback_btn')}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -227,6 +283,13 @@ export const AffinityPrivacyRow: React.FC = () => {
             count: summary.watched_count,
           })}
         </span>
+        {optionalStats.map((s) =>
+          typeof s.value === 'number' ? (
+            <span key={s.key} className="app-tag" data-testid={`affinity-stat-${s.key}`}>
+              {t(s.label as 'affinity_privacy.stat_installed', { count: s.value })}
+            </span>
+          ) : null,
+        )}
         <span className="app-tag">
           {t('affinity_privacy.last_synced', {
             time: formattedSyncTime,
@@ -234,7 +297,7 @@ export const AffinityPrivacyRow: React.FC = () => {
         </span>
       </div>
 
-      {(summary.top_categories.length > 0 || summary.top_languages.length > 0) && (
+      {(summary.top_categories.length > 0 || summary.top_languages.length > 0 || interestSeeds.length > 0) && (
         <div
           data-testid="affinity-privacy-top-signals"
           style={{
@@ -258,6 +321,13 @@ export const AffinityPrivacyRow: React.FC = () => {
             <span>
               {t('affinity_privacy.top_languages', {
                 items: summary.top_languages.join(' / '),
+              })}
+            </span>
+          )}
+          {interestSeeds.length > 0 && (
+            <span data-testid="affinity-interest-seeds">
+              {t('affinity_privacy.interest_seeds', {
+                items: interestSeeds.map((c) => getCategoryLabel(c, c, t)).join(' · '),
               })}
             </span>
           )}

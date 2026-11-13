@@ -25,7 +25,7 @@ import {
   selectManagedState,
   selectPlatformCounts,
 } from '../../app/selectors';
-import { useOnlinePullToLoadMore } from '../HomeView/useOnlinePullToLoadMore';
+import { useOnlinePullToLoadMore } from '../SearchResultsView/useOnlinePullToLoadMore';
 import { FilterEmptyState, resolvePlatformReset, type ViewAppActions } from '../ViewShell';
 
 /** 每页条数，与搜索页在线续拉一致。 */
@@ -460,7 +460,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
                   onClick={() => void handleLoadMore()}
                   disabled={loadingMore}
                 >
-                  {loadingMore ? t('home.feed_loading') : t('favorites.starred_load_more')}
+                  {loadingMore ? t('featured.feed_loading') : t('favorites.starred_load_more')}
                 </button>
               </div>
             </div>

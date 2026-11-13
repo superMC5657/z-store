@@ -508,27 +508,63 @@
     "skip_version": "跳过此版本",
     "skip_version_tooltip": "不再提示这个版本，后续新版本仍会提醒"
   },
-  "home": {
+  "featured": {
     "empty_title": "暂无收录应用",
     "empty_desc": "当前平台下暂无应用。",
     "reset_device_filter": "重置筛选",
-    "hero_tag_featured": "编辑精选",
-    "hero_tag_cross_platform": "跨平台精选",
-    "license_suffix": "协议",
-    "rustdesk_subtitle": "安全流畅的开源远程桌面",
-    "rustdesk_tag": "自建中继 · 端到端加密",
+    "hero_title": "今日为你",
+    "hero_title_editorial": "今日精选",
     "ready_open": "打开",
-    "explore_trends": "查看热榜",
-    "verified_badge": "官方认证",
-    "verified_tooltip": "已通过官方仓库认证",
-    "recent_views": "最近浏览",
-    "clear_recent": "清空记录",
-    "classic_featured": "经典推荐",
-    "all_featured": "全部精选",
+    "all": "全部精选",
+    "all_for_you": "全部精选 · 按你的偏好排序",
     "feed_loading": "正在加载…",
     "feed_load_more": "加载更多",
-    "feed_end_backend": "到底了 · 共 {{count}} 个",
-    "feed_end": "到底了 · 共 {{count}} 个"
+    "feed_end": "到底了 · 共 {{count}} 个",
+    "recent": "继续查看",
+    "clear_recent": "清空浏览记录",
+    "status": {
+      "signals": "根据 {{count}} 个本地信号推荐 · 仅在本机计算",
+      "preferences": "偏好设置",
+      "off": "个性化推荐已关闭，当前为编辑精选",
+      "turn_on": "开启个性化",
+      "close_hint": "关闭提示"
+    },
+    "interest": {
+      "title": "选几个你感兴趣的方向",
+      "desc": "只保存在本机，用来挑选首页推荐，随时可在设置中清除。",
+      "save": "开始推荐",
+      "skip": "暂不选择",
+      "pick_one": "至少选一个方向",
+      "failed": "保存兴趣失败，稍后再试"
+    },
+    "shelf": {
+      "category_for_you": "{{category}} · 为你挑选",
+      "category_editorial": "{{category}} · 精选",
+      "open_category": "进入分类",
+      "explore": "探索新领域",
+      "explore_desc": "你较少接触的分类里的高分应用",
+      "fresh": "本月新入库",
+      "view_all": "查看全部"
+    },
+    "reason": {
+      "seed_favorite": "因为你收藏了 {{name}}",
+      "seed_installed": "因为你安装了 {{name}}",
+      "seed_watched": "因为你关注了 {{name}}",
+      "seed_starred": "因为你 Star 了 {{name}}",
+      "seed_forked": "因为你 Fork 了 {{name}}",
+      "seed_owned": "与你的仓库 {{name}} 相似",
+      "category": "你常看{{category}}",
+      "owner": "来自你关注的作者 {{owner}}",
+      "keywords": "相关：{{tokens}}",
+      "fresh": "{{date}} 入库",
+      "explore": "换个方向：{{category}}"
+    },
+    "feedback": {
+      "menu": "推荐反馈",
+      "not_interested": "不感兴趣",
+      "less_category": "少推{{category}}",
+      "failed": "反馈未保存，稍后再试"
+    }
   },
   "trends": {
     "title": "趋势榜单",
@@ -852,10 +888,11 @@
     "sync_btn": "同步",
     "syncing": "正在同步…",
     "reset_btn": "重置",
+    "reset_confirm": "将一并清除兴趣方向与推荐反馈，确认？",
     "enabled_toast": "已开启本地个性化推荐",
     "disabled_toast": "已切回默认星数基线排序",
     "sync_ok": "已完成 GitHub 画像增量同步",
-    "reset_ok": "已清空本地 GitHub 画像信号",
+    "reset_ok": "已清空 GitHub 画像信号、兴趣方向与推荐反馈",
     "action_failed": "操作失败：{{error}}",
     "never_synced": "尚未同步",
     "stat_starred": "GitHub Stars: {{count}}",
@@ -865,7 +902,15 @@
     "stat_watched": "版本关注: {{count}}",
     "last_synced": "最近同步: {{time}}",
     "top_categories": "偏好分类: {{items}}",
-    "top_languages": "偏好语言: {{items}}"
+    "top_languages": "偏好语言: {{items}}",
+    "stat_installed": "已安装: {{count}}",
+    "stat_viewed": "浏览记录: {{count}}",
+    "stat_searches": "搜索词: {{count}}",
+    "stat_feedback": "已屏蔽推荐: {{count}}",
+    "interest_seeds": "兴趣方向: {{items}}",
+    "clear_feedback_btn": "清空推荐反馈",
+    "clear_feedback_confirm": "确认清空？",
+    "clear_feedback_ok": "已清空 {{count}} 条推荐反馈"
   },
   "developer_profile": {
     "close": "关闭开发者详情",

@@ -1,8 +1,8 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { Inbox, Download } from 'lucide-react';
-import { AppSummary } from '../types';
+import { Inbox, Download, MoreHorizontal } from 'lucide-react';
+import { AppSummary, FeedbackScope } from '../types';
 import { AppIconFrame } from './AppIconFrame';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon, WatchEyeIcon } from './icons/PlatformIcons';
@@ -53,7 +53,78 @@ interface AppCardProps {
    */
   showLoadDetail?: boolean;
   onLoadDetail?: (id: string) => void;
+  /** 推荐理由（精选页传入，已格式化）：描述下方一行次要文字，缺席不渲染。 */
+  reasonText?: string;
+  /** 推荐负反馈入口（精选页推荐区块传入）：「不感兴趣」与「少推这类」，缺席不渲染菜单。 */
+  onDismiss?: (app: AppSummary, scope: FeedbackScope) => void;
 }
+
+/** 推荐负反馈菜单：键盘可达，Esc 或点击外部关闭。 */
+const FeedbackMenu: React.FC<{
+  app: AppSummary;
+  categoryLabel: string;
+  onDismiss: (app: AppSummary, scope: FeedbackScope) => void;
+}> = ({ app, categoryLabel, onDismiss }) => {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [open]);
+  const choose = (scope: FeedbackScope) => {
+    setOpen(false);
+    onDismiss(app, scope);
+  };
+  return (
+    <span
+      ref={rootRef}
+      className="card-feedback"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        className="btn-fav-card"
+        data-testid={`feedback-menu-${app.id}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={t('featured.feedback.menu')}
+        aria-label={t('featured.feedback.menu')}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MoreHorizontal size={14} strokeWidth={1.5} aria-hidden="true" />
+      </button>
+      {open && (
+        <span className="card-feedback-menu" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            data-testid={`dismiss-app-${app.id}`}
+            onClick={() => choose('app')}
+          >
+            {t('featured.feedback.not_interested')}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid={`dismiss-category-${app.id}`}
+            onClick={() => choose('category')}
+          >
+            {t('featured.feedback.less_category', { category: categoryLabel })}
+          </button>
+        </span>
+      )}
+    </span>
+  );
+};
 
 function arePlatformsEqual(a?: string[], b?: string[]): boolean {
   if (a === b) return true;
@@ -120,6 +191,8 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.isMovingIn ?? false) === (next.isMovingIn ?? false) &&
     (prev.isCustomExisting ?? false) === (next.isCustomExisting ?? false) &&
     (prev.showLoadDetail ?? false) === (next.showLoadDetail ?? false) &&
+    prev.reasonText === next.reasonText &&
+    prev.onDismiss === next.onDismiss &&
     prev.onOpenDetail === next.onOpenDetail &&
     prev.onQuickInstall === next.onQuickInstall &&
     prev.onToggleFavorite === next.onToggleFavorite &&
@@ -151,6 +224,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   isCustomExisting = false,
   showLoadDetail = false,
   onLoadDetail,
+  reasonText,
+  onDismiss,
 }) => {
   const { t, i18n } = useTranslation();
   // 已纳管绿已安装；未纳管走获取安装。
@@ -273,6 +348,11 @@ export const AppCard: React.FC<AppCardProps> = memo(({
       </div>
 
       <p className="app-desc" title={displayDesc}>{displayDesc}</p>
+      {reasonText && (
+        <p className="app-reason" title={reasonText} data-testid={`reason-${app.id}`}>
+          {reasonText}
+        </p>
+      )}
 
       <div className="app-card-footer">
         <div className="app-tags">
@@ -481,6 +561,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
             </>
           )}
         </button>
+        {onDismiss && <FeedbackMenu app={app} categoryLabel={displayCategory} onDismiss={onDismiss} />}
       </div>
     </div>
   );

@@ -7,7 +7,10 @@ import type {
   AppDetail,
   AppMatchResult,
   AppSummary,
+  FeaturedPage,
+  FeedbackScope,
   ImportAppRequest,
+  ProfileState,
   SyncCatalogResult,
 } from '../../types';
 import {
@@ -56,7 +59,56 @@ export async function getAffinityProfileSummary(): Promise<AffinityProfileSummar
     top_categories: Array.isArray(raw?.top_categories) ? raw.top_categories : [],
     top_languages: Array.isArray(raw?.top_languages) ? raw.top_languages : [],
     last_synced_at: typeof raw?.last_synced_at === 'number' ? raw.last_synced_at : null,
+    installed_count: optionalCount(raw?.installed_count),
+    viewed_count: optionalCount(raw?.viewed_count),
+    search_query_count: optionalCount(raw?.search_query_count),
+    interest_seeds: Array.isArray(raw?.interest_seeds) ? raw.interest_seeds : undefined,
+    feedback_count: optionalCount(raw?.feedback_count),
+    signal_count: optionalCount(raw?.signal_count),
   };
+}
+
+/** 旧后端缺字段时保持 `undefined`，供看板隐藏对应行。 */
+function optionalCount(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+const PROFILE_STATES: readonly ProfileState[] = ['off', 'cold', 'warm', 'rich'];
+
+/**
+ * 精选页整页货架。`allowedIds` 为 App 层平台筛选后的可见应用 id（缺省 = 不限制）。
+ */
+export async function getFeaturedPage(daySeed: number, allowedIds?: readonly string[]): Promise<FeaturedPage> {
+  const args: Record<string, unknown> = { daySeed };
+  if (allowedIds) args.allowedIds = [...allowedIds];
+  const raw = await tauriInvoke<Partial<FeaturedPage> | null>(CMD.getFeaturedPage, args);
+  const state = PROFILE_STATES.includes(raw?.profile_state as ProfileState)
+    ? (raw?.profile_state as ProfileState)
+    : 'off';
+  return {
+    profile_state: state,
+    signal_count: Number(raw?.signal_count) || 0,
+    top_categories: Array.isArray(raw?.top_categories) ? raw.top_categories : [],
+    hero: Array.isArray(raw?.hero) ? raw.hero : [],
+    shelves: Array.isArray(raw?.shelves) ? raw.shelves : [],
+  };
+}
+
+export async function saveInterestSeeds(categories: readonly string[]): Promise<void> {
+  await tauriInvoke<void>(CMD.saveInterestSeeds, { categories: [...categories] });
+}
+
+export async function getInterestSeeds(): Promise<string[]> {
+  const raw = await tauriInvoke<string[] | null>(CMD.getInterestSeeds);
+  return Array.isArray(raw) ? raw : [];
+}
+
+export async function dismissFeatured(target: string, scope: FeedbackScope): Promise<void> {
+  await tauriInvoke<void>(CMD.dismissFeatured, { target, scope });
+}
+
+export async function clearFeedFeedback(): Promise<number> {
+  return Number(await tauriInvoke<number>(CMD.clearFeedFeedback)) || 0;
 }
 
 export async function syncAffinitySignals(): Promise<number> {

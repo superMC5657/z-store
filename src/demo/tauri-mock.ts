@@ -50,6 +50,13 @@ import {
   handleSyncCatalog,
 } from './handlers/catalog';
 import {
+  handleClearFeedFeedback,
+  handleDismissFeatured,
+  handleGetFeaturedPage,
+  handleGetInterestSeeds,
+  handleSaveInterestSeeds,
+} from './handlers/featured';
+import {
   handleCheckForUpdates,
   handleDownloadAsset,
   handleGetCachedUpdates,
@@ -235,6 +242,16 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleResetAffinityProfile();
     case 'sync_affinity_signals':
       return 0;
+    case 'get_featured_page':
+      return handleGetFeaturedPage(a);
+    case 'save_interest_seeds':
+      return handleSaveInterestSeeds(a);
+    case 'get_interest_seeds':
+      return handleGetInterestSeeds();
+    case 'dismiss_featured':
+      return handleDismissFeatured(a);
+    case 'clear_feed_feedback':
+      return handleClearFeedFeedback();
     case 'get_category_apps':
       return handleGetCategoryApps(a);
     case 'get_latest_catalog_apps':

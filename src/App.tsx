@@ -14,7 +14,8 @@ import { AppDetailModal } from './components/AppDetailModal';
 import { DeveloperProfileModal } from './components/DeveloperProfileModal';
 import { AppImportModal } from './components/AppImportModal';
 import { RulesManagerModal } from './components/RulesManagerModal';
-import { HomeView } from './views/HomeView';
+import { FeaturedView } from './views/FeaturedView';
+import { SearchResultsView } from './views/SearchResultsView';
 import { LatestView } from './views/LatestView';
 import { TrendsView } from './views/TrendsView';
 import { CategoriesView } from './views/CategoriesView';
@@ -601,6 +602,22 @@ export const App: React.FC = () => {
   };
 
   // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
+  // 精选页「进入分类」：带着分类进入分类浏览；离开分类视图后清空，侧栏再进时停在大厅。
+  const [categoryFocus, setCategoryFocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (currentView !== 'categories') setCategoryFocus(null);
+  }, [currentView]);
+  const handleOpenCategory = (category: string) => {
+    setCategoryFocus(category);
+    navigate('categories');
+  };
+  const handleOpenAffinitySettings = () => {
+    navigate('settings');
+    setTimeout(() => {
+      document.getElementById('settings-affinity')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+  };
+
   const handleOpenAccountSettings = () => {
     navigate('settings');
     setTimeout(() => {
@@ -682,8 +699,8 @@ export const App: React.FC = () => {
                   }
                 />
               </div>
-            ) : (
-              <HomeView
+            ) : searchQuery.trim() ? (
+              <SearchResultsView
                 apps={platformFilteredApps}
                 platformResolvedOtherIds={platformResolvedOtherIds}
                 installedIds={installedIds}
@@ -691,15 +708,11 @@ export const App: React.FC = () => {
                 managedIds={managedLoaded ? managedIds : null}
                 favoriteIds={favoriteIds}
                 watchedIds={watchedIds}
-                recentlyViewedApps={searchQuery.trim() ? [] : recentlyViewedApps}
                 searchQuery={searchQuery}
                 onOpenDetail={handleOpenDetail}
                 onQuickInstall={handleQuickInstall}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleWatch={handleToggleWatch}
-                onNavigateTrends={() => navigate('trends')}
-                onClearRecentViews={handleClearRecentViews}
-                onResetPlatformFilter={handleResetPlatformFilter}
                 isOnlineResults={isOnlineResultSet}
                 onlineApps={platformFilteredOnlineApps}
                 isSearchingLocal={isSearchingLocal}
@@ -711,6 +724,27 @@ export const App: React.FC = () => {
                 onSearchOnline={() => handleSearchSubmit(searchQuery)}
                 customIds={customIds}
                 localApps={localLibrarySummaries}
+              />
+            ) : (
+              <FeaturedView
+                apps={platformFilteredApps}
+                platformResolvedOtherIds={platformResolvedOtherIds}
+                installedIds={installedIds}
+                installingIds={installingAppIds}
+                managedIds={managedLoaded ? managedIds : null}
+                favoriteIds={favoriteIds}
+                watchedIds={watchedIds}
+                recentlyViewedApps={recentlyViewedApps}
+                onOpenDetail={handleOpenDetail}
+                onQuickInstall={handleQuickInstall}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleWatch={handleToggleWatch}
+                onClearRecentViews={handleClearRecentViews}
+                onResetPlatformFilter={handleResetPlatformFilter}
+                localApps={localLibrarySummaries}
+                onOpenCategory={handleOpenCategory}
+                onNavigateLatest={() => navigate('latest')}
+                onOpenAffinitySettings={handleOpenAffinitySettings}
               />
             )
           )}
@@ -769,6 +803,7 @@ export const App: React.FC = () => {
               onToggleFavorite={handleToggleFavorite}
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
+              initialCategory={categoryFocus}
             />
           )}
 

@@ -1,0 +1,263 @@
+/* components-featured.css · 精选页（ADR-0023）：推荐理由、负反馈菜单、画像状态栏、兴趣选择卡 */
+
+/* 行式卡片中的推荐理由：位于描述之后，次要文字，单行省略 */
+.app-reason {
+  flex: 0 1 auto;
+  max-width: 32%;
+  margin: 0;
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+@media (max-width: 1024px) {
+  .app-reason {
+    display: none;
+  }
+}
+
+/* 推荐负反馈菜单 */
+.card-feedback {
+  position: relative;
+  display: inline-flex;
+}
+
+.card-feedback-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--bg-surface-flyout);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-hover);
+}
+
+.card-feedback-menu button {
+  all: unset;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.card-feedback-menu button:hover,
+.card-feedback-menu button:focus-visible {
+  background: var(--bg-acrylic-hover);
+}
+
+/* 画像状态栏 */
+.featured-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: var(--bg-acrylic-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.featured-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.featured-status-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.featured-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+/* hero 补充 */
+.featured-hero .hero-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.featured-hero-category {
+  color: var(--text-secondary);
+  font-weight: 510;
+}
+
+.featured-hero-reason {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 14px;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.featured-hero-skeleton {
+  min-height: 132px;
+  cursor: default;
+}
+
+.featured-shelf-subtitle {
+  margin: -4px 0 8px;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+/* 兴趣选择卡 */
+.interest-picker {
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  background: var(--bg-hero-banner);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.interest-picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.interest-picker-title {
+  margin: 0 0 4px;
+  font-size: var(--font-md);
+  font-weight: 590;
+  color: var(--text-primary);
+}
+
+.interest-picker-desc {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.interest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.interest-chip {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.interest-chip:hover {
+  background: var(--bg-acrylic-hover);
+}
+
+.interest-chip:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+.interest-chip.active {
+  color: var(--color-nav-active);
+  background: var(--brand-subtle);
+  border-color: var(--border-nav-active);
+}
+
+.interest-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.interest-picker-error {
+  font-size: var(--font-sm);
+  color: #ef4444;
+}
+
+/* 继续查看细条 */
+.featured-recent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+
+.featured-recent-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.featured-recent-items {
+  display: flex;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.featured-recent-item {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 160px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.featured-recent-item:hover,
+.featured-recent-item:focus-visible {
+  background: var(--bg-acrylic-hover);
+}
+
+.featured-recent-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
