@@ -64,7 +64,7 @@ fn test_should_include_update() {
         Some(&frozen_rule)
     ));
 
-    // 4. 规则隐藏 (is_hidden == true) -> 即使有新版本也忽略
+    // 4. 规则隐藏 (is_hidden == true) -> 仍包含，供「已隐藏」签与规则管理跳过版本
     let hidden_rule = UpdateRule {
         app_id: "test".to_string(),
         skipped_version: None,
@@ -72,7 +72,7 @@ fn test_should_include_update() {
         is_hidden: true,
         updated_at: 1000,
     };
-    assert!(!should_include_update(
+    assert!(should_include_update(
         "v1.0.0",
         "v2.0.0",
         Some(&hidden_rule)

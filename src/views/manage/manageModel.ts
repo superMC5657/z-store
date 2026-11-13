@@ -1,7 +1,7 @@
 import type { AppSummary, InstalledApp, UpdateItem, UpdateRule } from '../../types';
 import { resolveInstalledAppName } from '../../utils/appHelper';
 
-export type InstalledFilterTabId = 'all' | 'updatable' | 'frozen' | 'hidden' | 'missing_path';
+export type InstalledFilterTabId = 'all' | 'updatable' | 'frozen' | 'hidden';
 export type InstalledSortOrder = 'recent' | 'name';
 
 const INSTALL_METHOD_LABELS: Readonly<Record<string, string>> = {
@@ -33,7 +33,6 @@ export interface InstalledRuleStats {
   updatableCount: number;
   frozenCount: number;
   hiddenCount: number;
-  missingPathCount: number;
 }
 
 /**
@@ -63,7 +62,6 @@ export function computeInstalledStats(
 ): InstalledRuleStats {
   let frozenCount = 0;
   let hiddenCount = 0;
-  let missingPathCount = 0;
 
   for (const app of installedApps) {
     const key = app.app_id.toLowerCase();
@@ -74,11 +72,10 @@ export function computeInstalledStats(
       continue;
     }
     if (rule?.is_frozen) frozenCount++;
-    if (!app.install_path || !app.install_path.trim()) missingPathCount++;
   }
 
   const updatableCount = selectUpdatableInstalled(installedApps, rulesByAppId, updatesById).length;
-  return { updatableCount, frozenCount, hiddenCount, missingPathCount };
+  return { updatableCount, frozenCount, hiddenCount };
 }
 
 /** 按规则表生成大小写归一的规则查找索引。 */
@@ -119,7 +116,6 @@ export function filterAndSortInstalledApps(
     if (tab === 'updatable' && !updatesById.has(app.app_id.toLowerCase())) return false;
     if (tab === 'frozen' && !rule?.is_frozen) return false;
     if (tab === 'hidden' && !rule?.is_hidden) return false;
-    if (tab === 'missing_path' && app.install_path && app.install_path.trim() !== '') return false;
 
     if (!q) return true;
     const displayName = resolveInstalledAppName(app, apps).toLowerCase();

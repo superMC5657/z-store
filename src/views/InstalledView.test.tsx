@@ -111,11 +111,6 @@ describe('InstalledView redesigned workbench', () => {
     expect(screen.getByText('scrcpy')).toBeTruthy();
     expect(screen.queryByText('Neovim')).toBeNull();
 
-    // 切换到「路径待探测」标签
-    fireEvent.click(screen.getByRole('tab', { name: /路径待探测/ }));
-    expect(screen.getByText('scrcpy')).toBeTruthy();
-    expect(screen.getByText('未检测到安装路径')).toBeTruthy();
-
     // 已隐藏的应用只在「已隐藏」签出现
     fireEvent.click(screen.getByRole('tab', { name: '已隐藏 1' }));
     expect(screen.getByText('AlphaTool')).toBeTruthy();

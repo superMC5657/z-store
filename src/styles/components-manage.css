@@ -561,17 +561,6 @@
   opacity: 1;
 }
 
-.manage-path-missing {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
-}
-
 .manage-inline-link-btn {
   display: inline-flex;
   align-items: center;

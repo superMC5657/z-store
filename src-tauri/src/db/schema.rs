@@ -3,7 +3,7 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 3;
+const CURRENT_USER_VERSION: i64 = 4;
 
 impl Database {
     pub(crate) fn init_schema(&self) -> Result<()> {
@@ -334,6 +334,7 @@ impl Database {
                 0 => self.migrate_v0_to_v1()?,
                 1 => self.migrate_v1_to_v2()?,
                 2 => self.migrate_v2_to_v3()?,
+                3 => self.migrate_v3_to_v4()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -382,6 +383,17 @@ impl Database {
                 "#,
             )
         })
+    }
+
+    /// v3 → v4：`update_rules` 收敛为「锁定包含跳过」——清掉已锁定规则上的跳过版本，
+    /// 并删除不含任何策略的空规则行。
+    fn migrate_v3_to_v4(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "UPDATE update_rules SET skipped_version = NULL WHERE is_frozen = 1;
+             DELETE FROM update_rules
+             WHERE (skipped_version IS NULL OR TRIM(skipped_version) = '')
+               AND is_frozen = 0 AND is_hidden = 0;",
+        )
     }
 
     /// 读 `PRAGMA user_version`（迁移链与 schema 迁移测试共用读口）。
@@ -483,6 +495,37 @@ mod schema_migration_tests {
             .unwrap()
             .unwrap_or(0);
         assert_eq!(tables, 3, "幂等基底在高版本库上仍应补齐表结构");
+    }
+
+    #[test]
+    fn v3_db_migrates_update_rules_so_lock_supersedes_skip() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE update_rules (
+                app_id TEXT PRIMARY KEY,
+                skipped_version TEXT,
+                is_frozen INTEGER NOT NULL DEFAULT 0,
+                is_hidden INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL
+            );
+            INSERT INTO update_rules VALUES ('yetone/magpie', 'v1', 1, 1, 1);
+            INSERT INTO update_rules VALUES ('wezterm/wezterm', 'v2', 0, 0, 1);
+            INSERT INTO update_rules VALUES ('obsproject/obs-studio', NULL, 0, 0, 1);
+            PRAGMA user_version = 3;
+            "#,
+        )
+        .unwrap();
+        let db = Database { conn };
+        db.init_schema().unwrap();
+        assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
+
+        let magpie = db.get_rule("yetone/magpie").unwrap().unwrap();
+        assert!(magpie.is_frozen && magpie.is_hidden);
+        assert_eq!(magpie.skipped_version, None);
+        let wezterm = db.get_rule("wezterm/wezterm").unwrap().unwrap();
+        assert_eq!(wezterm.skipped_version.as_deref(), Some("v2"));
+        assert!(db.get_rule("obsproject/obs-studio").unwrap().is_none());
     }
 
     #[test]

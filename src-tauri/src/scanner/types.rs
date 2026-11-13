@@ -30,6 +30,18 @@ pub struct AppMatchResult {
     pub resolved_executable_path: Option<String>,
 }
 
+impl AppMatchResult {
+    /// 导入时写入 `installed_apps.install_path` 的路径：优先已解析的主程序，其次注册表安装目录。
+    /// 「我的应用」以该路径在磁盘上存在为可见前提，故扫描结果也以它为准。
+    pub fn import_path(&self) -> Option<&str> {
+        self.resolved_executable_path
+            .as_deref()
+            .or(self.scanned.install_location.as_deref())
+            .map(super::version::unquote_path)
+            .filter(|p| !p.is_empty())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportAppRequest {
     pub app_id: String,

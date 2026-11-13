@@ -123,10 +123,6 @@ export function handleSetAppHidden(): boolean {
   return true;
 }
 
-export function handleRemoveUpdateRule(): boolean {
-  return true;
-}
-
 export function handleSelectFolder(): null {
   return null;
 }

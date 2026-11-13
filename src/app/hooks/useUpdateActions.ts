@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, UpdateCheckProgressPayload, UpdateItem, UpdateRule } from '../../types';
 import { tauriApi } from '../../services/api';
+import { normalizeId, normalizeIdLowerSet } from '../../services/normalizeId';
 
 interface UseUpdateActionsParams {
   updates: UpdateItem[];
@@ -17,7 +18,7 @@ interface UseUpdateActionsParams {
 
 /**
  * 更新规则动作簇（C3 自 App.tsx 抽出，原 L1119-1260：单项更新/
- * 跳过版本/锁定/隐藏/移除规则/清除跳过/切换锁定隐藏/批量升级/手动检查）。
+ * 跳过版本/锁定/隐藏/清除跳过/切换锁定隐藏/批量升级/手动检查）。
  */
 export function useUpdateActions({
   updates,
@@ -50,18 +51,6 @@ export function useUpdateActions({
     const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
     showToast(t('toast.skip_version', { id, version }), 'info');
-  };
-
-  // 移除规则（功能 C）
-  const handleRemoveRule = async (appId: string) => {
-    await tauriApi.removeUpdateRule(appId);
-    const rules = await tauriApi.getUpdateRules();
-    setUpdateRules(rules);
-    const freshUpdates = await tauriApi.checkForUpdates();
-    setUpdates(freshUpdates);
-    const catalogApps = await tauriApi.searchApps(searchQuery);
-    setApps(catalogApps);
-    showToast(t('toast.clear_rules', { id: appId }), 'success');
   };
 
   // 清除跳过版本规则
@@ -140,10 +129,20 @@ export function useUpdateActions({
         // 快照缺席时回退网络回包
       }
       setUpdates(displayed);
-      if (displayed.length === 0) {
+      // 隐藏应用的更新只供「已隐藏」签与规则管理跳过版本，不计入提示
+      let hiddenIds = new Set<string>();
+      try {
+        const rules = await tauriApi.getUpdateRules();
+        setUpdateRules(rules);
+        hiddenIds = normalizeIdLowerSet(rules.filter((r) => r.is_hidden).map((r) => r.app_id));
+      } catch {
+        // 规则读取失败时按全部计数
+      }
+      const visibleCount = displayed.filter((u) => !hiddenIds.has(normalizeId(u.app_id))).length;
+      if (visibleCount === 0) {
         showToast(t('toast.all_latest'), 'success');
       } else {
-        showToast(t('toast.updates_found', { count: displayed.length }), 'info');
+        showToast(t('toast.updates_found', { count: visibleCount }), 'info');
       }
     } catch (e) {
       showToast(t('toast.check_failed', { error: String(e) }), 'error');
@@ -156,7 +155,6 @@ export function useUpdateActions({
   return {
     handleApplyUpdate,
     handleSkipVersion,
-    handleRemoveRule,
     handleClearRuleSkip,
     handleToggleRuleFrozen,
     handleToggleRuleHidden,

@@ -65,7 +65,6 @@ import {
   handleInstallApp,
   handleLaunchApp,
   handleOpenFolder,
-  handleRemoveUpdateRule,
   handleSelectFolder,
   handleSetAppFrozen,
   handleSetAppHidden,
@@ -316,8 +315,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleSetAppFrozen();
     case 'set_app_hidden':
       return handleSetAppHidden();
-    case 'remove_update_rule':
-      return handleRemoveUpdateRule();
     case 'select_folder':
       return handleSelectFolder();
 

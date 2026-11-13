@@ -47,16 +47,8 @@ pub fn set_app_hidden(
     Ok(true)
 }
 
-#[tauri::command(rename_all = "camelCase")]
-pub fn remove_update_rule(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
-    // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
-    let app_id = crate::commands::require_app_id(&app_id)?;
-    let db = state.db()?;
-    Ok(db.remove_rule(&app_id)?)
-}
-
 /// ADR-0010 入站归一化契约（finding 2.1-1, part A）：
-/// 4 个 update-rule 命令必须先经 `crate::forge::canonical_app_id` 归一化——
+/// 3 个 update-rule 写命令必须先经 `crate::forge::canonical_app_id` 归一化——
 /// 混合大小写 / URL 形态落 canonical 键，无法解析者直接拒绝、永不写入 SQLite。
 /// Tauri `State` 命令体无法在单测中直调，故此处按“每命令存储路径”锁定契约：
 /// 用与命令相同的归一化 + DB 调用序列断言 canonical 命中、raw 键无行、垃圾 id 无写入。
@@ -161,28 +153,6 @@ mod update_rule_inbound_normalization_tests {
         assert!(normalize("localsend").is_none());
         let db = Database::open_in_memory().unwrap();
         assert!(db.get_all_rules().unwrap().is_empty());
-        assert!(db.get_rule(GARBAGE).unwrap().is_none());
-    }
-
-    #[test]
-    fn remove_update_rule_removes_canonical_for_mixed_case_and_url_form() {
-        for raw in [MIXED_CASE, URL_FORM] {
-            let db = Database::open_in_memory().unwrap();
-            db.set_skip_version(CANONICAL, Some("v1.0.0")).unwrap();
-            let id = normalize(raw).expect("parseable id must normalize");
-            assert_eq!(id, CANONICAL);
-            assert!(db.remove_rule(&id).unwrap());
-            assert!(db.get_rule(CANONICAL).unwrap().is_none());
-        }
-    }
-
-    #[test]
-    fn remove_update_rule_rejects_garbage() {
-        assert!(normalize(GARBAGE).is_none());
-        // 垃圾 id 永不触碰 SQLite：已存在的 canonical 规则不受影响
-        let db = Database::open_in_memory().unwrap();
-        db.set_skip_version(CANONICAL, Some("v1.0.0")).unwrap();
-        assert!(db.get_rule(CANONICAL).unwrap().is_some());
         assert!(db.get_rule(GARBAGE).unwrap().is_none());
     }
 }

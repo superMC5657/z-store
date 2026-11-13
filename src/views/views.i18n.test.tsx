@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 import { CategoriesView } from './CategoriesView';
 import { InstalledView } from './InstalledView';
@@ -228,6 +228,37 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
     });
   });
 
+  describe('RulesManagerModal skip version', () => {
+    it('offers 跳过版本 on a hidden rule with a pending update and skips its latest version', async () => {
+      await i18n.changeLanguage('zh-CN');
+      const onSkipVersion = vi.fn(async () => {});
+      render(
+        <RulesManagerModal
+          isOpen={true}
+          onClose={() => {}}
+          updateRules={[
+            { app_id: 'yetone/magpie', skipped_version: null, is_frozen: false, is_hidden: true, updated_at: 1700000000 },
+            { app_id: 'neovim/neovim', skipped_version: null, is_frozen: true, is_hidden: false, updated_at: 1700000000 },
+          ]}
+          updatesById={
+            new Map([
+              ['yetone/magpie', { app_id: 'yetone/magpie', app_name: 'magpie', current_version: '0.1.3959', latest_version: '0.1.4000', changelog: '' }],
+            ])
+          }
+          onClearRuleSkip={async () => {}}
+          onToggleRuleFrozen={async () => {}}
+          onToggleRuleHidden={async () => {}}
+          onSkipVersion={onSkipVersion}
+        />,
+      );
+
+      const skipButtons = screen.getAllByRole('button', { name: '跳过版本' });
+      expect(skipButtons).toHaveLength(1);
+      fireEvent.click(skipButtons[0]);
+      await waitFor(() => expect(onSkipVersion).toHaveBeenCalledWith('yetone/magpie', '0.1.4000'));
+    });
+  });
+
   describe('RulesManagerModal i18n', () => {
     it('switches modal title, tabs, and action buttons between Chinese and English', async () => {
       await i18n.changeLanguage('zh-CN');
@@ -237,7 +268,6 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
           onClose={() => {}}
           updateRules={[MOCK_RULE]}
           installedApps={[MOCK_INSTALLED]}
-          onRemoveRule={async () => {}}
           onClearRuleSkip={async () => {}}
           onToggleRuleFrozen={async () => {}}
           onToggleRuleHidden={async () => {}}
@@ -252,7 +282,7 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
       expect(screen.getByText(/生效于: 2023/)).toBeTruthy();
       expect(screen.queryByText(/1970/)).toBeNull();
       expect(screen.getByText('恢复提醒')).toBeTruthy();
-      expect(screen.getByText('解除版本锁定')).toBeTruthy();
+      expect(screen.getByText('解锁版本')).toBeTruthy();
       expect(screen.getByText('完成')).toBeTruthy();
       unmount();
 
@@ -263,7 +293,6 @@ describe('Content Views Internationalization (zh-CN <-> en-US)', () => {
           onClose={() => {}}
           updateRules={[MOCK_RULE]}
           installedApps={[MOCK_INSTALLED]}
-          onRemoveRule={async () => {}}
           onClearRuleSkip={async () => {}}
           onToggleRuleFrozen={async () => {}}
           onToggleRuleHidden={async () => {}}

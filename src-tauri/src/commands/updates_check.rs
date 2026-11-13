@@ -247,14 +247,16 @@ pub(crate) fn is_version_newer(current: &str, latest: &str) -> bool {
     }
 }
 
-/// 判定是否应当提示此更新，综合考量版本策略表（跳过指定版本、锁定、隐藏）
+/// 判定是否应当提示此更新，综合考量版本策略表（锁定、跳过指定版本）。
+/// 隐藏不在此排除：隐藏应用的更新仍进入列表，供「已隐藏」签与规则管理跳过版本；
+/// 前端各更新计数与「有更新」签自行排除隐藏应用。
 pub(crate) fn should_include_update(
     current_version: &str,
     latest_version: &str,
     rule: Option<&UpdateRule>,
 ) -> bool {
     if let Some(r) = rule {
-        if r.is_frozen || r.is_hidden {
+        if r.is_frozen {
             return false;
         }
         if let Some(ref skipped) = r.skipped_version {
@@ -290,17 +292,10 @@ pub async fn check_for_updates(
             .collect()
     };
 
-    // 过滤掉已被规则明确锁定（frozen）或隐藏（hidden）的应用
+    // 过滤掉已锁定版本的应用；隐藏应用照常检查，以便跳过其新版本
     let eligible_apps: Vec<_> = installed
         .into_iter()
-        .filter(|app| {
-            if let Some(rule) = rules_map.get(&app.app_id) {
-                if rule.is_frozen || rule.is_hidden {
-                    return false;
-                }
-            }
-            true
-        })
+        .filter(|app| !rules_map.get(&app.app_id).is_some_and(|rule| rule.is_frozen))
         .collect();
 
     let total = eligible_apps.len();
@@ -449,8 +444,8 @@ pub async fn check_for_updates(
 /// 更新中心列表读（DB-only，无网络）：登录/UpdatesView 首屏直读快照。
 /// - 仅 `has_update=1` 行；逐行与当前已安装版本比对（`installed_version` 不一致视为过期跳过，
 ///   覆盖安装/导入未及时失效的缺口）；
-/// - 规则过滤与 `check_for_updates` 同口径（frozen/hidden 跳过，skip 版本跳过，
-///   `should_include_update` 重校验）；
+/// - 规则过滤与 `check_for_updates` 同口径（frozen 跳过、skip 版本跳过，经
+///   `should_include_update` 重校验；hidden 不跳过，由前端各计数自行排除）；
 /// - 幽灵隐藏语义沿用 `get_installed_apps`（未安装/幽灵不行，`stale_passthrough` 不动）。
 #[tauri::command]
 pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<UpdateItem>> {
@@ -484,11 +479,6 @@ pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<Up
             continue;
         }
         let rule_opt = rules_map.get(&item.app_id);
-        if let Some(r) = rule_opt {
-            if r.is_frozen || r.is_hidden {
-                continue;
-            }
-        }
         if !should_include_update(current, &item.latest_version, rule_opt) {
             continue;
         }

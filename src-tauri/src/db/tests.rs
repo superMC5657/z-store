@@ -102,11 +102,11 @@ fn test_update_rules_crud() {
     assert!(!rule.is_frozen);
     assert!(!rule.is_hidden);
 
-    // 3. 锁定版本
+    // 3. 锁定版本（锁定包含跳过，跳过版本被清掉）
     db.set_frozen_status("rustdesk", true).unwrap();
     let rule = db.get_rule("rustdesk").unwrap().unwrap();
     assert!(rule.is_frozen);
-    assert_eq!(rule.skipped_version.as_deref(), Some("v1.3.0"));
+    assert_eq!(rule.skipped_version, None);
 
     // 4. 隐藏状态
     db.set_hidden_status("rustdesk", true).unwrap();
@@ -118,18 +118,71 @@ fn test_update_rules_crud() {
     let all = db.get_all_rules().unwrap();
     assert_eq!(all.len(), 2);
 
-    // 6. 解锁与取消隐藏
+    // 6. 解锁（仍隐藏）
     db.set_frozen_status("rustdesk", false).unwrap();
-    db.set_hidden_status("rustdesk", false).unwrap();
     let rule = db.get_rule("rustdesk").unwrap().unwrap();
     assert!(!rule.is_frozen);
-    assert!(!rule.is_hidden);
+    assert!(rule.is_hidden);
 
-    // 7. 移除规则
-    let removed = db.remove_rule("rustdesk").unwrap();
-    assert!(removed);
+    // 7. 取消隐藏后不再有任何策略，规则被删除
+    db.set_hidden_status("rustdesk", false).unwrap();
     assert!(db.get_rule("rustdesk").unwrap().is_none());
     assert_eq!(db.get_all_rules().unwrap().len(), 1);
+}
+
+#[test]
+fn test_update_rule_pruned_once_every_policy_is_revoked() {
+    let db = fixtures::test_db();
+
+    db.set_frozen_status("obsproject/obs-studio", true).unwrap();
+    db.set_hidden_status("obsproject/obs-studio", true).unwrap();
+    db.set_frozen_status("obsproject/obs-studio", false).unwrap();
+    assert!(db.get_rule("obsproject/obs-studio").unwrap().is_some());
+
+    db.set_hidden_status("obsproject/obs-studio", false).unwrap();
+    assert!(db.get_rule("obsproject/obs-studio").unwrap().is_none());
+
+    db.set_skip_version("wezterm/wezterm", Some("v1.0.0")).unwrap();
+    db.set_skip_version("wezterm/wezterm", None).unwrap();
+    assert!(db.get_rule("wezterm/wezterm").unwrap().is_none());
+
+    // 撤销一条从未存在的策略也不会留下空行
+    db.set_frozen_status("neovim/neovim", false).unwrap();
+    assert!(db.get_all_rules().unwrap().is_empty());
+}
+
+#[test]
+fn test_frozen_rule_supersedes_skip_version() {
+    let db = fixtures::test_db();
+
+    db.set_skip_version("yetone/magpie", Some("v0.1.4000")).unwrap();
+    db.set_frozen_status("yetone/magpie", true).unwrap();
+    let rule = db.get_rule("yetone/magpie").unwrap().unwrap();
+    assert!(rule.is_frozen);
+    assert_eq!(rule.skipped_version, None, "锁定清掉跳过版本");
+
+    db.set_skip_version("yetone/magpie", Some("v0.1.5000")).unwrap();
+    let rule = db.get_rule("yetone/magpie").unwrap().unwrap();
+    assert_eq!(rule.skipped_version, None, "已锁定时跳过版本写入被忽略");
+
+    db.set_frozen_status("yetone/magpie", false).unwrap();
+    assert!(db.get_rule("yetone/magpie").unwrap().is_none(), "解锁后无策略即删除");
+}
+
+#[test]
+fn test_get_all_rules_skips_legacy_empty_rows() {
+    let db = fixtures::test_db();
+    db.conn
+        .execute(
+            "INSERT INTO update_rules (app_id, skipped_version, is_frozen, is_hidden, updated_at) VALUES ('obsproject/obs-studio', NULL, 0, 0, 1)",
+            [],
+        )
+        .unwrap();
+    db.set_frozen_status("zai-org/zcode", true).unwrap();
+
+    let all = db.get_all_rules().unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].app_id, "zai-org/zcode");
 }
 
 #[test]

@@ -131,6 +131,21 @@ impl Database {
         }
     }
 
+    /// 本地版本被重新探测后改写判定行的 `installed_version` 与 `has_update`，沿用上次查到的远端版本，
+    /// 让更新提示随版本更正立即生效而不必联网重查。无行返回 false。
+    pub fn rebase_update_result(
+        &self,
+        app_id: &str,
+        installed_version: &str,
+        has_update: bool,
+    ) -> Result<bool> {
+        let rows = self.exec_write(
+            "UPDATE update_results SET installed_version = ?2, has_update = ?3 WHERE app_id = ?1",
+            params![clean(app_id), installed_version, has_update as i64],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// 安装/卸载/版本变更失效：删除该应用的更新判定行（无行即空操作）。
     /// 调用方（安装/卸载/取消管理/导入）在版本写成功后 best-effort 调用，`let _ =` 吞错。
     pub fn remove_update_result(&self, app_id: &str) -> Result<bool> {
@@ -199,6 +214,25 @@ mod update_results_tests {
         db.save_update_check(&row("o/a", "v1.1.0", "v1.1.0", false))
             .unwrap();
         assert!(db.get_cached_updates().unwrap().is_empty());
+    }
+
+    #[test]
+    fn rebase_rewrites_installed_version_and_has_update_in_place() {
+        let db = Database::open_in_memory().unwrap();
+        // 早先按错误的本地版本判定为无更新
+        db.save_update_check(&row("yetone/magpie", "v0.1.4095", "v0.1.4095", false))
+            .unwrap();
+        assert!(db.get_cached_updates().unwrap().is_empty());
+
+        assert!(db
+            .rebase_update_result("yetone/magpie", "0.1.3853", true)
+            .unwrap());
+        let list = db.get_cached_updates().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].current_version, "0.1.3853");
+        assert_eq!(list[0].latest_version, "v0.1.4095");
+
+        assert!(!db.rebase_update_result("o/none", "1.0", true).unwrap());
     }
 
     #[test]

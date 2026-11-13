@@ -175,17 +175,19 @@ impl AppScanner {
                     "low".to_string()
                 };
 
-                let local_ver = if scanned.display_version.is_empty() {
-                    matched_cat.default_version.clone()
-                } else {
-                    scanned.display_version.clone()
-                };
-
                 let resolved_exe = Self::resolve_executable_path(
                     scanned.install_location.as_deref(),
                     scanned.display_icon.as_deref(),
                     matched_cat,
                 );
+
+                // 版本未知时留空，绝不以收录库最新版冒充（否则永远检测不到更新）
+                let local_ver = Self::detect_local_version(
+                    &scanned.display_version,
+                    resolved_exe.as_deref(),
+                    Self::read_exe_version,
+                )
+                .unwrap_or_default();
 
                 let mut scanned_entry = scanned.clone();
                 if scanned_entry.installed_at.is_none() {

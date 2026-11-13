@@ -123,10 +123,6 @@ export async function setAppHidden(appId: string, isHidden: boolean): Promise<bo
   return tauriInvoke<boolean>(CMD.setAppHidden, { appId, isHidden });
 }
 
-export async function removeUpdateRule(appId: string): Promise<boolean> {
-  return tauriInvoke<boolean>(CMD.removeUpdateRule, { appId });
-}
-
 export async function selectFolder(defaultPath?: string, title?: string): Promise<string | null> {
   return tauriInvoke<string | null>(CMD.selectFolder, { defaultPath, title });
 }

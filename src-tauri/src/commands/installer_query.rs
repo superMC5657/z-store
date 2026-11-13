@@ -9,7 +9,11 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
     let mut apps = db.get_installed_apps().map_err(|e| e.to_string())?;
 
     let mut needs_db_update = Vec::new();
+    // 本地版本被更正的应用：(app_id, 新版本)，其更新判定行按新版本重算
+    let mut corrected_versions: Vec<(String, String)> = Vec::new();
     let mut ghost_app_ids = Vec::new();
+    // 系统导入的应用会自行升级：按导入同口径重读本地版本。注册表只在有导入应用时枚举一次。
+    let mut registry_entries: Option<Vec<crate::scanner::ScannedRawApp>> = None;
 
     for app in &mut apps {
         let mut app_changed = false;
@@ -51,6 +55,23 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
             }
         }
 
+        // 版本来源是 Windows 注册表；其他平台的导入版本不在此刷新
+        if cfg!(target_os = "windows") && app.install_method == "system_import" {
+            let entries = registry_entries
+                .get_or_insert_with(crate::scanner::AppScanner::scan_system_apps);
+            if let Some(detected) = crate::scanner::AppScanner::detect_installed_version(
+                entries,
+                &app.install_path,
+                crate::scanner::AppScanner::read_exe_version,
+            ) {
+                if !crate::scanner::version::same_version(&detected, &app.version) {
+                    corrected_versions.push((app.app_id.clone(), detected.clone()));
+                    app.version = detected;
+                    app_changed = true;
+                }
+            }
+        }
+
         // 自愈已导入本地应用的真实安装时间（导入路径只盖当前时刻，此处按可执行文件反查纠正）
         if app.install_method == "system_import" {
             if let Some(real_time) = crate::scanner::AppScanner::resolve_app_installed_at(
@@ -73,6 +94,9 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
     for updated in needs_db_update {
         let _ = db.save_installed_app(&updated);
     }
+    for (app_id, version) in &corrected_versions {
+        rebase_cached_update(&db, app_id, version);
+    }
     // 只读扫描契约：可执行文件消失绝不能在此处直接删除数据库记录
     // （不得调用 remove_installed_app）；
     // 数据库行予以保留，幽灵应用仅在返回视图中隐藏，并在日志中体现数量。
@@ -84,6 +108,29 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
     let apps = super::installer_uninstall::hide_ghost_apps(apps, &ghost_app_ids);
 
     Ok(apps)
+}
+
+/// 用上次查到的远端版本按新的本地版本重算更新判定；没有判定行或版本未知时删行，等下次检查。
+fn rebase_cached_update(db: &crate::db::Database, app_id: &str, version: &str) {
+    let latest = db
+        .get_cached_update_version(app_id)
+        .ok()
+        .flatten()
+        .map(|(latest, _)| latest);
+    match latest {
+        Some(latest) if !version.trim().is_empty() => {
+            let rule = db.get_rule(app_id).ok().flatten();
+            let has_update = crate::commands::updates_check::should_include_update(
+                version,
+                &latest,
+                rule.as_ref(),
+            );
+            let _ = db.rebase_update_result(app_id, version, has_update);
+        }
+        _ => {
+            let _ = db.remove_update_result(app_id);
+        }
+    }
 }
 
 /// Linux 启动 + 落盘回填共享体（launch 4b-1 desktop / 4b-2 PATH 共用，

@@ -425,10 +425,11 @@ export function useAppSubscriptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 「我的应用」属资产区：进页只读更新 DB 快照（getCachedUpdates，零网络），不自动检查更新。
-  // 网络仅经检查更新按钮手动触发（handleCheckUpdates：force 写库后重读快照）；进度监听保持被动。
+  // 「我的应用」属资产区：进页重读已装列表（含系统导入应用的本地版本更正）与更新 DB 快照，
+  // 零网络，不自动检查更新。网络仅经检查更新按钮手动触发（handleCheckUpdates：force 写库后重读快照）。
   useEffect(() => {
     if (currentView !== 'installed') return;
+    tauriApi.getInstalledApps().then(setInstalledApps).catch(() => {});
     tauriApi.getCachedUpdates().then((rows) => {
       if (Array.isArray(rows)) setUpdates(rows);
     }).catch(() => {});

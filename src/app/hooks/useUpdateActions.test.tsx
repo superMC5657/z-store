@@ -2,8 +2,8 @@
  * useUpdateActions 回归（更新规则动作簇）：
  *
  * - 单项更新：installed 列表替换 + updates 剔除 + success/失败 error toast；
- * - 忽略更新取目标行 latest_version（无目标行落 null）；跳过/锁定/隐藏/移除规则/
- *   清除跳过/双 toggle 各自写后重读规则（网络刷新仅 remove/clear/toggle 系）；
+ * - 忽略更新取目标行 latest_version（无目标行落 null）；跳过/锁定/隐藏/
+ *   清除跳过/双 toggle 各自写后重读规则（网络刷新仅 clear/toggle 系）；
  * - 批量升级：逐条安装、失败者保留在 updates、部分失败 warning；
  * - 手动检查：force 写库后优先读 DB 快照（get_cached_updates）；
  *   空快照回退网络回包；空列表 all_latest；finally 复位进度与 isCheckingUpdates。
@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
   setAppSkipVersion: vi.fn(async () => {}),
   setAppFrozen: vi.fn(async () => {}),
   setAppHidden: vi.fn(async () => {}),
-  removeUpdateRule: vi.fn(async () => {}),
   getUpdateRules: vi.fn(async (): Promise<UpdateRule[]> => []),
   checkForUpdates: vi.fn(),
   getCachedUpdates: vi.fn(),
@@ -35,7 +34,6 @@ vi.mock('../../services/api', async () => {
           setAppSkipVersion: mocks.setAppSkipVersion,
           setAppFrozen: mocks.setAppFrozen,
           setAppHidden: mocks.setAppHidden,
-          removeUpdateRule: mocks.removeUpdateRule,
           getUpdateRules: mocks.getUpdateRules,
           checkForUpdates: mocks.checkForUpdates,
           getCachedUpdates: mocks.getCachedUpdates,
@@ -134,18 +132,9 @@ describe('useUpdateActions：单项动作', () => {
     expect(mocks.getUpdateRules).toHaveBeenCalled();
   });
 
-  it('移除规则 / 清除跳过：重读规则 + checkForUpdates 网络刷新', async () => {
+  it('清除跳过：重读规则 + checkForUpdates 网络刷新', async () => {
     const { rendered, deps } = renderActions([makeUpdate('acme/atlas')]);
     mocks.checkForUpdates.mockResolvedValue([makeUpdate('beta/bravo')]);
-    await act(async () => {
-      await rendered.result.current.handleRemoveRule('acme/atlas');
-    });
-    expect(mocks.removeUpdateRule).toHaveBeenCalledWith('acme/atlas');
-    expect(mocks.checkForUpdates).toHaveBeenCalledWith();
-    expect(deps.setUpdates).toHaveBeenCalledWith([makeUpdate('beta/bravo')]);
-    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.clear_rules'), 'success');
-
-    deps.setUpdates.mockClear();
     await act(async () => {
       await rendered.result.current.handleClearRuleSkip('acme/atlas');
     });
@@ -229,6 +218,24 @@ describe('useUpdateActions：手动检查更新', () => {
     expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.updates_found'), 'info');
     expect(deps.setIsCheckingUpdates).toHaveBeenLastCalledWith(false);
     expect(deps.setUpdateCheckProgress).toHaveBeenLastCalledWith(null);
+  });
+
+  it('隐藏应用的更新留在快照里，但不计入提示数', async () => {
+    const { rendered, deps } = renderActions();
+    const visible = makeUpdate('acme/atlas');
+    const hidden = makeUpdate('Yetone/Magpie');
+    mocks.checkForUpdates.mockResolvedValue([visible, hidden]);
+    mocks.getCachedUpdates.mockResolvedValue([visible, hidden]);
+    mocks.getUpdateRules.mockResolvedValueOnce([
+      { app_id: 'yetone/magpie', skipped_version: null, is_frozen: false, is_hidden: true, updated_at: 1 } as UpdateRule,
+    ]);
+
+    await act(async () => {
+      await rendered.result.current.handleCheckUpdates();
+    });
+
+    expect(deps.setUpdates).toHaveBeenLastCalledWith([visible, hidden]);
+    expect(deps.showToast).toHaveBeenCalledWith('toast.updates_found {"count":1}', 'info');
   });
 
   it('空结果 all_latest；快照缺席回退网络回包', async () => {

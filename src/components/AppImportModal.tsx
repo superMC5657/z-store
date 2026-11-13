@@ -14,6 +14,7 @@ import { AppMatchResult, ImportAppRequest } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 import { AppIconFrame } from './AppIconFrame';
+import { stripVersionPrefix } from '../utils/appHelper';
 import { useTranslation } from 'react-i18next';
 
 interface AppImportModalProps {
@@ -95,8 +96,8 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
       .map((m) => ({
         app_id: m.catalog_id,
         app_name: m.name,
-        version: m.local_version || m.catalog_version,
-        install_path: m.resolved_executable_path || m.scanned.install_location || m.scanned.display_icon || undefined,
+        version: m.local_version,
+        install_path: m.resolved_executable_path || m.scanned.install_location || undefined,
         uninstall_command: m.scanned.uninstall_string || undefined,
         installed_at: m.scanned.installed_at || undefined,
       }));
@@ -343,7 +344,11 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                           gap: '12px',
                         }}
                       >
-                        <span>{t('import_modal.local_version', { version: item.local_version })}</span>
+                        <span>
+                          {item.local_version
+                            ? t('import_modal.local_version', { version: stripVersionPrefix(item.local_version) })
+                            : t('import_modal.local_version_unknown')}
+                        </span>
                         <span>·</span>
                         <span>{t('import_modal.catalog_repo', { repo: item.catalog_id })}</span>
                       </div>

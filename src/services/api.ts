@@ -108,7 +108,6 @@ export const CMD = {
   setAppSkipVersion: 'set_app_skip_version',
   setAppFrozen: 'set_app_frozen',
   setAppHidden: 'set_app_hidden',
-  removeUpdateRule: 'remove_update_rule',
   getDeveloperProfile: 'get_developer_profile',
   listGithubStarred: 'list_github_starred',
   syncAffinitySignals: 'sync_affinity_signals',
@@ -245,7 +244,6 @@ export const tauriApi = {
   setAppSkipVersion: installerApi.setAppSkipVersion,
   setAppFrozen: installerApi.setAppFrozen,
   setAppHidden: installerApi.setAppHidden,
-  removeUpdateRule: installerApi.removeUpdateRule,
   selectFolder: installerApi.selectFolder,
 
   // Settings / Proxy / System

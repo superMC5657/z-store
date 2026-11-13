@@ -719,7 +719,6 @@ pub fn run() {
             commands::set_app_skip_version,
             commands::set_app_frozen,
             commands::set_app_hidden,
-            commands::remove_update_rule,
             commands::get_developer_profile,
             commands::list_github_starred,
             commands::sync_affinity_signals,

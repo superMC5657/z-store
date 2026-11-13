@@ -321,7 +321,6 @@ describe('Component sibling button parity', () => {
         isOpen={true}
         onClose={() => {}}
         updateRules={[]}
-        onRemoveRule={async () => {}}
         onClearRuleSkip={async () => {}}
         onToggleRuleFrozen={async () => {}}
         onToggleRuleHidden={async () => {}}

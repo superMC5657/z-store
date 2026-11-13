@@ -374,11 +374,13 @@ export const App: React.FC = () => {
     [filteredInstalledApps, updateRules, filteredUpdates],
   );
 
+  // 规则管理按 app_id 查可用更新（不过平台筛选：规则行本身不受平台筛选影响）
+  const allUpdatesById = useMemo(() => buildUpdatesMap(updates), [updates]);
+
   // 7. 更新规则动作簇（单项更新/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
   const {
     handleApplyUpdate,
     handleSkipVersion,
-    handleRemoveRule,
     handleClearRuleSkip,
     handleToggleRuleFrozen,
     handleToggleRuleHidden,
@@ -491,20 +493,6 @@ export const App: React.FC = () => {
       refreshDismissedWatches(),
     ]);
     if (Array.isArray(pending)) setWatchNotifications(pending);
-  }, [refreshDismissedWatches]);
-
-  // 规则管理「关注已读」取消关注：已读项均为已关注应用，直接取消而非切换；失败时抛出，由弹窗提示
-  const handleUnwatchFromRules = useCallback(async (appId: string) => {
-    const key = normalizeId(appId);
-    if (!key) return;
-    await tauriApi.unwatchApp(key);
-    setWatchedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(key);
-      return next;
-    });
-    setWatchNotifications((prev) => prev.filter((n) => normalizeId(n.app_id) !== key));
-    await refreshDismissedWatches();
   }, [refreshDismissedWatches]);
 
   // 同一应用的待处理提醒与已读记录互斥：新版本到来（实时事件）即令其已读记录失效，
@@ -968,14 +956,13 @@ export const App: React.FC = () => {
         updateRules={updateRules}
         installedApps={installedApps}
         apps={mergedAppsForJoins}
-        onRemoveRule={handleRemoveRule}
+        updatesById={allUpdatesById}
         onClearRuleSkip={handleClearRuleSkip}
         onToggleRuleFrozen={handleToggleRuleFrozen}
         onToggleRuleHidden={handleToggleRuleHidden}
         onSkipVersion={handleSkipVersion}
         dismissedWatches={activeDismissedWatches}
         onRestoreWatch={handleRestoreWatchNotification}
-        onUnwatch={handleUnwatchFromRules}
       />
 
       {/* 应用内通知 Toast */}

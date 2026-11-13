@@ -534,3 +534,141 @@ fn test_match_unmanaged_filters_managed_with_canonical_healing_and_no_fabricatio
     assert_eq!(results.len(), 1, "only unmanaged VLC should remain");
     assert_eq!(results[0].catalog_id, "videolan/vlc");
 }
+
+#[test]
+fn test_import_path_prefers_executable_then_install_location() {
+    let make = |exe: Option<&str>, loc: Option<&str>| AppMatchResult {
+        scanned: ScannedRawApp {
+            display_name: "Windows Terminal".to_string(),
+            display_version: "1.0".to_string(),
+            publisher: None,
+            install_location: loc.map(str::to_string),
+            display_icon: Some("/opt/icons/wt.ico".to_string()),
+            uninstall_string: None,
+            installed_at: None,
+        },
+        catalog_id: "microsoft/terminal".to_string(),
+        name: "Windows Terminal".to_string(),
+        owner: "microsoft".to_string(),
+        repo: "terminal".to_string(),
+        icon: String::new(),
+        icon_bg: String::new(),
+        description: String::new(),
+        local_version: "1.0".to_string(),
+        catalog_version: "1.0".to_string(),
+        confidence: 0.6,
+        confidence_tier: "medium".to_string(),
+        resolved_executable_path: exe.map(str::to_string),
+    };
+
+    assert_eq!(make(Some("/opt/wt/wt.exe"), Some("/opt/wt")).import_path(), Some("/opt/wt/wt.exe"));
+    assert_eq!(make(None, Some("\"/opt/wt\"")).import_path(), Some("/opt/wt"));
+    // 只有图标路径不算可导入路径
+    assert_eq!(make(None, None).import_path(), None);
+    assert_eq!(make(None, Some("  ")).import_path(), None);
+}
+
+#[test]
+fn test_format_fixed_version() {
+    use super::version::format_fixed_version;
+    assert_eq!(format_fixed_version([0, 1, 3853, 0]).as_deref(), Some("0.1.3853"));
+    assert_eq!(format_fixed_version([1, 2, 3, 4]).as_deref(), Some("1.2.3.4"));
+    assert_eq!(format_fixed_version([2, 0, 0, 0]).as_deref(), Some("2.0.0"));
+    assert_eq!(format_fixed_version([0, 0, 0, 0]), None);
+}
+
+fn registry_entry(version: &str, location: Option<&str>, icon: Option<&str>) -> ScannedRawApp {
+    ScannedRawApp {
+        display_name: "Magpie".to_string(),
+        display_version: version.to_string(),
+        publisher: None,
+        install_location: location.map(str::to_string),
+        display_icon: icon.map(str::to_string),
+        uninstall_string: None,
+        installed_at: None,
+    }
+}
+
+#[test]
+fn test_detect_local_version_prefers_registry_then_executable() {
+    let exe = |_: &str| Some("0.1.3853".to_string());
+    assert_eq!(
+        AppScanner::detect_local_version("v2.0.0", Some("a.exe"), exe).as_deref(),
+        Some("v2.0.0")
+    );
+    assert_eq!(
+        AppScanner::detect_local_version("  ", Some("a.exe"), exe).as_deref(),
+        Some("0.1.3853")
+    );
+    // 都没有时版本未知，不回落到收录库版本
+    assert_eq!(AppScanner::detect_local_version("", None, exe), None);
+    assert_eq!(AppScanner::detect_local_version("", Some("a.exe"), |_| None), None);
+}
+
+#[test]
+fn test_detect_installed_version_matches_registry_entry_by_path() {
+    let entries = vec![
+        registry_entry("9.9.9", Some(r"C:\Users\me\AppData\Local\Programs"), None),
+        registry_entry("", Some(r"C:\Users\me\AppData\Local\Programs\magpie\"), None),
+        registry_entry("1.0.0", Some(r"C:\Other"), None),
+    ];
+    let exe = |p: &str| {
+        assert!(p.ends_with("magpie.exe"));
+        Some("0.1.3853".to_string())
+    };
+    // 取安装目录最长的那条（magpie 自身条目，版本为空 → 读主程序）
+    assert_eq!(
+        AppScanner::detect_installed_version(
+            &entries,
+            "c:/users/me/appdata/local/programs/magpie/magpie.exe",
+            exe
+        )
+        .as_deref(),
+        Some("0.1.3853")
+    );
+
+    let by_icon = vec![registry_entry("3.1.0", None, Some(r#""C:\Tools\foo.exe",0"#))];
+    assert_eq!(
+        AppScanner::detect_installed_version(&by_icon, r"C:\Tools\foo.exe", |_| None).as_deref(),
+        Some("3.1.0")
+    );
+
+    // 找到条目但注册表与主程序都没有版本：版本未知（空串），用于清掉早先填充的收录库版本
+    assert_eq!(
+        AppScanner::detect_installed_version(
+            &entries,
+            r"C:\Users\me\AppData\Local\Programs\magpie",
+            |_| panic!("a directory is not an executable")
+        )
+        .as_deref(),
+        Some("")
+    );
+
+    // 找不到注册表条目时保持原版本，不读主程序
+    assert_eq!(
+        AppScanner::detect_installed_version(&entries, r"D:\Portable\magpie.exe", |_| {
+            panic!("must not read exe without a registry entry")
+        }),
+        None
+    );
+}
+
+#[test]
+fn test_same_version_ignores_v_prefix_and_whitespace() {
+    use super::version::same_version;
+    assert!(same_version("v0.1.4095", "0.1.4095"));
+    assert!(same_version(" V1.2.3 ", "v1.2.3"));
+    assert!(!same_version("0.1.3853", "v0.1.4095"));
+    assert!(!same_version("", "1.0.0"));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_read_exe_version_reads_system_executable() {
+    let windir = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
+    let notepad = format!(r"{windir}\System32\notepad.exe");
+    let version = AppScanner::read_exe_version(&notepad).expect("notepad has a version resource");
+    assert!(version.split('.').count() >= 3, "{version}");
+    assert_eq!(AppScanner::read_exe_version(&format!(r"{windir}\System32")), None);
+    assert_eq!(AppScanner::read_exe_version(r"Z:\definitely\missing.exe"), None);
+}

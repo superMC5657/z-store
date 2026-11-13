@@ -11,15 +11,14 @@ import {
   ShieldAlert,
   Search,
   X,
-  Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { AppSummary, InstalledApp, UpdateRule, WatchDismissedEntry } from '../types';
+import { AppSummary, InstalledApp, UpdateItem, UpdateRule, WatchDismissedEntry } from '../types';
 import { SegmentedControl } from './SegmentedControl';
 import { EmptyState } from './EmptyState';
 import { AppIconFrame } from './AppIconFrame';
-import { resolveAppIconInfo, resolveInstalledAppName } from '../utils/appHelper';
+import { resolveAppIconInfo, resolveInstalledAppName, stripVersionPrefix } from '../utils/appHelper';
 
 interface RulesManagerModalProps {
   isOpen: boolean;
@@ -27,7 +26,8 @@ interface RulesManagerModalProps {
   updateRules: UpdateRule[];
   installedApps?: InstalledApp[];
   apps?: AppSummary[];
-  onRemoveRule: (appId: string) => Promise<void>;
+  /** 可用更新索引（小写 app_id → 更新项，含隐藏应用）：规则行据此提供「跳过版本」。 */
+  updatesById?: ReadonlyMap<string, UpdateItem>;
   onClearRuleSkip: (appId: string) => Promise<void>;
   onToggleRuleFrozen: (appId: string, isFrozen: boolean) => Promise<void>;
   onToggleRuleHidden: (appId: string, isHidden: boolean) => Promise<void>;
@@ -35,7 +35,6 @@ interface RulesManagerModalProps {
   /** 已确认（「知道了」）的关注提醒，在「关注已读」签下列出，可恢复为待处理提醒。 */
   dismissedWatches?: WatchDismissedEntry[];
   onRestoreWatch?: (appId: string) => Promise<void>;
-  onUnwatch?: (appId: string) => Promise<void>;
 }
 
 type RulesTab = 'all' | 'skipped' | 'frozen' | 'hidden' | 'watch';
@@ -51,14 +50,13 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   updateRules,
   installedApps = [],
   apps = [],
-  onRemoveRule,
+  updatesById = new Map(),
   onClearRuleSkip,
   onToggleRuleFrozen,
   onToggleRuleHidden,
   onSkipVersion,
   dismissedWatches = [],
   onRestoreWatch,
-  onUnwatch,
 }) => {
   const { t, i18n } = useTranslation();
   const [rulesTab, setRulesTab] = useState<RulesTab>('all');
@@ -99,6 +97,11 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         await onToggleRuleHidden(finalAppId, true);
         showNotice(t('rules.notice_hidden_success', { id: finalAppId }));
       } else if (ruleType === 'skip') {
+        if (updateRules.some((r) => r.is_frozen && r.app_id.toLowerCase() === finalAppId.toLowerCase())) {
+          showNotice(t('rules.notice_skip_frozen', { id: finalAppId }), true);
+          setIsSubmitting(false);
+          return;
+        }
         if (!skipVersion.trim()) {
           showNotice(t('rules.notice_input_skip_version'), true);
           setIsSubmitting(false);
@@ -277,7 +280,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     <option value="">{t('rules.form_select_installed', { count: installedApps.length })}</option>
                     {installedApps.map((a) => (
                       <option key={a.app_id} value={a.app_id}>
-                        {a.app_name} (ID: {a.app_id} · v{a.version.replace(/^v/i, '')})
+                        {a.app_name} (ID: {a.app_id}{a.version.trim() ? ` · v${stripVersionPrefix(a.version)}` : ''})
                       </option>
                     ))}
                     <option value="__custom__">{t('rules.form_custom_input')}</option>
@@ -497,6 +500,8 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 const skipLabel = rule.skipped_version
                   ? t('rules.badge_skipped', { version: rule.skipped_version })
                   : '';
+                // 已锁定的应用不检测更新，不会出现在快照里
+                const pendingUpdate = updatesById.get(rule.app_id.toLowerCase());
                 return (
                   <div key={rule.app_id} className="fluent-list-row rules-row">
                     <AppIconFrame
@@ -539,6 +544,23 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                     </div>
 
                     <div className="rules-row-actions">
+                      {pendingUpdate && onSkipVersion && (
+                        <button
+                          type="button"
+                          className="btn-fluent btn-secondary btn-sm"
+                          title={t('rules.skip_version_title', { version: pendingUpdate.latest_version })}
+                          onClick={async () => {
+                            try {
+                              await onSkipVersion(rule.app_id, pendingUpdate.latest_version);
+                              showNotice(t('rules.notice_skip_success', { id: rule.app_id, version: pendingUpdate.latest_version }));
+                            } catch (err) {
+                              showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
+                            }
+                          }}
+                        >
+                          {t('rules.skip_version')}
+                        </button>
+                      )}
                       {rule.skipped_version && (
                         <button
                           type="button"
@@ -570,18 +592,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         }}
                       >
                         {rule.is_hidden ? t('rules.unhide_app') : t('rules.hide_app')}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-fluent btn-danger btn-sm btn-icon-only"
-                        onClick={async () => {
-                          await onRemoveRule(rule.app_id);
-                          showNotice(t('rules.remove_notice_success', { id: rule.app_id }));
-                        }}
-                        title={t('rules.remove_rule_btn')}
-                        aria-label={t('rules.remove_rule_btn')}
-                      >
-                        <Trash2 size={13} strokeWidth={1.5} />
                       </button>
                     </div>
                   </div>
@@ -631,24 +641,6 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                           }}
                         >
                           {t('rules.restore_reminder')}
-                        </button>
-                      )}
-                      {onUnwatch && (
-                        <button
-                          type="button"
-                          className="btn-fluent btn-danger btn-sm btn-icon-only"
-                          onClick={async () => {
-                            try {
-                              await onUnwatch(entry.app_id);
-                              showNotice(t('rules.unwatch_notice_success', { id: entry.app_id }));
-                            } catch (err) {
-                              showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
-                            }
-                          }}
-                          title={t('rules.unwatch_btn')}
-                          aria-label={t('rules.unwatch_btn')}
-                        >
-                          <Trash2 size={13} strokeWidth={1.5} />
                         </button>
                       )}
                     </div>

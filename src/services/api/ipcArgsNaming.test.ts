@@ -194,7 +194,6 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(installer.setAppSkipVersion('o/r', 'v1'));
     await swallow(installer.setAppFrozen('o/r', true));
     await swallow(installer.setAppHidden('o/r', true));
-    await swallow(installer.removeUpdateRule('o/r'));
     await swallow(installer.selectFolder('/tmp', 't'));
     await swallow(social.toggleFavorite('o/r'));
     await swallow(social.getDeveloperProfile('dev'));

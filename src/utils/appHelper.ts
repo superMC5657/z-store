@@ -43,6 +43,11 @@ export function resolveInstalledAppName(
 /**
  * 格式化秒级 Unix 时间戳为本地日期字符串 (YYYY/MM/DD)
  */
+/** 展示用版本号：去掉首尾空白与前导 `v`/`V`（标签常带 `v`，界面文案自带前缀）。 */
+export function stripVersionPrefix(version: string): string {
+  return version.trim().replace(/^v/i, '');
+}
+
 export function formatAppDate(ts: number, locale = 'zh-CN'): string {
   return new Date(ts * 1000).toLocaleDateString(locale === 'en-US' ? 'en-US' : 'zh-CN', {
     year: 'numeric',

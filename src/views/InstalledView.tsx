@@ -236,7 +236,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     { id: 'updatable', label: t('installed.filter_updatable'), count: updatableItems.length },
     { id: 'frozen', label: t('installed.filter_frozen'), count: stats.frozenCount },
     { id: 'hidden', label: t('installed.filter_hidden'), count: stats.hiddenCount },
-    { id: 'missing_path', label: t('installed.filter_missing_path'), count: stats.missingPathCount },
   ];
 
   return (
@@ -486,7 +485,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                             </span>
                           </span>
                         ) : (
-                          <span className="manage-version-chip is-neutral">{app.version}</span>
+                          <span className="manage-version-chip is-neutral">
+                            {app.version.trim() || t('installed.version_unknown')}
+                          </span>
                         )}
                         {methodLabel && <span className="manage-micro-tag is-method">{methodLabel}</span>}
                         {isFrozen && (
@@ -509,43 +510,31 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                             date: formatAppDate(app.installed_at, i18n.language),
                           })}
                         </span>
-                        <span className="manage-meta-sep" aria-hidden="true">
-                          ·
-                        </span>
-                        {app.install_path ? (
-                          <button
-                            type="button"
-                            className={`manage-path-chip ${isCopied ? 'is-copied' : ''}`.trim()}
-                            onClick={() => void handleCopyPath(app.app_id, app.install_path)}
-                            title={`${app.install_path} — ${t('installed.copy_path_tooltip')}`}
-                            aria-label={t('installed.copy_path_tooltip')}
-                          >
-                            <PathText path={app.install_path} />
-                            <span className="manage-path-copy-badge">
-                              {isCopied ? (
-                                <>
-                                  <Check size={11} strokeWidth={1.75} />
-                                  <span>{t('installed.copied_short')}</span>
-                                </>
-                              ) : (
-                                <Copy size={11} strokeWidth={1.5} />
-                              )}
+                        {app.install_path && (
+                          <>
+                            <span className="manage-meta-sep" aria-hidden="true">
+                              ·
                             </span>
-                          </button>
-                        ) : (
-                          <span className="manage-path-missing">
-                            <span>{t('installed.path_not_detected_hint')}</span>
-                            {onScanSystemApps && (
-                              <button
-                                type="button"
-                                className="manage-inline-link-btn"
-                                onClick={() => onScanSystemApps()}
-                              >
-                                <Search size={10} strokeWidth={1.5} />
-                                <span>{t('installed.rescan')}</span>
-                              </button>
-                            )}
-                          </span>
+                            <button
+                              type="button"
+                              className={`manage-path-chip ${isCopied ? 'is-copied' : ''}`.trim()}
+                              onClick={() => void handleCopyPath(app.app_id, app.install_path)}
+                              title={`${app.install_path} — ${t('installed.copy_path_tooltip')}`}
+                              aria-label={t('installed.copy_path_tooltip')}
+                            >
+                              <PathText path={app.install_path} />
+                              <span className="manage-path-copy-badge">
+                                {isCopied ? (
+                                  <>
+                                    <Check size={11} strokeWidth={1.75} />
+                                    <span>{t('installed.copied_short')}</span>
+                                  </>
+                                ) : (
+                                  <Copy size={11} strokeWidth={1.5} />
+                                )}
+                              </span>
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
