@@ -226,13 +226,6 @@ pub async fn sync_affinity_signals(state: State<'_, AppState>) -> crate::AppResu
     Ok(count)
 }
 
-#[tauri::command]
-pub fn reset_affinity_profile(state: State<'_, AppState>) -> crate::AppResult<bool> {
-    let db = state.db()?;
-    db.clear_affinity_profile_signals()?;
-    Ok(true)
-}
-
 /// 发现页 Feed（分页 + 混排，含本地收录合并视图）：
 /// - 输入为远端目录 + 本地收录（collected 系/`submitted` 且未归档）合并，可搜可装与远端同行为；
 /// - `total`=过滤后总量，`has_more`=(offset+limit)<total（saturating，边界守好）；
@@ -605,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn test_affinity_profile_summary_and_reset() {
+    fn test_affinity_profile_summary_and_clear_account_signals() {
         let db = crate::db::Database::open_in_memory().expect("open in memory db");
         let mut sec_item = feed_item("bitwarden/clients", "bitwarden", "clients");
         sec_item.category = "security".to_string();
@@ -692,14 +685,14 @@ mod tests {
         db.remove_setting(crate::github::affinity::SETTING_ENABLE_GITHUB_AFFINITY)
             .unwrap();
 
-        // 执行重置：清空 GitHub 仓库特征信号、user_stars 与同步时间戳，保留用户本地收藏与 Watch
-        db.clear_affinity_profile_signals().unwrap();
-        let after_reset = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
-        assert_eq!(after_reset.starred_repo_count, 0);
-        assert_eq!(after_reset.forked_repo_count, 0);
-        assert_eq!(after_reset.owned_repo_count, 0);
-        assert_eq!(after_reset.last_synced_at, None);
-        assert_eq!(after_reset.favorites_count, 1);
-        assert_eq!(after_reset.watched_count, 1);
+        // 清空 GitHub 账号信号：仓库特征信号、user_stars 与同步时间戳归零，本地收藏与 Watch 保留
+        db.clear_github_account_signals().unwrap();
+        let after_clear = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        assert_eq!(after_clear.starred_repo_count, 0);
+        assert_eq!(after_clear.forked_repo_count, 0);
+        assert_eq!(after_clear.owned_repo_count, 0);
+        assert_eq!(after_clear.last_synced_at, None);
+        assert_eq!(after_clear.favorites_count, 1);
+        assert_eq!(after_clear.watched_count, 1);
     }
 }

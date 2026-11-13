@@ -675,7 +675,6 @@ pub fn run() {
             commands::get_home_feed,
             commands::get_featured_page,
             commands::get_affinity_profile_summary,
-            commands::reset_affinity_profile,
             commands::save_interest_seeds,
             commands::get_interest_seeds,
             commands::dismiss_featured,

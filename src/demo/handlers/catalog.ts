@@ -78,10 +78,6 @@ export function handleGetAffinityProfileSummary(): AffinityProfileSummary {
   };
 }
 
-export function handleResetAffinityProfile(): boolean {
-  return true;
-}
-
 export function handleSearchAppsOnline(a: InvokeArgs): { rows: AppSummary[]; sid: string } {
   warnUnknownArgs(['query', 'searchId', 'page', 'perPage', 'forceRefresh'], a, 'handleSearchAppsOnline');
   // Mock 回声：直透前端 `searchId` 为 `sid`（与 Rust `OnlineSearchResult` 同形收敛）。

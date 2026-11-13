@@ -205,17 +205,6 @@ impl Database {
         Ok(())
     }
 
-    /// 隐私看板「清空本地画像」：清空 GitHub 账号信号（`user_repo_signals`、`user_stars`、同步时间戳）、
-    /// 兴趣种子与推荐负反馈。收藏、关注、已安装与浏览/搜索历史属于各自功能的数据，不在此清除。
-    pub fn clear_affinity_profile_signals(&self) -> Result<()> {
-        self.with_immediate_transaction(|| {
-            self.exec_write("DELETE FROM user_interest_seeds", [])?;
-            self.exec_write("DELETE FROM user_feed_feedback", [])?;
-            Ok(())
-        })?;
-        self.clear_github_account_signals()
-    }
-
     /// 整体替换兴趣种子（分类 key 小写去重；调用方负责校验取值）。
     pub fn replace_interest_seeds(&self, categories: &[String]) -> Result<()> {
         let now = now_secs();
@@ -598,19 +587,5 @@ mod tests {
         assert_eq!(active[0].scope, FeedbackScope::App);
         assert_eq!(db.clear_feed_feedback().unwrap(), 2);
         assert!(db.get_active_feed_feedback(now).unwrap().is_empty());
-    }
-
-    #[test]
-    fn clear_affinity_profile_signals_also_clears_seeds_and_feedback() {
-        let db = Database::open_in_memory().unwrap();
-        db.replace_interest_seeds(&["dev".to_string()]).unwrap();
-        db.upsert_feed_feedback("a/b", FeedbackScope::App, now_secs())
-            .unwrap();
-        db.add_favorite("localsend/localsend", true).unwrap();
-        db.clear_affinity_profile_signals().unwrap();
-        let raw = db.load_raw_affinity_signals().unwrap();
-        assert!(raw.interest_seeds.is_empty());
-        assert!(raw.feedback.is_empty());
-        assert_eq!(raw.favorites.len(), 1);
     }
 }

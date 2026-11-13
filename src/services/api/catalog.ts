@@ -117,11 +117,6 @@ export async function syncAffinitySignals(): Promise<number> {
   return tauriInvoke<number>(CMD.syncAffinitySignals);
 }
 
-export async function resetAffinityProfile(): Promise<boolean> {
-  const res = await tauriInvoke<boolean>(CMD.resetAffinityProfile);
-  return res !== false;
-}
-
 export async function searchAppsOnline(
   query: string,
   searchId?: string,

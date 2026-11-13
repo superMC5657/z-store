@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe('AffinityPrivacyRow 本地推荐画像与隐私数据看板', () => {
-  it('正常渲染信号统计、Top 分类与语言，支持切换开关与清空本地画像', async () => {
+  it('正常渲染信号统计、Top 分类与语言，支持独立切换两个信号源开关', async () => {
     const getSummarySpy = vi
       .spyOn(tauriApi, 'getAffinityProfileSummary')
       .mockResolvedValueOnce({
@@ -38,7 +38,6 @@ describe('AffinityPrivacyRow 本地推荐画像与隐私数据看板', () => {
         last_synced_at: null,
       });
     const saveSettingSpy = vi.spyOn(tauriApi, 'saveSetting').mockResolvedValue(true);
-    const resetSpy = vi.spyOn(tauriApi, 'resetAffinityProfile').mockResolvedValue(true);
 
     render(<AffinityPrivacyRow />);
 
@@ -63,16 +62,6 @@ describe('AffinityPrivacyRow 本地推荐画像与隐私数据看板', () => {
     fireEvent.click(screen.getByTestId('affinity-toggle-local-btn'));
     await waitFor(() => {
       expect(saveSettingSpy).toHaveBeenCalledWith('enable_local_affinity', 'false');
-    });
-
-    // 清空本地画像：第一次点击只进入确认态，文案说明一并清除兴趣与反馈
-    const resetBtn = screen.getByTestId('affinity-reset-btn');
-    fireEvent.click(resetBtn);
-    expect(resetSpy).not.toHaveBeenCalled();
-    expect(resetBtn.textContent).toContain('兴趣方向与推荐反馈');
-    fireEvent.click(resetBtn);
-    await waitFor(() => {
-      expect(resetSpy).toHaveBeenCalledTimes(1);
     });
     expect(getSummarySpy.mock.calls.length).toBeGreaterThanOrEqual(2);
   });

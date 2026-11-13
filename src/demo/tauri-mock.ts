@@ -34,7 +34,6 @@ import {
   handleGetLatestCatalogApps,
   handleGetHomeFeed,
   handleGetAffinityProfileSummary,
-  handleResetAffinityProfile,
   handleGetOrFetchIcon,
   handleGetPlatformsLite,
   handleGetReadmeVariants,
@@ -240,8 +239,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetHomeFeed(a);
     case 'get_affinity_profile_summary':
       return handleGetAffinityProfileSummary();
-    case 'reset_affinity_profile':
-      return handleResetAffinityProfile();
     case 'sync_affinity_signals':
       return 0;
     case 'get_featured_page':

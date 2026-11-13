@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ShieldCheck, RefreshCw, Trash2, Sparkles, Check, AlertTriangle, EyeOff, Monitor } from 'lucide-react';
+import { ShieldCheck, RefreshCw, Sparkles, Check, AlertTriangle, EyeOff, Monitor } from 'lucide-react';
 import { GitHubIcon } from './icons/PlatformIcons';
 import type { AffinityProfileSummary } from '../types';
 import { tauriApi } from '../services/api';
@@ -34,9 +34,8 @@ const sourceTagStyle = (on: boolean): React.CSSProperties | undefined =>
 export const AffinityPrivacyRow: React.FC = () => {
   const { t } = useTranslation();
   const [summary, setSummary] = useState<AffinityProfileSummary>(EMPTY_SUMMARY);
-  const [busyAction, setBusyAction] = useState<'toggle' | 'sync' | 'reset' | 'clear_feedback' | null>(null);
+  const [busyAction, setBusyAction] = useState<'toggle' | 'sync' | 'clear_feedback' | null>(null);
   const [confirmClearFeedback, setConfirmClearFeedback] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
   const { text: feedbackText, isError: feedbackError, show: showFeedback } = useTransientFeedback();
 
   const loadSummary = useCallback(async () => {
@@ -98,28 +97,6 @@ export const AffinityPrivacyRow: React.FC = () => {
       await loadSummary();
       window.dispatchEvent(new CustomEvent('zstore:affinity-updated'));
       showFeedback(t('affinity_privacy.sync_ok'), false);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      showFeedback(t('affinity_privacy.action_failed', { error: msg }), true);
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  // 一键清空本地画像需二次确认：确认态文案说明会一并清除兴趣方向与推荐反馈。
-  const handleResetProfile = async () => {
-    if (busyAction !== null) return;
-    if (!confirmReset) {
-      setConfirmReset(true);
-      return;
-    }
-    setConfirmReset(false);
-    setBusyAction('reset');
-    try {
-      await tauriApi.resetAffinityProfile();
-      await loadSummary();
-      window.dispatchEvent(new CustomEvent('zstore:affinity-updated'));
-      showFeedback(t('affinity_privacy.reset_ok'), false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       showFeedback(t('affinity_privacy.action_failed', { error: msg }), true);
@@ -259,18 +236,6 @@ export const AffinityPrivacyRow: React.FC = () => {
                 ? t('affinity_privacy.syncing')
                 : t('affinity_privacy.sync_btn')}
             </span>
-          </button>
-
-          <button
-            type="button"
-            data-testid="affinity-reset-btn"
-            className="btn-fluent btn-secondary btn-compact"
-            onClick={() => void handleResetProfile()}
-            onBlur={() => setConfirmReset(false)}
-            disabled={busyAction !== null}
-          >
-            <Trash2 size={13} strokeWidth={1.5} />
-            <span>{confirmReset ? t('affinity_privacy.reset_confirm') : t('affinity_privacy.reset_btn')}</span>
           </button>
 
           {typeof summary.feedback_count === 'number' && summary.feedback_count > 0 && (

@@ -1827,11 +1827,11 @@ mod tests {
             assert!(signals.iter().any(|s| s.full_name == "me/repo-111"));
         }
 
-        // 清空本地画像后再次同步：两页均命中 304，必须完整从 api_etag_cache 恢复全部 247 条
+        // 清空 GitHub 账号信号后再次同步：两页均命中 304，必须完整从 api_etag_cache 恢复全部 247 条
         db_mutex
             .lock()
             .unwrap()
-            .clear_affinity_profile_signals()
+            .clear_github_account_signals()
             .unwrap();
         let restored = CatalogService::sync_github_affinity_signals_bg(
             &db_mutex,
