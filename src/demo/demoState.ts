@@ -8,6 +8,7 @@ export const LS = {
   starred: 'zstore:demo:starred:v1',
   searchHistory: 'zstore:demo:search_history:v1',
   recentViews: 'zstore:demo:recent_views:v1',
+  recentViewTimes: 'zstore:demo:recent_view_times:v1',
   installed: 'zstore:demo:installed:v1',
   settings: 'zstore:demo:settings:v1',
 } as const;
@@ -41,6 +42,7 @@ let watchSet = new Set<string>();
 let starSet = new Set<string>();
 let searchHistory: string[] = [];
 let recentIds: string[] = [];
+let recentViewTimes: Record<string, number> = {};
 let installedApps: InstalledApp[] = [];
 let demoSettingsSaved: Record<string, string> = {};
 export const iconLevel = new Map<string, number>();
@@ -73,6 +75,18 @@ export function setRecentIds(list: string[]): void {
   recentIds = list;
 }
 
+export function getRecentViewTimes(): Record<string, number> {
+  return recentViewTimes;
+}
+
+export function setRecentViewTime(id: string, ts: number): void {
+  recentViewTimes = { ...recentViewTimes, [id.toLowerCase()]: ts };
+}
+
+export function clearRecentViewTimes(): void {
+  recentViewTimes = {};
+}
+
 export function getInstalledApps(): InstalledApp[] {
   return installedApps;
 }
@@ -91,6 +105,7 @@ export function persistSets(): void {
   lsSet(LS.starred, [...starSet]);
   lsSet(LS.searchHistory, searchHistory);
   lsSet(LS.recentViews, recentIds);
+  lsSet(LS.recentViewTimes, recentViewTimes);
   lsSet(LS.installed, installedApps);
 }
 
@@ -99,7 +114,19 @@ export function hydrate(): void {
   watchSet = new Set(lsStringArray(LS.watched).map((s) => s.toLowerCase()));
   starSet = new Set(lsStringArray(LS.starred).map((s) => s.toLowerCase()));
   searchHistory = lsStringArray(LS.searchHistory).slice(0, 20);
-  recentIds = lsStringArray(LS.recentViews).slice(0, 20);
+  recentIds = lsStringArray(LS.recentViews).slice(0, 30);
+  const storedTimes = lsGet<unknown>(LS.recentViewTimes, null);
+  if (storedTimes && typeof storedTimes === 'object' && !Array.isArray(storedTimes)) {
+    const parsed: Record<string, number> = {};
+    for (const [k, v] of Object.entries(storedTimes as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+        parsed[k.toLowerCase()] = Math.floor(v);
+      }
+    }
+    recentViewTimes = parsed;
+  } else {
+    recentViewTimes = {};
+  }
   const stored = lsGet<unknown>(LS.installed, null);
   if (Array.isArray(stored) && stored.length > 0) {
     const valid = (stored as InstalledApp[]).filter((i) => typeof i?.app_id === 'string');

@@ -8,7 +8,6 @@ import {
   Eye,
   LayoutGrid,
   Lock,
-  Package,
   Play,
   Search,
   SlidersHorizontal,
@@ -32,12 +31,11 @@ import { getAppDescription } from '../utils/appHelper';
 import { isPlaceholderDescription } from '../services/trends';
 import { useRowAnnotator, useRowIconBackfill } from './shared/useRowAnnotations';
 import { useFeaturedPage } from './FeaturedView/useFeaturedPage';
-import { useMainFeed } from './FeaturedView/useMainFeed';
 import { InterestPicker } from './FeaturedView/InterestPicker';
 import { categoryName, formatReasons, seedDisplayName, seedPhrase } from './FeaturedView/reasons';
 
-/** 「继续查看」细条最多展示的条目数。 */
-const RECENT_STRIP_MAX = 8;
+/** 「最近浏览 / 继续查看」区块最多展示的卡片数量。 */
+const RECENT_SECTION_MAX = 8;
 
 // 会话内记住用户关掉的提示（不落库：下次启动再出现一次）。
 let interestPickerSkipped = false;
@@ -47,7 +45,7 @@ interface FeaturedViewProps extends ViewAppActions, PlatformResetOption {
   platformResolvedOtherIds?: ReadonlySet<string>;
   recentlyViewedApps?: AppSummary[];
   onClearRecentViews?: () => void;
-  /** 本地收录全量：推荐与主流行叠加黄标。 */
+  /** 本地收录全量：推荐与最近浏览叠加黄标。 */
   localApps?: readonly AppSummary[];
   onOpenCategory: (category: string) => void;
   onNavigateLatest: () => void;
@@ -119,35 +117,21 @@ export const FeaturedView: React.FC<FeaturedViewProps> = ({
         .filter((s) => s.items.length > 0),
     [page, visible],
   );
-  const shownIds = useMemo(() => {
-    const s = new Set<string>(dismissedIds);
-    for (const p of heroSlots) s.add(p.app.id.toLowerCase());
-    for (const sh of page?.shelves ?? []) for (const p of sh.items) s.add(p.app.id.toLowerCase());
-    return s;
-  }, [page, heroSlots, dismissedIds]);
-
-  const feed = useMainFeed({
-    apps,
-    excludeIds: shownIds,
-    daySeed: seed,
-    favoriteIds,
-    watchedIds,
-    personalized,
-  });
-  const feedRows = useMemo(() => feed.displayed.map(annotate), [feed.displayed, annotate]);
   const recentRows = useMemo(
-    () => recentlyViewedApps.slice(0, RECENT_STRIP_MAX).map(annotate),
-    [recentlyViewedApps, annotate],
+    () =>
+      recentlyViewedApps
+        .slice(0, RECENT_SECTION_MAX)
+        .map((r) => annotate(appById.get(r.id.toLowerCase()) ?? r)),
+    [recentlyViewedApps, appById, annotate],
   );
 
   const iconRows = useMemo(
     () => [
       ...hero.map(toRow),
       ...shelves.flatMap((s) => s.items.map(toRow)),
-      ...feedRows.slice(0, 20),
       ...recentRows,
     ],
-    [hero, shelves, toRow, feedRows, recentRows],
+    [hero, shelves, toRow, recentRows],
   );
   useRowIconBackfill(iconRows);
 
@@ -370,83 +354,31 @@ export const FeaturedView: React.FC<FeaturedViewProps> = ({
         );
       })}
 
-      {feedRows.length > 0 && (
-        <>
-          <div className="section-header" style={{ marginTop: '28px' }}>
-            <h3 className="section-title">
-              <Package size={16} />
-              <span>{personalized ? t('featured.all_for_you') : t('featured.all')}</span>
-            </h3>
-          </div>
-          <div className="app-grid" data-testid="home-feed-grid">
-            {feedRows.map((app) => card(app))}
-          </div>
-          {feed.loading && (
-            <div className="app-grid" data-testid="feed-skeleton" aria-hidden="true">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="app-card feed-skeleton-card">
-                  <div className="skeleton-box feed-skeleton-icon" />
-                  <div className="feed-skeleton-lines">
-                    <div className="skeleton-box feed-skeleton-line-main" />
-                    <div className="skeleton-box feed-skeleton-line-sub" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div ref={feed.sentinelRef} data-testid="feed-sentinel" className="feed-sentinel" aria-hidden="true" />
-          {feed.hasMore ? (
-            <div className="feed-more-row">
-              <button
-                type="button"
-                data-testid="feed-load-more"
-                className="btn-fluent btn-secondary"
-                onClick={feed.loadMore}
-                disabled={feed.loading}
-              >
-                {feed.loading ? t('featured.feed_loading') : t('featured.feed_load_more')}
-              </button>
-            </div>
-          ) : (
-            <div data-testid="feed-end" className="feed-end">
-              {t('featured.feed_end', { count: feedRows.length })}
-            </div>
-          )}
-        </>
-      )}
-
       {recentRows.length > 0 && (
-        <div className="featured-recent" data-testid="featured-recent">
-          <span className="featured-recent-label">
-            <Eye size={13} aria-hidden="true" />
-            <span>{t('featured.recent')}</span>
-          </span>
-          <span className="featured-recent-items">
-            {recentRows.map((app) => (
+        <section className="featured-recent-section" data-testid="featured-recent">
+          <div className="section-header">
+            <h3 className="section-title">
+              <Eye size={16} aria-hidden="true" />
+              <span>{t('featured.recent')}</span>
+            </h3>
+            {onClearRecentViews && (
               <button
-                key={app.id}
                 type="button"
-                className="featured-recent-item"
-                onClick={() => onOpenDetail(app.id)}
-                title={app.name}
+                className="btn-fluent btn-secondary btn-sm"
+                data-testid="featured-clear-recent"
+                onClick={onClearRecentViews}
+                aria-label={t('featured.clear_recent')}
+                title={t('featured.clear_recent')}
               >
-                <AppIcon icon={app.icon} name={app.name} appId={app.id} iconBg={app.icon_bg} className="featured-recent-icon" />
-                <span>{app.name}</span>
+                <Trash2 size={12} aria-hidden="true" />
+                <span>{t('featured.clear_recent')}</span>
               </button>
-            ))}
-          </span>
-          {onClearRecentViews && (
-            <button
-              type="button"
-              className="btn-fluent btn-ghost btn-sm"
-              onClick={onClearRecentViews}
-              aria-label={t('featured.clear_recent')}
-              title={t('featured.clear_recent')}
-            >
-              <Trash2 size={12} aria-hidden="true" />
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+          <div className="app-grid">
+            {recentRows.map((app) => card(app))}
+          </div>
+        </section>
       )}
     </ViewShell>
   );

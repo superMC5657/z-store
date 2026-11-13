@@ -154,15 +154,31 @@ fn test_search_and_view_history_crud() {
     db.clear_search_history().unwrap();
     assert!(db.get_search_history().unwrap().is_empty());
 
-    // 2. 浏览历史
-    db.record_app_view("rustdesk").unwrap();
-    db.record_app_view("vlc").unwrap();
-    db.record_app_view("rustdesk").unwrap(); // 插入或更新至顶部
+    // 2. 浏览历史：30s 防抖 + 不去重事件流水 + 展示列表去重排序
+    let base_ts = 1_700_000_000i64;
+    assert!(db.record_app_view_at("rustdesk", base_ts).unwrap());
+    assert!(db.record_app_view_at("vlc", base_ts + 1).unwrap());
+    // 30s 窗口内重复打开同一应用：防抖跳过，不写入新行
+    assert!(!db.record_app_view_at("rustdesk", base_ts + 20).unwrap());
+    // 超过 30s 再次打开：追加新行（不去重），且最近浏览展示列表去重并置顶
+    assert!(db.record_app_view_at("rustdesk", base_ts + 31).unwrap());
+
+    let raw_count: i64 = db
+        .query_scalar_opt(
+            "SELECT COUNT(*) FROM view_history WHERE app_id = 'rustdesk'",
+            [],
+        )
+        .unwrap()
+        .unwrap_or(0);
+    assert_eq!(raw_count, 2, "超过 30s 的重复浏览应追加流水行而非覆盖");
+
+    let entries = db.get_recently_viewed_entries(30).unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0], ("rustdesk".to_string(), base_ts + 31));
+    assert_eq!(entries[1], ("vlc".to_string(), base_ts + 1));
 
     let app_ids = db.get_recently_viewed_app_ids().unwrap();
-    assert_eq!(app_ids.len(), 2);
-    assert_eq!(app_ids[0], "rustdesk");
-    assert_eq!(app_ids[1], "vlc");
+    assert_eq!(app_ids, vec!["rustdesk", "vlc"]);
 
     db.clear_view_history().unwrap();
     assert!(db.get_recently_viewed_app_ids().unwrap().is_empty());

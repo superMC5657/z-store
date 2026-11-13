@@ -1,6 +1,9 @@
 use super::{clean, now_secs, Database, ValidatedTable};
 use rusqlite::{params, Result};
 
+/// 同应用写入 `view_history` 的防抖窗口（秒）：窗口内重复打开不新增流水行。
+pub const VIEW_HISTORY_DEBOUNCE_SECS: i64 = 30;
+
 impl Database {
     /// 收藏（合并式）：已存在返回 false，否则插入返回 true。
     /// `is_cataloged` 由调用方写时按内存目录判定一次后传入（零网络），缺列补齐/新建行默认 0 fail-closed、启动回填校准。
@@ -124,42 +127,66 @@ impl Database {
     }
 
     pub fn record_app_view(&self, app_id: &str) -> Result<()> {
+        self.record_app_view_at(app_id, now_secs())?;
+        Ok(())
+    }
+
+    /// 记录一次应用浏览事件（不去重，30 秒内同应用防抖跳过；返回是否实际落库）。
+    pub fn record_app_view_at(&self, app_id: &str, now: i64) -> Result<bool> {
         let id = clean(app_id);
         if id.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
-        let now = now_secs();
-        // 事务边界：插入 + prune 合并为 1 提交，失败整体回滚返回 Err。
+        // 事务边界：30s 防抖检查 + 插入 + prune 合并为 1 提交，失败整体回滚返回 Err。
         self.with_immediate_transaction(|| {
+            let last_ts: Option<i64> = self.query_scalar_opt(
+                "SELECT viewed_at FROM view_history WHERE app_id = ?1 ORDER BY viewed_at DESC, id DESC LIMIT 1",
+                params![id],
+            )?;
+            if let Some(prev) = last_ts {
+                if now >= prev && (now - prev) < VIEW_HISTORY_DEBOUNCE_SECS {
+                    return Ok(false);
+                }
+            }
             self.exec_write(
-                r#"
-            INSERT INTO view_history (app_id, viewed_at)
-            VALUES (?1, ?2)
-            ON CONFLICT(app_id) DO UPDATE SET
-                viewed_at = excluded.viewed_at;
-            "#,
+                "INSERT INTO view_history (app_id, viewed_at) VALUES (?1, ?2)",
                 params![id, now],
             )?;
             let limit = crate::config::get_project_config()
                 .limits
                 .view_history_limit;
             self.prune_history_table(ValidatedTable::ViewHistory, limit as u64)?;
-            Ok(())
+            Ok(true)
         })
+    }
+
+    /// 按最近浏览时间降序返回去重后的 `(app_id, latest_viewed_at)` 列表。
+    pub fn get_recently_viewed_entries(&self, limit: usize) -> Result<Vec<(String, i64)>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        self.query_vec(
+            r#"
+            SELECT app_id, MAX(viewed_at) AS latest_viewed_at
+            FROM view_history
+            GROUP BY app_id
+            ORDER BY latest_viewed_at DESC, MAX(id) DESC
+            LIMIT ?1
+            "#,
+            params![limit as i64],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
     }
 
     pub fn get_recently_viewed_app_ids(&self) -> Result<Vec<String>> {
         let limit = crate::config::get_project_config()
             .limits
             .view_history_limit;
-        self.query_vec(
-            &format!(
-                "SELECT app_id FROM view_history ORDER BY viewed_at DESC LIMIT {}",
-                limit
-            ),
-            [],
-            |row| row.get(0),
-        )
+        Ok(self
+            .get_recently_viewed_entries(limit)?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect())
     }
 
     pub fn clear_view_history(&self) -> Result<()> {

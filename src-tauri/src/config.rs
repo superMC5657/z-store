@@ -157,7 +157,7 @@ fn default_search_history_limit() -> usize {
     20
 }
 fn default_view_history_limit() -> usize {
-    30
+    1000
 }
 fn default_online_search_page_size() -> usize {
     20
@@ -671,7 +671,7 @@ mod tests {
         assert_eq!(conf.network.api_timeout_seconds, 12);
         assert_eq!(conf.network.ping_timeout_ms, 4000);
         assert_eq!(conf.limits.search_history_limit, 20);
-        assert_eq!(conf.limits.view_history_limit, 30);
+        assert_eq!(conf.limits.view_history_limit, 1000);
         assert_eq!(conf.limits.online_search_page_size, 20);
         assert_eq!(conf.limits.icon_fetch.pool, 5);
         assert_eq!(conf.limits.icon_fetch.total_timeout_secs, 15);

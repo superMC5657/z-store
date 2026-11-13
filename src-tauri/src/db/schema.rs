@@ -3,7 +3,7 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 2;
+const CURRENT_USER_VERSION: i64 = 3;
 
 impl Database {
     pub(crate) fn init_schema(&self) -> Result<()> {
@@ -119,9 +119,12 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS view_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                app_id TEXT UNIQUE NOT NULL,
+                app_id TEXT NOT NULL,
                 viewed_at INTEGER NOT NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_view_history_app_viewed ON view_history(app_id, viewed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_view_history_viewed_at ON view_history(viewed_at DESC);
 
             CREATE TABLE IF NOT EXISTS host_tokens (
                 host TEXT PRIMARY KEY,
@@ -330,6 +333,7 @@ impl Database {
             match v {
                 0 => self.migrate_v0_to_v1()?,
                 1 => self.migrate_v1_to_v2()?,
+                2 => self.migrate_v2_to_v3()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -357,6 +361,27 @@ impl Database {
         self.conn
             .execute_batch("DROP TABLE IF EXISTS app_details_cache;")?;
         Ok(())
+    }
+
+    /// v2 → v3：解除 `view_history.app_id` 的 UNIQUE 约束，改为事件流水表并补齐索引。
+    fn migrate_v2_to_v3(&self) -> Result<()> {
+        self.with_immediate_transaction(|| {
+            self.conn.execute_batch(
+                r#"
+                CREATE TABLE view_history_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_id TEXT NOT NULL,
+                    viewed_at INTEGER NOT NULL
+                );
+                INSERT INTO view_history_new (id, app_id, viewed_at)
+                SELECT id, app_id, viewed_at FROM view_history ORDER BY id ASC;
+                DROP TABLE view_history;
+                ALTER TABLE view_history_new RENAME TO view_history;
+                CREATE INDEX IF NOT EXISTS idx_view_history_app_viewed ON view_history(app_id, viewed_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_view_history_viewed_at ON view_history(viewed_at DESC);
+                "#,
+            )
+        })
     }
 
     /// 读 `PRAGMA user_version`（迁移链与 schema 迁移测试共用读口）。
@@ -458,5 +483,36 @@ mod schema_migration_tests {
             .unwrap()
             .unwrap_or(0);
         assert_eq!(tables, 3, "幂等基底在高版本库上仍应补齐表结构");
+    }
+
+    #[test]
+    fn v2_db_migrates_view_history_without_unique_constraint_and_preserves_rows() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE view_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id TEXT UNIQUE NOT NULL,
+                viewed_at INTEGER NOT NULL
+            );
+            INSERT INTO view_history (id, app_id, viewed_at) VALUES (221, 'acme/alpha', 1700000100);
+            INSERT INTO view_history (id, app_id, viewed_at) VALUES (239, 'acme/beta', 1700000200);
+            PRAGMA user_version = 2;
+            "#,
+        )
+        .unwrap();
+        let db = Database { conn };
+        db.init_schema().unwrap();
+        assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
+
+        // 迁移后可写入同 app_id 的多条浏览事件且旧数据完整保留
+        assert!(db.record_app_view_at("acme/alpha", 1700000300).unwrap());
+        let rows: i64 = db
+            .query_scalar_opt("SELECT COUNT(*) FROM view_history", [])
+            .unwrap()
+            .unwrap_or(0);
+        assert_eq!(rows, 3);
+        let ids = db.get_recently_viewed_app_ids().unwrap();
+        assert_eq!(ids, vec!["acme/alpha", "acme/beta"]);
     }
 }

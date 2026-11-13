@@ -28,6 +28,8 @@ export interface AppSummary {
   homepage: string | null;
   platforms: string[];
   added_at?: string;
+  /** 最近一次浏览时间戳（Unix 秒），仅 `get_recently_viewed_apps` 返回，用于前端清空遮罩判断。 */
+  viewed_at?: number;
 }
 
 export interface ReleaseAsset {

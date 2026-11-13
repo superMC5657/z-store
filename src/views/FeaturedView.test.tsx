@@ -1,6 +1,6 @@
 /**
- * 精选页（ADR-0023）：货架按画像状态渲染、推荐理由、负反馈、兴趣选择卡、主流去重与筛选空态。
- * 后端整页结构经 `tauriApi.getFeaturedPage` 注入，主流走无后端时的前端回退排序。
+ * 精选页（ADR-0023）：货架按画像状态渲染、推荐理由、负反馈、兴趣选择卡、最近浏览富卡区块与筛选空态。
+ * 后端整页结构经 `tauriApi.getFeaturedPage` 注入。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -119,8 +119,6 @@ describe('FeaturedView: profile states', () => {
     expect(screen.getByTestId('featured-shelf-fresh')).toBeTruthy();
     expect(screen.queryByTestId('featured-hero')).toBeNull();
     expect(screen.queryByTestId('featured-hero-side')).toBeNull();
-    // 未展示的 hero 应用不被主流去重吞掉
-    expect(screen.getByTestId('home-feed-grid').textContent).toContain('App0');
   });
 });
 
@@ -208,8 +206,6 @@ describe('FeaturedView: dismiss feedback', () => {
     expect(screen.getByTestId(`dismiss-app-${APPS[0].id}`)).toBeTruthy();
     expect(screen.getByTestId(`feedback-menu-${APPS[2].id}`)).toBeTruthy();
     expect(screen.getByTestId(`feedback-menu-${APPS[4].id}`)).toBeTruthy();
-    const feed = screen.getByTestId('home-feed-grid');
-    expect(feed.querySelector('[data-testid^="feedback-menu-"]')).toBeNull();
   });
 
   it('a failed dismiss restores the card', async () => {
@@ -226,25 +222,39 @@ describe('FeaturedView: dismiss feedback', () => {
   });
 });
 
-describe('FeaturedView: main feed and recent strip', () => {
-  it('main feed never repeats apps shown in hero or shelves', async () => {
+describe('FeaturedView: recent section and backend args', () => {
+  it('does not render an infinite all-apps feed grid on FeaturedView', async () => {
     renderView();
     await screen.findByTestId('featured-hero');
-    const shown = new Set<string>();
-    const page = pageFor('rich');
-    for (const p of page.hero) shown.add(p.app.name);
-    for (const s of page.shelves) for (const p of s.items) shown.add(p.app.name);
-    const feedNames = Array.from(
-      screen.getByTestId('home-feed-grid').querySelectorAll('.app-name'),
-    ).map((n) => n.textContent ?? '');
-    expect(feedNames.length).toBeGreaterThan(0);
-    for (const name of feedNames) expect(shown.has(name)).toBe(false);
+    expect(screen.queryByTestId('home-feed-grid')).toBeNull();
+    expect(screen.queryByTestId('feed-load-more')).toBeNull();
   });
 
-  it('continue-browsing strip lists recent apps and is absent without history', async () => {
-    const first = renderView({ recentlyViewedApps: [APPS[14]] });
+  it('continue-browsing section renders recent apps as rich AppCards and clears cleanly', async () => {
+    const onClearRecentViews = vi.fn();
+    const staleRecent = { ...APPS[14], description: 'stale snapshot description' };
+    const uncatalogedRecent = makeApp({
+      id: 'ext/uncataloged',
+      name: 'UncatalogedTool',
+      owner: 'ext',
+      repo: 'uncataloged',
+      category: 'external',
+      platforms: ['windows'],
+    });
+    const first = renderView({
+      recentlyViewedApps: [staleRecent, uncatalogedRecent],
+      onClearRecentViews,
+    });
     await screen.findByTestId('featured-hero');
-    expect(screen.getByTestId('featured-recent').textContent).toContain('App14');
+    const recentSection = screen.getByTestId('featured-recent');
+    expect(recentSection.textContent).toContain('App14');
+    // 已收录最近浏览应合并最新目录字段，未收录条目保留自身快照渲染
+    expect(recentSection.textContent).toContain(APPS[14].description);
+    expect(recentSection.textContent).not.toContain('stale snapshot description');
+    expect(recentSection.textContent).toContain('UncatalogedTool');
+    expect(recentSection.querySelectorAll('.app-card')).toHaveLength(2);
+    fireEvent.click(screen.getByTestId('featured-clear-recent'));
+    expect(onClearRecentViews).toHaveBeenCalledTimes(1);
     first.unmount();
     renderView();
     await screen.findByTestId('featured-hero');

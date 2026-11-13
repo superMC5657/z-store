@@ -81,13 +81,26 @@ pub fn record_app_view(state: State<'_, AppState>, app_id: String) -> crate::App
     Ok(db.record_app_view(&app_id)?)
 }
 
+/// 前端「最近浏览」展示条的去重上限（给平台筛选留出余量）。
+const RECENT_VIEW_DISPLAY_LIMIT: usize = 30;
+
+/// 最近浏览响应条目：在 `AppSummary` 基础上透出最近一次浏览时间戳（供前端展示遮罩比较）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecentlyViewedApp {
+    #[serde(flatten)]
+    pub summary: AppSummary,
+    pub viewed_at: i64,
+}
+
 #[tauri::command]
-pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<Vec<AppSummary>> {
+pub fn get_recently_viewed_apps(
+    state: State<'_, AppState>,
+) -> crate::AppResult<Vec<RecentlyViewedApp>> {
     let db = state.db()?;
-    let ids = db.get_recently_viewed_app_ids()?;
+    let entries = db.get_recently_viewed_entries(RECENT_VIEW_DISPLAY_LIMIT)?;
     let mut result = Vec::new();
 
-    for id in ids {
+    for (id, viewed_at) in entries {
         if let Some(item) = state.catalog.get_catalog_item(&id) {
             // 目录命中（远端精选或本地收录）：统一经目录盖章投影。
             let mut summary = state.catalog.item_to_stamped_summary(&item);
@@ -97,7 +110,7 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
             // 详情换图标持久：收录分支同样 join app_icon_cycles 确认图标覆盖，
             // 与 catalog_search backfill 同语义（Some 才覆盖，None 保持静态）。
             apply_confirmed_icon(&db, &mut summary);
-            result.push(summary);
+            result.push(RecentlyViewedApp { summary, viewed_at });
             continue;
         }
         // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
@@ -106,7 +119,7 @@ pub fn get_recently_viewed_apps(state: State<'_, AppState>) -> crate::AppResult<
         // 趋势 L2 仍是未收录首展来源）。
         if let Some(mut summary) = cached_detail_summary(&db, &id) {
             state.catalog.stamp_summary(&mut summary);
-            result.push(summary);
+            result.push(RecentlyViewedApp { summary, viewed_at });
         }
     }
     Ok(result)

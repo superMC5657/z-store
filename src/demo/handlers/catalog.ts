@@ -14,12 +14,15 @@ import {
   toDetail,
 } from '../fixtures';
 import {
+  clearRecentViewTimes,
   getRecentIds,
+  getRecentViewTimes,
   getSearchHistory,
   iconLevel,
   LS,
   lsSet,
   setRecentIds,
+  setRecentViewTime,
   setSearchHistory,
 } from '../demoState';
 import { argNum, argStr, warnUnknownArgs, type InvokeArgs, rankSummariesForFeed } from './common';
@@ -334,10 +337,20 @@ export function handleRemoveSearchQuery(a: InvokeArgs): null {
   return null;
 }
 
+const DEMO_VIEW_DEBOUNCE_SECS = 30;
+const DEMO_RECENT_VIEW_LIMIT = 30;
+
 export function handleRecordAppView(a: InvokeArgs): null {
   const id = argStr(a, 'appId').toLowerCase();
   if (id) {
-    const list = [id, ...getRecentIds().filter((x) => x !== id)].slice(0, 20);
+    const now = Math.floor(Date.now() / 1000);
+    const prev = getRecentViewTimes()[id];
+    if (prev !== undefined && now >= prev && now - prev < DEMO_VIEW_DEBOUNCE_SECS) {
+      return null;
+    }
+    setRecentViewTime(id, now);
+    lsSet(LS.recentViewTimes, getRecentViewTimes());
+    const list = [id, ...getRecentIds().filter((x) => x !== id)].slice(0, DEMO_RECENT_VIEW_LIMIT);
     setRecentIds(list);
     lsSet(LS.recentViews, list);
   }
@@ -346,16 +359,24 @@ export function handleRecordAppView(a: InvokeArgs): null {
 
 export function handleGetRecentlyViewedApps(): AppSummary[] {
   const out: AppSummary[] = [];
+  const times = getRecentViewTimes();
   for (const id of getRecentIds()) {
     const hit = findSummary(id);
-    if (hit) out.push(hit);
+    if (hit) {
+      out.push({
+        ...hit,
+        viewed_at: times[id.toLowerCase()] ?? 0,
+      });
+    }
   }
   return out;
 }
 
 export function handleClearViewHistory(): null {
   setRecentIds([]);
+  clearRecentViewTimes();
   lsSet(LS.recentViews, []);
+  lsSet(LS.recentViewTimes, {});
   return null;
 }
 

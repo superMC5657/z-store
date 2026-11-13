@@ -2,10 +2,11 @@ import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
 import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
-import { annotateIsCataloged, buildCatalogIdSet, selectCatalogBase } from '../selectors';
+import { annotateIsCataloged, buildCatalogIdSet, prepareRecentViews, selectCatalogBase } from '../selectors';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import { resolveRemoteIconUrl } from '../../services/custom';
 import { findInSearchListCache, patchSearchListCacheRows } from '../../services/search/searchListCache';
+import { unmaskRecentViewApp } from '../../services/recentViewsMask';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -86,11 +87,9 @@ export function useDetailCacheSync({
   const loadRecentViews = useCallback(async () => {
     try {
       const recents = await tauriApi.getRecentlyViewedApps();
-      // 最近浏览黄标：后端仅拼远端 catalog + 详情缓存（无 source/status），此处叠加本地标记
+      // 最近浏览黄标：后端仅拼远端 catalog + 详情缓存（无 source/status），此处叠加遮罩与本地标记
       //（蓝优先、远端优先语义不动，仅搬标记供 AppCard 黄标），再做富卡治愈。
-      const baseCatalog = selectCatalogBase(fullCatalogAppsRef?.current, appsRef.current);
-      const catalogIds = buildCatalogIdSet(baseCatalog);
-      const withLocal = recents.map((r) => annotateIsCataloged(r, catalogIds, localApps));
+      const withLocal = prepareRecentViews(recents, fullCatalogAppsRef?.current, appsRef.current, localApps);
       // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
       // （对缺失简介行进行补齐；无富卡保持原值走默认空渲染）。
       try {
@@ -558,6 +557,7 @@ export function useDetailCacheSync({
           loadError: undefined,
         });
         // recordAppView 本地写保留（DB/local）；后台 ETag 条件探查自动跟进（缓存优先，命中 short-circuit）。
+        unmaskRecentViewApp(id);
         tauriApi.recordAppView(id).then(loadRecentViews).catch(() => {});
 
         // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新
@@ -685,6 +685,7 @@ export function useDetailCacheSync({
       annotateEntry(initialDetail),
     );
     // 浏览记录先落盘不阻塞详情；recents 刷新延后到详情同步之后，避免后到的后端占位快照覆盖富卡治愈值（load 内自带富卡治愈）。
+    unmaskRecentViewApp(id);
     void tauriApi.recordAppView(id).catch(() => {});
 
     try {

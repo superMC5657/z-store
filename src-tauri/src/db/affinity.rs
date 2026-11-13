@@ -84,8 +84,6 @@ pub struct FeedFeedback {
 
 /// 推荐负反馈有效期（秒）。
 pub const FEED_FEEDBACK_TTL_SECS: i64 = 90 * 86400;
-/// 画像读取的最近浏览条数上限。
-pub const AFFINITY_VIEW_LIMIT: usize = 50;
 /// 画像读取的最近搜索词条数上限。
 pub const AFFINITY_SEARCH_LIMIT: usize = 20;
 
@@ -383,10 +381,13 @@ impl Database {
                 Ok((app_id.to_lowercase(), installed_at))
             },
         )?;
+        let view_limit = crate::config::get_project_config()
+            .limits
+            .view_history_limit;
         let views = self.query_vec(
             &format!(
-                "SELECT app_id, viewed_at FROM view_history ORDER BY viewed_at DESC LIMIT {}",
-                AFFINITY_VIEW_LIMIT
+                "SELECT app_id, viewed_at FROM view_history ORDER BY viewed_at DESC, id DESC LIMIT {}",
+                view_limit
             ),
             [],
             |row| {
@@ -547,7 +548,10 @@ mod tests {
             [],
         )
         .unwrap();
-        db.record_app_view("logseq/logseq").unwrap();
+        db.record_app_view_at("logseq/logseq", 1_700_000_000)
+            .unwrap();
+        db.record_app_view_at("logseq/logseq", 1_700_000_400)
+            .unwrap();
         db.record_search_query("markdown notes").unwrap();
 
         let raw = db.load_raw_affinity_signals().unwrap();
@@ -555,8 +559,13 @@ mod tests {
             raw.installed,
             vec![("obsidian/obsidian".to_string(), 1700000000)]
         );
-        assert_eq!(raw.views.len(), 1);
-        assert_eq!(raw.views[0].0, "logseq/logseq");
+        assert_eq!(
+            raw.views,
+            vec![
+                ("logseq/logseq".to_string(), 1_700_000_400),
+                ("logseq/logseq".to_string(), 1_700_000_000),
+            ]
+        );
         assert_eq!(raw.searches.len(), 1);
         assert_eq!(raw.searches[0].0, "markdown notes");
     }

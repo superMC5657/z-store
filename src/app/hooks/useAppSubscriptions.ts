@@ -18,8 +18,7 @@ import {
   subscribeIconWrites,
 } from '../../services/iconStore';
 import { patchSearchListCacheIcon } from '../../services/search/searchListCache';
-import { matchPlatformSetWithLoading } from '../../lib/platformFilter';
-import { annotateIsCataloged, buildCatalogIdSet, restampLocalMarks, selectCatalogBase } from '../selectors';
+import { annotateIsCataloged, buildCatalogIdSet, prepareRecentViews, restampLocalMarks } from '../selectors';
 import { type PlatformId } from '../../lib/platformFilter';
 import { adoptEchoInWindow } from './useSearchState';
 
@@ -128,8 +127,8 @@ export function useAppSubscriptions({
   recentsRef,
   uncatalogedExtraAppsRef,
   currentSearchIdRef,
-  selectedPlatforms,
-  platformResolvedOtherIds,
+  selectedPlatforms: _selectedPlatforms,
+  platformResolvedOtherIds: _platformResolvedOtherIds,
   applyPersistedSettings,
   showToast,
   t,
@@ -138,9 +137,6 @@ export function useAppSubscriptions({
   updatesCount: _updatesCount,
   localApps,
 }: UseAppSubscriptionsParams) {
-  // 首挂载过滤快照：初始 recents 过滤沿用挂载时刻的选择
-  // （启动时全选 + 空已确认集，恒为恒等过滤）。
-  const initialFilterRef = useRef({ selectedPlatforms, platformResolvedOtherIds });
   const applyPersistedSettingsRef = useRef(applyPersistedSettings);
   applyPersistedSettingsRef.current = applyPersistedSettings;
   const showToastRef = useRef(showToast);
@@ -154,7 +150,6 @@ export function useAppSubscriptions({
     // 初始加载
   useEffect(() => {
     const startupCtx = newMountCtx();
-    const initialFilter = initialFilterRef.current;
     // 单调代际计数：防止初始 searchApps('') 晚于 zstore:catalog-synced 返回时用旧列表覆盖新目录。
     let catalogLoadSeq = 0;
     const reloadCatalogApps = (restampRecents: boolean) => {
@@ -208,15 +203,9 @@ export function useAppSubscriptions({
       if (Array.isArray(rows)) setUpdates(rows);
     }).catch(() => {});
     tauriApi.getRecentlyViewedApps().then((recents) => {
-      // 最近浏览黄标：后端无 source/status，此处叠加本地标记（蓝优先），再按平台过滤。
-      const baseCatalog = selectCatalogBase(fullCatalogAppsRef?.current, appsRef.current);
-      const catalogIds = buildCatalogIdSet(baseCatalog);
-      const withLocal = recents.map((r) => annotateIsCataloged(r, catalogIds, localApps));
-      setRecentlyViewedApps(
-        withLocal.filter((a) =>
-          matchPlatformSetWithLoading(a, initialFilter.selectedPlatforms, initialFilter.platformResolvedOtherIds),
-        ),
-      );
+      // 最近浏览黄标：后端无 source/status，此处叠加遮罩与本地标记（蓝优先）；平台过滤由 selectors 动态派生。
+      const withLocal = prepareRecentViews(recents, fullCatalogAppsRef?.current, appsRef.current, localApps);
+      setRecentlyViewedApps(withLocal);
     }).catch(() => {});
     tauriApi.registerDeepLinkScheme().catch(() => {});
 

@@ -110,7 +110,7 @@ impl Database {
     /// 历史裁剪唯一落点：白名单表名防注入，limit 为整数格式化（调用方需 `as u64` 传入配置值）。
     pub(crate) fn prune_history_table(&self, table: ValidatedTable, limit: u64) -> Result<()> {
         let sql = format!(
-            "DELETE FROM {} WHERE id NOT IN (SELECT id FROM {} ORDER BY {} DESC LIMIT {})",
+            "DELETE FROM {} WHERE id NOT IN (SELECT id FROM {} ORDER BY {} DESC, id DESC LIMIT {})",
             table.table_name(),
             table.table_name(),
             table.order_col(),

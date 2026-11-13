@@ -14,6 +14,7 @@ import {
   type PlatformId,
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
+import { filterMaskedRecentViews } from '../services/recentViewsMask';
 import { isCollectedStatus } from '../services/custom';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
 // loading 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
@@ -508,6 +509,21 @@ export function buildCatalogIdSet(catalogApps: readonly AppSummary[]): Set<strin
 }
 
 /** 选取未裁剪全量目录，缺席时回退当前列表。 */
+/**
+ * 统一处理后端返回的最近浏览列表：应用前端清空遮罩并按当前目录/本地收录标注 `is_cataloged` 与黄标。
+ */
+export function prepareRecentViews(
+  recents: readonly AppSummary[],
+  fullCatalogApps: readonly AppSummary[] | undefined,
+  fallbackCatalogApps: readonly AppSummary[],
+  localApps: readonly AppSummary[] | undefined,
+): AppSummary[] {
+  const visible = filterMaskedRecentViews(recents);
+  const baseCatalog = selectCatalogBase(fullCatalogApps, fallbackCatalogApps);
+  const catalogIds = buildCatalogIdSet(baseCatalog);
+  return visible.map((r) => annotateIsCataloged(r, catalogIds, localApps));
+}
+
 export function selectCatalogBase(
   fullCatalogApps: readonly AppSummary[] | undefined,
   apps: readonly AppSummary[],
@@ -870,6 +886,10 @@ export function useAppSelectors({
     () => selectPlatformFilteredApps(annotatedOnlineApps, selectedPlatforms, platformResolvedOtherIds),
     [annotatedOnlineApps, selectedPlatforms, platformResolvedOtherIds]
   );
+  const platformFilteredRecentApps = useMemo(
+    () => selectPlatformFilteredApps(recentlyViewedApps, selectedPlatforms, platformResolvedOtherIds),
+    [recentlyViewedApps, selectedPlatforms, platformResolvedOtherIds],
+  );
   // 收藏页 left-join 供给：收录段（已平台过滤）+ 未收录占位段（收藏/关注 union 合成，同口径平台过滤后并入，
   // 小写去重防双显）。其它视图仍用 `platformFilteredApps`，计数仍基于全量 `apps`。
   const favoritesViewApps = useMemo(
@@ -981,6 +1001,7 @@ export function useAppSelectors({
   return {
     platformFilteredApps,
     platformFilteredOnlineApps,
+    platformFilteredRecentApps,
     favoritesViewApps,
     platformCounts,
     appsById,

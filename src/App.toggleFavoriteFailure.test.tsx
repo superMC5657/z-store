@@ -55,6 +55,20 @@ vi.mock('./services/api', () => {
         if (prop === 'getSettings') return async () => ({ language: 'zh-CN' });
         if (prop === 'getOAuthUser' || prop === 'getCliDeepLink') return async () => null;
         if (prop === 'searchApps') return async () => SEED_APPS;
+        if (prop === 'getFeaturedPage')
+          return async () => ({
+            profile_state: 'off',
+            signal_count: 0,
+            top_categories: [],
+            hero: [],
+            shelves: [
+              {
+                kind: 'category_pick',
+                category: 'system',
+                items: SEED_APPS.map((app) => ({ app, reasons: [] })),
+              },
+            ],
+          });
         if (prop === 'toggleFavorite')
           return async () => {
             throw new Error('db offline');

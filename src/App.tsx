@@ -27,6 +27,7 @@ import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
 import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchDismissedEntry, WatchUpdatedPayload, createNavigate } from './types';
+import { maskRecentViews } from './services/recentViewsMask';
 import { tauriApi } from './services/api';
 import {
   PLATFORM_FILTER_STORAGE_KEY,
@@ -332,6 +333,7 @@ export const App: React.FC = () => {
   const {
     platformFilteredApps,
     platformFilteredOnlineApps,
+    platformFilteredRecentApps,
     favoritesViewApps,
     filteredInstalledApps,
     filteredUpdates,
@@ -410,14 +412,10 @@ export const App: React.FC = () => {
     }
   }, [selectedPlatforms]);
 
-  const handleClearRecentViews = async () => {
-    try {
-      await tauriApi.clearViewHistory();
-      setRecentlyViewedApps([]);
-      showToast(t('toast.clear_history_success'), 'info');
-    } catch {
-      // 忽略错误
-    }
+  const handleClearRecentViews = () => {
+    maskRecentViews(recentlyViewedApps);
+    setRecentlyViewedApps([]);
+    showToast(t('toast.clear_history_success'), 'info');
   };
 
   const refreshDismissedWatches = useCallback(async () => {
@@ -711,7 +709,7 @@ export const App: React.FC = () => {
                 managedIds={managedLoaded ? managedIds : null}
                 favoriteIds={favoriteIds}
                 watchedIds={watchedIds}
-                recentlyViewedApps={recentlyViewedApps}
+                recentlyViewedApps={platformFilteredRecentApps}
                 onOpenDetail={handleOpenDetail}
                 onQuickInstall={handleQuickInstall}
                 onToggleFavorite={handleToggleFavorite}

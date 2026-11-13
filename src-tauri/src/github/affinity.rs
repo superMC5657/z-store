@@ -431,6 +431,37 @@ pub struct UserAffinityProfile {
 /// 各信号的时间衰减半衰期（天）。
 const DECAY_HALF_LIFE_DAYS: f64 = 30.0;
 const SHORT_DECAY_HALF_LIFE_DAYS: f64 = 7.0;
+/// 浏览历史单应用权重模型参数：基准权重 0.6，5 分钟突发防抖，log2 上限系数 3.5（封顶 2.1）。
+const VIEW_BASE_WEIGHT: f64 = 0.6;
+const VIEW_BURST_DEBOUNCE_SECS: i64 = 300;
+const VIEW_LOG_CAP: f64 = 3.5;
+
+/// 计算同一应用多次浏览的衰减对数权重：`0.6 * min(log2(1 + c_eff), 3.5)`。
+/// 5 分钟窗口内的连续浏览只计一次；其余每次按 7 天半衰期衰减后求和得到 `c_eff`。
+fn compute_effective_view_weight(timestamps: &[i64], now_secs: i64) -> f64 {
+    if timestamps.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = timestamps.to_vec();
+    sorted.sort_unstable();
+
+    let mut c_eff = 0.0_f64;
+    let mut last_kept: Option<i64> = None;
+    for ts in sorted {
+        if let Some(prev) = last_kept {
+            if ts - prev < VIEW_BURST_DEBOUNCE_SECS {
+                continue;
+            }
+        }
+        last_kept = Some(ts);
+        c_eff += time_decay_with(ts, now_secs, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
+    }
+    if c_eff <= 0.0 {
+        return 0.0;
+    }
+    let factor = (1.0 + c_eff).log2().min(VIEW_LOG_CAP);
+    VIEW_BASE_WEIGHT * factor
+}
 
 /// 30 天半衰期时间衰减函数，保底系数 `0.25`。
 fn time_decay(timestamp: i64, now_secs: i64) -> f64 {
@@ -1079,12 +1110,23 @@ impl UserAffinityProfile {
             }
         }
 
-        // 5. 浏览历史 (view_history): 基准权重 0.6，7 天半衰期，仅命中目录的条目；不计入已知
+        // 5. 浏览历史 (view_history): 同应用去抖合并后按时间衰减求有效次数，再做 log2(1 + c_eff)
+        // 加权并封顶（0.6 * min(log2(1 + c_eff), 3.5) <= 2.1），仅命中目录的条目；不计入已知，
+        // 且按去重应用数计入 signal_count。
+        let mut views_by_app: HashMap<String, Vec<i64>> = HashMap::new();
         for (app_id, ts) in &raw.views {
             let id_lower = app_id.trim().to_lowercase();
+            if id_lower.is_empty() || !by_id.contains_key(&id_lower) {
+                continue;
+            }
+            views_by_app.entry(id_lower).or_default().push(*ts);
+        }
+        for (id_lower, ts_list) in views_by_app {
             if let Some(item) = by_id.get(&id_lower) {
-                let decay = time_decay_with(*ts, now_secs, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
-                acc.add_catalog_item(item, 0.6 * decay, false);
+                let weight = compute_effective_view_weight(&ts_list, now_secs);
+                if weight > 1e-9 {
+                    acc.add_catalog_item(item, weight, false);
+                }
             }
         }
 
@@ -2188,5 +2230,67 @@ mod tests {
         let rustdesk = catalog[2].to_summary();
         assert!(seed_similarity(&mpv, &jellyfin) >= 0.5);
         assert!(seed_similarity(&mpv, &rustdesk) < 0.35);
+    }
+
+    #[test]
+    fn view_weight_uses_burst_debounce_and_log2_with_cap() {
+        let now = 1_700_000_000i64;
+        // 1. 单次即刻浏览：log2(2) * 0.6 = 0.6
+        let w1 = compute_effective_view_weight(&[now], now);
+        assert!((w1 - 0.6).abs() < 1e-9, "单次浏览应保持 0.6，实际 {w1}");
+
+        // 2. 5 分钟内连续多次：防抖合并为 1 次
+        let w_burst = compute_effective_view_weight(&[now - 200, now - 100, now], now);
+        assert!(
+            (w_burst - w1).abs() < 0.005,
+            "5 分钟内突发浏览应合并为约 1 次，实际 {w_burst}"
+        );
+
+        // 3. 间隔超过 5 分钟的 3 次浏览：log2(4) * 0.6 = 1.2
+        let w3 = compute_effective_view_weight(&[now - 800, now - 400, now], now);
+        assert!(
+            (w3 - 1.2).abs() < 0.005,
+            "3 次有效浏览应约为 1.2，实际 {w3}"
+        );
+
+        // 4. 极大量浏览封顶于 0.6 * 3.5 = 2.1，不会压倒收藏/安装
+        let many: Vec<i64> = (0..50).map(|i| now - i * 400).collect();
+        let w_many = compute_effective_view_weight(&many, now);
+        assert!(
+            (w_many - 2.1).abs() < 1e-9,
+            "超量浏览应封顶 2.1，实际 {w_many}"
+        );
+    }
+
+    #[test]
+    fn duplicate_views_of_single_app_count_as_one_signal_and_scale_logarithmically() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        // 同一应用浏览 10 次（间隔 10 分钟），仅计 1 个 signal_count，且不标为 known
+        let views_many: Vec<(String, i64)> = (0..10)
+            .map(|i| ("mpv-player/mpv".to_string(), now - i * 600))
+            .collect();
+        let raw = RawAffinitySignals {
+            views: views_many,
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert_eq!(
+            profile.signal_count, 1,
+            "同一应用多次浏览不得虚增 signal_count"
+        );
+        assert!(!profile.known_ids.contains("mpv-player/mpv"));
+        assert!(profile.category_weights.get("media").copied().unwrap_or(0.0) > 0.0);
+
+        // 与仅浏览 1 次相比，category_weight（软饱和归一化前受单类饱和影响）更高，且增量呈次线性收敛
+        let raw_one = RawAffinitySignals {
+            views: vec![("mpv-player/mpv".to_string(), now)],
+            ..Default::default()
+        };
+        let profile_one = UserAffinityProfile::from_signals(&raw_one, &catalog, now);
+        assert!(
+            profile.category_weights["media"] > profile_one.category_weights["media"],
+            "多次有效浏览的分类置信度应高于单次浏览"
+        );
     }
 }
