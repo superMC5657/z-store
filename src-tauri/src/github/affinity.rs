@@ -17,18 +17,57 @@ pub const AFFINITY_SYNC_MAX_PAGES: u32 = 50;
 /// 设置项键：最近一次完成 GitHub 画像信号同步的 Unix 秒级时间戳。
 pub const SETTING_AFFINITY_GITHUB_SYNCED_AT: &str = "affinity_github_synced_at";
 
-/// 设置项键：是否启用本地个性化精选推荐（默认 `"true"`）。
+/// 设置项键：推荐画像是否使用本地应用信息（收藏、版本关注、已安装、浏览、搜索；默认 `"true"`）。
 pub const SETTING_ENABLE_LOCAL_AFFINITY: &str = "enable_local_affinity";
 
-/// 判断本地个性化推荐开关是否开启（缺省或 `"true"` / `"1"` 为开启）。
-pub fn is_local_affinity_enabled(db: &Database) -> bool {
+/// 设置项键：推荐画像是否使用 GitHub 用户信息（Star、Fork、自有仓库；默认 `"true"`）。
+/// 关闭时同时停止 GitHub 画像信号的启动、登录与手动同步（判断在 `sync_github_affinity_signals_bg`）。
+pub const SETTING_ENABLE_GITHUB_AFFINITY: &str = "enable_github_affinity";
+
+/// 布尔设置开关：缺省或非 `"false"` / `"0"` 为开启。
+fn is_switch_on(db: &Database, key: &str) -> bool {
     !matches!(
-        db.get_setting(SETTING_ENABLE_LOCAL_AFFINITY)
+        db.get_setting(key)
             .ok()
             .flatten()
             .map(|s| s.trim().to_ascii_lowercase()),
         Some(v) if v == "false" || v == "0"
     )
+}
+
+/// 本地应用信息信号源开关。
+pub fn is_local_affinity_enabled(db: &Database) -> bool {
+    is_switch_on(db, SETTING_ENABLE_LOCAL_AFFINITY)
+}
+
+/// GitHub 用户信息信号源开关。
+pub fn is_github_affinity_enabled(db: &Database) -> bool {
+    is_switch_on(db, SETTING_ENABLE_GITHUB_AFFINITY)
+}
+
+/// 推荐画像启用的信号源；任一开启即为个性化推荐，全部关闭回到编辑精选。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AffinitySources {
+    pub local: bool,
+    pub github: bool,
+}
+
+impl AffinitySources {
+    pub const ALL: Self = Self {
+        local: true,
+        github: true,
+    };
+
+    pub fn load(db: &Database) -> Self {
+        Self {
+            local: is_local_affinity_enabled(db),
+            github: is_github_affinity_enabled(db),
+        }
+    }
+
+    pub fn any(self) -> bool {
+        self.local || self.github
+    }
 }
 
 /// 判断距上次同步是否已超过冷却窗口（6 小时），用于应用启动时跨周期保鲜检查。
@@ -93,6 +132,9 @@ impl CatalogService {
     /// - 逐页复用 `api_etag_cache` 发送 `If-None-Match`，`304 Not Modified` 零配额恢复；
     /// - 遵循 `Link: rel="next"` 续拉下一页，任一页失败时中止写入以保留既有完整信号；
     /// - 两个端点均成功（200 或 304）时更新 `user_settings.affinity_github_synced_at`。
+    ///
+    /// GitHub 用户信息开关关闭时不发请求直接返回错误；启动、登录与手动同步都经此入口，
+    /// 开关只在这里判断。
     pub async fn sync_github_affinity_signals_bg(
         db_mutex: &Mutex<Database>,
         token: &str,
@@ -101,6 +143,13 @@ impl CatalogService {
         let clean_token = token.trim();
         if clean_token.is_empty() {
             return Err("GitHub Token 为空，跳过画像同步".to_string());
+        }
+        let github_enabled = {
+            let db = db_mutex.lock().map_err(|e| e.to_string())?;
+            is_github_affinity_enabled(&db)
+        };
+        if !github_enabled {
+            return Err("推荐偏好已关闭 GitHub 用户信息，未同步".to_string());
         }
 
         let starred_rels = [RepoRelation::Starred.as_str()];
@@ -882,12 +931,39 @@ pub fn infer_categories_from_repo(
 }
 
 impl UserAffinityProfile {
-    /// 从本地信号快照与当前收录库实时聚合用户亲和度画像。
+    /// 从本地信号快照与当前收录库实时聚合用户亲和度画像（全部信号源）。
     pub fn from_signals(
         raw: &RawAffinitySignals,
         catalog: &[CatalogItem],
         now_secs: i64,
     ) -> Self {
+        Self::from_signals_with_sources(raw, catalog, now_secs, AffinitySources::ALL)
+    }
+
+    /// 只聚合 `sources` 开启的信号源：本地应用信息（收藏、关注、已安装、浏览、搜索）
+    /// 与 GitHub 用户信息（仓库信号、应用内 Star）。不受开关影响的有：
+    /// - 已安装集合与「不感兴趣」反馈：精选页始终靠它们排除已装与已屏蔽应用；
+    /// - 兴趣方向：用户在冷启动选择卡里显式填写，任一信号源开启时都要能让画像脱离冷启动。
+    pub fn from_signals_with_sources(
+        raw: &RawAffinitySignals,
+        catalog: &[CatalogItem],
+        now_secs: i64,
+        sources: AffinitySources,
+    ) -> Self {
+        let empty_pairs: Vec<(String, i64)> = Vec::new();
+        let empty_repo: Vec<UserRepoSignal> = Vec::new();
+        let (favorites, watched, views, searches) = if sources.local {
+            (&raw.favorites, &raw.watched, &raw.views, &raw.searches)
+        } else {
+            (&empty_pairs, &empty_pairs, &empty_pairs, &empty_pairs)
+        };
+        let interest_seeds = &raw.interest_seeds;
+        let (repo_signals, user_stars) = if sources.github {
+            (&raw.repo_signals, &raw.user_stars)
+        } else {
+            (&empty_repo, &empty_pairs)
+        };
+
         let mut by_id: HashMap<String, &CatalogItem> = HashMap::with_capacity(catalog.len());
         let mut by_repo_name: HashMap<String, Vec<&CatalogItem>> = HashMap::new();
         for item in catalog {
@@ -966,7 +1042,7 @@ impl UserAffinityProfile {
         let mut acc = AffinityAcc::default();
 
         // 1. 应用内收藏 (user_favorites): 基准权重 4.0
-        for (app_id, ts) in &raw.favorites {
+        for (app_id, ts) in favorites {
             let id_lower = app_id.trim().to_lowercase();
             if id_lower.is_empty() {
                 continue;
@@ -981,7 +1057,7 @@ impl UserAffinityProfile {
         }
 
         // 2. 应用内版本关注 (watched_apps): 基准权重 3.5
-        for (app_id, ts) in &raw.watched {
+        for (app_id, ts) in watched {
             let id_lower = app_id.trim().to_lowercase();
             if id_lower.is_empty() {
                 continue;
@@ -996,6 +1072,7 @@ impl UserAffinityProfile {
         }
 
         // 2b. 已安装 (installed_apps): 基准权重 3.2，30 天半衰期；已装应用不再推荐
+        // （已安装集合始终收集，权重只在本地应用信息开启时计入）
         let mut installed_ids: HashSet<String> = HashSet::new();
         for (app_id, ts) in &raw.installed {
             let id_lower = app_id.trim().to_lowercase();
@@ -1003,6 +1080,9 @@ impl UserAffinityProfile {
                 continue;
             }
             installed_ids.insert(id_lower.clone());
+            if !sources.local {
+                continue;
+            }
             acc.known_ids.insert(id_lower.clone());
             let decay = time_decay(*ts, now_secs);
             if let Some(item) = by_id.get(&id_lower) {
@@ -1016,7 +1096,7 @@ impl UserAffinityProfile {
         let mut starred_in_repo_signals: HashSet<String> = HashSet::new();
 
         // 3. GitHub 仓库信号 (user_repo_signals: 'forked'=3.8, 'starred'=3.0, 'owned'=2.4)
-        for sig in &raw.repo_signals {
+        for sig in repo_signals {
             let full_lower = sig.full_name.trim().to_lowercase();
             if full_lower.is_empty() {
                 continue;
@@ -1089,7 +1169,7 @@ impl UserAffinityProfile {
         }
 
         // 4. 应用内 Star 表 (user_stars): 补充未在 repo_signals 出现的星标记录，基准权重 3.0
-        for (full_name, ts) in &raw.user_stars {
+        for (full_name, ts) in user_stars {
             let full_lower = full_name.trim().to_lowercase();
             if full_lower.is_empty() || starred_in_repo_signals.contains(&full_lower) {
                 continue;
@@ -1114,7 +1194,7 @@ impl UserAffinityProfile {
         // 加权并封顶（0.6 * min(log2(1 + c_eff), 3.5) <= 2.1），仅命中目录的条目；不计入已知，
         // 且按去重应用数计入 signal_count。
         let mut views_by_app: HashMap<String, Vec<i64>> = HashMap::new();
-        for (app_id, ts) in &raw.views {
+        for (app_id, ts) in views {
             let id_lower = app_id.trim().to_lowercase();
             if id_lower.is_empty() || !by_id.contains_key(&id_lower) {
                 continue;
@@ -1131,7 +1211,7 @@ impl UserAffinityProfile {
         }
 
         // 6. 搜索词 (search_history): 基准权重 0.4，7 天半衰期，只进关键词词袋
-        for (query, ts) in &raw.searches {
+        for (query, ts) in searches {
             let toks = extract_affinity_tokens(query);
             if toks.is_empty() {
                 continue;
@@ -1144,7 +1224,7 @@ impl UserAffinityProfile {
         }
 
         // 7. 兴趣种子 (user_interest_seeds): 基准权重 2.0，不衰减，只进分类权重
-        for cat in &raw.interest_seeds {
+        for cat in interest_seeds {
             let key = cat.trim().to_lowercase();
             if key.is_empty() {
                 continue;
@@ -1488,6 +1568,28 @@ mod tests {
                 identifiers: HashMap::new(),
             },
         ]
+    }
+
+    #[tokio::test]
+    async fn sync_skips_network_when_github_source_disabled() {
+        let db = Database::open_in_memory().unwrap();
+        db.set_setting(SETTING_ENABLE_GITHUB_AFFINITY, "false")
+            .unwrap();
+        let db_mutex = Mutex::new(db);
+        // 不可达地址：若真的发请求会得到网络错误而非开关错误
+        let res = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "token",
+            Some("http://127.0.0.1:9"),
+        )
+        .await;
+        let err = res.expect_err("GitHub 用户信息关闭时应当拒绝同步");
+        assert!(err.contains("GitHub 用户信息"), "{err}");
+        let db = db_mutex.lock().unwrap();
+        assert!(db
+            .get_setting(SETTING_AFFINITY_GITHUB_SYNCED_AT)
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
@@ -2069,6 +2171,69 @@ mod tests {
             boost_jellyfin > boost_mpv,
             "已收藏的种子应用 mpv 自身施加适度让位降权，优先推新同分类未收藏应用 Jellyfin"
         );
+    }
+
+    #[test]
+    fn signal_sources_gate_local_and_github_contributions() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            repo_signals: vec![UserRepoSignal {
+                full_name: "rustdesk/rustdesk".to_string(),
+                relation: "starred".to_string(),
+                language: "Rust".to_string(),
+                description: "Remote desktop".to_string(),
+                stars: 70000,
+                forks: 8000,
+                updated_at: now,
+            }],
+            favorites: vec![("mpv-player/mpv".to_string(), now)],
+            installed: vec![("jellyfin/jellyfin-media-player".to_string(), now)],
+            ..Default::default()
+        };
+        let only = |local, github| {
+            UserAffinityProfile::from_signals_with_sources(
+                &raw,
+                &catalog,
+                now,
+                AffinitySources { local, github },
+            )
+        };
+
+        let github_only = only(false, true);
+        assert!(github_only.category_weights.contains_key("system"));
+        assert!(!github_only.category_weights.contains_key("media"));
+        assert!(!github_only.known_ids.contains("mpv-player/mpv"));
+        // 已安装集合不受开关影响：精选页仍需排除已装应用
+        assert!(github_only
+            .installed_ids
+            .contains("jellyfin/jellyfin-media-player"));
+
+        let local_only = only(true, false);
+        assert!(local_only.category_weights.contains_key("media"));
+        assert!(!local_only.category_weights.contains_key("system"));
+        assert!(!local_only.known_ids.contains("rustdesk/rustdesk"));
+
+        let none = only(false, false);
+        assert!(!none.has_signals);
+        assert!(none.installed_ids.contains("jellyfin/jellyfin-media-player"));
+
+        // 只开 GitHub 且尚无 GitHub 数据：冷启动选择卡填的兴趣方向仍让画像脱离冷启动
+        let seeds_only = RawAffinitySignals {
+            interest_seeds: vec!["games".to_string()],
+            ..Default::default()
+        };
+        let github_cold = UserAffinityProfile::from_signals_with_sources(
+            &seeds_only,
+            &catalog,
+            now,
+            AffinitySources {
+                local: false,
+                github: true,
+            },
+        );
+        assert!(github_cold.has_signals);
+        assert!(github_cold.category_weights.contains_key("games"));
     }
 
     #[test]

@@ -47,7 +47,7 @@
 
 | 状态 | 判定 | 页面 |
 |---|---|---|
-| `off` | `enable_local_affinity = false` | 编辑精选：hero 按质量 + 日期抖动；货架为 `fresh` + 两个日期轮换的分类精选；顶部有一条可关闭的开启提示 |
+| `off` | 两个信号源开关 `enable_local_affinity`（本地应用信息）与 `enable_github_affinity`（GitHub 用户信息）均为 `false`；只开其一时画像只聚合该信号源 | 编辑精选：hero 按质量 + 日期抖动；货架为 `fresh` + 两个日期轮换的分类精选；顶部有一条可关闭的开启提示 |
 | `cold` | 开启但画像信号数为 0 | hero 位换成兴趣选择卡（10 个分类多选），其余同 `off` |
 | `warm` | 信号数 1–4 | hero + 1 排 `because_you` + 1 排 `category_pick` + `fresh` |
 | `rich` | 信号数 ≥ 5 | 按 2.1 全部区块 |

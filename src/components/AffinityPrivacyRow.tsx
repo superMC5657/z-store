@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ShieldCheck, RefreshCw, Trash2, Sparkles, Check, AlertTriangle, EyeOff } from 'lucide-react';
+import { ShieldCheck, RefreshCw, Trash2, Sparkles, Check, AlertTriangle, EyeOff, Monitor } from 'lucide-react';
+import { GitHubIcon } from './icons/PlatformIcons';
 import type { AffinityProfileSummary } from '../types';
 import { tauriApi } from '../services/api';
 import { subscribeAffinityUpdated } from '../services/feed';
@@ -18,6 +19,17 @@ const EMPTY_SUMMARY: AffinityProfileSummary = {
   top_languages: [],
   last_synced_at: null,
 };
+
+type AffinitySource = 'local' | 'github';
+
+const SOURCE_SETTING_KEY: Record<AffinitySource, string> = {
+  local: 'enable_local_affinity',
+  github: 'enable_github_affinity',
+};
+
+/** 信号源关闭时，其计数仍展示但淡化，表示不参与推荐。 */
+const sourceTagStyle = (on: boolean): React.CSSProperties | undefined =>
+  on ? undefined : { opacity: 0.5 };
 
 export const AffinityPrivacyRow: React.FC = () => {
   const { t } = useTranslation();
@@ -43,20 +55,33 @@ export const AffinityPrivacyRow: React.FC = () => {
     });
   }, [loadSummary]);
 
-  const handleToggleEnabled = async () => {
+  // 旧后端只回 `enabled`：两个信号源随总开关。
+  const localEnabled = summary.local_enabled ?? summary.enabled;
+  const githubEnabled = summary.github_enabled ?? summary.enabled;
+
+  const handleToggleSource = async (source: AffinitySource) => {
     if (busyAction !== null) return;
-    const nextEnabled = !summary.enabled;
+    const next = !(source === 'local' ? localEnabled : githubEnabled);
     setBusyAction('toggle');
     try {
-      await tauriApi.saveSetting('enable_local_affinity', nextEnabled ? 'true' : 'false');
-      setSummary((prev) => ({ ...prev, enabled: nextEnabled }));
+      await tauriApi.saveSetting(SOURCE_SETTING_KEY[source], next ? 'true' : 'false');
+      setSummary((prev) => {
+        const local = source === 'local' ? next : prev.local_enabled ?? prev.enabled;
+        const github = source === 'github' ? next : prev.github_enabled ?? prev.enabled;
+        return { ...prev, local_enabled: local, github_enabled: github, enabled: local || github };
+      });
+      // 画像随开关重算：刷新偏好分类与语言。
+      void loadSummary();
       window.dispatchEvent(new CustomEvent('zstore:affinity-updated'));
-      showFeedback(
-        nextEnabled
-          ? t('affinity_privacy.enabled_toast')
-          : t('affinity_privacy.disabled_toast'),
-        false,
-      );
+      const toast =
+        source === 'local'
+          ? next
+            ? t('affinity_privacy.local_on_toast')
+            : t('affinity_privacy.local_off_toast')
+          : next
+            ? t('affinity_privacy.github_on_toast')
+            : t('affinity_privacy.github_off_toast');
+      showFeedback(toast, false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       showFeedback(t('affinity_privacy.action_failed', { error: msg }), true);
@@ -124,11 +149,11 @@ export const AffinityPrivacyRow: React.FC = () => {
     }
   };
 
-  const optionalStats: { key: string; value: number | undefined; label: string }[] = [
-    { key: 'installed', value: summary.installed_count, label: 'affinity_privacy.stat_installed' },
-    { key: 'viewed', value: summary.viewed_count, label: 'affinity_privacy.stat_viewed' },
-    { key: 'searches', value: summary.search_query_count, label: 'affinity_privacy.stat_searches' },
-    { key: 'feedback', value: summary.feedback_count, label: 'affinity_privacy.stat_feedback' },
+  const optionalStats: { key: string; value: number | undefined; label: string; local: boolean }[] = [
+    { key: 'installed', value: summary.installed_count, label: 'affinity_privacy.stat_installed', local: true },
+    { key: 'viewed', value: summary.viewed_count, label: 'affinity_privacy.stat_viewed', local: true },
+    { key: 'searches', value: summary.search_query_count, label: 'affinity_privacy.stat_searches', local: true },
+    { key: 'feedback', value: summary.feedback_count, label: 'affinity_privacy.stat_feedback', local: false },
   ];
   const interestSeeds = summary.interest_seeds ?? [];
 
@@ -183,17 +208,36 @@ export const AffinityPrivacyRow: React.FC = () => {
           <button
             type="button"
             role="switch"
-            aria-checked={summary.enabled}
-            data-testid="affinity-toggle-btn"
-            className={`btn-fluent btn-compact ${summary.enabled ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => void handleToggleEnabled()}
+            aria-checked={localEnabled}
+            data-testid="affinity-toggle-local-btn"
+            title={t('affinity_privacy.local_source_hint')}
+            className={`btn-fluent btn-compact ${localEnabled ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => void handleToggleSource('local')}
             disabled={busyAction !== null}
           >
-            <Sparkles size={13} strokeWidth={1.5} />
+            <Monitor size={13} strokeWidth={1.5} />
             <span>
-              {summary.enabled
-                ? t('affinity_privacy.toggle_on')
-                : t('affinity_privacy.toggle_off')}
+              {localEnabled
+                ? t('affinity_privacy.local_source_on')
+                : t('affinity_privacy.local_source_off')}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={githubEnabled}
+            data-testid="affinity-toggle-github-btn"
+            title={t('affinity_privacy.github_source_hint')}
+            className={`btn-fluent btn-compact ${githubEnabled ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => void handleToggleSource('github')}
+            disabled={busyAction !== null}
+          >
+            <GitHubIcon size={13} />
+            <span>
+              {githubEnabled
+                ? t('affinity_privacy.github_source_on')
+                : t('affinity_privacy.github_source_off')}
             </span>
           </button>
 
@@ -201,8 +245,9 @@ export const AffinityPrivacyRow: React.FC = () => {
             type="button"
             data-testid="affinity-sync-btn"
             className="btn-fluent btn-secondary btn-compact"
+            title={githubEnabled ? undefined : t('affinity_privacy.sync_disabled_hint')}
             onClick={() => void handleSyncNow()}
-            disabled={busyAction !== null}
+            disabled={busyAction !== null || !githubEnabled}
           >
             <RefreshCw
               size={13}
@@ -258,43 +303,49 @@ export const AffinityPrivacyRow: React.FC = () => {
           color: 'var(--text-secondary)',
         }}
       >
-        <span className="app-tag">
+        <span className="app-tag" data-source="github" style={sourceTagStyle(githubEnabled)}>
           {t('affinity_privacy.stat_starred', {
             count: summary.starred_repo_count,
           })}
         </span>
-        <span className="app-tag">
+        <span className="app-tag" data-source="github" style={sourceTagStyle(githubEnabled)}>
           {t('affinity_privacy.stat_forked', {
             count: summary.forked_repo_count,
           })}
         </span>
-        <span className="app-tag">
+        <span className="app-tag" data-source="github" style={sourceTagStyle(githubEnabled)}>
           {t('affinity_privacy.stat_owned', {
             count: summary.owned_repo_count,
           })}
         </span>
-        <span className="app-tag">
+        <span className="app-tag" data-source="github" style={sourceTagStyle(githubEnabled)}>
+          {t('affinity_privacy.last_synced', {
+            time: formattedSyncTime,
+          })}
+        </span>
+        <span className="app-tag" data-source="local" style={sourceTagStyle(localEnabled)}>
           {t('affinity_privacy.stat_favorites', {
             count: summary.favorites_count,
           })}
         </span>
-        <span className="app-tag">
+        <span className="app-tag" data-source="local" style={sourceTagStyle(localEnabled)}>
           {t('affinity_privacy.stat_watched', {
             count: summary.watched_count,
           })}
         </span>
         {optionalStats.map((s) =>
           typeof s.value === 'number' ? (
-            <span key={s.key} className="app-tag" data-testid={`affinity-stat-${s.key}`}>
+            <span
+              key={s.key}
+              className="app-tag"
+              data-testid={`affinity-stat-${s.key}`}
+              data-source={s.local ? 'local' : undefined}
+              style={s.local ? sourceTagStyle(localEnabled) : undefined}
+            >
               {t(s.label as 'affinity_privacy.stat_installed', { count: s.value })}
             </span>
           ) : null,
         )}
-        <span className="app-tag">
-          {t('affinity_privacy.last_synced', {
-            time: formattedSyncTime,
-          })}
-        </span>
       </div>
 
       {(summary.top_categories.length > 0 || summary.top_languages.length > 0 || interestSeeds.length > 0) && (

@@ -15,6 +15,7 @@ import {
 } from '../fixtures';
 import {
   clearRecentViewTimes,
+  getDemoSettingsSaved,
   getRecentIds,
   getRecentViewTimes,
   getSearchHistory,
@@ -58,8 +59,14 @@ export function handleGetHomeFeed(a: InvokeArgs): {
 }
 
 export function handleGetAffinityProfileSummary(): AffinityProfileSummary {
+  const saved = getDemoSettingsSaved();
+  const on = (key: string) => saved[key] !== 'false' && saved[key] !== '0';
+  const localEnabled = on('enable_local_affinity');
+  const githubEnabled = on('enable_github_affinity');
   return {
-    enabled: true,
+    enabled: localEnabled || githubEnabled,
+    local_enabled: localEnabled,
+    github_enabled: githubEnabled,
     starred_repo_count: 0,
     forked_repo_count: 0,
     owned_repo_count: 0,

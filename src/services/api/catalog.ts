@@ -51,6 +51,8 @@ export async function getAffinityProfileSummary(): Promise<AffinityProfileSummar
   const raw = await tauriInvoke<AffinityProfileSummary | null>(CMD.getAffinityProfileSummary);
   return {
     enabled: raw?.enabled !== false,
+    local_enabled: typeof raw?.local_enabled === 'boolean' ? raw.local_enabled : undefined,
+    github_enabled: typeof raw?.github_enabled === 'boolean' ? raw.github_enabled : undefined,
     starred_repo_count: Number(raw?.starred_repo_count) || 0,
     forked_repo_count: Number(raw?.forked_repo_count) || 0,
     owned_repo_count: Number(raw?.owned_repo_count) || 0,

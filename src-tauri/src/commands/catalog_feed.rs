@@ -26,7 +26,12 @@ pub struct AffinityCategoryStat {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub struct AffinityProfileSummary {
+    /// 任一信号源开启即为个性化推荐。
     pub enabled: bool,
+    /// 本地应用信息信号源（收藏、关注、已安装、浏览、搜索）。
+    pub local_enabled: bool,
+    /// GitHub 用户信息信号源（Star、Fork、自有仓库）。
+    pub github_enabled: bool,
     pub starred_repo_count: usize,
     pub forked_repo_count: usize,
     pub owned_repo_count: usize,
@@ -48,7 +53,7 @@ pub fn build_affinity_profile_summary(
     catalog_items: &[crate::github::models::CatalogItem],
     now_secs: i64,
 ) -> crate::AppResult<AffinityProfileSummary> {
-    let enabled = crate::github::affinity::is_local_affinity_enabled(db);
+    let sources = crate::github::affinity::AffinitySources::load(db);
     let raw = db.load_raw_affinity_signals()?;
 
     let mut starred_set: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -76,21 +81,32 @@ pub fn build_affinity_profile_summary(
         }
     }
 
-    let profile =
-        crate::github::affinity::UserAffinityProfile::from_signals(&raw, catalog_items, now_secs);
+    // 偏好分类与语言只反映当前开启的信号源；各项计数始终展示本地已存数据。
+    let profile = crate::github::affinity::UserAffinityProfile::from_signals_with_sources(
+        &raw,
+        catalog_items,
+        now_secs,
+        sources,
+    );
     let top_categories = profile
         .top_categories(3)
         .into_iter()
         .map(|(category, weight)| AffinityCategoryStat { category, weight })
         .collect();
-    let top_languages = crate::github::affinity::top_signal_languages(&raw, 3);
+    let top_languages = if sources.github {
+        crate::github::affinity::top_signal_languages(&raw, 3)
+    } else {
+        Vec::new()
+    };
     let last_synced_at = db
         .get_setting(crate::github::affinity::SETTING_AFFINITY_GITHUB_SYNCED_AT)?
         .and_then(|v| v.trim().parse::<i64>().ok())
         .filter(|&ts| ts > 0);
 
     Ok(AffinityProfileSummary {
-        enabled,
+        enabled: sources.any(),
+        local_enabled: sources.local,
+        github_enabled: sources.github,
         starred_repo_count: starred_set.len(),
         forked_repo_count,
         owned_repo_count,
@@ -170,22 +186,23 @@ fn normalize_interest_categories(categories: &[String]) -> Result<Vec<String>, S
     Ok(out)
 }
 
-/// 读取个性化开关并从本地信号构建画像（关闭时也构建：精选页仍需已安装与「不感兴趣」集合）。
-/// 数据库不可用时返回 `None`。
+/// 读取两个信号源开关并只用开启的信号构建画像；返回的 `bool` 为「任一信号源开启」。
+/// 全部关闭时也构建：精选页仍需已安装与「不感兴趣」集合。数据库不可用时返回 `None`。
 pub(crate) fn load_affinity_profile(
     state: &AppState,
 ) -> Option<(bool, crate::github::affinity::UserAffinityProfile)> {
     let db = state.db().ok()?;
-    let enabled = crate::github::affinity::is_local_affinity_enabled(&db);
+    let sources = crate::github::affinity::AffinitySources::load(&db);
     let raw = db.load_raw_affinity_signals().ok()?;
     drop(db);
     let catalog_items = state.catalog.get_catalog_items();
-    let profile = crate::github::affinity::UserAffinityProfile::from_signals(
+    let profile = crate::github::affinity::UserAffinityProfile::from_signals_with_sources(
         &raw,
         &catalog_items,
         crate::now_secs(),
+        sources,
     );
-    Some((enabled, profile))
+    Some((sources.any(), profile))
 }
 
 #[tauri::command]
@@ -638,6 +655,7 @@ mod tests {
 
         let summary = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
         assert!(summary.enabled);
+        assert!(summary.local_enabled && summary.github_enabled);
         assert_eq!(summary.starred_repo_count, 2);
         assert_eq!(summary.forked_repo_count, 1);
         assert_eq!(summary.owned_repo_count, 1);
@@ -647,6 +665,32 @@ mod tests {
         assert!(!summary.top_categories.is_empty());
         assert_eq!(summary.top_categories[0].category, "security");
         assert_eq!(summary.top_languages[0], "Rust");
+
+        // 关闭 GitHub 用户信息：计数照常展示，偏好语言清空，个性化仍由本地应用信息维持
+        db.set_setting(
+            crate::github::affinity::SETTING_ENABLE_GITHUB_AFFINITY,
+            "false",
+        )
+        .unwrap();
+        let local_only = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        assert!(local_only.enabled && local_only.local_enabled && !local_only.github_enabled);
+        assert_eq!(local_only.starred_repo_count, 2);
+        assert!(local_only.top_languages.is_empty());
+        assert_eq!(local_only.top_categories[0].category, "security");
+
+        // 两个信号源都关闭即回到编辑精选
+        db.set_setting(
+            crate::github::affinity::SETTING_ENABLE_LOCAL_AFFINITY,
+            "false",
+        )
+        .unwrap();
+        let none = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        assert!(!none.enabled);
+        assert!(none.top_categories.is_empty());
+        db.remove_setting(crate::github::affinity::SETTING_ENABLE_LOCAL_AFFINITY)
+            .unwrap();
+        db.remove_setting(crate::github::affinity::SETTING_ENABLE_GITHUB_AFFINITY)
+            .unwrap();
 
         // 执行重置：清空 GitHub 仓库特征信号、user_stars 与同步时间戳，保留用户本地收藏与 Watch
         db.clear_affinity_profile_signals().unwrap();

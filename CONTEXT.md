@@ -63,10 +63,10 @@
 | **推荐种子** | `Seed` | 画像中命中精选收录库、用户与之有显式关系（收藏、安装、关注、Star、Fork、自有）的应用，按近期强度排序，是「因为你 X 了 Y」货架的出发点。 | 源应用、锚点应用 |
 | **兴趣种子** | `Interest Seed` | 冷启动时用户在精选页兴趣选择卡中显式选择的分类（`user_interest_seeds`），不衰减，只进分类权重。 | 兴趣标签、初始偏好 |
 | **推荐负反馈** | `Feed Dismissal` | 用户对推荐的否定（`user_feed_feedback`）：`app` 范围使该应用 90 天内不进推荐货架并在排序中沉底；`category` 范围使该分类画像权重减半 90 天。清空本地画像时一并清除。 | 屏蔽、不喜欢 |
-| **画像状态** | `Profile State` | 精选页的个性化分档：`off`（开关关闭，编辑精选）、`cold`（开启但无信号，显示兴趣选择卡）、`warm`（1–4 个信号）、`rich`（≥5 个信号）。 | 推荐模式、冷热启动 |
+| **画像状态** | `Profile State` | 精选页的个性化分档：`off`（本地应用信息与 GitHub 用户信息两个信号源开关都关闭，编辑精选）、`cold`（开启但无信号，显示兴趣选择卡）、`warm`（1–4 个信号）、`rich`（≥5 个信号）。 | 推荐模式、冷热启动 |
 | **日期种子** | `Day Seed` | 前端按本地日期给出的 `yyyymmdd` 整数，作为推荐货架的确定性抖动种子：当天稳定、隔天轮换。 | 随机种子、每日种子 |
 | **仓库特征信号** | `Repo Affinity Signal` | 持久化于本地 `user_repo_signals` 表的用户 GitHub Star（`starred`）、Fork（`forked`）与自有仓库（`owned`）元数据（含 `stars`、`forks`、`language`、`description`），在首次登录及跨周期启动（6 小时冷却 + 按页 `api_etag_cache` 条件请求与 `304` LRU 保鲜，单端点上限 50 页）时静默同步。 | 仓库历史、远端画像 |
-| **本地隐私数据看板** | `Affinity Privacy Audit Panel` | 设置页「用户画像」分组中的可视化隐私审计与控制组件（`AffinityPrivacyRow`），只读展示本地 SQLite 信号计数（含已安装、浏览、搜索与已屏蔽推荐）、Top 偏好分类、编程语言与兴趣种子，并提供个性化推荐开关（`enable_local_affinity`）、立即增量同步、清空推荐反馈与一键清空本地画像能力；锚点 `#settings-affinity`。 | 推荐设置面板、隐私开关 |
+| **本地隐私数据看板** | `Affinity Privacy Audit Panel` | 设置页「用户画像」分组中的可视化隐私审计与控制组件（`AffinityPrivacyRow`），只读展示本地 SQLite 信号计数（含已安装、浏览、搜索与已屏蔽推荐）、Top 偏好分类、编程语言与兴趣种子，并提供本地应用信息（`enable_local_affinity`：收藏、关注、已安装、浏览、搜索）与 GitHub 用户信息（`enable_github_affinity`：Star、Fork、自有仓库，关闭时启动、登录与手动同步都不发请求）两个推荐信号源开关；兴趣方向不受开关影响、立即增量同步、清空推荐反馈与一键清空本地画像能力；锚点 `#settings-affinity`。 | 推荐设置面板、隐私开关 |
 
 ---
 

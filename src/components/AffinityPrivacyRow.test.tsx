@@ -25,7 +25,9 @@ describe('AffinityPrivacyRow 本地推荐画像与隐私数据看板', () => {
         last_synced_at: 1700000500,
       })
       .mockResolvedValueOnce({
-        enabled: false,
+        enabled: true,
+        local_enabled: true,
+        github_enabled: false,
         starred_repo_count: 0,
         forked_repo_count: 0,
         owned_repo_count: 0,
@@ -46,10 +48,19 @@ describe('AffinityPrivacyRow 本地推荐画像与隐私数据看板', () => {
     expect(screen.getByTestId('affinity-privacy-stats').textContent).toContain('4');
     expect(screen.getByTestId('affinity-privacy-top-signals').textContent).toContain('Rust / TypeScript');
 
-    // 切换个性化推荐开关
-    const toggleBtn = screen.getByTestId('affinity-toggle-btn');
-    expect(toggleBtn.getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(toggleBtn);
+    // 两个信号源开关各写各的设置键；旧后端只回 `enabled` 时两者随总开关
+    const localBtn = screen.getByTestId('affinity-toggle-local-btn');
+    const githubBtn = screen.getByTestId('affinity-toggle-github-btn');
+    expect(localBtn.getAttribute('aria-checked')).toBe('true');
+    expect(githubBtn.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(githubBtn);
+    await waitFor(() => {
+      expect(saveSettingSpy).toHaveBeenCalledWith('enable_github_affinity', 'false');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('affinity-toggle-local-btn').hasAttribute('disabled')).toBe(false);
+    });
+    fireEvent.click(screen.getByTestId('affinity-toggle-local-btn'));
     await waitFor(() => {
       expect(saveSettingSpy).toHaveBeenCalledWith('enable_local_affinity', 'false');
     });
@@ -64,6 +75,33 @@ describe('AffinityPrivacyRow 本地推荐画像与隐私数据看板', () => {
       expect(resetSpy).toHaveBeenCalledTimes(1);
     });
     expect(getSummarySpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('GitHub 用户信息关闭时同步按钮禁用、GitHub 计数淡化', async () => {
+    vi.spyOn(tauriApi, 'getAffinityProfileSummary').mockResolvedValue({
+      enabled: true,
+      local_enabled: true,
+      github_enabled: false,
+      starred_repo_count: 7,
+      forked_repo_count: 0,
+      owned_repo_count: 0,
+      favorites_count: 3,
+      watched_count: 0,
+      top_categories: [],
+      top_languages: [],
+      last_synced_at: null,
+    });
+    render(<AffinityPrivacyRow />);
+    await waitFor(() => {
+      expect(screen.getByTestId('affinity-toggle-github-btn').getAttribute('aria-checked')).toBe('false');
+    });
+    expect(screen.getByTestId('affinity-toggle-local-btn').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('affinity-sync-btn').hasAttribute('disabled')).toBe(true);
+    const stats = screen.getByTestId('affinity-privacy-stats');
+    const githubTag = stats.querySelector<HTMLElement>('[data-source="github"]');
+    const localTag = stats.querySelector<HTMLElement>('[data-source="local"]');
+    expect(githubTag?.style.opacity).toBe('0.5');
+    expect(localTag?.style.opacity).toBe('');
   });
 
   it('旧后端缺少新字段时不渲染新增统计行', async () => {

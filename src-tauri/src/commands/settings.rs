@@ -36,7 +36,9 @@ fn get_default_settings() -> HashMap<String, String> {
     map.insert("watch_notify_frequency".to_string(), "daily".to_string());
     // 自维护 overlay 开关（默认开；关闭即隐藏全部 custom 行）。
     map.insert("show_custom".to_string(), "true".to_string());
+    // 推荐画像的两个信号源：本地应用信息 / GitHub 用户信息。
     map.insert("enable_local_affinity".to_string(), "true".to_string());
+    map.insert("enable_github_affinity".to_string(), "true".to_string());
     map.insert(
         "strict_errors".to_string(),
         cfg.runtime.strict_errors.to_string(),
@@ -112,7 +114,7 @@ pub fn save_setting(
     if key == "launch_on_startup" {
         let enabled = value == "true" || value == "1";
         sync_launch_on_startup(enabled);
-    } else if key == "enable_local_affinity" {
+    } else if key == "enable_local_affinity" || key == "enable_github_affinity" {
         crate::notify_affinity_updated();
     }
 
@@ -163,6 +165,7 @@ mod setting_gate_tests {
             "watch_notify_frequency",
             "show_custom",
             "enable_local_affinity",
+            "enable_github_affinity",
             "strict_errors",
         ] {
             assert!(is_managed_setting_key(key), "{} 应当在白名单内", key);

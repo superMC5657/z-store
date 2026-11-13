@@ -3,7 +3,7 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 4;
+const CURRENT_USER_VERSION: i64 = 5;
 
 impl Database {
     pub(crate) fn init_schema(&self) -> Result<()> {
@@ -335,6 +335,7 @@ impl Database {
                 1 => self.migrate_v1_to_v2()?,
                 2 => self.migrate_v2_to_v3()?,
                 3 => self.migrate_v3_to_v4()?,
+                4 => self.migrate_v4_to_v5()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -393,6 +394,17 @@ impl Database {
              DELETE FROM update_rules
              WHERE (skipped_version IS NULL OR TRIM(skipped_version) = '')
                AND is_frozen = 0 AND is_hidden = 0;",
+        )
+    }
+
+    /// v4 → v5：个性化推荐拆成本地应用信息（`enable_local_affinity`）与 GitHub 用户信息
+    /// （`enable_github_affinity`）两个信号源开关；GitHub 开关继承原总开关的值，
+    /// 关闭过个性化推荐的用户升级后仍保持关闭。
+    fn migrate_v4_to_v5(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "INSERT OR IGNORE INTO user_settings (key, value)
+             SELECT 'enable_github_affinity', value FROM user_settings
+             WHERE key = 'enable_local_affinity';",
         )
     }
 
@@ -495,6 +507,26 @@ mod schema_migration_tests {
             .unwrap()
             .unwrap_or(0);
         assert_eq!(tables, 3, "幂等基底在高版本库上仍应补齐表结构");
+    }
+
+    #[test]
+    fn v4_db_github_affinity_switch_inherits_disabled_personalization() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE user_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO user_settings VALUES ('enable_local_affinity', 'false');
+            PRAGMA user_version = 4;
+            "#,
+        )
+        .unwrap();
+        let db = Database { conn };
+        db.init_schema().unwrap();
+        assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
+        assert_eq!(
+            db.get_setting("enable_github_affinity").unwrap().as_deref(),
+            Some("false")
+        );
     }
 
     #[test]

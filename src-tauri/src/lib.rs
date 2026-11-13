@@ -652,10 +652,7 @@ pub fn run() {
                     let should_sync = db_for_startup_affinity
                         .lock()
                         .ok()
-                        .map(|db| {
-                            crate::github::affinity::is_local_affinity_enabled(&db)
-                                && CatalogService::should_sync_affinity(&db, crate::now_secs())
-                        })
+                        .map(|db| CatalogService::should_sync_affinity(&db, crate::now_secs()))
                         .unwrap_or(false);
                     if should_sync
                         && CatalogService::sync_github_affinity_signals_bg(

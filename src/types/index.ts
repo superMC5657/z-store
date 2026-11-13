@@ -225,8 +225,9 @@ export interface AppSettings {
   catalog_source_url: string;
   // 关注更新的应用内提醒频率（每次启动检查 / 每天汇总）
   watch_notify_frequency: 'startup' | 'daily';
-  // 本地亲和度个性化推荐开关（默认开启）
+  // 推荐画像信号源开关（默认开启）：本地应用信息 / GitHub 用户信息
   enable_local_affinity?: boolean;
+  enable_github_affinity?: boolean;
 }
 
 interface AffinityCategoryStat {
@@ -235,7 +236,12 @@ interface AffinityCategoryStat {
 }
 
 export interface AffinityProfileSummary {
+  /** 任一信号源开启即为个性化推荐。 */
   enabled: boolean;
+  /** 本地应用信息信号源（收藏、关注、已安装、浏览、搜索）；缺省随 `enabled`。 */
+  local_enabled?: boolean;
+  /** GitHub 用户信息信号源（Star、Fork、自有仓库）；缺省随 `enabled`。 */
+  github_enabled?: boolean;
   starred_repo_count: number;
   forked_repo_count: number;
   owned_repo_count: number;
