@@ -44,6 +44,8 @@ interface UseAppSelectorsParams {
   customApps?: AppSummary[];
   showCustom?: boolean;
   searchQuery?: string;
+  /** 未经搜索词裁剪的完整目录（供在线段 is_cataloged 标注，避免搜索态误把已收录项标成未收录）。 */
+  fullCatalogApps?: AppSummary[];
 }
 
 /**
@@ -269,7 +271,7 @@ type MergedAppRow = AppSummary & {
 };
 
 /** 行身份（id / owner / repo 任一形态）：别名归一与本地命中判定的最小输入。 */
-type RowIdentity = { id?: unknown; owner?: unknown; repo?: unknown };
+type RowIdentity = { id?: unknown; owner?: unknown; repo?: unknown; forge?: unknown };
 
 /** 是否为自维护行（source=custom 即是；category external 原样保留，不参与判定）。 */
 function isCustomAppRow(app: { source?: string }): boolean {
@@ -495,20 +497,34 @@ export function selectMergedCatalogApps(
 // guess_category 猜的真实分类（http.rs 默认 dev），需按 catalog id 集显式标注才不误判已收录。
 // 此处按 catalog id 集（canonical 小写，复用 normalizeId）显式标注，显式标记优先于兜底。
 
-/** catalog id 集（canonical 小写归一，去空去重）。 */
+/** catalog id 集（含行别名归一，去空去重）。 */
 export function buildCatalogIdSet(catalogApps: readonly AppSummary[]): Set<string> {
   const out = new Set<string>();
   for (const a of catalogApps) {
-    const k = normalizeId(a?.id);
-    if (k) out.add(k);
+    if (!a) continue;
+    for (const k of rowAliasKeys(a)) out.add(k);
   }
   return out;
 }
 
-/** 单 id 是否命中收录（canonical 小写比对）。 */
-function isCatalogedId(id: unknown, catalogIds: ReadonlySet<string>): boolean {
-  const k = normalizeId(id);
-  return k !== '' && catalogIds.has(k);
+/** 选取未裁剪全量目录，缺席时回退当前列表。 */
+export function selectCatalogBase(
+  fullCatalogApps: readonly AppSummary[] | undefined,
+  apps: readonly AppSummary[],
+): readonly AppSummary[] {
+  return fullCatalogApps && fullCatalogApps.length > 0 ? fullCatalogApps : apps;
+}
+
+/** 别名命中集判断（id / GitHub owner-repo 归一，供 customIds / catalogIds 共用）。 */
+export function hasIdAliasMatch(
+  row: RowIdentity,
+  idSet?: ReadonlySet<string>,
+): boolean {
+  if (!idSet || idSet.size === 0) return false;
+  for (const k of rowAliasKeys(row)) {
+    if (idSet.has(k)) return true;
+  }
+  return false;
 }
 
 /**
@@ -553,7 +569,7 @@ export function annotateIsCataloged<T extends AppSummary>(
       is_cataloged: true,
     } as T;
   }
-  const expected = isCatalogedId(row.id, catalogIds);
+  const expected = hasIdAliasMatch(row, catalogIds);
   // 失效本地标注（本地收录已退回/删除等情形）：source/status 一并清掉，
   // 否则仅纠 is_cataloged 会让黄标判定继续读到残留 source。
   const staleLocalMark =
@@ -592,7 +608,10 @@ export function restampLocalMarks<T extends AppSummary>(
   return changed ? next : rows;
 }
 
-/** 行别名键（id 归一 + owner/repo 归一 + id 末两段归一）：大小写/前后缀漂移仍命中同一仓库。 */
+/**
+ * 行别名键（canonical id 归一 + 仅限 GitHub 的 owner/repo 别名，避免跨 Forge 同名仓库冲突）：
+ * 非 GitHub canonical id（带 `forge:` 前缀或非 github forge）仅保留自身 canonical id。
+ */
 export function rowAliasKeys(row: RowIdentity): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -604,17 +623,24 @@ export function rowAliasKeys(row: RowIdentity): string[] {
   const idKey = normalizeId(row?.id);
   if (idKey) {
     push(idKey);
-    const raw = String(row?.id ?? '').trim();
-    const afterColon = raw.includes(':') ? (raw.split(':').pop() ?? raw) : raw;
-    const segs = afterColon.split('/').map((s) => s.trim()).filter(Boolean);
-    if (segs.length >= 2) {
-      const shortKey = normalizeId(`${segs[segs.length - 2]}/${segs[segs.length - 1]}`);
-      if (shortKey) push(shortKey);
-    }
   }
-  if (typeof row?.owner === 'string' && typeof row?.repo === 'string') {
-    const coord = normalizeId(`${row.owner.trim()}/${row.repo.trim()}`);
-    if (coord && coord !== '/') push(coord);
+  const forgeRaw = typeof row?.forge === 'string' ? row.forge.trim().toLowerCase() : '';
+  const isNonGithubForge =
+    (idKey.includes(':') && !idKey.startsWith('github:')) ||
+    (forgeRaw !== '' && forgeRaw !== 'github');
+  if (!isNonGithubForge) {
+    const raw = String(row?.id ?? '').trim().toLowerCase();
+    if (raw.startsWith('github.com/')) {
+      const segs = raw.slice('github.com/'.length).split('/').filter(Boolean);
+      if (segs.length === 2) {
+        const shortKey = normalizeId(`${segs[0]}/${segs[1]}`);
+        if (shortKey) push(shortKey);
+      }
+    }
+    if (typeof row?.owner === 'string' && typeof row?.repo === 'string') {
+      const coord = normalizeId(`${row.owner.trim()}/${row.repo.trim()}`);
+      if (coord && coord !== '/') push(coord);
+    }
   }
   return out;
 }
@@ -810,12 +836,20 @@ export function useAppSelectors({
   customApps = [],
   showCustom = SHOW_CUSTOM_DEFAULT,
   searchQuery,
+  fullCatalogApps,
 }: UseAppSelectorsParams) {
   // 自维护 overlay：custom 未归档叠加到 Home/分类/搜索（远端优先去重，custom 标 source=custom）。
   // 缺省（customApps=[]/showCustom=true）即原数组透传。搜索态按词过滤，避免误将不相关的收录行追加到搜索结果。
   const mergedApps = useMemo(
     () => selectMergedCatalogApps(apps, customApps, showCustom, searchQuery),
     [apps, customApps, showCustom, searchQuery],
+  );
+  const fullMergedForAnnotate = useMemo(
+    () =>
+      fullCatalogApps && fullCatalogApps.length > 0
+        ? selectMergedCatalogApps(fullCatalogApps, customApps, showCustom)
+        : mergedApps,
+    [fullCatalogApps, mergedApps, customApps, showCustom],
   );
   // 以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
   // 加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
@@ -826,11 +860,11 @@ export function useAppSelectors({
   // 搜索在线段同口径平台过滤：与本地段一致，加载中恒可见，落定后走正常过滤。
   // 在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对），
   // 显式标记优先于 category 兜底；已收录在线仍正确隐藏按钮，未收录 dev 猜分类正确显示。
-  // 本地收录橘黄链路：目录用合并后全量（含本地，远端优先去重语义不动），在线同 id 命中本地
+  // 本地收录橘黄链路：目录用完整合并目录（含本地，远端优先去重语义不动），在线同 id 命中本地
   // 叠加 source='local'/status（蓝优先：自身已验证不叠加），供 badge 判定。
   const annotatedOnlineApps = useMemo(
-    () => annotateOnlineCataloged(onlineApps, mergedApps, customApps),
-    [onlineApps, mergedApps, customApps],
+    () => annotateOnlineCataloged(onlineApps, fullMergedForAnnotate, customApps),
+    [onlineApps, fullMergedForAnnotate, customApps],
   );
   const platformFilteredOnlineApps = useMemo(
     () => selectPlatformFilteredApps(annotatedOnlineApps, selectedPlatforms, platformResolvedOtherIds),
@@ -875,11 +909,16 @@ export function useAppSelectors({
   }, [setSelectedPlatforms]);
 
   // 趋势榜单平台分布（TrendsView 上报其榜单行口径）：趋势页侧栏计数切到该口径，
+  // 收藏页 Star 列表激活且已拉取时切到 Star 列表分布，
   // 搜索态首页（HomeView 同时展示本地段与在线段）纳入去重后的在线结果分布，
   // 其余页面沿用收录库口径。null = 尚未上报（沿用收录库，避免闪 0）。
   const [trendsPlatformCounts, setTrendsPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
   const handleTrendsPlatformCounts = useCallback((counts: Record<PlatformId, number>) => {
     setTrendsPlatformCounts(counts);
+  }, []);
+  const [starredPlatformCounts, setStarredPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
+  const handleStarredPlatformCounts = useCallback((counts: Record<PlatformId, number> | null) => {
+    setStarredPlatformCounts(counts);
   }, []);
   const hasActiveOnlineSearch =
     currentView === 'home' &&
@@ -897,7 +936,9 @@ export function useAppSelectors({
   const sidebarPlatformCounts =
     currentView === 'trends' && trendsPlatformCounts
       ? trendsPlatformCounts
-      : searchPlatformCounts ?? platformCounts;
+      : currentView === 'favorites' && starredPlatformCounts
+        ? starredPlatformCounts
+        : searchPlatformCounts ?? platformCounts;
 
   // 已安装 id 集（大小写归一）：安装态与「受管」判定共用同一集合，一处计算两处消费。
   const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
@@ -949,6 +990,7 @@ export function useAppSelectors({
     filteredUpdates,
     handleResetPlatformFilter,
     handleTrendsPlatformCounts,
+    handleStarredPlatformCounts,
     sidebarPlatformCounts,
     installedIds,
     managedIds,

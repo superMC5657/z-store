@@ -594,7 +594,10 @@
     "starred_order_hint": "按 Star 时间从新到旧排列",
     "favorite_loaded_cataloged": "收藏已加载的已收录应用",
     "starred_load_more": "加载更多 Star",
-    "starred_end": "已全部加载 · {{count}} 个应用"
+    "starred_end": "已全部加载 · {{count}} 个应用",
+    "starred_filter_empty_title": "当前平台下暂无 Star 应用",
+    "starred_filter_empty_desc": "当前设备平台筛选下暂无匹配仓库，可重置筛选或继续加载更多。",
+    "reset_device_filter": "重置筛选"
   },
   "rules": {
     "dismissed_at": "确认于: {{date}}",

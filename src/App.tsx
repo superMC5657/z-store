@@ -45,8 +45,7 @@ import { useCustomApps } from './app/hooks/useCustomApps';
 import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
-import { useAppSelectors } from './app/selectors';
-import { selectMergedCatalogApps } from './app/selectors';
+import { useAppSelectors, rowAliasKeys, selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
@@ -70,6 +69,9 @@ export const App: React.FC = () => {
   const navigate = useMemo(() => createNavigate(setCurrentView), [setCurrentView]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [apps, setApps] = useState<AppSummary[]>([]);
+  // 完整未裁剪目录（仅由 searchApps('') 与 zstore:catalog-synced 更新），供收藏/趋势/Star/在线段判收录使用，
+  // 避免顶栏输入搜索词覆盖 apps 后导致其余已收录项误判为未收录。
+  const [fullCatalogApps, setFullCatalogApps] = useState<AppSummary[]>([]);
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
@@ -104,6 +106,8 @@ export const App: React.FC = () => {
   // 卡片 memo 稳定回调支撑：经 ref 读取最新列表/详情，避免 handleOpenDetail 依赖 apps 而每搜必变
   const appsRef = useRef<AppSummary[]>([]);
   appsRef.current = apps;
+  const fullCatalogAppsRef = useRef<AppSummary[]>([]);
+  fullCatalogAppsRef.current = fullCatalogApps;
   const recentsRef = useRef<AppSummary[]>([]);
   recentsRef.current = recentlyViewedApps;
   const watchedRef = useRef<Set<string>>(watchedIds);
@@ -135,9 +139,14 @@ export const App: React.FC = () => {
   useEffect(() => {
     const onMoved = (e: Event) => {
       const id = (e as CustomEvent<{ id?: unknown }>).detail?.id;
-      const key = normalizeId(id);
-      if (!key) return;
-      setMovedInIds((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+      const keys = rowAliasKeys({ id });
+      if (keys.length === 0) return;
+      setMovedInIds((prev) => {
+        if (keys.every((k) => prev.has(k))) return prev;
+        const next = new Set(prev);
+        for (const k of keys) next.add(k);
+        return next;
+      });
     };
     window.addEventListener('zstore:custom-apps-changed', onMoved);
     return () => {
@@ -147,8 +156,9 @@ export const App: React.FC = () => {
   const customIds = useMemo(() => {
     const out = new Set<string>(movedInIds);
     for (const e of customApps ?? []) {
-      const key = normalizeId(e.id);
-      if (key) out.add(key);
+      for (const k of rowAliasKeys({ id: e.id, owner: e.item?.owner, repo: e.item?.repo })) {
+        out.add(k);
+      }
     }
     return out;
   }, [customApps, movedInIds]);
@@ -214,6 +224,7 @@ export const App: React.FC = () => {
   const {
     platformResolvedOtherIds,
     setPlatformResolvedOtherIds,
+    confirmPlatformOtherIds,
     lazyBackfillPlatforms,
   } = usePlatformBackfill({
     apps,
@@ -229,11 +240,12 @@ export const App: React.FC = () => {
   });
   lazyBackfillRef.current = lazyBackfillPlatforms;
 
-  // 合并后全量（含本地，远端优先去重语义不动）：收藏 join/详情标注共用此口径，
+  // 合并后全量（含本地，远端优先去重语义不动）：收藏 join/详情标注/趋势/Star 共用此未裁剪全量口径，
   // 本地行保留 source='local'/status 供黄标判定。
+  const catalogSourceApps = fullCatalogApps.length > 0 ? fullCatalogApps : apps;
   const mergedAppsForJoins = useMemo(
-    () => selectMergedCatalogApps(apps, localLibrarySummaries, true),
-    [apps, localLibrarySummaries],
+    () => selectMergedCatalogApps(catalogSourceApps, localLibrarySummaries, true),
+    [catalogSourceApps, localLibrarySummaries],
   );
 
   // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`；
@@ -252,6 +264,7 @@ export const App: React.FC = () => {
   } = useDetailCacheSync({
     selectedApp,
     appsRef,
+    fullCatalogAppsRef,
     onlineAppsRef,
     recentsRef,
     setApps,
@@ -284,6 +297,7 @@ export const App: React.FC = () => {
   // 关注/更新流/OAuth + 进入「我的应用」读更新快照 + 视图切换日志）
   useAppSubscriptions({
     setApps,
+    setFullCatalogApps,
     setOnlineApps,
     setRecentlyViewedApps,
     setUncatalogedExtraApps,
@@ -297,6 +311,7 @@ export const App: React.FC = () => {
     setIsCheckingUpdates,
     setUpdateCheckProgress,
     appsRef,
+    fullCatalogAppsRef,
     onlineAppsRef,
     recentsRef,
     uncatalogedExtraAppsRef,
@@ -321,6 +336,7 @@ export const App: React.FC = () => {
     filteredUpdates,
     handleResetPlatformFilter,
     handleTrendsPlatformCounts,
+    handleStarredPlatformCounts,
     sidebarPlatformCounts,
     installedIds,
     managedIds,
@@ -344,6 +360,7 @@ export const App: React.FC = () => {
     stagedDeepLinkInstall,
     customApps: localLibrarySummaries,
     searchQuery,
+    fullCatalogApps,
   });
 
   // 侧栏「我的应用」角标：与页内「有更新」筛选签同一口径（selectUpdatableInstalled）
@@ -773,7 +790,14 @@ export const App: React.FC = () => {
           {currentView === 'favorites' && (
             <FavoritesView
               apps={favoritesViewApps}
+              selectedPlatforms={selectedPlatforms}
               platformResolvedOtherIds={platformResolvedOtherIds}
+              onConfirmPlatformOtherIds={confirmPlatformOtherIds}
+              onDisplayPlatformCounts={handleStarredPlatformCounts}
+              onResetPlatformFilter={handleResetPlatformFilter}
+              catalogApps={mergedAppsForJoins}
+              customIds={customIds}
+              localApps={localLibrarySummaries}
               favoriteIds={favoriteIds}
               watchedIds={watchedIds}
               installedIds={installedIds}

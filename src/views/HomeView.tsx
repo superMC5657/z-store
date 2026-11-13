@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -28,12 +28,12 @@ import { useHomeFeed, HOME_FEED_PAGE } from './HomeView/useHomeFeed';
 import { useOnlinePullToLoadMore } from './HomeView/useOnlinePullToLoadMore';
 import { queueAssembledRowIcons, admitIconHit } from '../services/iconStore';
 import { isPlatformLoading } from '../lib/platformFilter';
-import { annotateIsCataloged, annotateOnlineCataloged, buildCatalogIdSet, isInstalled as selectIsInstalled, mergeLocalLookups, selectManagedState } from '../app/selectors';
+import { annotateIsCataloged, annotateOnlineCataloged, buildCatalogIdSet, hasIdAliasMatch, isInstalled as selectIsInstalled, mergeLocalLookups, selectManagedState } from '../app/selectors';
 import { resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import { normalizeId } from '../services/normalizeId';
 import { tauriApi } from '../services/api';
-import { moveInToDraft, resolveRemoteIconUrl } from '../services/custom';
-import { notifyToast } from '../useToasts';
+import { resolveRemoteIconUrl } from '../services/custom';
+import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
 
 interface HomeViewProps extends ViewAppActions, PlatformResetOption {
   /**
@@ -113,39 +113,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   // 移入收录（一键 save_custom_app 草稿，status=draft/platforms [] loading）：
   // 经 tauriApi（视图禁直调 invoke，命令表驱动），platforms [] 复用 lite 确认链（缺席即 loading，编辑页可手改）。
-  // 入口收进 AppCard 内部操作区（仅未收录 external 行渲染），此处只保留动作实现；
-  // useCallback 稳定引用，富卡 memo 不因父渲染失效。
-  const [movingIds, setMovingIds] = useState<Set<string>>(() => new Set<string>());
-  const movingRef = useRef<Set<string>>(new Set<string>());
-  const handleMoveIn = useCallback(async (app: AppSummary) => {
-    const key = app.id;
-    if (movingRef.current.has(key)) return;
-    movingRef.current.add(key);
-    setMovingIds((prev) => new Set(prev).add(key));
-    try {
-      const res = await moveInToDraft(app);
-      if (!res.ok) {
-        notifyToast(
-          t('custom.move_in_failed', {
-            error: res.error ?? '',
-          }),
-          'error',
-        );
-        return;
-      }
-      notifyToast(
-        t('custom.moved_in', { id: res.id }),
-        'success',
-      );
-    } finally {
-      movingRef.current.delete(key);
-      setMovingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  }, [t]);
+  // 入口收进 AppCard 内部操作区（仅未收录 external 行渲染），此处复用共享 Hook `useMoveInToDraft`。
+  const { isMovingIn, handleMoveIn } = useMoveInToDraft();
 
   // 在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对）。
   // App 侧 useAppSelectors 已标注，此处再守一次（直接渲染 HomeView 的单测/预览同样生效）；
@@ -602,8 +571,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   onToggleFavorite={onToggleFavorite}
                   onToggleWatch={onToggleWatch}
                   onMoveInApp={handleMoveIn}
-                  isMovingIn={movingIds.has(app.id)}
-                  isCustomExisting={customIds?.has(normalizeId(app.id)) ?? false}
+                  isMovingIn={isMovingIn(app.id)}
+                  isCustomExisting={hasIdAliasMatch(app, customIds)}
                 />
               ))}
             </div>

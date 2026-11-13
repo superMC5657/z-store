@@ -11,6 +11,7 @@ import {
   annotateLocalSource,
   annotateOnlineCataloged,
   buildCatalogIdSet,
+  hasIdAliasMatch,
   isCollectedStatus,
   isLocalLibraryStatus,
   mergeLocalLookups,
@@ -402,5 +403,23 @@ describe('历史行重标（最近浏览去黄成对）', () => {
     expect(marked[0]?.source).toBe('local');
     expect(resolveVerifiedBadgeVariant(marked[0] as never)).toBe('local');
     expect(restampLocalMarks(marked, new Set<string>(), local)).toBe(marked);
+  });
+
+  it('非 GitHub Forge canonical id 不与同名 GitHub owner/repo 发生跨源碰撞', () => {
+    expect(rowAliasKeys({ id: 'codeberg:foo/bar', owner: 'foo', repo: 'bar', forge: 'codeberg' })).toEqual([
+      'codeberg:foo/bar',
+    ]);
+    expect(rowAliasKeys({ id: 'gitea:git.example.com/foo/bar', owner: 'foo', repo: 'bar', forge: 'gitea' })).toEqual([
+      'gitea:git.example.com/foo/bar',
+    ]);
+
+    const catalogIds = buildCatalogIdSet([app('foo/bar')]);
+    const codebergRow = {
+      ...app('codeberg:foo/bar', { owner: 'foo', repo: 'bar' }),
+      forge: 'codeberg',
+    } as AppSummary;
+    const out = annotateIsCataloged(codebergRow, catalogIds, []);
+    expect(out.is_cataloged).toBe(false);
+    expect(hasIdAliasMatch(codebergRow, catalogIds)).toBe(false);
   });
 });

@@ -594,7 +594,10 @@
     "starred_order_hint": "Newest stars first",
     "favorite_loaded_cataloged": "Favorite loaded cataloged apps",
     "starred_load_more": "Load more stars",
-    "starred_end": "All loaded · {{count}} apps"
+    "starred_end": "All loaded · {{count}} apps",
+    "starred_filter_empty_title": "No matching starred apps",
+    "starred_filter_empty_desc": "No starred repositories match the current platform filter.",
+    "reset_device_filter": "Reset Filter"
   },
   "rules": {
     "dismissed_at": "Seen on: {{date}}",

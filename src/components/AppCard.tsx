@@ -67,6 +67,8 @@ function arePlatformsEqual(a?: string[], b?: string[]): boolean {
 
 function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
   if (prev === next) return true;
+  const prevCataloged = (prev as { is_cataloged?: unknown }).is_cataloged;
+  const nextCataloged = (next as { is_cataloged?: unknown }).is_cataloged;
   const prevSource = (prev as { source?: unknown }).source;
   const nextSource = (next as { source?: unknown }).source;
   const prevStatus = (prev as { status?: unknown }).status;
@@ -91,6 +93,7 @@ function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
     prev.forge_host === next.forge_host &&
     prev.homepage === next.homepage &&
     prev.added_at === next.added_at &&
+    prevCataloged === nextCataloged &&
     prevSource === nextSource &&
     prevStatus === nextStatus &&
     arePlatformsEqual(prev.platforms, next.platforms)
@@ -186,11 +189,15 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   // 自维护角标：source=custom 即本地草稿行；category external 原样保留，
   // 判定仅看 source，不改 isAppCataloged 口径。
   const isCustomRow = (app as { source?: unknown }).source === 'custom';
-  const isLocalRow = (app as { source?: unknown }).source === 'local';
   const customBadgeLabel = t('app.custom_badge');
-  // 移入收录入口门控：仅未收录 external 行（isAppCataloged 唯一口径）生效；
-  // 已收录 / 已转正（远端行）/ custom 草稿行 / local 收录行 / custom 已存在一律不渲染，避免误点。
-  const showMoveIn = Boolean(onMoveInApp) && !isAppCataloged(app) && !isCustomRow && !isLocalRow && !isCustomExisting;
+  // 移入收录入口门控：仅未收录且未认证/未本地收录的行生效；
+  // 已收录 / 已认证蓝标 / 本地收录黄标 / custom 草稿行 / custom 已存在一律不渲染，避免误点。
+  const showMoveIn =
+    Boolean(onMoveInApp) &&
+    !isAppCataloged(app) &&
+    !isCustomRow &&
+    badgeVariant === null &&
+    !isCustomExisting;
   const moveInLabel = isMovingIn
     ? t('custom.moving_in')
     : t('custom.move_in');

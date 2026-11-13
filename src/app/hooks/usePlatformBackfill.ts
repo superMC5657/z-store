@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
+import { patchRowsPlatforms } from '../../services/search/onlineRows';
+import { patchSearchListCacheRows } from '../../services/search/searchListCache';
 import {
   collectListLoadingKeys,
   createInflightGuard,
   createSeqGuard,
+  normalizeLoadingKey,
   runLiteBatch,
   scheduleSettleConfirm,
   selectListLiteTargets,
+  unionConfirmedSets,
   type InflightGuard,
   type SeqGuard,
 } from '../../lib/platformFilter';
@@ -23,6 +27,73 @@ interface UsePlatformBackfillParams {
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+}
+
+function mergeConfirmedIds(prev: Set<string>, ids: readonly string[]): Set<string> {
+  let changed = false;
+  const next = new Set(prev);
+  for (const raw of ids) {
+    const k = normalizeLoadingKey(raw);
+    if (k && !next.has(k)) {
+      next.add(k);
+      changed = true;
+    }
+  }
+  return changed ? next : prev;
+}
+
+/**
+ * 列表平台轻量回填共享执行器（主列表/在线搜索/Star 列表共用）：
+ * 分批走 `getPlatformsLite`（经 `runLiteBatch`），成功将真实平台写透目标列表与 `searchListCache`，
+ * 空且非 stale 的写入已确认 other；stale/失败保持 loading 交由 `scheduleSettleConfirm` 兜底。
+ */
+async function executeLiteBackfillBatch(opts: {
+  summaries: readonly AppSummary[];
+  seq: number;
+  forceRefresh: boolean;
+  inflight: InflightGuard;
+  seqGuard: SeqGuard;
+  resolvedOther: ReadonlySet<string>;
+  attempted?: Set<string>;
+  onPatched: (patched: Map<string, string[]>) => void;
+  onConfirmedEmpty: (confirmedEmpty: string[]) => void;
+  onSettled?: () => void;
+}): Promise<void> {
+  const candidates = opts.attempted
+    ? opts.summaries.filter((s) => {
+        const k = normalizeLoadingKey(s.id);
+        return k !== '' && !opts.attempted!.has(k);
+      })
+    : opts.summaries;
+  const targets = selectListLiteTargets(candidates, {
+    resolved: opts.resolvedOther,
+    inflight: opts.inflight,
+  });
+  if (targets.length === 0) return;
+  const claimed = new Set(opts.inflight.take(targets.map((t) => t.key)));
+  const runTargets = targets.filter((t) => claimed.has(t.key));
+  if (runTargets.length === 0) return;
+  if (opts.attempted) {
+    for (const t of runTargets) opts.attempted.add(t.key);
+  }
+  try {
+    const { patched, confirmedEmpty } = await runLiteBatch(
+      runTargets,
+      (liteId) => tauriApi.getPlatformsLite(liteId, opts.forceRefresh),
+      () => opts.seqGuard.isStale(opts.seq),
+    );
+    if (opts.seqGuard.isStale(opts.seq)) return;
+    if (patched.size > 0) {
+      patchSearchListCacheRows((prev) => patchRowsPlatforms(prev, patched));
+      opts.onPatched(patched);
+    }
+    if (confirmedEmpty.length > 0) {
+      opts.onConfirmedEmpty(confirmedEmpty);
+    }
+  } finally {
+    opts.inflight.release(runTargets.map((t) => t.key));
+    opts.onSettled?.();
+  }
 }
 
 export function usePlatformBackfill({
@@ -48,6 +119,11 @@ export function usePlatformBackfill({
   const seqGuardRef = useRef<SeqGuard | null>(null);
   if (!seqGuardRef.current) seqGuardRef.current = createSeqGuard(() => searchSeqRef.current);
 
+  const confirmPlatformOtherIds = useCallback((ids: readonly string[]) => {
+    if (ids.length === 0) return;
+    setPlatformResolvedOtherIds((prev) => mergeConfirmedIds(prev, ids));
+  }, []);
+
   // 平台懒回填（三态）：首绘 loading 行不展示 Other 徽标、不计入 other 桶、恒可见；
   // 对可见行（前 20）经深模块 `runLiteBatch`（分批 5）走 getPlatformsLite 轻量通道
   // 补 deduced platforms（单次 releases/latest 条件请求，无 README/图标探测/checksum 开销）；
@@ -60,79 +136,22 @@ export function usePlatformBackfill({
     const guard = seqGuardRef.current;
     const inflight = inflightGuardRef.current;
     if (!guard || !inflight) return;
-    const targets = selectListLiteTargets(summaries, {
-      resolved: platformResolvedOtherRef.current,
+    void executeLiteBackfillBatch({
+      summaries,
+      seq,
+      forceRefresh,
       inflight,
+      seqGuard: guard,
+      resolvedOther: platformResolvedOtherRef.current,
+      onPatched: (patched) => {
+        setApps((prev) => patchRowsPlatforms(prev, patched));
+        // 在线段同口径回填：卡片共用同一 loading 语义，在线段不闪 Other。
+        setOnlineApps((prev) => patchRowsPlatforms(prev, patched));
+        setRecentlyViewedApps((prev) => patchRowsPlatforms(prev, patched));
+      },
+      onConfirmedEmpty: confirmPlatformOtherIds,
     });
-    if (targets.length === 0) return;
-    const claimed = new Set(inflight.take(targets.map((t) => t.key)));
-    const runTargets = targets.filter((t) => claimed.has(t.key));
-    if (runTargets.length === 0) return;
-    void (async () => {
-      try {
-        const { patched, confirmedEmpty } = await runLiteBatch(
-          runTargets,
-          (liteId) => tauriApi.getPlatformsLite(liteId, forceRefresh),
-          () => guard.isStale(seq),
-        );
-        if (guard.isStale(seq)) return;
-        if (patched.size > 0) {
-          setApps((prev) => {
-            let changed = false;
-            const next = prev.map((a) => {
-              const p = patched.get(a.id.toLowerCase());
-              if (p && (!a.platforms || a.platforms.length === 0)) {
-                changed = true;
-                return { ...a, platforms: p };
-              }
-              return a;
-            });
-            return changed ? next : prev;
-          });
-          // 在线段同口径回填：卡片共用同一 loading 语义，在线段不闪 Other。
-          setOnlineApps((prev) => {
-            let changed = false;
-            const next = prev.map((a) => {
-              const p = patched.get(a.id.toLowerCase());
-              if (p && (!a.platforms || a.platforms.length === 0)) {
-                changed = true;
-                return { ...a, platforms: p };
-              }
-              return a;
-            });
-            return changed ? next : prev;
-          });
-          setRecentlyViewedApps((prev) => {
-            let changed = false;
-            const next = prev.map((a) => {
-              const p = patched.get(a.id.toLowerCase());
-              if (p && (!a.platforms || a.platforms.length === 0)) {
-                changed = true;
-                return { ...a, platforms: p };
-              }
-              return a;
-            });
-            return changed ? next : prev;
-          });
-        }
-        if (confirmedEmpty.length > 0) {
-          setPlatformResolvedOtherIds((prev) => {
-            let changed = false;
-            const next = new Set(prev);
-            for (const k of confirmedEmpty) {
-              if (!next.has(k)) {
-                next.add(k);
-                changed = true;
-              }
-            }
-            return changed ? next : prev;
-          });
-        }
-      } finally {
-        inflight.release(runTargets.map((t) => t.key));
-      }
-    })();
-  }, [setApps, setOnlineApps, setRecentlyViewedApps]);
+  }, [confirmPlatformOtherIds, setApps, setOnlineApps, setRecentlyViewedApps]);
 
   // 首绘回填：本地收录（含初始全量/搜索/目录同步）的 loading 行同样走轻量确认，
   // 首绘不闪 Other，落定后单次更新。重复调用经在途/已确认集合去重。
@@ -170,24 +189,158 @@ export function usePlatformBackfill({
         });
       },
       onConfirm: (stillLoading) => {
-        setPlatformResolvedOtherIds((prev) => {
-          const next = new Set(prev);
-          let changed = false;
-          for (const k of stillLoading) {
-            if (!next.has(k)) {
-              next.add(k);
-              changed = true;
-            }
-          }
-          return changed ? next : prev;
-        });
+        confirmPlatformOtherIds(stillLoading);
       },
     });
-  }, [apps, onlineApps, recentlyViewedApps, platformResolvedOtherIds, appsRef, onlineAppsRef, recentsRef]);
+  }, [
+    apps,
+    onlineApps,
+    recentlyViewedApps,
+    platformResolvedOtherIds,
+    appsRef,
+    onlineAppsRef,
+    recentsRef,
+    confirmPlatformOtherIds,
+  ]);
 
   return {
     platformResolvedOtherIds,
     setPlatformResolvedOtherIds,
+    confirmPlatformOtherIds,
     lazyBackfillPlatforms,
   };
+}
+
+interface UseListPlatformBackfillParams {
+  rows: readonly AppSummary[];
+  rowsRef: React.MutableRefObject<AppSummary[]>;
+  setRows: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  seqRef: React.MutableRefObject<number>;
+  sharedResolvedOtherIds: ReadonlySet<string>;
+  onConfirmOtherIds?: (ids: readonly string[]) => void;
+  forceRefresh?: boolean;
+}
+
+/**
+ * 独立分页视图（如 StarredFeed）的平台回填与 15s 落定 Hook：
+ * 与主列表/在线搜索共用 `executeLiteBackfillBatch` + `scheduleSettleConfirm`，
+ * 同 seq 内对已尝试过但仍 stale/失败的行不重复请求，交由 15s settle 落定为 Other。
+ */
+export function useListPlatformBackfill({
+  rows,
+  rowsRef,
+  setRows,
+  seqRef,
+  sharedResolvedOtherIds,
+  onConfirmOtherIds,
+  forceRefresh = false,
+}: UseListPlatformBackfillParams): { resolvedOtherIds: ReadonlySet<string> } {
+  const [localResolvedOtherIds, setLocalResolvedOtherIds] = useState<Set<string>>(() => new Set<string>());
+  const [drainTick, setDrainTick] = useState(0);
+  const inflightGuardRef = useRef<InflightGuard | null>(null);
+  if (!inflightGuardRef.current) inflightGuardRef.current = createInflightGuard();
+  const seqGuardRef = useRef<SeqGuard | null>(null);
+  if (!seqGuardRef.current) seqGuardRef.current = createSeqGuard(() => seqRef.current);
+  const attemptedRef = useRef<{ seq: number; keys: Set<string> }>({
+    seq: seqRef.current,
+    keys: new Set<string>(),
+  });
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const resolvedOtherIds = useMemo(
+    () =>
+      localResolvedOtherIds.size === 0
+        ? sharedResolvedOtherIds
+        : unionConfirmedSets(sharedResolvedOtherIds, localResolvedOtherIds),
+    [sharedResolvedOtherIds, localResolvedOtherIds],
+  );
+  const resolvedOtherRef = useRef<ReadonlySet<string>>(resolvedOtherIds);
+  resolvedOtherRef.current = resolvedOtherIds;
+
+  const confirmOtherIds = useCallback(
+    (ids: readonly string[]) => {
+      if (ids.length === 0) return;
+      if (onConfirmOtherIds) {
+        onConfirmOtherIds(ids);
+        return;
+      }
+      setLocalResolvedOtherIds((prev) => mergeConfirmedIds(prev, ids));
+    },
+    [onConfirmOtherIds],
+  );
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const guard = seqGuardRef.current;
+    const inflight = inflightGuardRef.current;
+    if (!guard || !inflight) return;
+    const seq = guard.capture();
+    if (attemptedRef.current.seq !== seq) {
+      attemptedRef.current = { seq, keys: new Set<string>() };
+    }
+    const attempted = attemptedRef.current.keys;
+    void executeLiteBackfillBatch({
+      summaries: rows,
+      seq,
+      forceRefresh,
+      inflight,
+      seqGuard: guard,
+      resolvedOther: resolvedOtherRef.current,
+      attempted,
+      onPatched: (patched) => {
+        if (!mountedRef.current) return;
+        setRows((prev) => patchRowsPlatforms(prev, patched));
+      },
+      onConfirmedEmpty: (confirmedEmpty) => {
+        if (!mountedRef.current) return;
+        confirmOtherIds(confirmedEmpty);
+      },
+      onSettled: () => {
+        if (!mountedRef.current || guard.isStale(seq)) return;
+        const remaining = rowsRef.current.filter((s) => {
+          const k = normalizeLoadingKey(s.id);
+          return k !== '' && !attempted.has(k);
+        });
+        const nextTargets = selectListLiteTargets(remaining, {
+          resolved: resolvedOtherRef.current,
+          inflight,
+        });
+        if (nextTargets.length > 0) {
+          setDrainTick((n) => n + 1);
+        }
+      },
+    });
+  }, [rows, drainTick, forceRefresh, rowsRef, setRows, confirmOtherIds]);
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const keys = collectListLoadingKeys([rows], resolvedOtherIds);
+    if (keys.length === 0) return;
+    return scheduleSettleConfirm({
+      keys,
+      recheck: (snapshot) => {
+        const currentById = new Map<string, AppSummary>();
+        for (const s of rowsRef.current) {
+          const k = normalizeLoadingKey(s.id);
+          if (k && !currentById.has(k)) currentById.set(k, s);
+        }
+        const resolved = resolvedOtherRef.current;
+        return snapshot.filter((key) => {
+          const cur = currentById.get(key);
+          if (!cur) return false;
+          if (cur.platforms && cur.platforms.length > 0) return false;
+          return !resolved.has(key);
+        });
+      },
+      onConfirm: confirmOtherIds,
+    });
+  }, [rows, resolvedOtherIds, rowsRef, confirmOtherIds]);
+
+  return { resolvedOtherIds };
 }

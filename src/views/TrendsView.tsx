@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -21,9 +21,8 @@ import {
   formatStars,
   matchCatalogApp,
 } from '../services/trends';
-import { moveInToDraft } from '../services/custom';
+import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
 import { normalizeId } from '../services/normalizeId';
-import { notifyToast } from '../useToasts';
 import type {
   AppSummary,
   TrendBoardId,
@@ -32,6 +31,7 @@ import type {
 } from '../types';
 import {
   annotateEnrichMirrorCataloged,
+  hasIdAliasMatch,
   resolveBareRowLocalBadgeVariant,
   isEnrichedRowLoading,
   isInstalled as selectIsInstalled,
@@ -154,37 +154,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     return mergeLocalLookups(inferred, localApps);
   }, [matchingBase, localApps]);
 
-  const [trendMovingIds, setTrendMovingIds] = useState<Set<string>>(() => new Set<string>());
-  const trendMovingRef = useRef<Set<string>>(new Set<string>());
-  const handleTrendMoveIn = useCallback(async (app: AppSummary) => {
-    const key = normalizeId(app.id);
-    if (!key || trendMovingRef.current.has(key)) return;
-    trendMovingRef.current.add(key);
-    setTrendMovingIds((prev) => new Set(prev).add(key));
-    try {
-      const res = await moveInToDraft(app);
-      if (!res.ok) {
-        notifyToast(
-          t('custom.move_in_failed', {
-            error: res.error ?? '',
-          }),
-          'error',
-        );
-        return;
-      }
-      notifyToast(
-        t('custom.moved_in', { id: res.id }),
-        'success',
-      );
-    } finally {
-      trendMovingRef.current.delete(key);
-      setTrendMovingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
-    }
-  }, [t]);
+  const { isMovingIn: isTrendMovingIn, handleMoveIn: handleTrendMoveIn } = useMoveInToDraft();
 
   // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
   const rawDisplayItems = useMemo<DisplayTrendItem[]>(() => {
@@ -418,8 +388,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
                     }
                   }}
                   onMoveInApp={handleTrendMoveIn}
-                  isMovingIn={trendMovingIds.has(normalizeId(enriched.id))}
-                  isCustomExisting={customIds?.has(normalizeId(enriched.id)) ?? false}
+                  isMovingIn={isTrendMovingIn(enriched.id)}
+                  isCustomExisting={hasIdAliasMatch(enriched, customIds)}
                 />
               );
             }
@@ -429,8 +399,8 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
             // 裸行迷你入口（复用 handleTrendMoveIn，isCustomExisting 同富卡隐藏逻辑）。
             // 裸行是唯一呈现（不走 AppCard），无它用户永远点不到；catalog 分支按设计不动。
             const bareKey = normalizeId(item.repo.id);
-            const bareMoving = trendMovingIds.has(bareKey);
-            const bareExisting = customIds?.has(bareKey) ?? false;
+            const bareMoving = isTrendMovingIn(item.repo.id);
+            const bareExisting = hasIdAliasMatch(item.repo, customIds);
             const bareWatched = watchedIds?.has(bareKey) ?? false;
             const bareFavorite = favoriteIds?.has(bareKey) ?? false;
             const bareMoveLabel = bareMoving

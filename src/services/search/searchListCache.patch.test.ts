@@ -6,12 +6,15 @@
  * - 写透不续 TTL（`at` 不动）、`ids` 不变；
  * - L5 显式空（`''`）亦写透（切徽章后回访同页即徽章，不复活旧图）。
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../../types';
 import {
   clearSearchListCache,
+  findInSearchListCache,
   patchSearchListCacheIcon,
+  patchSearchListCacheRows,
   readSearchListCache,
+  subscribeSearchListCachePatches,
   writeSearchListCache,
 } from './searchListCache';
 
@@ -71,5 +74,33 @@ describe('patchSearchListCacheIcon', () => {
     writeSearchListCache({ query: 'q', page: 1, perPage: 12 }, [row('o/r', REAL)]);
     patchSearchListCacheIcon('o/r', '');
     expect(readSearchListCache({ query: 'q', page: 1, perPage: 12 })?.[0].icon).toBe('');
+  });
+
+  it('patchSearchListCacheRows 同步写透缓存并通知活跃订阅者', () => {
+    writeSearchListCache({ namespace: 'starred', query: 'u', page: 1, perPage: 20 }, [row('o/r', '')]);
+    const listener = vi.fn();
+    const unsub = subscribeSearchListCachePatches(listener);
+
+    const patcher = (rows: AppSummary[]) =>
+      rows.map((r) => (r.id === 'o/r' ? { ...r, platforms: ['linux'] } : r));
+    patchSearchListCacheRows(patcher);
+
+    expect(
+      readSearchListCache({ namespace: 'starred', query: 'u', page: 1, perPage: 20 })?.[0].platforms,
+    ).toEqual(['linux']);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsub();
+    patchSearchListCacheRows(patcher);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('findInSearchListCache 按归一 id 查找未过期摘要（支持 starred 命名空间）', () => {
+    const r = { ...row('Acme/StarTool', REAL), stars: 321, description: 'starred desc' };
+    writeSearchListCache({ namespace: 'starred', query: 'octocat', page: 1, perPage: 20 }, [r]);
+
+    expect(findInSearchListCache('acme/startool')?.stars).toBe(321);
+    expect(findInSearchListCache('ACME/STARTOOL', 'starred')?.description).toBe('starred desc');
+    expect(findInSearchListCache('acme/startool', 'search')).toBeUndefined();
   });
 });

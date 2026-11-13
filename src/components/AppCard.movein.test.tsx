@@ -96,6 +96,58 @@ describe('AppCard 移入收录内部入口门控', () => {
     expect(screen.queryByTestId('move-in-o/a')).toBeNull();
   });
 
+  it('已认证蓝标与本地收录黄标（含仅带 status=collected/submitted）绝不渲染移入入口', () => {
+    const onMoveInApp = vi.fn();
+    const { rerender } = renderCard(externalApp({ is_verified: true }), { onMoveInApp });
+    expect(screen.queryByTestId('move-in-o/a')).toBeNull();
+
+    rerender(
+      <AppCard
+        app={{ ...externalApp(), status: 'collected', is_cataloged: false } as AppSummary}
+        isInstalled={false}
+        isManaged={false}
+        platformLoading={false}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onMoveInApp={onMoveInApp}
+      />,
+    );
+    expect(screen.queryByTestId('move-in-o/a')).toBeNull();
+
+    rerender(
+      <AppCard
+        app={{ ...externalApp(), status: 'submitted', is_cataloged: false } as AppSummary}
+        isInstalled={false}
+        isManaged={false}
+        platformLoading={false}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onMoveInApp={onMoveInApp}
+      />,
+    );
+    expect(screen.queryByTestId('move-in-o/a')).toBeNull();
+  });
+
+  it('memo 对比包含 is_cataloged：is_cataloged 从 false 变为 true 时立即隐藏入口', () => {
+    const onMoveInApp = vi.fn();
+    const base = { ...externalApp(), is_cataloged: false };
+    const { rerender } = renderCard(base, { onMoveInApp });
+    expect(screen.getByTestId('move-in-o/a')).toBeTruthy();
+
+    rerender(
+      <AppCard
+        app={{ ...base, is_cataloged: true }}
+        isInstalled={false}
+        isManaged={false}
+        platformLoading={false}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onMoveInApp={onMoveInApp}
+      />,
+    );
+    expect(screen.queryByTestId('move-in-o/a')).toBeNull();
+  });
+
   it('点击走回调且不冒泡到详情（stopPropagation）', () => {
     const onMoveInApp = vi.fn();
     const onOpenDetail = vi.fn();

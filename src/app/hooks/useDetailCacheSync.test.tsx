@@ -596,4 +596,53 @@ describe('useDetailCacheSync：图标三态', () => {
     expect(trendSnap?.platforms).toEqual(['windows', 'macos']);
     clearSearchListCache();
   });
+
+  it('打开仅在 Starred 缓存存在的未收录应用详情：首帧直接继承卡片摘要（不闪 0 星与占位描述）', async () => {
+    clearSearchListCache();
+    writeSearchListCache(
+      { namespace: 'starred', query: 'octocat', page: 1, perPage: 20 },
+      [
+        makeApp({
+          id: 'acme/starred-only',
+          name: 'StarredOnly',
+          owner: 'acme',
+          repo: 'starred-only',
+          stars: 9527,
+          forks: 123,
+          license: 'Apache-2.0',
+          latest_version: 'v2.4.0',
+          description: 'starred card summary',
+          icon: 'https://cdn.example.com/starred.png',
+          platforms: ['macos'],
+        }),
+      ],
+    );
+    const { result, params } = renderSync();
+    let resolveDetail: (d: ReturnType<typeof makeDetail>) => void = () => {};
+    mocks.getAppDetails.mockImplementationOnce(
+      () => new Promise((r) => { resolveDetail = r; }),
+    );
+
+    await act(async () => {
+      void result.current.handleOpenDetail('acme/starred-only');
+    });
+
+    expect(params.setSelectedApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'acme/starred-only',
+        name: 'StarredOnly',
+        stars: 9527,
+        latest_version: 'v2.4.0',
+        description: 'starred card summary',
+        icon: 'https://cdn.example.com/starred.png',
+        isLoading: true,
+      }),
+    );
+
+    await act(async () => {
+      resolveDetail(makeDetail({ id: 'acme/starred-only', owner: 'acme', repo: 'starred-only' }));
+      await flushMicrotasks();
+    });
+    clearSearchListCache();
+  });
 });

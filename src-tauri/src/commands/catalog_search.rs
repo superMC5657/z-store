@@ -943,7 +943,10 @@ pub(crate) fn cards_from_repo_payloads(
             staged.push(cycle);
         }
         catalog.stamp_summary(&mut card);
-        if pre.is_none() {
+        if !catalog.is_cataloged(&card.core.id)
+            && !card.core.icon.contains("simpleicons.org")
+            && pre.is_none()
+        {
             need_icon.push(item.coord);
         }
         rows.push(card);
@@ -1386,8 +1389,46 @@ mod tests {
         assert_eq!(rows[0].core.description, "Zeta tool");
         assert_eq!(rows[0].core.stars, 42);
         assert_eq!(rows[0].core.is_cataloged, Some(false));
-        // 无确认图标的行全部进入后台补图。
+        // 无确认图标的未收录行进入后台补图。
         assert_eq!(need_icon.len(), 2);
+
+        // 已收录目录项不再进入后台补图队列。
+        let catalog_with_item = crate::github::CatalogService::new_empty();
+        catalog_with_item.update_items(vec![crate::github::CatalogItem {
+            id: "acme/zeta".to_string(),
+            name: "Zeta".to_string(),
+            description: "Zeta".to_string(),
+            description_en: None,
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            icon: "https://example.com/zeta.png".to_string(),
+            icon_bg: String::new(),
+            stars: 10,
+            forks: 1,
+            license: "MIT".to_string(),
+            default_version: "v1.0.0".to_string(),
+            is_verified: true,
+            owner: "acme".to_string(),
+            repo: "zeta".to_string(),
+            platforms: vec!["windows".to_string()],
+            identifiers: Default::default(),
+            aliases: vec![],
+            install_dirs: vec![],
+            publishers: vec![],
+            search_subdirs: vec![],
+            homepage: None,
+            added_at: None,
+        }]);
+        let body2 = serde_json::json!([
+            {"name": "Zeta", "full_name": "acme/zeta"},
+            {"name": "Alpha", "full_name": "acme/alpha"}
+        ])
+        .to_string();
+        let items2 = crate::github::developer_starred::parse_starred_payloads(&body2).unwrap();
+        let (rows2, need_icon2) = cards_from_repo_payloads(&db, &catalog_with_item, items2);
+        assert_eq!(rows2[0].core.is_cataloged, Some(true));
+        assert_eq!(need_icon2.len(), 1);
+        assert_eq!(need_icon2[0].id, "acme/alpha");
     }
 
     #[test]

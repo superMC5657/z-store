@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, Navigate, ViewType } from '../../types';
 import { tauriApi, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
-import { getBufferedIcon, isEmptyIcon, preferNonEmptyIcon, queueAssembledRowIcons } from '../../services/iconStore';
+import { assembleOnlineRowsWithIcons } from '../../services/search/onlineRows';
 import {
   readSearchListCache,
   sweepExpiredSearchListCache,
@@ -52,47 +52,6 @@ export function adoptEchoInWindow(ref: { current: string }, kind: string, sid: s
     return true;
   }
   return false;
-}
-
-/** 在线段图标回填组装（C1 读透适配，薄）。
- * M1内存回读：搜索列表缓存命中行经 `getBufferedIcon` 唯一口回读拼装，空壳不覆盖缓冲实图。
- * 空值经店内 SSOT（`isEmptyIcon`/`admitIconHit`），此处不自立规则；
- * 粘性合并经 `preferNonEmptyIcon`，此处只做组装。
- * 组装行中 http 远端图标经 `queueAssembledRowIcons` 补齐落盘（前 30 上限，`data:`/空跳过），
- * 30 名开外无 preload 覆盖的行靠此自愈进盘。
- */
-function assembleOnlineRowsWithIcons(prev: AppSummary[], incoming: AppSummary[]): AppSummary[] {
-  const prevById = new Map<string, AppSummary>();
-  for (const p of prev ?? []) {
-    const pk = (p?.id || '').trim().toLowerCase();
-    if (pk && !prevById.has(pk)) prevById.set(pk, p);
-  }
-  const seen = new Set<string>();
-  const deduped: AppSummary[] = [];
-  for (const m of incoming ?? []) {
-    const k = (m.id || '').toLowerCase();
-    if (!k || seen.has(k)) continue;
-    seen.add(k);
-    let item = preferNonEmptyIcon(prevById.get(k), m);
-    if (isEmptyIcon(item.icon)) {
-      const coordKey =
-        item.owner && item.repo
-          ? `${item.owner.trim().toLowerCase()}/${item.repo.trim().toLowerCase()}`
-          : '';
-      const idKey = typeof item.id === 'string' ? item.id.trim().toLowerCase() : '';
-      // M1内存回读经 `getBufferedIcon` 唯一口。
-      const buffered =
-        (coordKey ? getBufferedIcon(coordKey) : undefined) ??
-        (idKey ? getBufferedIcon(idKey) : undefined);
-      if (buffered && buffered.trim() !== '') {
-        item = { ...item, icon: buffered };
-      }
-    }
-    deduped.push(item);
-  }
-  // 组装落盘补齐：展示即入队（同 tick 合并+单飞+退避复用店内机制，前 30 上限防 N+1）。
-  queueAssembledRowIcons(deduped);
-  return deduped;
 }
 
 export function useSearchState({

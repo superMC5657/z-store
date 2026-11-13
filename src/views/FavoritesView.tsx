@@ -8,7 +8,7 @@ import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { AppSummary, OAuthUser, WatchUpdatedPayload } from '../types';
 import { ViewAppActions, ViewShell } from './ViewShell';
-import { isPlatformLoading } from '../lib/platformFilter';
+import { isPlatformLoading, type PlatformId } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
 import { queueAssembledRowIcons } from '../services/iconStore';
@@ -17,8 +17,18 @@ import { WatchReleasesPanel } from './FavoritesView/WatchReleasesPanel';
 import { StarredFeed } from './FavoritesView/StarredFeed';
 
 interface FavoritesViewProps extends ViewAppActions {
+  selectedPlatforms?: ReadonlySet<string>;
   platformResolvedOtherIds?: ReadonlySet<string>;
+  onConfirmPlatformOtherIds?: (ids: readonly string[]) => void;
+  onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
+  onResetPlatformFilter?: () => void;
   oauthUser?: OAuthUser | null;
+  /** 合并后目录全量，供 Star 页显式标注已收录与本地角标。 */
+  catalogApps?: readonly AppSummary[];
+  /** custom 草稿已存在 id 集（归一小写），供 Star 页隐藏已存在移入入口。 */
+  customIds?: ReadonlySet<string>;
+  /** 本地收录全量，供 Star 页叠加橘黄 local 角标。 */
+  localApps?: readonly AppSummary[];
   /** 占位行手动加载（缓存缺失空壳行经行内按钮拉详情升级富卡；缺席即无按钮）。 */
   onLoadUncatalogedDetail?: (id: string) => void;
   /** 关注应用的待处理新版本提醒（经 zstore://watch-updated 聚合）；有提醒时默认落在「关注」签。 */
@@ -28,13 +38,20 @@ interface FavoritesViewProps extends ViewAppActions {
 
 export const FavoritesView: React.FC<FavoritesViewProps> = ({
   apps,
+  selectedPlatforms,
   platformResolvedOtherIds = new Set<string>(),
+  onConfirmPlatformOtherIds,
+  onDisplayPlatformCounts,
+  onResetPlatformFilter,
   favoriteIds,
   watchedIds,
   installedIds,
   installingIds,
   managedIds = null,
   oauthUser,
+  catalogApps,
+  customIds,
+  localApps,
   onOpenDetail,
   onQuickInstall,
   onToggleFavorite,
@@ -57,6 +74,11 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
   useEffect(() => {
     if (watchNotifications.length > 0 && !userPickedTabRef.current) setActiveTab('watched');
   }, [watchNotifications.length]);
+  useEffect(() => {
+    if (activeTab !== 'starred') {
+      onDisplayPlatformCounts?.(null);
+    }
+  }, [activeTab, onDisplayPlatformCounts]);
   const [searchText, setSearchText] = useState('');
   const watchedSet = watchedIds || new Set<string>();
   // loading 徽标口径统一经选择器接口。
@@ -218,7 +240,14 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
       ) : (
         <StarredFeed
           oauthUser={oauthUser}
+          selectedPlatforms={selectedPlatforms}
           platformResolvedOtherIds={platformResolvedOtherIds}
+          onConfirmPlatformOtherIds={onConfirmPlatformOtherIds}
+          onDisplayPlatformCounts={onDisplayPlatformCounts}
+          onResetPlatformFilter={onResetPlatformFilter}
+          catalogApps={catalogApps}
+          customIds={customIds}
+          localApps={localApps}
           favoriteIds={favoriteIds}
           watchedIds={watchedIds}
           installedIds={installedIds}

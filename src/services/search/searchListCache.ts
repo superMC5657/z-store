@@ -61,6 +61,23 @@ function buildSearchListCacheKey(key: SearchListKey): string {
   return `${ns}|${norm}|${page}|${perPage}`;
 }
 
+/** 在未过期的分页列表缓存中按归一 id 查找摘要（供详情弹窗首帧兜底）。 */
+export function findInSearchListCache(id: string, namespace?: string): AppSummary | undefined {
+  const target = normalizeId(id);
+  if (!target) return undefined;
+  const nsPrefix = typeof namespace === 'string' && namespace.trim() ? `${namespace.trim()}|` : '';
+  const now = Date.now();
+  let match: AppSummary | undefined;
+  for (const [k, entry] of searchListCache) {
+    if (nsPrefix && !k.startsWith(nsPrefix)) continue;
+    const elapsed = now - entry.at;
+    if (elapsed < 0 || elapsed >= SEARCH_LIST_TTL_MS) continue;
+    const hit = entry.rows.find((r) => normalizeId(r?.id) === target);
+    if (hit) match = hit;
+  }
+  return match;
+}
+
 /** 读搜索列表缓存。 */
 export function readSearchListCache(key: SearchListKey): AppSummary[] | undefined {
   const { norm } = sanitizeSearchListKey(key);
@@ -143,10 +160,24 @@ export function patchSearchListCacheIcon(targetIdLower: string, icon: string): v
   }
 }
 
+type SearchListPatchSubscriber = (patcher: (rows: AppSummary[]) => AppSummary[]) => void;
+const searchListPatchSubscribers = new Set<SearchListPatchSubscriber>();
+
+/**
+ * 订阅详情/平台回填对分页缓存行的写透补丁：
+ * 持有独立本地列表状态的分页视图（如 StarredFeed）据此同步刷新当前已挂载行。
+ */
+export function subscribeSearchListCachePatches(fn: SearchListPatchSubscriber): () => void {
+  searchListPatchSubscribers.add(fn);
+  return () => {
+    searchListPatchSubscribers.delete(fn);
+  };
+}
+
 /**
  * 详情更新写透搜索列表缓存行：
  * 当用户在搜索结果或其他列表打开应用详情拿到最新星数、版本、描述、协议、平台、主页等字段时，
- * 同步更新搜索列表缓存中的所有匹配行（不续期 `at`）。
+ * 同步更新搜索列表缓存中的所有匹配行（不续期 `at`），并通知已订阅的活跃分页列表。
  */
 export function patchSearchListCacheRows(
   patcher: (rows: AppSummary[]) => AppSummary[],
@@ -156,6 +187,15 @@ export function patchSearchListCacheRows(
     const next = patcher(entry.rows);
     if (next !== entry.rows && Array.isArray(next)) {
       entry.rows = next;
+    }
+  }
+  if (searchListPatchSubscribers.size > 0) {
+    for (const fn of [...searchListPatchSubscribers]) {
+      try {
+        fn(patcher);
+      } catch {
+        // 单订阅者失败不阻塞其余缓存同步
+      }
     }
   }
 }

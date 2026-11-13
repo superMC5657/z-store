@@ -29,7 +29,13 @@ vi.mock('../../services/api', async () => {
   };
 });
 
-import { usePlatformBackfill } from './usePlatformBackfill';
+import { useState } from 'react';
+import { useListPlatformBackfill, usePlatformBackfill } from './usePlatformBackfill';
+import {
+  clearSearchListCache,
+  readSearchListCache,
+  writeSearchListCache,
+} from '../../services/search/searchListCache';
 
 function makeRow(id: string, platforms: string[] = []): AppSummary {
   const [owner, repo] = id.split('/');
@@ -86,6 +92,7 @@ function applyList(setter: { mock: { calls: unknown[][] } }, prev: AppSummary[])
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearSearchListCache();
 });
 
 afterEach(() => {
@@ -216,5 +223,57 @@ describe('usePlatformBackfill：首绘回填与 settle 超时', () => {
       await vi.advanceTimersByTimeAsync(LOADING_SETTLE_MS + 10);
     });
     expect(rendered.result.current.platformResolvedOtherIds.size).toBe(0);
+  });
+
+  it('lazyBackfillPlatforms 同步写透 searchListCache', async () => {
+    const rows = [makeRow('acme/empty')];
+    writeSearchListCache({ query: 'empty', page: 1, perPage: 20 }, rows);
+    const { rendered } = renderBackfill();
+    mocks.getPlatformsLite.mockResolvedValue({ id: 'acme/empty', platforms: ['macos'] });
+
+    await act(async () => {
+      rendered.result.current.lazyBackfillPlatforms(rows, 0, true);
+    });
+
+    expect(readSearchListCache({ query: 'empty', page: 1, perPage: 20 })?.[0].platforms).toEqual(['macos']);
+  });
+});
+
+describe('useListPlatformBackfill：独立分页列表通用回填通道', () => {
+  it('超过 LITE_TARGET_CAP (20) 的空行分批补完，且 stale 行同 seq 不重复请求', async () => {
+    const initial = Array.from({ length: 24 }, (_, i) => makeRow(`acme/r-${i}`));
+    mocks.getPlatformsLite.mockImplementation(async (id: string) => {
+      if (id === 'acme/r-0') return { id, platforms: [], is_stale: true };
+      return { id, platforms: ['linux'], is_stale: false };
+    });
+
+    const { result } = renderHook(() => {
+      const [rows, setRows] = useState<AppSummary[]>(initial);
+      const rowsRef = { current: rows };
+      const seqRef = { current: 1 };
+      return {
+        rows,
+        ...useListPlatformBackfill({
+          rows,
+          rowsRef,
+          setRows,
+          seqRef,
+          sharedResolvedOtherIds: new Set<string>(),
+        }),
+      };
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.getPlatformsLite).toHaveBeenCalledTimes(24);
+    expect(result.current.rows[0].platforms).toEqual([]);
+    expect(result.current.rows[23].platforms).toEqual(['linux']);
   });
 });

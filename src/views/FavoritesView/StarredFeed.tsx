@@ -1,18 +1,32 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookmarkPlus, ChevronsDown, RotateCcw, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppCard } from '../../components/AppCard';
 import { EmptyState } from '../../components/EmptyState';
 import type { AppSummary, OAuthUser } from '../../types';
 import { tauriApi } from '../../services/api';
-import { readSearchListCache, writeSearchListCache } from '../../services/search/searchListCache';
+import {
+  readSearchListCache,
+  subscribeSearchListCachePatches,
+  writeSearchListCache,
+} from '../../services/search/searchListCache';
+import { appendUniqueOnlineRows, assembleOnlineRowsWithIcons } from '../../services/search/onlineRows';
 import { normalizeId, normalizeIdLowerSet } from '../../services/normalizeId';
-import { queueAssembledRowIcons } from '../../services/iconStore';
-import { isPlatformLoading } from '../../lib/platformFilter';
+import { patchAppIconList, subscribeIconWrites } from '../../services/iconStore';
+import { isPlatformLoading, matchPlatformSetWithLoading, type PlatformId } from '../../lib/platformFilter';
+import { useListPlatformBackfill } from '../../app/hooks/usePlatformBackfill';
+import { useMoveInToDraft } from '../../app/hooks/useMoveInToDraft';
 import { isAppCataloged } from '../../utils/appHelper';
-import { isInstalled as selectIsInstalled, selectManagedState } from '../../app/selectors';
+import {
+  annotateLocalSource,
+  annotateOnlineCataloged,
+  hasIdAliasMatch,
+  isInstalled as selectIsInstalled,
+  selectManagedState,
+  selectPlatformCounts,
+} from '../../app/selectors';
 import { useOnlinePullToLoadMore } from '../HomeView/useOnlinePullToLoadMore';
-import type { ViewAppActions } from '../ViewShell';
+import { FilterEmptyState, resolvePlatformReset, type ViewAppActions } from '../ViewShell';
 
 /** 每页条数，与搜索页在线续拉一致。 */
 export const STARRED_PER_PAGE = 20;
@@ -64,18 +78,6 @@ function cacheKey(key: string, page: number) {
   return { namespace: CACHE_NAMESPACE, query: key, page, perPage: STARRED_PER_PAGE };
 }
 
-/** 合并新页：按归一 id 去重（翻页期间新增 Star 会让旧行后移到下一页）。 */
-function appendUnique(prev: AppSummary[], next: AppSummary[]): AppSummary[] {
-  const seen = new Set(prev.map((r) => normalizeId(r.id)));
-  const fresh = next.filter((r) => {
-    const k = normalizeId(r.id);
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-  return fresh.length > 0 ? [...prev, ...fresh] : prev;
-}
-
 /** 从分页缓存连续恢复最近一次查询的第 1..pages 页；任一非空页缺失（过期/被挤出）即不恢复。 */
 function restoreLastQuery(login: string | undefined): { memory: StarredQueryMemory; rows: AppSummary[] } | null {
   const memory = lastQuery;
@@ -85,7 +87,7 @@ function restoreLastQuery(login: string | undefined): { memory: StarredQueryMemo
     if (memory.emptyPages.includes(p)) continue;
     const hit = readSearchListCache(cacheKey(memory.target.key, p));
     if (!hit) return null;
-    rows = appendUnique(rows, hit);
+    rows = appendUniqueOnlineRows(rows, hit);
   }
   return { memory, rows };
 }
@@ -104,7 +106,17 @@ interface StarredFeedProps
     | 'onToggleWatch'
   > {
   oauthUser?: OAuthUser | null;
+  selectedPlatforms?: ReadonlySet<string>;
   platformResolvedOtherIds: ReadonlySet<string>;
+  onConfirmPlatformOtherIds?: (ids: readonly string[]) => void;
+  onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
+  onResetPlatformFilter?: () => void;
+  /** 合并后目录全量（远端 + 本地收录），供显式标注 is_cataloged 与叠加本地橘黄角标。 */
+  catalogApps?: readonly AppSummary[];
+  /** custom 草稿已存在 id 集（归一小写），命中时隐藏“移入收录”入口。 */
+  customIds?: ReadonlySet<string>;
+  /** 本地收录全量（仅 collected/submitted 未归档），叠加橘黄角标。 */
+  localApps?: readonly AppSummary[];
 }
 
 /**
@@ -113,7 +125,14 @@ interface StarredFeedProps
  */
 export const StarredFeed: React.FC<StarredFeedProps> = ({
   oauthUser,
+  selectedPlatforms,
   platformResolvedOtherIds,
+  onConfirmPlatformOtherIds,
+  onDisplayPlatformCounts,
+  onResetPlatformFilter,
+  catalogApps,
+  customIds,
+  localApps,
   favoriteIds,
   watchedIds,
   installedIds,
@@ -130,6 +149,8 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
   const [input, setInput] = useState(() => initial?.memory.target.input ?? login ?? '');
   const [queryKey, setQueryKey] = useState<string | null>(() => initial?.memory.target.key ?? null);
   const [rows, setRows] = useState<AppSummary[]>(() => initial?.rows ?? []);
+  const rowsRef = useRef<AppSummary[]>(rows);
+  rowsRef.current = rows;
   const [pages, setPages] = useState(() => initial?.memory.pages ?? 0);
   const [hasMore, setHasMore] = useState(() => initial?.memory.hasMore ?? false);
   const [loading, setLoading] = useState(false);
@@ -176,9 +197,36 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     // 只跟随登录名变化；用户已输入的内容不覆盖
   }, [login]);
 
+  // 与在线搜索走同一套后处理流水线：
+  // 1) 订阅后台流式图标写透 + 详情/缓存行写透；
+  // 2) 轻量平台回填（forceRefresh=false 优先命中 TTL 缓存，miss 再探 releases/latest）+ 15s settle 落定为 Other。
   useEffect(() => {
-    queueAssembledRowIcons(rows);
-  }, [rows]);
+    return subscribeIconWrites(({ targets, icon }) => {
+      setRows((prev) => {
+        let next = prev;
+        for (const target of targets) {
+          next = patchAppIconList(next, target, icon);
+        }
+        return next;
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeSearchListCachePatches((patcher) => {
+      setRows(patcher);
+    });
+  }, []);
+
+  const { resolvedOtherIds } = useListPlatformBackfill({
+    rows,
+    rowsRef,
+    setRows,
+    seqRef: queryGenRef,
+    sharedResolvedOtherIds: platformResolvedOtherIds,
+    onConfirmOtherIds: onConfirmPlatformOtherIds,
+    forceRefresh: false,
+  });
 
   const remember = (target: StarredTarget, nextPages: number, nextHasMore: boolean) => {
     lastQuery = { target, pages: nextPages, hasMore: nextHasMore, emptyPages: [...emptyPagesRef.current] };
@@ -186,12 +234,13 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
 
   const fetchPage = async (target: StarredTarget, page: number) => {
     const res = await tauriApi.listGithubStarred(target.username, page, STARRED_PER_PAGE);
-    if (res.rows.length === 0) {
+    const assembled = assembleOnlineRowsWithIcons(page === 1 ? [] : rowsRef.current, res.rows);
+    if (assembled.length === 0) {
       if (!emptyPagesRef.current.includes(page)) emptyPagesRef.current = [...emptyPagesRef.current, page];
     } else {
-      writeSearchListCache(cacheKey(target.key, page), res.rows);
+      writeSearchListCache(cacheKey(target.key, page), assembled);
     }
-    return res;
+    return { ...res, rows: assembled };
   };
 
   const handleQuery = async () => {
@@ -235,7 +284,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     try {
       const res = await fetchPage(target, nextPage);
       if (gen !== queryGenRef.current) return;
-      setRows((prev) => appendUnique(prev, res.rows));
+      setRows((prev) => appendUniqueOnlineRows(prev, res.rows));
       setPages(nextPage);
       setHasMore(res.has_more);
       remember(target, nextPage, res.has_more);
@@ -253,9 +302,47 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     onLoadMore: () => void handleLoadMore(),
   });
 
+  const { isMovingIn, handleMoveIn } = useMoveInToDraft();
+
+  // 与在线搜索 / 趋势榜对齐：显式标注 is_cataloged（命中目录或本地收录即隐藏移入入口），
+  // 并对本地收录行叠加橘黄 local 角标（蓝标优先，独立单测未传目录时保留行自身标注）。
+  const annotatedRows = useMemo(
+    () =>
+      catalogApps !== undefined
+        ? annotateOnlineCataloged(rows, catalogApps, localApps)
+        : localApps !== undefined
+          ? rows.map((r) => annotateLocalSource(r, localApps))
+          : rows,
+    [rows, catalogApps, localApps],
+  );
+
+  // 全局设备平台过滤：加载中行恒可见，落定后再按 selectedPlatforms 过滤。
+  const filteredRows = useMemo(() => {
+    if (!selectedPlatforms) return annotatedRows;
+    return annotatedRows.filter((app) =>
+      matchPlatformSetWithLoading(app, selectedPlatforms, resolvedOtherIds),
+    );
+  }, [annotatedRows, selectedPlatforms, resolvedOtherIds]);
+
+  // 上报已加载 Star 列表的平台分布（加载中行暂不计数，未拉取/空列表上报 null 回落收录库）。
+  const displayPlatformCounts = useMemo<Record<PlatformId, number> | null>(() => {
+    if (queryKey === null || annotatedRows.length === 0) return null;
+    return selectPlatformCounts(annotatedRows, resolvedOtherIds);
+  }, [queryKey, annotatedRows, resolvedOtherIds]);
+
+  useEffect(() => {
+    onDisplayPlatformCounts?.(displayPlatformCounts);
+  }, [displayPlatformCounts, onDisplayPlatformCounts]);
+
+  useEffect(() => {
+    return () => {
+      onDisplayPlatformCounts?.(null);
+    };
+  }, [onDisplayPlatformCounts]);
+
   const favoriteIdsLower = normalizeIdLowerSet(favoriteIds);
   const watchedIdsLower = normalizeIdLowerSet(watchedIds || new Set<string>());
-  const unfavoritedCataloged = rows.filter(
+  const unfavoritedCataloged = filteredRows.filter(
     (app) => isAppCataloged(app) && !favoriteIdsLower.has(normalizeId(app.id)),
   );
   const handleFavoriteLoadedCataloged = () => {
@@ -320,25 +407,38 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
               <span>{t('favorites.favorite_loaded_cataloged')}</span>
             </button>
           </div>
-          <div className="app-grid" data-testid="starred-grid">
-            {rows.map((app, index) => (
-              <AppCard
-                key={app.id}
-                app={app}
-                eager={index < 6}
-                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-                isInstalled={selectIsInstalled(app.id, installedIds)}
-                isManaged={selectManagedState(app.id, managedIds)}
-                isInstalling={installingIds?.has(app.id)}
-                isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
-                isWatched={watchedIdsLower.has(normalizeId(app.id))}
-                onOpenDetail={onOpenDetail}
-                onQuickInstall={onQuickInstall}
-                onToggleFavorite={onToggleFavorite}
-                onToggleWatch={onToggleWatch}
-              />
-            ))}
-          </div>
+          {filteredRows.length === 0 ? (
+            <FilterEmptyState
+              icon={<Star size={40} strokeWidth={1.5} />}
+              title={t('favorites.starred_filter_empty_title')}
+              description={t('favorites.starred_filter_empty_desc')}
+              resetLabel={t('favorites.reset_device_filter')}
+              onReset={resolvePlatformReset(onResetPlatformFilter)}
+            />
+          ) : (
+            <div className="app-grid" data-testid="starred-grid">
+              {filteredRows.map((app, index) => (
+                <AppCard
+                  key={app.id}
+                  app={app}
+                  eager={index < 6}
+                  platformLoading={isPlatformLoading(app, resolvedOtherIds)}
+                  isInstalled={selectIsInstalled(app.id, installedIds)}
+                  isManaged={selectManagedState(app.id, managedIds)}
+                  isInstalling={installingIds?.has(app.id)}
+                  isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
+                  isWatched={watchedIdsLower.has(normalizeId(app.id))}
+                  onOpenDetail={onOpenDetail}
+                  onQuickInstall={onQuickInstall}
+                  onToggleFavorite={onToggleFavorite}
+                  onToggleWatch={onToggleWatch}
+                  onMoveInApp={handleMoveIn}
+                  isMovingIn={isMovingIn(app.id)}
+                  isCustomExisting={hasIdAliasMatch(app, customIds)}
+                />
+              ))}
+            </div>
+          )}
           {hasMore ? (
             <div
               ref={armedRef}
@@ -364,11 +464,11 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
                 </button>
               </div>
             </div>
-          ) : (
+          ) : filteredRows.length > 0 ? (
             <div data-testid="starred-end" className="feed-end">
               {t('favorites.starred_end', { count: rows.length })}
             </div>
-          )}
+          ) : null}
         </>
       )}
     </div>

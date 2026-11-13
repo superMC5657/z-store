@@ -2,10 +2,10 @@ import { useCallback, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
 import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
-import { annotateIsCataloged, buildCatalogIdSet } from '../selectors';
+import { annotateIsCataloged, buildCatalogIdSet, selectCatalogBase } from '../selectors';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import { resolveRemoteIconUrl } from '../../services/custom';
-import { patchSearchListCacheRows } from '../../services/search/searchListCache';
+import { findInSearchListCache, patchSearchListCacheRows } from '../../services/search/searchListCache';
 import {
   DETAIL_PLATFORMS_HEAL_EVENT,
   DETAIL_RICHCARD_HEAL_EVENT,
@@ -24,6 +24,7 @@ import {
 interface UseDetailCacheSyncParams {
   selectedApp: AppDetailViewModel | null;
   appsRef: React.MutableRefObject<AppSummary[]>;
+  fullCatalogAppsRef?: React.MutableRefObject<AppSummary[]>;
   onlineAppsRef: React.MutableRefObject<AppSummary[]>;
   recentsRef: React.MutableRefObject<AppSummary[]>;
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
@@ -54,6 +55,7 @@ function pickRealDescription(v: unknown): string | undefined {
 export function useDetailCacheSync({
   selectedApp,
   appsRef,
+  fullCatalogAppsRef,
   onlineAppsRef,
   recentsRef,
   setApps,
@@ -74,9 +76,11 @@ export function useDetailCacheSync({
   // 目录行保持无标记（防全量 churn）。
   // 本地橘黄：叠加 localApps 同 id source='local'/status（蓝优先），供 Header 黄标判定。
   const annotateEntry = useCallback(
-    <T extends AppSummary>(row: T): T =>
-      annotateIsCataloged(row, buildCatalogIdSet(appsRef.current), localApps),
-    [appsRef, localApps],
+    <T extends AppSummary>(row: T): T => {
+      const baseCatalog = selectCatalogBase(fullCatalogAppsRef?.current, appsRef.current);
+      return annotateIsCataloged(row, buildCatalogIdSet(baseCatalog), localApps);
+    },
+    [appsRef, fullCatalogAppsRef, localApps],
   );
 
   const loadRecentViews = useCallback(async () => {
@@ -84,7 +88,8 @@ export function useDetailCacheSync({
       const recents = await tauriApi.getRecentlyViewedApps();
       // 最近浏览黄标：后端仅拼远端 catalog + 详情缓存（无 source/status），此处叠加本地标记
       //（蓝优先、远端优先语义不动，仅搬标记供 AppCard 黄标），再做富卡治愈。
-      const catalogIds = buildCatalogIdSet(appsRef.current);
+      const baseCatalog = selectCatalogBase(fullCatalogAppsRef?.current, appsRef.current);
+      const catalogIds = buildCatalogIdSet(baseCatalog);
       const withLocal = recents.map((r) => annotateIsCataloged(r, catalogIds, localApps));
       // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
       // （对缺失简介行进行补齐；无富卡保持原值走默认空渲染）。
@@ -131,7 +136,7 @@ export function useDetailCacheSync({
     } catch {
       // 忽略错误
     }
-  }, [setRecentlyViewedApps, appsRef, localApps]);
+  }, [setRecentlyViewedApps, appsRef, fullCatalogAppsRef, localApps]);
 
   // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
   // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
@@ -519,7 +524,8 @@ export function useDetailCacheSync({
           localApps?.find((a) => a.id.toLowerCase() === idClean) ??
           appsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
           onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
-          recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
+          recentsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
+          findInSearchListCache(idClean);
         if (
           catalogHit?.description &&
           catalogHit.description.trim() !== '' &&
@@ -578,7 +584,8 @@ export function useDetailCacheSync({
       localApps?.find((a) => a.id.toLowerCase() === idClean) ||
       appsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
-      recentsRef.current.find((a) => a.id.toLowerCase() === idClean);
+      recentsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
+      findInSearchListCache(idClean);
 
     // F1：富卡真简介并入——existing 只覆盖三列表，未收录趋势行在此缺席；
     // 经 snapshotTrendEnrichCache() 取富卡非占位 description 作为初始值，

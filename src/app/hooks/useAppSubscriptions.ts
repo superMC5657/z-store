@@ -19,12 +19,13 @@ import {
 } from '../../services/iconStore';
 import { patchSearchListCacheIcon } from '../../services/search/searchListCache';
 import { matchPlatformSetWithLoading } from '../../lib/platformFilter';
-import { annotateIsCataloged, buildCatalogIdSet, restampLocalMarks } from '../selectors';
+import { annotateIsCataloged, buildCatalogIdSet, restampLocalMarks, selectCatalogBase } from '../selectors';
 import { type PlatformId } from '../../lib/platformFilter';
 import { adoptEchoInWindow } from './useSearchState';
 
 interface UseAppSubscriptionsParams {
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  setFullCatalogApps?: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setUncatalogedExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
@@ -38,6 +39,7 @@ interface UseAppSubscriptionsParams {
   setIsCheckingUpdates: React.Dispatch<React.SetStateAction<boolean>>;
   setUpdateCheckProgress: React.Dispatch<React.SetStateAction<UpdateCheckProgressPayload | null>>;
   appsRef: React.MutableRefObject<AppSummary[]>;
+  fullCatalogAppsRef?: React.MutableRefObject<AppSummary[]>;
   onlineAppsRef: React.MutableRefObject<AppSummary[]>;
   recentsRef: React.MutableRefObject<AppSummary[]>;
   uncatalogedExtraAppsRef: React.MutableRefObject<AppSummary[]>;
@@ -107,6 +109,7 @@ function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
  */
 export function useAppSubscriptions({
   setApps,
+  setFullCatalogApps,
   setOnlineApps,
   setRecentlyViewedApps,
   setUncatalogedExtraApps,
@@ -120,6 +123,7 @@ export function useAppSubscriptions({
   setIsCheckingUpdates,
   setUpdateCheckProgress,
   appsRef,
+  fullCatalogAppsRef,
   onlineAppsRef,
   recentsRef,
   uncatalogedExtraAppsRef,
@@ -158,6 +162,7 @@ export function useAppSubscriptions({
       tauriApi.searchApps('').then((nextApps) => {
         if (!startupCtx.mounted || seq !== catalogLoadSeq) return;
         setApps(nextApps);
+        setFullCatalogApps?.(nextApps);
         if (restampRecents) {
           // 目录后到即重标最近浏览（蓝优先、不改排序；无论 localApps 为空[]还是非空均校准转正/收录态）。
           const catalogIds = buildCatalogIdSet(nextApps);
@@ -204,7 +209,8 @@ export function useAppSubscriptions({
     }).catch(() => {});
     tauriApi.getRecentlyViewedApps().then((recents) => {
       // 最近浏览黄标：后端无 source/status，此处叠加本地标记（蓝优先），再按平台过滤。
-      const catalogIds = buildCatalogIdSet(appsRef.current);
+      const baseCatalog = selectCatalogBase(fullCatalogAppsRef?.current, appsRef.current);
+      const catalogIds = buildCatalogIdSet(baseCatalog);
       const withLocal = recents.map((r) => annotateIsCataloged(r, catalogIds, localApps));
       setRecentlyViewedApps(
         withLocal.filter((a) =>
@@ -306,7 +312,11 @@ export function useAppSubscriptions({
   // undefined（customApps 未加载）原样透传；空集合即「确知无收录」，须清掉退回/删除后的陈旧黄标。
   useEffect(() => {
     if (!localApps) return;
-    const catalogIds = buildCatalogIdSet(appsRef.current);
+    const baseCatalog =
+      fullCatalogAppsRef?.current && fullCatalogAppsRef.current.length > 0
+        ? fullCatalogAppsRef.current
+        : appsRef.current;
+    const catalogIds = buildCatalogIdSet(baseCatalog);
     setRecentlyViewedApps((prev) => restampLocalMarks(prev, catalogIds, localApps));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localApps]);
