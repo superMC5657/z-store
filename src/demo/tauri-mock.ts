@@ -80,6 +80,9 @@ import {
   handleGetSettings,
   handleHandleDeepLink,
   handleImportUserData,
+  handleExportBackupFile,
+  handleZlogGetDir,
+  handleZlogExportBundle,
   handleOpenUrl,
   handleRegisterDeepLinkScheme,
   handleSaveSetting,
@@ -337,6 +340,12 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetCliDeepLink();
     case 'import_user_data':
       return handleImportUserData();
+    case 'export_backup_file':
+      return handleExportBackupFile(a);
+    case 'zlog_get_dir':
+      return handleZlogGetDir();
+    case 'zlog_export_bundle':
+      return handleZlogExportBundle();
     case 'open_url':
       return handleOpenUrl(a);
 

@@ -26,6 +26,19 @@ pub(crate) async fn get_with_etag(
         .0
 }
 
+/// 分页感知的 ETag GET 通道：除 `EtagGetOutcome` 外同时解析响应头 `Link` 中的 `rel="next"`。
+pub(crate) async fn get_with_etag_with_link(
+    client: &reqwest::Client,
+    canonical_url: &str,
+    api_base: Option<&str>,
+    base_headers: &HeaderMap,
+    cached_etag: Option<&str>,
+) -> (EtagGetOutcome, bool) {
+    let (outcome, _diag, has_next) =
+        get_with_etag_diag_inner(client, canonical_url, api_base, base_headers, cached_etag).await;
+    (outcome, has_next)
+}
+
 /// 带诊断摘要的 ETag GET 通道（返回 `(EtagGetOutcome, HttpDiag)` 供宽事件聚合作业使用）。
 pub(crate) async fn get_with_etag_diag(
     client: &reqwest::Client,
@@ -34,6 +47,18 @@ pub(crate) async fn get_with_etag_diag(
     base_headers: &HeaderMap,
     cached_etag: Option<&str>,
 ) -> (EtagGetOutcome, crate::log_support::HttpDiag) {
+    let (outcome, diag, _) =
+        get_with_etag_diag_inner(client, canonical_url, api_base, base_headers, cached_etag).await;
+    (outcome, diag)
+}
+
+async fn get_with_etag_diag_inner(
+    client: &reqwest::Client,
+    canonical_url: &str,
+    api_base: Option<&str>,
+    base_headers: &HeaderMap,
+    cached_etag: Option<&str>,
+) -> (EtagGetOutcome, crate::log_support::HttpDiag, bool) {
     let url = crate::github::CatalogService::request_url(canonical_url, api_base);
     let mut headers = base_headers.clone();
     if let Some(etag) = cached_etag {
@@ -91,11 +116,16 @@ pub(crate) async fn get_with_etag_diag(
                     err_reason: Some(crate::log_support::http_err_reason(&e)),
                     rate_summary,
                 };
-                return (EtagGetOutcome::Failed, diag);
+                return (EtagGetOutcome::Failed, diag, false);
             }
         }
     };
     let status = res.status();
+    let has_next = crate::github::developer_starred::link_has_next(
+        res.headers()
+            .get(reqwest::header::LINK)
+            .and_then(|h| h.to_str().ok()),
+    );
     let mut diag = crate::log_support::HttpDiag {
         status: Some(status.as_u16()),
         elapsed_ms: start.elapsed().as_millis(),
@@ -107,15 +137,15 @@ pub(crate) async fn get_with_etag_diag(
         rate_summary,
     };
     if status == reqwest::StatusCode::NOT_MODIFIED {
-        return (EtagGetOutcome::NotModified, diag);
+        return (EtagGetOutcome::NotModified, diag, has_next);
     }
     if status == reqwest::StatusCode::UNAUTHORIZED {
         diag.err_reason = Some("http_401".to_string());
-        return (EtagGetOutcome::Unauthorized, diag);
+        return (EtagGetOutcome::Unauthorized, diag, false);
     }
     if !status.is_success() {
         diag.err_reason = Some(format!("http_{}", status.as_u16()));
-        return (EtagGetOutcome::Failed, diag);
+        return (EtagGetOutcome::Failed, diag, false);
     }
     let etag = res
         .headers()
@@ -126,12 +156,12 @@ pub(crate) async fn get_with_etag_diag(
         Ok(text) => {
             diag.bytes = text.len();
             diag.elapsed_ms = start.elapsed().as_millis();
-            (EtagGetOutcome::Fresh { text, etag }, diag)
+            (EtagGetOutcome::Fresh { text, etag }, diag, has_next)
         }
         Err(e) => {
             diag.elapsed_ms = start.elapsed().as_millis();
             diag.err_reason = Some(crate::log_support::short_reason(&e.to_string()));
-            (EtagGetOutcome::Failed, diag)
+            (EtagGetOutcome::Failed, diag, false)
         }
     }
 }

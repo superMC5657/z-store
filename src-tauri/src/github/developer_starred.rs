@@ -157,18 +157,35 @@ pub(crate) mod test_support {
         pub(crate) honor_inm: Option<String>,
     }
 
+    pub(crate) struct MockRoute {
+        pub(crate) resp: MockResp,
+        pub(crate) link: Option<String>,
+    }
+
     pub(crate) struct MockServer {
         pub(crate) base: String,
         pub(crate) seen_inm: Arc<Mutex<HashMap<String, Option<String>>>>,
+        pub(crate) request_counts: Arc<Mutex<HashMap<String, usize>>>,
     }
 
     pub(crate) async fn spawn_mock(routes: HashMap<String, MockResp>) -> MockServer {
+        let wrapped = routes
+            .into_iter()
+            .map(|(k, resp)| (k, MockRoute { resp, link: None }))
+            .collect();
+        spawn_mock_routes(wrapped).await
+    }
+
+    pub(crate) async fn spawn_mock_routes(routes: HashMap<String, MockRoute>) -> MockServer {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let routes = Arc::new(routes);
         let seen_inm: Arc<Mutex<HashMap<String, Option<String>>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let request_counts: Arc<Mutex<HashMap<String, usize>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let seen_c = seen_inm.clone();
+        let counts_c = request_counts.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((mut sock, _)) = listener.accept().await else {
@@ -176,6 +193,7 @@ pub(crate) mod test_support {
                 };
                 let routes = routes.clone();
                 let seen = seen_c.clone();
+                let counts = counts_c.clone();
                 tokio::spawn(async move {
                     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
                     let mut reader = tokio::io::BufReader::new(&mut sock);
@@ -204,24 +222,41 @@ pub(crate) mod test_support {
                         }
                     }
                     seen.lock().unwrap().insert(path.clone(), inm.clone());
-                    let (status, reason, etag, body) = match routes.get(&path) {
-                        Some(r) => {
+                    *counts.lock().unwrap().entry(path.clone()).or_insert(0) += 1;
+                    let (status, reason, etag, link, body) = match routes.get(&path) {
+                        Some(route) => {
+                            let r = &route.resp;
                             if let Some(ref want) = r.honor_inm {
                                 if inm.as_deref() == Some(want.as_str()) {
-                                    (304u16, "Not Modified", None, String::new())
+                                    (304u16, "Not Modified", None, None, String::new())
                                 } else {
-                                    (r.status, r.reason, r.etag.clone(), r.body.clone())
+                                    (
+                                        r.status,
+                                        r.reason,
+                                        r.etag.clone(),
+                                        route.link.clone(),
+                                        r.body.clone(),
+                                    )
                                 }
                             } else {
-                                (r.status, r.reason, r.etag.clone(), r.body.clone())
+                                (
+                                    r.status,
+                                    r.reason,
+                                    r.etag.clone(),
+                                    route.link.clone(),
+                                    r.body.clone(),
+                                )
                             }
                         }
-                        None => (404u16, "Not Found", None, "{}".to_string()),
+                        None => (404u16, "Not Found", None, None, "{}".to_string()),
                     };
                     let mut resp = format!("HTTP/1.1 {} {}\r\n", status, reason);
                     resp.push_str("connection: close\r\n");
                     if let Some(e) = etag {
                         resp.push_str(&format!("etag: {}\r\n", e));
+                    }
+                    if let Some(l) = link {
+                        resp.push_str(&format!("link: {}\r\n", l));
                     }
                     if status != 304 {
                         resp.push_str("content-type: application/json\r\n");
@@ -236,6 +271,7 @@ pub(crate) mod test_support {
         MockServer {
             base: format!("http://127.0.0.1:{}", port),
             seen_inm,
+            request_counts,
         }
     }
 

@@ -144,6 +144,7 @@ export const CMD = {
   unstarApp: 'unstar_app',
   fetchStarredStatus: 'fetch_starred_status',
   importUserData: 'import_user_data',
+  exportBackupFile: 'export_backup_file',
   openUrl: 'open_url',
   listCustomApps: 'list_custom_apps',
   saveCustomApp: 'save_custom_app',
@@ -257,6 +258,7 @@ export const tauriApi = {
   handleDeepLink: settingsApi.handleDeepLink,
   getCliDeepLink: settingsApi.getCliDeepLink,
   importUserData: settingsApi.importUserData,
+  exportBackupFile: settingsApi.exportBackupFile,
   openUrl: settingsApi.openUrl,
 
   // Social / Auth / Watched

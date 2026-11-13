@@ -764,6 +764,7 @@ pub fn run() {
             commands::unstar_app,
             commands::fetch_starred_status,
             commands::import_user_data,
+            commands::export_backup_file,
             z_log::zlog_get_dir,
             z_log::zlog_export_bundle
         ])

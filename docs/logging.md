@@ -67,8 +67,8 @@
 
 ## 6. 保留、清理与导出（prune 14d / 25MB）
 
-- `z_log::prune` 在 `setup` 中执行：`KEEP_DAYS = 14`、`MAX_TOTAL_BYTES = 25MB`、`MAX_SINGLE_FILE_BYTES = 5MB`、`ROTATION_KEEP_COUNT = 5`。仅清理 `*.log` / `*.log.bak`，不动 `.zip` 与业务 SQLite（`z_store.db`）。
-- 导出命令：`zlog_get_dir` / `zlog_export_bundle`（打包前再过一次 `redact()`）。
+- `z_log::prune` 在 `setup` 中执行：`KEEP_DAYS = 14`、`MAX_TOTAL_BYTES = 25MB`、`MAX_SINGLE_FILE_BYTES = 5MB`、`ROTATION_KEEP_COUNT = 5`。仅清理 `*.log` / `*.log.bak`，不动 `.zip`、`.json` 与业务 SQLite（`z_store.db`）。
+- 导出命令：`zlog_get_dir` / `zlog_export_bundle`（打包前再过一次 `redact()`）；`zlog_export_bundle` 与备份命令 `export_backup_file` 均通过系统保存文件对话框（`rfd::FileDialog`）以 `app_log_dir` 作为初始默认目录，允许用户改选保存位置，取消时返回 `None`。
 - 禁止将日志写入业务 SQLite；`z_store.db` 打开失败回退内存库时在 `setup()` 中记一条 `[ERR][app] db open failed fallback to in-memory`。
 
 ## 7. 静默策略（禁止刷屏点位）

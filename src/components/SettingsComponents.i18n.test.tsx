@@ -54,16 +54,22 @@ describe('Settings subcomponents i18n verification', () => {
   it('renders DataBackupRow in zh-CN and en-US', async () => {
     await i18n.changeLanguage('zh-CN');
     const { unmount } = render(<DataBackupRow />);
-    expect(screen.getByText('用户数据')).toBeTruthy();
-    expect(screen.getByText('导出')).toBeTruthy();
-    expect(screen.getByText('导入')).toBeTruthy();
+    expect(screen.getByText('导出与备份')).toBeTruthy();
+    expect(screen.getByText('导出应用列表')).toBeTruthy();
+    expect(screen.getByText('导出用户数据')).toBeTruthy();
+    expect(screen.getByText('导入用户数据')).toBeTruthy();
+    expect(screen.getByText('导出日志')).toBeTruthy();
+    expect(screen.getByText('打开目录')).toBeTruthy();
     unmount();
 
     await i18n.changeLanguage('en-US');
     render(<DataBackupRow />);
-    expect(screen.getByText('User Data')).toBeTruthy();
-    expect(screen.getByText('Export')).toBeTruthy();
-    expect(screen.getByText('Import')).toBeTruthy();
+    expect(screen.getByText('Export & Backup')).toBeTruthy();
+    expect(screen.getByText('Export Apps')).toBeTruthy();
+    expect(screen.getByText('Export User Data')).toBeTruthy();
+    expect(screen.getByText('Import User Data')).toBeTruthy();
+    expect(screen.getByText('Export Logs')).toBeTruthy();
+    expect(screen.getByText('Open Folder')).toBeTruthy();
   });
 
   it('renders ClientUpdateRow in zh-CN and en-US', async () => {

@@ -289,6 +289,71 @@ pub fn restore_watch_notification(
     Ok(db.restore_watch_notification(&id)?)
 }
 
+/// 校验导出预设文件名（纯函数）：仅允许单层 `.json` 文件名，拒绝路径分隔符、父目录引用与空值。
+fn validate_export_file_name(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.len() > 128 {
+        return Err("导出文件名无效".to_string());
+    }
+    if !trimmed.ends_with(".json") {
+        return Err("仅支持导出 .json 文件".to_string());
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err("导出文件名包含非法字符".to_string());
+    }
+    if trimmed.starts_with('.') || trimmed.contains("..") {
+        return Err("导出文件名不能包含相对路径段".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+fn write_export_json(out_path: &std::path::Path, content: &str) -> Result<String, String> {
+    if let Some(parent) = out_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    std::fs::write(out_path, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(out_path.to_string_lossy().to_string())
+}
+
+/// 弹出系统保存文件对话框（默认目录指向 `app_log_dir`，预填 `file_name`），
+/// 用户确认后写入导出的 JSON（已安装应用列表 / 用户数据备份）并返回落盘绝对路径；取消时返回 `None`。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn export_backup_file(
+    app: tauri::AppHandle,
+    file_name: String,
+    content: String,
+) -> crate::AppResult<Option<String>> {
+    use tauri::Manager;
+    let safe_name = validate_export_file_name(&file_name).map_err(crate::AppError::new)?;
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| crate::AppError::new(e.to_string()))?;
+    std::fs::create_dir_all(&log_dir).map_err(|e| crate::AppError::new(e.to_string()))?;
+
+    let saved = tokio::task::spawn_blocking(move || -> Result<Option<String>, String> {
+        let picked = rfd::FileDialog::new()
+            .set_directory(&log_dir)
+            .set_file_name(&safe_name)
+            .add_filter("JSON", &["json"])
+            .save_file();
+        let Some(out_path) = picked else {
+            return Ok(None);
+        };
+        write_export_json(&out_path, &content).map(Some)
+    })
+    .await
+    .map_err(|e| crate::AppError::new(e.to_string()))?
+    .map_err(crate::AppError::new)?;
+
+    Ok(saved)
+}
+
 // ---------- 手动跨设备同步（导入侧；导出由前端经 getters 组装） ----------
 
 /// 合并式导入用户数据：只增不删；
@@ -471,5 +536,57 @@ mod recent_uncataloged_tests {
             summary.core.description_en.as_deref(),
             Some("Raspberry Pi tool")
         );
+    }
+}
+
+#[cfg(test)]
+mod export_file_tests {
+    use super::{validate_export_file_name, write_export_json};
+
+    #[test]
+    fn accepts_valid_json_file_names() {
+        assert_eq!(
+            validate_export_file_name("z-store-backup-20261113-120000.json").unwrap(),
+            "z-store-backup-20261113-120000.json"
+        );
+        assert_eq!(
+            validate_export_file_name("zstore-installed-backup-20261113-120000.json").unwrap(),
+            "zstore-installed-backup-20261113-120000.json"
+        );
+    }
+
+    #[test]
+    fn write_export_json_creates_parent_and_writes_payload() {
+        let dir = std::env::temp_dir().join(format!(
+            "zstore-export-test-{}-{}",
+            std::process::id(),
+            crate::now_secs()
+        ));
+        let target = dir.join("nested").join("backup.json");
+        let saved = write_export_json(&target, "{\"version\":1}").unwrap();
+        assert_eq!(saved, target.to_string_lossy());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"version\":1}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejects_traversal_separators_and_non_json() {
+        for bad in [
+            "",
+            "   ",
+            "../secret.json",
+            "sub/file.json",
+            "sub\\file.json",
+            ".hidden.json",
+            "a..b.json",
+            "backup.txt",
+            "backup.json.exe",
+        ] {
+            assert!(
+                validate_export_file_name(bad).is_err(),
+                "should reject invalid export filename: {:?}",
+                bad
+            );
+        }
     }
 }

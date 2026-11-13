@@ -1,57 +1,10 @@
 import React from 'react';
-import { useTranslation } from 'react-i18next';
-import { Download, Check } from 'lucide-react';
 import { DataBackupRow } from '../../../components/DataBackupRow';
-import { LogExportRow } from '../../../components/LogExportRow';
-import { AffinityPrivacyRow } from '../../../components/AffinityPrivacyRow';
 
 interface DataManagementSectionProps {
   installedCount: number;
-  highlightRow: string | null;
-  activeNotice: { key: string; text: string } | null;
-  handleExportJson: () => void;
 }
 
-export const DataManagementSection: React.FC<DataManagementSectionProps> = ({
-  installedCount,
-  highlightRow,
-  activeNotice,
-  handleExportJson,
-}) => {
-  const { t } = useTranslation();
-
-  return (
-    <>
-      <div className={`settings-row ${highlightRow === 'export' ? 'row-highlight' : ''}`}>
-        <div className="settings-row-info">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontWeight: 510 }}>{t('settings.export_apps')}</span>
-            {activeNotice?.key === 'export' && (
-              <span className="setting-applied-badge">
-                <Check size={11} strokeWidth={1.5} style={{ color: 'currentColor' }} />
-                <span>{activeNotice.text}</span>
-              </span>
-            )}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            type="button"
-            className="btn-fluent btn-secondary btn-compact"
-            onClick={handleExportJson}
-            disabled={installedCount === 0}
-          >
-            <Download size={13} strokeWidth={1.5} />
-            <span>{t('settings.export_btn')}</span>
-          </button>
-        </div>
-      </div>
-
-      <div id="settings-affinity">
-        <AffinityPrivacyRow />
-      </div>
-      <DataBackupRow />
-      <LogExportRow />
-    </>
-  );
-};
+export const DataManagementSection: React.FC<DataManagementSectionProps> = ({ installedCount }) => (
+  <DataBackupRow installedCount={installedCount} />
+);

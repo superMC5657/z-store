@@ -38,6 +38,8 @@ function stubFor(cmd: string): unknown {
       return 'https://example.com/pr';
     case 'get_custom_app_pr_payload':
       return '{}';
+    case 'export_backup_file':
+      return '/tmp/logs/backup.json';
     case 'collect_local_app':
     case 'revert_collected_to_draft':
     case 'withdraw_submitted':
@@ -213,6 +215,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(settings.saveSetting('k', 'v'));
     await swallow(settings.handleDeepLink('zstore://x'));
     await swallow(settings.importUserData('{}'));
+    await swallow(settings.exportBackupFile('backup.json', '{}'));
     await swallow(settings.openUrl('https://example.com/'));
 
     expectAllCamel();

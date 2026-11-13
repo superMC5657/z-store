@@ -16,12 +16,29 @@ vi.mock('../services/api', () => {
     syncCatalog: async () => ({ updated: false, count: 0, message: 'ok' }),
     selectFolder: async () => null,
     testProxy: async () => ({ success: true, latency_ms: 10, message: 'ok' }),
+    getInstalledApps: async () => [
+      {
+        app_id: 'owner/repo',
+        app_name: 'Repo',
+        version: '1.0.0',
+        installed_at: 1700000000,
+        install_path: 'C:\\Apps\\Repo',
+        install_method: 'direct_zip',
+        asset_name: 'repo.zip',
+        asset_sha256: 'abc',
+      },
+    ],
+    getFavorites: async () => ['owner/repo'],
+    getWatchedApps: async () => [],
+    getSettings: async () => ({ theme: 'dark' }),
+    listCustomApps: async () => [],
+    exportBackupFile: async (fileName: string) => `C:\\Users\\Demo\\logs\\${fileName}`,
+    exportLogBundle: async () => 'C:\\Users\\Demo\\logs\\zstore-logs-123.zip',
   };
   return { tauriApi };
 });
 vi.mock('../components/ClientUpdateRow', () => ({ ClientUpdateRow: () => null }));
 vi.mock('../components/OAuthAccountCard', () => ({ OAuthAccountCard: () => null }));
-vi.mock('../components/DataBackupRow', () => ({ DataBackupRow: () => null }));
 
 import { SettingsView } from './SettingsView';
 import type { AppSettings } from '../types';
@@ -69,7 +86,6 @@ function renderSettings(
       onSelectMirror={onSelectMirror}
       theme="dark"
       onSetTheme={() => undefined}
-      onExportAppsJson={() => undefined}
       settings={settings}
       onUpdateSetting={onUpdateSetting}
       installedCount={0}
@@ -154,6 +170,7 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(screen.getByText('Updates & Rules')).toBeTruthy();
     expect(screen.getByText('Storage & Installation')).toBeTruthy();
     expect(screen.getByText('Network')).toBeTruthy();
+    expect(screen.getByText('User Profile')).toBeTruthy();
     expect(screen.getByText('Data & Backup')).toBeTruthy();
 
     // 外观设置行
@@ -162,9 +179,13 @@ describe('SettingsView custom catalog source confirm', () => {
     // 网络与代理设置行
     expect(screen.getByText('Download Mirror')).toBeTruthy();
 
-    // 数据备份设置行
+    // 导出与备份设置行
+    expect(screen.getByText('Export & Backup')).toBeTruthy();
     expect(screen.getByText('Export Apps')).toBeTruthy();
-    expect(screen.getByText('Export')).toBeTruthy();
+    expect(screen.getByText('Export User Data')).toBeTruthy();
+    expect(screen.getByText('Import User Data')).toBeTruthy();
+    expect(screen.getByText('Export Logs')).toBeTruthy();
+    expect(screen.getByText('Open Folder')).toBeTruthy();
 
     // 更新与通知设置行
     expect(screen.getByText('Auto Check Updates')).toBeTruthy();
@@ -186,7 +207,18 @@ describe('SettingsView custom catalog source confirm', () => {
     expect(screen.getByText('更新与规则')).toBeTruthy();
     expect(screen.getByText('存储与安装')).toBeTruthy();
     expect(screen.getByText('网络')).toBeTruthy();
+    expect(screen.getByText('用户画像')).toBeTruthy();
     expect(screen.getByText('数据与备份')).toBeTruthy();
+
+    // 用户画像分组包含 #settings-affinity，数据与备份展示导出与备份行
+    expect(document.getElementById('settings-affinity')).toBeTruthy();
+    expect(screen.getByTestId('data-export-unified-row')).toBeTruthy();
+    expect(screen.getByText('导出与备份')).toBeTruthy();
+    expect(screen.getByText('导出应用列表')).toBeTruthy();
+    expect(screen.getByText('导出用户数据')).toBeTruthy();
+    expect(screen.getByText('导入用户数据')).toBeTruthy();
+    expect(screen.getByText('导出日志')).toBeTruthy();
+    expect(screen.getByText('打开目录')).toBeTruthy();
 
     // 不展示图标缓存与通用图片缓存项
     expect(screen.queryByText('图标缓存')).toBeNull();
@@ -234,5 +266,74 @@ describe('SettingsView proxy save failure', () => {
     });
     expect(onSelectMirror).toHaveBeenCalledWith('https://bad.example.com');
     expect(calls).toEqual([]);
+  });
+});
+
+describe('SettingsView unified export feedback', () => {
+  it('导出用户数据后展示包含目标路径的行内反馈，且不弹出 Toast', async () => {
+    const toasts: unknown[] = [];
+    const onToast = (e: Event): void => {
+      toasts.push((e as CustomEvent).detail);
+    };
+    window.addEventListener('zstore:toast', onToast);
+    try {
+      renderSettings(baseSettings());
+      fireEvent.click(screen.getByText('导出用户数据'));
+      await waitFor(() => {
+        expect(screen.getByText(/C:\\Users\\Demo\\logs\\z-store-backup-\d{8}-\d{6}\.json/)).toBeTruthy();
+      });
+      expect(toasts).toEqual([]);
+    } finally {
+      window.removeEventListener('zstore:toast', onToast);
+    }
+  });
+
+  it('导出日志后展示行内反馈，且不弹出 Toast', async () => {
+    const toasts: unknown[] = [];
+    const onToast = (e: Event): void => {
+      toasts.push((e as CustomEvent).detail);
+    };
+    window.addEventListener('zstore:toast', onToast);
+    try {
+      renderSettings(baseSettings());
+      fireEvent.click(screen.getByText('导出日志'));
+      await waitFor(() => {
+        expect(screen.getByText(/C:\\Users\\Demo\\logs\\zstore-logs-123\.zip/)).toBeTruthy();
+      });
+      expect(toasts).toEqual([]);
+    } finally {
+      window.removeEventListener('zstore:toast', onToast);
+    }
+  });
+
+  it('导出应用列表展示导出路径行内反馈，且不弹出 Toast', async () => {
+    const toasts: unknown[] = [];
+    const onToast = (e: Event): void => {
+      toasts.push((e as CustomEvent).detail);
+    };
+    window.addEventListener('zstore:toast', onToast);
+    try {
+      render(
+        <SettingsView
+          onSelectMirror={async () => undefined}
+          theme="dark"
+          onSetTheme={() => undefined}
+          settings={baseSettings()}
+          onUpdateSetting={() => undefined}
+          installedCount={1}
+          updateRulesCount={0}
+          onOpenRules={() => undefined}
+        />,
+      );
+      fireEvent.click(screen.getByText('导出应用列表'));
+      await waitFor(() => {
+        expect(
+          screen.getByText(/应用列表已导出: C:\\Users\\Demo\\logs\\zstore-installed-backup-\d{8}-\d{6}\.json/),
+        ).toBeTruthy();
+      });
+      expect(toasts).toEqual([]);
+    } finally {
+      window.removeEventListener('zstore:toast', onToast);
+    }
   });
 });

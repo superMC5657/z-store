@@ -37,7 +37,7 @@
 | **主机配额指示器** | `Host Quota Indicator` | 各托管平台 API 调用配额的监听机制：后端解析限流头并经 `zstore://quota-updated` 广播；界面暂未消费该事件，账号卡片只展示需要登录的配额说明文案。 | 配额胶囊、限流状态 |
 | **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变下载 URL 前缀，API 与登录直接走系统网络通道。 | 出站代理、镜像节点 |
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏底部常驻账号入口：未登录显示 GitHub 快捷登录入口，已登录显示用户头像与用户名；点击直达设置中心账号卡片（`#settings-account`）。 | 侧边栏按钮、用户面板 |
-| **设置中心分组** | `Settings Groups` | `SettingsView` 规范 5 组结构：外观与个性化 / 更新与规则 / 存储与安装 / 网络与数据（GitHub 账号卡片位于该组，锚点 `#settings-account`）/ 数据管理与备份。 | 设置页、选项卡 |
+| **设置中心分组** | `Settings Groups` | `SettingsView` 规范 6 组结构：外观 / 更新与规则 / 存储与安装 / 网络（GitHub 账号卡片位于该组，锚点 `#settings-account`）/ 用户画像（本地隐私数据看板位于该组，锚点 `#settings-affinity`）/ 数据与备份（导出与备份统一操作行）。 | 设置页、选项卡 |
 | **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取自统一配置中枢 `config.toml`（支持设置项覆盖）；轮询连续失败 10 次熔断，请求超时随 `network.api_timeout_seconds`（默认 12s），轮询间隔下限 1s；`Expired` / `Denied` 独立状态机展示。 | 网页登录、PAT 登录 |
 | **流式更新检查** | `Streaming Update Check` | 「我的应用」的检查更新采用并发管道流式检测，实时发射 `zstore://update-check-progress` 推流事件，驱动顶栏下方的检查进度条；检查期间沿用上一份更新快照，结果回来后整体替换。 | 批量更新、后台检测 |
 | **统一配置中枢** | `Unified Project Config` | `src-tauri/config.toml` 作为项目超参与默认配置的单一配置源 (SSOT)，结合编译期宏内置兜底与运行期动态重载。 | 配置文件、硬编码常量 |
@@ -65,8 +65,8 @@
 | **推荐负反馈** | `Feed Dismissal` | 用户对推荐的否定（`user_feed_feedback`）：`app` 范围使该应用 90 天内不进推荐货架、在主流中沉底；`category` 范围使该分类画像权重减半 90 天。清空本地画像时一并清除。 | 屏蔽、不喜欢 |
 | **画像状态** | `Profile State` | 精选页的个性化分档：`off`（开关关闭，编辑精选）、`cold`（开启但无信号，显示兴趣选择卡）、`warm`（1–4 个信号）、`rich`（≥5 个信号）。 | 推荐模式、冷热启动 |
 | **日期种子** | `Day Seed` | 前端按本地日期给出的 `yyyymmdd` 整数，作为推荐货架与主流的确定性抖动种子：当天稳定、隔天轮换。 | 随机种子、每日种子 |
-| **仓库特征信号** | `Repo Affinity Signal` | 持久化于本地 `user_repo_signals` 表的用户 GitHub Star（`starred`）、Fork（`forked`）与自有仓库（`owned`）元数据（含 `stars`、`forks`、`language`、`description`），在首次登录及跨周期启动（6 小时冷却 + `api_etag_cache` 条件请求）时静默同步。 | 仓库历史、远端画像 |
-| **本地隐私数据看板** | `Affinity Privacy Audit Panel` | 设置页「数据管理与备份」中的可视化隐私审计与控制组件（`AffinityPrivacyRow`），只读展示本地 SQLite 信号计数（含已安装、浏览、搜索与已屏蔽推荐）、Top 偏好分类、编程语言与兴趣种子，并提供个性化推荐开关（`enable_local_affinity`）、立即增量同步、清空推荐反馈与一键清空本地画像能力；锚点 `#settings-affinity`。 | 推荐设置面板、隐私开关 |
+| **仓库特征信号** | `Repo Affinity Signal` | 持久化于本地 `user_repo_signals` 表的用户 GitHub Star（`starred`）、Fork（`forked`）与自有仓库（`owned`）元数据（含 `stars`、`forks`、`language`、`description`），在首次登录及跨周期启动（6 小时冷却 + 按页 `api_etag_cache` 条件请求与 `304` LRU 保鲜，单端点上限 50 页）时静默同步。 | 仓库历史、远端画像 |
+| **本地隐私数据看板** | `Affinity Privacy Audit Panel` | 设置页「用户画像」分组中的可视化隐私审计与控制组件（`AffinityPrivacyRow`），只读展示本地 SQLite 信号计数（含已安装、浏览、搜索与已屏蔽推荐）、Top 偏好分类、编程语言与兴趣种子，并提供个性化推荐开关（`enable_local_affinity`）、立即增量同步、清空推荐反馈与一键清空本地画像能力；锚点 `#settings-affinity`。 | 推荐设置面板、隐私开关 |
 
 ---
 

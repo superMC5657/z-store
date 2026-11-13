@@ -59,12 +59,13 @@
      - 默认值收敛于 `config.toml [oauth].default_client_id` 单一配置源；`.github/workflows/release-tauri.yml` 不注入任何 OAuth Client ID 变量，不存在编译期环境变量覆盖。
      - 该值为公开标识，非密钥；访问令牌只存 `user_settings.github_oauth_token`（`SETTING_OAUTH_TOKEN`），永不打印日志。
 
-4. **设置页重组为五组**：
-   - 第一组为外观与个性化（`AppearanceSection`）：主题、语言、界面缩放、全局字号。
+4. **设置页重组为六组**：
+   - 第一组为外观（`AppearanceSection`）：主题、语言、界面缩放、全局字号。
    - 第二组为更新与规则（`UpdatesRulesSection`）：更新频率、客户端更新行、关注提醒频率、版本锁定规则入口。
    - 第三组为存储与安装（`StorageSection`）：下载目录、便携版安装目录；图标与通用资源缓存由系统后台自动淘汰管理，不在设置页暴露清理项。
-   - 第四组为网络与数据（`NetworkDataSection`）：GitHub 账号卡片（`OAuthAccountCard`，锚点 `settings-account`）、下载加速代理与单键测速、收录清单同步。
-   - 第五组为数据管理与备份（`DataManagementSection`）：软件资产清单 JSON 导出、`DataBackupRow` 备份/恢复、日志导出。
+   - 第四组为网络（`NetworkDataSection`）：GitHub 账号卡片（`OAuthAccountCard`，锚点 `settings-account`）、下载加速代理与单键测速、收录清单同步。
+   - 第五组为用户画像（`AffinityPrivacyRow`，锚点 `settings-affinity`）：本地亲和度画像的隐私数据看板、个性化推荐开关、立即增量同步、推荐反馈清空与本地画像清空。
+   - 第六组为数据与备份（`DataManagementSection` → `DataBackupRow`）：导出与备份统一操作行（应用列表 JSON 导出、用户数据导出/导入、脱敏诊断日志导出与日志目录打开入口；三项导出均弹出系统保存对话框并默认定位至日志目录）。
    - 状态指示保留：账号卡片内展示登录态的配额说明文案与锚点跳转。
    - 详情缓存 TTL 由 `config.toml` 单一基线控制（基线 60 分钟，30 为非法挡位故按 60 生效），不在设置页暴露调节项（缓存策略详见 ADR-0007）。
 
@@ -78,7 +79,7 @@
 - **积极收益**：
    - 网络自适应：系统代理自动探测与 TUN 本地截获打通，无额外手动配置心智负担。
    - 登录可解释：五态分离后，过期、拒绝、网络抖动各有明确文案与下一步动作。
-   - 设置可找到：五组分区降低滚动查找成本，代理辨析与 TTL 挡位一次讲清。
+   - 设置可找到：六组分区降低滚动查找成本，用户画像与数据导出/备份边界清晰，代理辨析与 TTL 挡位一次讲清。
     - 开发可热更：开发 CSP 放行 localhost HMR。
 - **代价**：
    - Client ID 二级覆盖增加排查链路，出问题需先确认生效的是哪一级。

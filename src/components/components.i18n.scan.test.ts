@@ -29,7 +29,6 @@ const MIGRATED_FILES = [
   'ErrorBoundary.tsx',
   'FlyoutMenu.tsx',
   'InlineConfirmButton.tsx',
-  'LogExportRow.tsx',
   'OAuthAccountCard.tsx',
   'ResizeHandles.tsx',
   'RulesManagerModal.tsx',
@@ -59,6 +58,7 @@ const MIGRATED_FILES = [
   '../views/FavoritesView/WatchReleasesPanel.tsx',
   '../views/InstalledView/CheckProgressBanner.tsx',
   '../views/InstalledView/ChangelogDrawer.tsx',
+  '../views/SettingsView/sections/DataManagementSection.tsx',
   '../app/InstallConfirmDialog.tsx',
 ];
 

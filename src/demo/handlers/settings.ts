@@ -81,3 +81,18 @@ export function handleImportUserData(): ImportUserDataCounts {
     settings_applied: false,
   };
 }
+
+const DEMO_EXPORT_DIR = 'C:\\Users\\Demo\\AppData\\Local\\com.zstore.app\\logs';
+
+export function handleExportBackupFile(a: InvokeArgs): string | null {
+  const fileName = argStr(a, 'fileName') || 'export.json';
+  return `${DEMO_EXPORT_DIR}\\${fileName}`;
+}
+
+export function handleZlogGetDir(): string {
+  return DEMO_EXPORT_DIR;
+}
+
+export function handleZlogExportBundle(): string | null {
+  return `${DEMO_EXPORT_DIR}\\zstore-logs-demo.zip`;
+}

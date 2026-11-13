@@ -644,28 +644,25 @@ pub fn install_panic_hook() {
 #[tauri::command]
 pub fn zlog_get_dir(app: AppHandle) -> Result<String, String> {
     let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    let _ = std::fs::create_dir_all(&dir);
     Ok(dir.to_string_lossy().to_string())
 }
 
-/// 导出日志包：把 LogDir 内日志打成 zip，返回 bundle 文件路径。
-#[tauri::command]
-pub fn zlog_export_bundle(app: AppHandle) -> Result<String, String> {
-    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
-    let stamp = crate::now_secs();
-    let out_path = log_dir.join(format!("zstore-logs-{}.zip", stamp));
-    let out_file = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+fn write_log_bundle_zip(log_dir: &Path, out_path: &Path) -> Result<String, String> {
+    if let Some(parent) = out_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+    }
+    let out_file = std::fs::File::create(out_path).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(out_file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    let entries = std::fs::read_dir(&log_dir).map_err(|e| e.to_string())?;
+    let entries = std::fs::read_dir(log_dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        if path == out_path {
+        if !path.is_file() || path == out_path {
             continue;
         }
         let name = path
@@ -693,7 +690,6 @@ pub fn zlog_export_bundle(app: AppHandle) -> Result<String, String> {
         let clean = redact(&String::from_utf8_lossy(&data));
         zip.write_all(clean.as_bytes()).map_err(|e| e.to_string())?;
     }
-    // 附带一条说明文件
     let readme = format!(
         "ZStore log bundle\nidentifier=com.zstore.app\nkeep_days={}\nmax_total_bytes={}\n",
         KEEP_DAYS, MAX_TOTAL_BYTES
@@ -705,6 +701,29 @@ pub fn zlog_export_bundle(app: AppHandle) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     zip.finish().map_err(|e| e.to_string())?;
     Ok(out_path.to_string_lossy().to_string())
+}
+
+/// 导出日志包：弹出系统保存文件对话框（默认目录指向 `LogDir`），把 `LogDir` 内日志脱敏打成 zip 并返回文件路径；取消时返回 `None`。
+#[tauri::command]
+pub async fn zlog_export_bundle(app: AppHandle) -> Result<Option<String>, String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+    let stamp = crate::now_secs();
+    let default_name = format!("zstore-logs-{}.zip", stamp);
+
+    tokio::task::spawn_blocking(move || {
+        let picked = rfd::FileDialog::new()
+            .set_directory(&log_dir)
+            .set_file_name(&default_name)
+            .add_filter("ZIP", &["zip"])
+            .save_file();
+        let Some(out_path) = picked else {
+            return Ok(None);
+        };
+        write_log_bundle_zip(&log_dir, &out_path).map(Some)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]
@@ -885,6 +904,44 @@ mod tests {
         prune_log_dir(&dir, KEEP_DAYS, MAX_TOTAL_BYTES);
         assert!(!old.exists());
         assert!(fresh.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_write_log_bundle_zip_redacts_logs() {
+        use std::io::Read as _;
+        let dir = std::env::temp_dir().join(format!(
+            "zstore-log-bundle-test-{}-{}",
+            std::process::id(),
+            crate::now_secs()
+        ));
+        let log_dir = dir.join("logs");
+        let out_zip = dir.join("picked").join("logs.zip");
+        std::fs::create_dir_all(&log_dir).unwrap();
+        std::fs::write(
+            log_dir.join("app.log"),
+            b"auth Bearer secret_tok email user@example.com\n",
+        )
+        .unwrap();
+        std::fs::write(log_dir.join("ignored.json"), b"{\"skip\":true}").unwrap();
+
+        let written = write_log_bundle_zip(&log_dir, &out_zip).unwrap();
+        assert_eq!(written, out_zip.to_string_lossy());
+
+        let file = std::fs::File::open(&out_zip).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("ignored.json").is_err());
+        assert!(archive.by_name("README.txt").is_ok());
+        let mut log_body = String::new();
+        archive
+            .by_name("app.log")
+            .unwrap()
+            .read_to_string(&mut log_body)
+            .unwrap();
+        assert!(log_body.contains("Bearer ***"));
+        assert!(log_body.contains("***@***"));
+        assert!(!log_body.contains("secret_tok"));
+        assert!(!log_body.contains("user@example.com"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

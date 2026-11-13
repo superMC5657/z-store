@@ -410,29 +410,6 @@ export const App: React.FC = () => {
     }
   }, [selectedPlatforms]);
 
-  // 导出软件资产 JSON 备份
-  const handleExportAppsJson = () => {
-    if (installedApps.length === 0) {
-      showToast(t('toast.no_installed_to_export'), 'warning');
-      return;
-    }
-    const data = {
-      app: 'ZStore',
-      exported_at: new Date().toISOString(),
-      installed_count: installedApps.length,
-      apps: installedApps,
-    };
-    const jsonStr = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `zstore-installed-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast(t('toast.export_success'), 'success');
-  };
-
   const handleClearRecentViews = async () => {
     try {
       await tauriApi.clearViewHistory();
@@ -883,7 +860,6 @@ export const App: React.FC = () => {
                   onSelectMirror={handleSelectMirror}
                   theme={settings.theme}
                   onSetTheme={handleSetTheme}
-                  onExportAppsJson={handleExportAppsJson}
                   settings={settings}
                   onUpdateSetting={handleUpdateSetting}
                   installedCount={installedApps.length}

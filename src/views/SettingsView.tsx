@@ -10,6 +10,7 @@ import { UpdatesRulesSection } from './SettingsView/sections/UpdatesRulesSection
 import { StorageSection } from './SettingsView/sections/StorageSection';
 import { CatalogSyncFeedback, NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
 import { DataManagementSection } from './SettingsView/sections/DataManagementSection';
+import { AffinityPrivacyRow } from '../components/AffinityPrivacyRow';
 
 interface SettingsSectionProps {
   title: string;
@@ -29,7 +30,6 @@ interface SettingsViewProps {
   onSelectMirror: (id: string) => Promise<void>;
   theme: 'light' | 'dark' | 'system';
   onSetTheme: (theme: 'light' | 'dark' | 'system') => void;
-  onExportAppsJson: () => void;
   settings: AppSettings;
   onUpdateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   installedCount: number;
@@ -41,7 +41,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSelectMirror,
   theme,
   onSetTheme,
-  onExportAppsJson,
   settings,
   onUpdateSetting,
   installedCount,
@@ -230,12 +229,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSetting('watch_notify_frequency', id);
   };
 
-
-  const handleExportJson = () => {
-    onExportAppsJson();
-    triggerChangeFeedback('export', t('settings.export_apps'));
-  };
-
   // 信任阻尼：切换至非默认（自定义）收录源将替换受信任的目录，
   // 属于敏感破坏性操作，必须经过二次显式确认。保存为空值（即恢复官方默认源流）立即生效。
   const stagedCatalogUrl = catalogSourceUrl.trim();
@@ -299,11 +292,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     'proxy', 'mirror', 'catalog', 'oauth', 'github', 'network', 'account', 'token', 'latency',
   ]);
 
+  const showAffinity = matchGroup([
+    t('settings.affinity_profile'),
+    t('affinity_privacy.title'),
+    '画像', '推荐', '偏好', '隐私', 'GitHub', 'Stars', 'Forks', '兴趣', '语言', '分类',
+    'profile', 'affinity', 'recommendation', 'personalized', 'privacy', 'interests',
+  ]);
+
   const showData = matchGroup([
     t('settings.data_management'),
+    t('settings.export_and_backup_title'),
     t('settings.export_apps'),
-    '数据', '管理', '备份', '恢复', '导出', '导入', '隐私', '日志', '清单',
-    'data', 'export', 'backup', 'privacy', 'logs', 'restore',
+    t('settings.export_user_data'),
+    t('settings.import_user_data'),
+    t('zlog.export'),
+    '数据', '管理', '备份', '恢复', '导出', '导入', '日志', '清单',
+    'data', 'export', 'backup', 'logs', 'restore',
   ]);
 
   return (
@@ -409,18 +413,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </SettingsSection>
       )}
 
-      {showData && (
-        <SettingsSection title={t('settings.data_management')}>
-          <DataManagementSection
-            installedCount={installedCount}
-            highlightRow={highlightRow}
-            activeNotice={activeNotice}
-            handleExportJson={handleExportJson}
-          />
+      {showAffinity && (
+        <SettingsSection title={t('settings.affinity_profile')}>
+          <div id="settings-affinity">
+            <AffinityPrivacyRow />
+          </div>
         </SettingsSection>
       )}
 
-      {!showAppearance && !showUpdates && !showStorage && !showNetwork && !showData && (
+      {showData && (
+        <SettingsSection title={t('settings.data_management')}>
+          <DataManagementSection installedCount={installedCount} />
+        </SettingsSection>
+      )}
+
+      {!showAppearance && !showUpdates && !showStorage && !showNetwork && !showAffinity && !showData && (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>
           {t('settings.search_no_results')}
         </div>

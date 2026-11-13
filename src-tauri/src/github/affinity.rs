@@ -11,6 +11,9 @@ use std::sync::{Arc, Mutex};
 /// 用户隔天或隔半个月重新打开应用时自动触发 ETag 条件请求同步。
 pub const AFFINITY_SYNC_COOLDOWN_SECS: i64 = 6 * 3600;
 
+/// 画像同步单端点最大翻页数（每页 100 条，至多拉取 5000 条仓库信号，避免极端账号耗尽配额或阻塞同步）。
+pub const AFFINITY_SYNC_MAX_PAGES: u32 = 50;
+
 /// 设置项键：最近一次完成 GitHub 画像信号同步的 Unix 秒级时间戳。
 pub const SETTING_AFFINITY_GITHUB_SYNCED_AT: &str = "affinity_github_synced_at";
 
@@ -38,19 +41,23 @@ pub fn should_sync_affinity_on_startup(last_synced_at: Option<i64>, now_secs: i6
 }
 
 impl CatalogService {
-    /// 用户 GitHub Star 仓库画像同步端点（canonical ETag 缓存键）。
-    pub fn affinity_starred_endpoint() -> String {
+    /// 用户 GitHub Star 仓库画像同步端点（按页生成 canonical ETag 缓存键）。
+    pub fn affinity_starred_page_endpoint(page: u32) -> String {
         format!(
-            "{}/user/starred?per_page={}",
-            GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE
+            "{}/user/starred?per_page={}&page={}",
+            GITHUB_API_BASE,
+            GITHUB_STARRED_MAX_PAGE_SIZE,
+            page.max(1)
         )
     }
 
-    /// 用户个人及 Fork 仓库画像同步端点（canonical ETag 缓存键）。
-    pub fn affinity_owner_repos_endpoint() -> String {
+    /// 用户个人及 Fork 仓库画像同步端点（按页生成 canonical ETag 缓存键）。
+    pub fn affinity_owner_repos_page_endpoint(page: u32) -> String {
         format!(
-            "{}/user/repos?type=owner&sort=updated&per_page={}",
-            GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE
+            "{}/user/repos?type=owner&sort=updated&per_page={}&page={}",
+            GITHUB_API_BASE,
+            GITHUB_STARRED_MAX_PAGE_SIZE,
+            page.max(1)
         )
     }
 
@@ -80,10 +87,11 @@ impl CatalogService {
         });
     }
 
-    /// ETag 感知的 GitHub 画像信号静默增量同步：
-    /// - 端点 1：`/user/starred?per_page=100` → 写入 `relation = "starred"`
-    /// - 端点 2：`/user/repos?type=owner&sort=updated&per_page=100` → 按 `fork` 字段区分 `"forked"` 与 `"owned"`
-    /// - 复用 `api_etag_cache` 发送 `If-None-Match`，`304 Not Modified` 零配额恢复；
+    /// ETag 感知的 GitHub 画像信号静默增量同步（全量分页，受 `AFFINITY_SYNC_MAX_PAGES` 上限保护）：
+    /// - 端点 1：`/user/starred?per_page=100&page=N` → 写入 `relation = "starred"`
+    /// - 端点 2：`/user/repos?type=owner&sort=updated&per_page=100&page=N` → 按 `fork` 字段区分 `"forked"` 与 `"owned"`
+    /// - 逐页复用 `api_etag_cache` 发送 `If-None-Match`，`304 Not Modified` 零配额恢复；
+    /// - 遵循 `Link: rel="next"` 续拉下一页，任一页失败时中止写入以保留既有完整信号；
     /// - 两个端点均成功（200 或 304）时更新 `user_settings.affinity_github_synced_at`。
     pub async fn sync_github_affinity_signals_bg(
         db_mutex: &Mutex<Database>,
@@ -95,85 +103,55 @@ impl CatalogService {
             return Err("GitHub Token 为空，跳过画像同步".to_string());
         }
 
-        let starred_ep = Self::affinity_starred_endpoint();
-        let repos_ep = Self::affinity_owner_repos_endpoint();
         let starred_rels = [RepoRelation::Starred.as_str()];
         let owner_rels = [RepoRelation::Forked.as_str(), RepoRelation::Owned.as_str()];
 
-        let (
-            starred_etag,
-            starred_payload,
-            has_starred,
-            repos_etag,
-            repos_payload,
-            has_owner_repos,
-        ) = {
-            let db = db_mutex.lock().map_err(|e| e.to_string())?;
-            let s_etag = db
-                .get_etag(&starred_ep)
-                .ok()
-                .flatten()
-                .filter(|e| !e.trim().is_empty());
-            let s_payload = db.get_cached_payload(&starred_ep).ok().flatten();
-            let s_has = db.has_user_repo_signals_for_relations(&starred_rels);
-            let r_etag = db
-                .get_etag(&repos_ep)
-                .ok()
-                .flatten()
-                .filter(|e| !e.trim().is_empty());
-            let r_payload = db.get_cached_payload(&repos_ep).ok().flatten();
-            let r_has = db.has_user_repo_signals_for_relations(&owner_rels);
-            (s_etag, s_payload, s_has, r_etag, r_payload, r_has)
-        };
-
         let client = crate::shared_http_client();
         let headers = super::http::bearer_headers(Some(clean_token));
+        let now = crate::now_secs();
 
-        let (starred_outcome, repos_outcome) = tokio::join!(
-            Self::get_with_etag(
+        let (starred_res, repos_res) = tokio::join!(
+            fetch_paginated_repo_signals(
+                db_mutex,
                 &client,
-                &starred_ep,
-                api_base,
                 &headers,
-                starred_etag.as_deref(),
+                api_base,
+                now,
+                Self::affinity_starred_page_endpoint,
+                |_| RepoRelation::Starred,
             ),
-            Self::get_with_etag(
+            fetch_paginated_repo_signals(
+                db_mutex,
                 &client,
-                &repos_ep,
-                api_base,
                 &headers,
-                repos_etag.as_deref(),
+                api_base,
+                now,
+                Self::affinity_owner_repos_page_endpoint,
+                |r| {
+                    if r.fork.unwrap_or(false) {
+                        RepoRelation::Forked
+                    } else {
+                        RepoRelation::Owned
+                    }
+                },
             )
         );
 
-        let now = crate::now_secs();
         let db = db_mutex.lock().map_err(|e| e.to_string())?;
 
-        let starred_ok = apply_etag_signal_outcome(
+        let starred_ok = apply_paginated_signal_outcome(
             &db,
-            &starred_ep,
             &starred_rels,
-            starred_outcome,
-            starred_payload.as_deref(),
-            has_starred,
+            Self::affinity_starred_page_endpoint,
+            starred_res,
             now,
-            |_| RepoRelation::Starred,
         );
-        let repos_ok = apply_etag_signal_outcome(
+        let repos_ok = apply_paginated_signal_outcome(
             &db,
-            &repos_ep,
             &owner_rels,
-            repos_outcome,
-            repos_payload.as_deref(),
-            has_owner_repos,
+            Self::affinity_owner_repos_page_endpoint,
+            repos_res,
             now,
-            |r| {
-                if r.fork.unwrap_or(false) {
-                    RepoRelation::Forked
-                } else {
-                    RepoRelation::Owned
-                }
-            },
         );
 
         if !starred_ok && !repos_ok {
@@ -189,70 +167,198 @@ impl CatalogService {
     }
 }
 
-fn parse_repo_signals<F>(json_text: &str, ts: i64, classify: F) -> Option<Vec<UserRepoSignal>>
+struct CachedPageWrite {
+    endpoint_url: String,
+    etag: String,
+    payload_json: String,
+}
+
+struct PaginatedSignalsResult {
+    signals: Vec<UserRepoSignal>,
+    any_fresh: bool,
+    last_page: u32,
+    fresh_pages: Vec<CachedPageWrite>,
+    touched_pages: Vec<String>,
+}
+
+enum PaginatedFetchErr {
+    Unauthorized,
+    Failed,
+}
+
+struct ParsedSignalPage {
+    signals: Vec<UserRepoSignal>,
+    raw_count: usize,
+}
+
+fn parse_repo_signals_page<F>(
+    json_text: &str,
+    ts: i64,
+    classify: &F,
+) -> Option<ParsedSignalPage>
 where
     F: Fn(&GitHubRepoResponse) -> RepoRelation,
 {
     let repos: Vec<GitHubRepoResponse> = serde_json::from_str(json_text).ok()?;
-    Some(
-        repos
-            .into_iter()
-            .filter_map(|r| {
-                let full_name = crate::forge::canonical_app_id(r.full_name.as_deref()?)?;
-                let relation = classify(&r).as_str().to_string();
-                Some(UserRepoSignal {
-                    full_name,
-                    relation,
-                    language: r.language.unwrap_or_default(),
-                    description: r.description.unwrap_or_default(),
-                    stars: r.stargazers_count.unwrap_or(0),
-                    forks: r.forks_count.unwrap_or(0),
-                    updated_at: ts,
-                })
+    let raw_count = repos.len();
+    let signals = repos
+        .into_iter()
+        .filter_map(|r| {
+            let full_name = crate::forge::canonical_app_id(r.full_name.as_deref()?)?;
+            let relation = classify(&r).as_str().to_string();
+            Some(UserRepoSignal {
+                full_name,
+                relation,
+                language: r.language.unwrap_or_default(),
+                description: r.description.unwrap_or_default(),
+                stars: r.stargazers_count.unwrap_or(0),
+                forks: r.forks_count.unwrap_or(0),
+                updated_at: ts,
             })
-            .collect(),
-    )
+        })
+        .collect();
+    Some(ParsedSignalPage { signals, raw_count })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply_etag_signal_outcome<F>(
-    db: &Database,
-    endpoint_url: &str,
-    relations: &[&str],
-    outcome: EtagGetOutcome,
-    cached_payload: Option<&str>,
-    has_existing_for_relations: bool,
+async fn fetch_paginated_repo_signals<E, F>(
+    db_mutex: &Mutex<Database>,
+    client: &reqwest::Client,
+    headers: &reqwest::header::HeaderMap,
+    api_base: Option<&str>,
     now: i64,
+    endpoint_for_page: E,
     classify: F,
-) -> bool
+) -> Result<PaginatedSignalsResult, PaginatedFetchErr>
 where
+    E: Fn(u32) -> String,
     F: Fn(&GitHubRepoResponse) -> RepoRelation,
 {
-    match outcome {
-        EtagGetOutcome::Fresh { text, etag } => {
-            if let Some(signals) = parse_repo_signals(&text, now, classify) {
-                let _ = db.replace_user_repo_signals_by_relations(relations, &signals);
-                let _ = db.save_etag(endpoint_url, etag.as_deref().unwrap_or(""), &text, now);
-                return true;
+    let mut all_signals: Vec<UserRepoSignal> = Vec::new();
+    let mut seen_keys: HashSet<(String, String)> = HashSet::new();
+    let mut fresh_pages: Vec<CachedPageWrite> = Vec::new();
+    let mut touched_pages: Vec<String> = Vec::new();
+    let mut any_fresh = false;
+    let mut last_page = 0u32;
+
+    for page in 1..=AFFINITY_SYNC_MAX_PAGES {
+        let ep = endpoint_for_page(page);
+        let (cached_etag, cached_payload) = {
+            let db = db_mutex.lock().map_err(|_| PaginatedFetchErr::Failed)?;
+            let payload = db.get_cached_payload(&ep).ok().flatten();
+            let etag = if payload.is_some() {
+                db.get_etag(&ep)
+                    .ok()
+                    .flatten()
+                    .filter(|e| !e.trim().is_empty())
+            } else {
+                None
+            };
+            (etag, payload)
+        };
+
+        let (outcome, has_next) = super::http::get_with_etag_with_link(
+            client,
+            &ep,
+            api_base,
+            headers,
+            cached_etag.as_deref(),
+        )
+        .await;
+
+        match outcome {
+            EtagGetOutcome::Unauthorized => {
+                crate::notify_auth_expired();
+                return Err(PaginatedFetchErr::Unauthorized);
             }
-            false
-        }
-        EtagGetOutcome::NotModified => {
-            if !has_existing_for_relations {
-                if let Some(payload) = cached_payload {
-                    if let Some(signals) = parse_repo_signals(payload, now, classify) {
-                        let _ = db.replace_user_repo_signals_by_relations(relations, &signals);
+            EtagGetOutcome::Failed => {
+                return Err(PaginatedFetchErr::Failed);
+            }
+            EtagGetOutcome::Fresh { text, etag } => {
+                let Some(parsed) = parse_repo_signals_page(&text, now, &classify) else {
+                    return Err(PaginatedFetchErr::Failed);
+                };
+                any_fresh = true;
+                last_page = page;
+                for sig in parsed.signals {
+                    if seen_keys.insert((sig.full_name.clone(), sig.relation.clone())) {
+                        all_signals.push(sig);
                     }
                 }
+                fresh_pages.push(CachedPageWrite {
+                    endpoint_url: ep,
+                    etag: etag.unwrap_or_default(),
+                    payload_json: text,
+                });
+                if !has_next || parsed.raw_count == 0 {
+                    break;
+                }
             }
-            true
+            EtagGetOutcome::NotModified => {
+                let Some(payload) = cached_payload else {
+                    return Err(PaginatedFetchErr::Failed);
+                };
+                let Some(parsed) = parse_repo_signals_page(&payload, now, &classify) else {
+                    return Err(PaginatedFetchErr::Failed);
+                };
+                last_page = page;
+                touched_pages.push(ep);
+                for sig in parsed.signals {
+                    if seen_keys.insert((sig.full_name.clone(), sig.relation.clone())) {
+                        all_signals.push(sig);
+                    }
+                }
+                let should_continue = has_next || parsed.raw_count >= GITHUB_STARRED_MAX_PAGE_SIZE;
+                if !should_continue || parsed.raw_count == 0 {
+                    break;
+                }
+            }
         }
-        EtagGetOutcome::Unauthorized => {
-            crate::notify_auth_expired();
-            false
-        }
-        EtagGetOutcome::Failed => false,
     }
+
+    Ok(PaginatedSignalsResult {
+        signals: all_signals,
+        any_fresh,
+        last_page,
+        fresh_pages,
+        touched_pages,
+    })
+}
+
+fn apply_paginated_signal_outcome<E>(
+    db: &Database,
+    relations: &[&str],
+    endpoint_for_page: E,
+    result: Result<PaginatedSignalsResult, PaginatedFetchErr>,
+    now: i64,
+) -> bool
+where
+    E: Fn(u32) -> String,
+{
+    let Ok(res) = result else {
+        return false;
+    };
+    let has_existing = db.has_user_repo_signals_for_relations(relations);
+    if res.any_fresh || !has_existing {
+        let _ = db.replace_user_repo_signals_by_relations(relations, &res.signals);
+    }
+    for page in &res.fresh_pages {
+        let _ = db.save_etag(&page.endpoint_url, &page.etag, &page.payload_json, now);
+    }
+    for ep in &res.touched_pages {
+        let _ = db.touch_etag(ep, now);
+    }
+    if res.last_page > 0 {
+        for stale_page in (res.last_page + 1)..=AFFINITY_SYNC_MAX_PAGES {
+            let stale_ep = endpoint_for_page(stale_page);
+            let has_stale = db.get_etag(&stale_ep).ok().flatten().is_some()
+                || db.get_cached_payload(&stale_ep).ok().flatten().is_some();
+            if !has_stale {
+                break;
+            }
+            let _ = db.delete_etag(&stale_ep);
+        }
+    }
+    true
 }
 
 /// 推荐种子与用户的关系（推荐理由「因为你 X 了 Y」中的 X）。
@@ -1257,7 +1363,9 @@ pub fn top_signal_languages(raw: &RawAffinitySignals, limit: usize) -> Vec<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::github::developer_starred::test_support::{spawn_mock, MockResp};
+    use crate::github::developer_starred::test_support::{
+        spawn_mock, spawn_mock_routes, MockResp, MockRoute,
+    };
     use std::sync::Mutex;
 
     fn sample_catalog() -> Vec<CatalogItem> {
@@ -1378,7 +1486,7 @@ mod tests {
 
         let mut routes = HashMap::new();
         routes.insert(
-            "/user/starred?per_page=100".to_string(),
+            "/user/starred?per_page=100&page=1".to_string(),
             MockResp {
                 status: 200,
                 reason: "OK",
@@ -1388,7 +1496,7 @@ mod tests {
             },
         );
         routes.insert(
-            "/user/repos?type=owner&sort=updated&per_page=100".to_string(),
+            "/user/repos?type=owner&sort=updated&per_page=100&page=1".to_string(),
             MockResp {
                 status: 200,
                 reason: "OK",
@@ -1440,19 +1548,428 @@ mod tests {
         assert_eq!(count2, 3);
         let seen = srv.seen_inm.lock().unwrap();
         assert_eq!(
-            seen.get("/user/starred?per_page=100")
+            seen.get("/user/starred?per_page=100&page=1")
                 .cloned()
                 .flatten()
                 .as_deref(),
             Some("\"etag-starred-1\"")
         );
         assert_eq!(
-            seen.get("/user/repos?type=owner&sort=updated&per_page=100")
+            seen.get("/user/repos?type=owner&sort=updated&per_page=100&page=1")
                 .cloned()
                 .flatten()
                 .as_deref(),
             Some("\"etag-repos-1\"")
         );
+    }
+
+    fn mk_repo_json(items: Vec<(String, bool, &str)>) -> String {
+        let arr: Vec<serde_json::Value> = items
+            .into_iter()
+            .map(|(full_name, fork, lang)| {
+                let name = full_name.split('/').nth(1).unwrap_or("repo");
+                serde_json::json!({
+                    "name": name,
+                    "full_name": full_name,
+                    "description": format!("desc {name}"),
+                    "stargazers_count": 42u64,
+                    "forks_count": 5u64,
+                    "language": lang,
+                    "fork": fork
+                })
+            })
+            .collect();
+        serde_json::Value::Array(arr).to_string()
+    }
+
+    #[tokio::test]
+    async fn sync_github_affinity_signals_paginates_all_pages_and_recovers_on_304() {
+        let starred_p1: Vec<(String, bool, &str)> = (0..100)
+            .map(|i| (format!("org/starred-{i}"), false, "Rust"))
+            .collect();
+        let starred_p2: Vec<(String, bool, &str)> = (100..135)
+            .map(|i| (format!("org/starred-{i}"), false, "TypeScript"))
+            .collect();
+        let repos_p1: Vec<(String, bool, &str)> = (0..100)
+            .map(|i| (format!("me/repo-{i}"), i % 2 == 0, "Rust"))
+            .collect();
+        let repos_p2: Vec<(String, bool, &str)> = (100..112)
+            .map(|i| (format!("me/repo-{i}"), true, "Go"))
+            .collect();
+
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/user/starred?per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"s-etag-1\"".to_string()),
+                    body: mk_repo_json(starred_p1),
+                    honor_inm: Some("\"s-etag-1\"".to_string()),
+                },
+                link: Some(
+                    "<https://api.github.com/user/starred?per_page=100&page=2>; rel=\"next\""
+                        .to_string(),
+                ),
+            },
+        );
+        routes.insert(
+            "/user/starred?per_page=100&page=2".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"s-etag-2\"".to_string()),
+                    body: mk_repo_json(starred_p2),
+                    honor_inm: Some("\"s-etag-2\"".to_string()),
+                },
+                link: None,
+            },
+        );
+        routes.insert(
+            "/user/repos?type=owner&sort=updated&per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"r-etag-1\"".to_string()),
+                    body: mk_repo_json(repos_p1),
+                    honor_inm: Some("\"r-etag-1\"".to_string()),
+                },
+                link: Some(
+                    "<https://api.github.com/user/repos?type=owner&sort=updated&per_page=100&page=2>; rel=\"next\""
+                        .to_string(),
+                ),
+            },
+        );
+        routes.insert(
+            "/user/repos?type=owner&sort=updated&per_page=100&page=2".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"r-etag-2\"".to_string()),
+                    body: mk_repo_json(repos_p2),
+                    honor_inm: Some("\"r-etag-2\"".to_string()),
+                },
+                link: None,
+            },
+        );
+
+        let srv = spawn_mock_routes(routes).await;
+        let db_mutex = Mutex::new(Database::open_in_memory().unwrap());
+
+        let total = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "gho_test_token",
+            Some(&srv.base),
+        )
+        .await
+        .unwrap();
+        // 135 starred + 112 owner repos = 247
+        assert_eq!(total, 247);
+
+        {
+            let db = db_mutex.lock().unwrap();
+            let signals = db.get_user_repo_signals().unwrap();
+            let starred_cnt = signals.iter().filter(|s| s.relation == "starred").count();
+            let forked_cnt = signals.iter().filter(|s| s.relation == "forked").count();
+            let owned_cnt = signals.iter().filter(|s| s.relation == "owned").count();
+            assert_eq!(starred_cnt, 135, "必须突破单页 100 上限拉全全部 Star");
+            assert_eq!(forked_cnt, 62);
+            assert_eq!(owned_cnt, 50);
+            assert!(signals.iter().any(|s| s.full_name == "org/starred-134"));
+            assert!(signals.iter().any(|s| s.full_name == "me/repo-111"));
+        }
+
+        // 清空本地画像后再次同步：两页均命中 304，必须完整从 api_etag_cache 恢复全部 247 条
+        db_mutex
+            .lock()
+            .unwrap()
+            .clear_affinity_profile_signals()
+            .unwrap();
+        let restored = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "gho_test_token",
+            Some(&srv.base),
+        )
+        .await
+        .unwrap();
+        assert_eq!(restored, 247);
+
+        let seen = srv.seen_inm.lock().unwrap();
+        assert_eq!(
+            seen.get("/user/starred?per_page=100&page=2")
+                .cloned()
+                .flatten()
+                .as_deref(),
+            Some("\"s-etag-2\"")
+        );
+        assert_eq!(
+            seen.get("/user/repos?type=owner&sort=updated&per_page=100&page=2")
+                .cloned()
+                .flatten()
+                .as_deref(),
+            Some("\"r-etag-2\"")
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_github_affinity_signals_preserves_existing_on_partial_page_failure() {
+        let starred_p1: Vec<(String, bool, &str)> = (0..100)
+            .map(|i| (format!("org/starred-{i}"), false, "Rust"))
+            .collect();
+
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/user/starred?per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"s-etag-1\"".to_string()),
+                    body: mk_repo_json(starred_p1),
+                    honor_inm: None,
+                },
+                link: Some(
+                    "<https://api.github.com/user/starred?per_page=100&page=2>; rel=\"next\""
+                        .to_string(),
+                ),
+            },
+        );
+        // page=2 缺失 → mock 返回 404 Failed
+        routes.insert(
+            "/user/repos?type=owner&sort=updated&per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"r-etag-1\"".to_string()),
+                    body: mk_repo_json(vec![("me/tool".to_string(), false, "Rust")]),
+                    honor_inm: None,
+                },
+                link: None,
+            },
+        );
+
+        let srv = spawn_mock_routes(routes).await;
+        let db_mutex = Mutex::new(Database::open_in_memory().unwrap());
+        // 预置既有 starred 信号
+        db_mutex
+            .lock()
+            .unwrap()
+            .upsert_user_repo_signals(&[UserRepoSignal {
+                full_name: "keep/existing".to_string(),
+                relation: "starred".to_string(),
+                language: "Rust".to_string(),
+                description: "keep".to_string(),
+                stars: 10,
+                forks: 1,
+                updated_at: 1_700_000_000,
+            }])
+            .unwrap();
+
+        let total = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "gho_test_token",
+            Some(&srv.base),
+        )
+        .await
+        .unwrap();
+        // repos 成功（1 owned），starred 因第 2 页失败而保留原有 keep/existing（不被截断覆盖）
+        assert_eq!(total, 2);
+        let db = db_mutex.lock().unwrap();
+        let signals = db.get_user_repo_signals().unwrap();
+        assert!(signals
+            .iter()
+            .any(|s| s.full_name == "keep/existing" && s.relation == "starred"));
+        assert!(!signals.iter().any(|s| s.full_name == "org/starred-0"));
+        assert!(db
+            .get_setting(SETTING_AFFINITY_GITHUB_SYNCED_AT)
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn sync_github_affinity_signals_prunes_stale_trailing_page_etag_when_shrinking() {
+        let db_mutex = Mutex::new(Database::open_in_memory().unwrap());
+        {
+            let db = db_mutex.lock().unwrap();
+            // 模拟历史曾同步过第 2 页缓存
+            db.save_etag(
+                &CatalogService::affinity_starred_page_endpoint(2),
+                "\"old-p2\"",
+                "[]",
+                1_700_000_000,
+            )
+            .unwrap();
+        }
+
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/user/starred?per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"s-only-p1\"".to_string()),
+                    body: mk_repo_json(vec![("org/one".to_string(), false, "Rust")]),
+                    honor_inm: Some("\"s-only-p1\"".to_string()),
+                },
+                link: None,
+            },
+        );
+        routes.insert(
+            "/user/repos?type=owner&sort=updated&per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"r-only-p1\"".to_string()),
+                    body: mk_repo_json(vec![]),
+                    honor_inm: Some("\"r-only-p1\"".to_string()),
+                },
+                link: None,
+            },
+        );
+
+        let srv = spawn_mock_routes(routes).await;
+        let count = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "gho_test_token",
+            Some(&srv.base),
+        )
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+
+        {
+            let db = db_mutex.lock().unwrap();
+            assert!(db
+                .get_etag(&CatalogService::affinity_starred_page_endpoint(2))
+                .unwrap()
+                .is_none());
+        }
+
+        // 二次同步（page=1 返回 304）不应再去探已被清理的 page=2
+        let count2 = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "gho_test_token",
+            Some(&srv.base),
+        )
+        .await
+        .unwrap();
+        assert_eq!(count2, 1);
+        let counts = srv.request_counts.lock().unwrap();
+        assert_eq!(counts.get("/user/starred?per_page=100&page=1").copied(), Some(2));
+        assert_eq!(counts.get("/user/starred?per_page=100&page=2").copied(), None);
+    }
+
+    #[tokio::test]
+    async fn sync_github_affinity_signals_recovers_when_trailing_page_etag_evicted_and_touches_304_lru() {
+        let starred_p1: Vec<(String, bool, &str)> = (0..100)
+            .map(|i| (format!("org/starred-{i}"), false, "Rust"))
+            .collect();
+        let starred_p2: Vec<(String, bool, &str)> = (100..135)
+            .map(|i| (format!("org/starred-{i}"), false, "TypeScript"))
+            .collect();
+
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/user/starred?per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"s-etag-1\"".to_string()),
+                    body: mk_repo_json(starred_p1),
+                    honor_inm: Some("\"s-etag-1\"".to_string()),
+                },
+                link: Some(
+                    "<https://api.github.com/user/starred?per_page=100&page=2>; rel=\"next\""
+                        .to_string(),
+                ),
+            },
+        );
+        routes.insert(
+            "/user/starred?per_page=100&page=2".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"s-etag-2\"".to_string()),
+                    body: mk_repo_json(starred_p2),
+                    honor_inm: Some("\"s-etag-2\"".to_string()),
+                },
+                link: None,
+            },
+        );
+        routes.insert(
+            "/user/repos?type=owner&sort=updated&per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"r-etag-1\"".to_string()),
+                    body: mk_repo_json(vec![]),
+                    honor_inm: Some("\"r-etag-1\"".to_string()),
+                },
+                link: None,
+            },
+        );
+
+        let srv = spawn_mock_routes(routes).await;
+        let db_mutex = Mutex::new(Database::open_in_memory().unwrap());
+
+        let count1 = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "gho_test_token",
+            Some(&srv.base),
+        )
+        .await
+        .unwrap();
+        assert_eq!(count1, 135);
+
+        // 模拟 page=2 缓存被 LRU 淘汰且 page=1 时间戳老化；304 响应不带 Link 头时仍必须续拉 page=2 恢复全量 135 条
+        {
+            let db = db_mutex.lock().unwrap();
+            db.touch_etag(&CatalogService::affinity_starred_page_endpoint(1), 100)
+                .unwrap();
+            db.delete_etag(&CatalogService::affinity_starred_page_endpoint(2))
+                .unwrap();
+            db.save_etag("https://api.github.com/repos/other/older", "\"old\"", "{}", 500)
+                .unwrap();
+        }
+
+        let count2 = CatalogService::sync_github_affinity_signals_bg(
+            &db_mutex,
+            "gho_test_token",
+            Some(&srv.base),
+        )
+        .await
+        .unwrap();
+        assert_eq!(count2, 135);
+
+        {
+            let db = db_mutex.lock().unwrap();
+            let signals = db.get_user_repo_signals().unwrap();
+            assert_eq!(signals.len(), 135, "尾页缓存缺失时不得在 page=1 (304) 处截断");
+            // page=1 与 repos?page=1 命中 304 后均刷新了 last_checked_at，保留最近 3 条时只淘汰 older 行
+            db.prune_api_etag_cache(3).unwrap();
+            assert!(db
+                .get_etag(&CatalogService::affinity_starred_page_endpoint(1))
+                .unwrap()
+                .is_some());
+            assert!(db
+                .get_etag(&CatalogService::affinity_starred_page_endpoint(2))
+                .unwrap()
+                .is_some());
+            assert!(db
+                .get_etag("https://api.github.com/repos/other/older")
+                .unwrap()
+                .is_none());
+        }
     }
 
     #[test]

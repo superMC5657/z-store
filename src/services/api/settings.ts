@@ -54,12 +54,16 @@ export async function importUserData(json: string): Promise<ImportUserDataCounts
   return tauriInvoke<ImportUserDataCounts>(CMD.importUserData, { json });
 }
 
+export async function exportBackupFile(fileName: string, content: string): Promise<string | null> {
+  return tauriInvoke<string | null>(CMD.exportBackupFile, { fileName, content });
+}
+
 export async function getLogDir(): Promise<string> {
   return tauriInvoke<string>(CMD.zlogGetDir);
 }
 
-export async function exportLogBundle(): Promise<string> {
-  return tauriInvoke<string>(CMD.zlogExportBundle);
+export async function exportLogBundle(): Promise<string | null> {
+  return tauriInvoke<string | null>(CMD.zlogExportBundle);
 }
 
 export async function openUrl(url: string): Promise<void> {
