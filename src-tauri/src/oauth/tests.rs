@@ -134,3 +134,26 @@ fn test_split_github_repo_id_and_session_roundtrip() {
     assert!(loaded_after.is_none());
     assert!(!has_token_after);
 }
+
+#[test]
+fn clear_oauth_session_purges_private_starred_snapshots_only() {
+    let db = crate::db::Database::open_in_memory().expect("in-memory db");
+    db.save_starred_feed_cache("@me:alice", "@me:alice", "{\"v\":1}")
+        .unwrap();
+    db.save_starred_feed_cache("torvalds", "torvalds", "{\"v\":1}")
+        .unwrap();
+    db.save_etag(
+        "https://api.github.com/user/starred?per_page=20&page=1",
+        "\"e\"",
+        "[]",
+        crate::now_secs(),
+    )
+    .unwrap();
+    clear_oauth_session(&db).expect("clear session");
+    assert!(db.get_starred_feed_cache("@me:alice").unwrap().is_none());
+    assert!(db.get_starred_feed_cache("torvalds").unwrap().is_some());
+    assert!(db
+        .get_etag("https://api.github.com/user/starred?per_page=20&page=1")
+        .unwrap()
+        .is_none());
+}

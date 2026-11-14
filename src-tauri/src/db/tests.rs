@@ -1069,6 +1069,83 @@ fn test_trend_board_cache_prune_two_tiers_and_idempotent_schema() {
 }
 
 #[test]
+fn test_starred_feed_cache_roundtrip_and_size_cap() {
+    let db = fixtures::test_db();
+    assert!(db.get_starred_feed_cache("  ").unwrap().is_none());
+    db.save_starred_feed_cache("  torvalds ", "torvalds", " {\"v\":1} ")
+        .unwrap();
+    let (payload, cached_at) = db.get_starred_feed_cache("torvalds").unwrap().unwrap();
+    assert_eq!(payload, "{\"v\":1}");
+    assert!(cached_at > 0);
+    // 空键/空范围/空载荷跳过。
+    db.save_starred_feed_cache("x", "  ", "{}").unwrap();
+    db.save_starred_feed_cache("y", "y", "   ").unwrap();
+    assert!(db.get_starred_feed_cache("x").unwrap().is_none());
+    assert!(db.get_starred_feed_cache("y").unwrap().is_none());
+    // 512 KiB 上限：恰好上限可写，超出拒绝且不覆盖旧值。
+    let edge = "a".repeat(cache::STARRED_FEED_CACHE_MAX_BYTES);
+    db.save_starred_feed_cache("edge", "edge", &edge).unwrap();
+    let big = "a".repeat(cache::STARRED_FEED_CACHE_MAX_BYTES + 1);
+    let err = db
+        .save_starred_feed_cache("torvalds", "torvalds", &big)
+        .unwrap_err();
+    assert!(err.to_string().contains("starred_feed_payload_too_large"));
+    assert_eq!(
+        db.get_starred_feed_cache("torvalds").unwrap().unwrap().0,
+        "{\"v\":1}"
+    );
+}
+
+#[test]
+fn test_starred_feed_cache_prune_retention_and_row_cap() {
+    let db = fixtures::test_db();
+    let now = now_secs();
+    let seed = |key: &str, cached_at: i64| {
+        db.conn
+            .execute(
+                "INSERT INTO starred_feed_cache (cache_key, owner_scope, payload_json, payload_bytes, cached_at) VALUES (?1, ?1, '{}', 2, ?2)",
+                rusqlite::params![key, cached_at],
+            )
+            .unwrap();
+    };
+    seed("expired", now - 7 * 86400 - 1);
+    for i in 0..20 {
+        seed(&format!("u{:02}", i), now - i as i64 * 60);
+    }
+    let deleted = db.prune_starred_feed_cache(now).unwrap();
+    assert_eq!(deleted, 1 + 5);
+    assert!(db.get_starred_feed_cache("expired").unwrap().is_none());
+    for i in 0..cache::STARRED_FEED_CACHE_MAX_ROWS {
+        assert!(db
+            .get_starred_feed_cache(&format!("u{:02}", i))
+            .unwrap()
+            .is_some());
+    }
+    for i in cache::STARRED_FEED_CACHE_MAX_ROWS..20 {
+        assert!(db
+            .get_starred_feed_cache(&format!("u{:02}", i))
+            .unwrap()
+            .is_none());
+    }
+    db.init_schema().unwrap();
+    assert!(db.get_starred_feed_cache("u00").unwrap().is_some());
+}
+
+#[test]
+fn test_starred_feed_cache_scope_prefix_delete() {
+    let db = fixtures::test_db();
+    db.save_starred_feed_cache("@me:alice", "@me:alice", "{}").unwrap();
+    db.save_starred_feed_cache("@me:bob", "@me:bob", "{}").unwrap();
+    db.save_starred_feed_cache("torvalds", "torvalds", "{}").unwrap();
+    assert_eq!(db.delete_starred_feed_cache_by_scope_prefix("").unwrap(), 0);
+    assert_eq!(
+        db.delete_starred_feed_cache_by_scope_prefix("@me:").unwrap(),
+        2
+    );
+    assert!(db.get_starred_feed_cache("torvalds").unwrap().is_some());
+}
+
+#[test]
 fn test_icon_cycle_pinned_roundtrip() {
     // pinned 标记落库往返：手动选择后置 true，读回保持。
     let db = fixtures::test_db();

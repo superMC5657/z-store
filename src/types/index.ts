@@ -382,6 +382,14 @@ interface DeveloperRepoItem {
 export interface StarredPageResult {
   rows: AppSummary[];
   has_more: boolean;
+  /** 网络或限流失败时后端回退了本地旧载荷。 */
+  is_stale?: boolean;
+}
+
+/** Star 同步快照条目（`starred_feed_cache` 纯透存，`cached_at` 为秒级时间戳）。 */
+export interface StarredFeedCacheEntry {
+  payload_json: string;
+  cached_at: number;
 }
 
 export type DeepLinkAction =

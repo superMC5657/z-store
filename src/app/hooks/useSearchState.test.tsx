@@ -36,7 +36,9 @@ vi.mock('../../services/api', async () => {
 import {
   ONLINE_SEARCH_PER_PAGE,
 } from '../../services/api';
-import { readSearchListCache } from '../../services/search/searchListCache';
+import { clearSearchListCache, readSearchListCache } from '../../services/search/searchListCache';
+import { clearTrendEnrichCache } from '../../services/trends/enrich';
+import { recordSharedRepoPlatforms } from '../../services/repoEnrichCache';
 import { adoptEchoInWindow, settleMoreEcho, settlePageEcho, useSearchState } from './useSearchState';
 
 function makeApp(id: string, over: Partial<AppSummary> = {}): AppSummary {
@@ -79,6 +81,8 @@ function renderSearch(currentView: 'home' | 'installed' | 'trends' | 'categories
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearSearchListCache();
+  clearTrendEnrichCache();
 });
 
 describe('useSearchState：本地搜索路由', () => {
@@ -294,11 +298,12 @@ describe('useSearchState：用户选择在线搜索', () => {
     });
     expect(rendered.result.current.isOnlineResultSet).toBe(true);
 
-    // 若结果被平台过滤隐藏，用户显式点击“重新在线搜索”必须重新发包而非 no-op
+    // 若结果被平台过滤隐藏，用户显式点击“重新在线搜索”（forceRefresh）必须重新发包而非 no-op
     await act(async () => {
-      await rendered.result.current.handleSearchSubmit('coldword');
+      await rendered.result.current.handleSearchSubmit('coldword', { forceRefresh: true });
     });
     expect(mocks.searchAppsOnline).toHaveBeenCalledTimes(2);
+    expect(mocks.searchAppsOnline.mock.calls[1][4]).toBe(true);
     expect(rendered.result.current.onlineApps).toEqual([expect.objectContaining({ id: 'online/retry-hit' })]);
   });
 
@@ -320,7 +325,7 @@ describe('useSearchState：用户选择在线搜索', () => {
       expect.stringContaining('search-'),
       1,
       ONLINE_SEARCH_PER_PAGE,
-      true,
+      false,
     );
     expect(rendered.result.current.onlineApps).toHaveLength(ONLINE_SEARCH_PER_PAGE);
     expect(rendered.result.current.onlineHasMore).toBe(true);
@@ -332,6 +337,23 @@ describe('useSearchState：用户选择在线搜索', () => {
     expect(readSearchListCache({ query: 'netword', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })?.length).toBe(
       ONLINE_SEARCH_PER_PAGE,
     );
+  });
+
+  it('联网失败回退的旧载荷（is_stale）照常展示但不写入列表缓存', async () => {
+    const { rendered } = renderSearch('home');
+    mocks.searchApps.mockResolvedValue([makeApp('local/a')]);
+    mocks.searchAppsOnline.mockResolvedValue({
+      rows: [makeApp('online/stale-app')],
+      sid: 'sid-stale',
+      is_stale: true,
+    });
+
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('staleword');
+    });
+
+    expect(rendered.result.current.onlineApps?.map((a) => a.id)).toEqual(['online/stale-app']);
+    expect(readSearchListCache({ query: 'staleword', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })).toBeUndefined();
   });
 
   it('在线空结果：保持本地列表 + info 提示', async () => {
@@ -359,6 +381,113 @@ describe('useSearchState：用户选择在线搜索', () => {
 
     expect(deps.showToast).toHaveBeenCalledWith(expect.any(String), 'info');
     expect(deps.setApps).toHaveBeenCalledWith([expect.objectContaining({ id: 'local/a' })]);
+  });
+});
+
+describe('useSearchState：列表缓存新鲜度与强刷', () => {
+  it('首搜 forceRefresh=false；5min 内重搜零网络；6min 后先展示再后台重验', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-14T10:00:00Z'));
+      const { rendered, deps } = renderSearch('home');
+      mocks.searchApps.mockResolvedValue([]);
+      mocks.searchAppsOnline.mockResolvedValue({ rows: [makeApp('rustdesk/rustdesk')], sid: 's1' });
+
+      await act(async () => {
+        await rendered.result.current.handleSearchSubmit('rustdesk');
+      });
+      expect(mocks.searchAppsOnline).toHaveBeenCalledTimes(1);
+      expect(mocks.searchAppsOnline.mock.calls[0][4]).toBe(false);
+      expect(deps.lazyBackfillPlatforms.mock.calls.every((c) => c[2] === false)).toBe(true);
+
+      // 换词再换回（5min 内）：缓存直出，不发在线请求，不重复提示成功。
+      await act(async () => {
+        await rendered.result.current.handleSearchChange('other');
+      });
+      deps.showToast.mockClear();
+      await act(async () => {
+        await rendered.result.current.handleSearchSubmit('rustdesk');
+      });
+      expect(mocks.searchAppsOnline).toHaveBeenCalledTimes(1);
+      expect(rendered.result.current.onlineApps.map((a) => a.id)).toEqual(['rustdesk/rustdesk']);
+      expect(rendered.result.current.isSearchingOnline).toBe(false);
+      expect(deps.showToast).not.toHaveBeenCalled();
+
+      // 6min 后：先用缓存行首绘，再后台 force=false 重验，不弹成功提示。
+      vi.setSystemTime(Date.now() + 6 * 60 * 1000);
+      await act(async () => {
+        await rendered.result.current.handleSearchChange('other');
+      });
+      let resolveSwr: ((res: { rows: AppSummary[]; sid: string }) => void) | undefined;
+      mocks.searchAppsOnline.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveSwr = resolve; }),
+      );
+      let pending: Promise<void> | undefined;
+      await act(async () => {
+        pending = rendered.result.current.handleSearchSubmit('rustdesk');
+      });
+      expect(rendered.result.current.onlineApps.map((a) => a.id)).toEqual(['rustdesk/rustdesk']);
+      expect(mocks.searchAppsOnline).toHaveBeenCalledTimes(2);
+      expect(mocks.searchAppsOnline.mock.calls[1][4]).toBe(false);
+      await act(async () => {
+        resolveSwr?.({ rows: [makeApp('rustdesk/rustdesk', { stars: 99 })], sid: 's2' });
+        await pending;
+      });
+      expect(rendered.result.current.onlineApps[0].stars).toBe(99);
+      expect(deps.showToast).not.toHaveBeenCalledWith(expect.any(String), 'success');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('forceRefresh=true 穿透 5min 新鲜缓存并透传后端与平台回填', async () => {
+    const { rendered, deps } = renderSearch('home');
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.searchAppsOnline.mockResolvedValue({ rows: [makeApp('rustdesk/rustdesk')], sid: 's1' });
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('rustdesk');
+    });
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('rustdesk', { forceRefresh: true });
+    });
+    expect(mocks.searchAppsOnline).toHaveBeenCalledTimes(2);
+    expect(mocks.searchAppsOnline.mock.calls[1][4]).toBe(true);
+    expect(deps.lazyBackfillPlatforms.mock.calls.at(-1)?.[2]).toBe(true);
+  });
+
+  it('共享富卡池已具平台的未收录行首绘即带平台', async () => {
+    recordSharedRepoPlatforms([makeApp('ext/tool', { platforms: ['linux'] })]);
+    const { rendered, deps } = renderSearch('home');
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.searchAppsOnline.mockResolvedValue({
+      rows: [makeApp('ext/tool', { platforms: [], is_cataloged: false })],
+      sid: 's1',
+    });
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('tool');
+    });
+    expect(rendered.result.current.onlineApps[0].platforms).toEqual(['linux']);
+    const passed = deps.lazyBackfillPlatforms.mock.calls.at(-1)?.[0] as AppSummary[];
+    expect(passed[0].platforms).toEqual(['linux']);
+  });
+
+  it('翻页统一 forceRefresh=false', async () => {
+    const { rendered, deps } = renderSearch('home');
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.searchAppsOnline
+      .mockResolvedValueOnce({
+        rows: Array.from({ length: ONLINE_SEARCH_PER_PAGE }, (_, i) => makeApp(`online/p-${i}`)),
+        sid: 's1',
+      })
+      .mockResolvedValueOnce({ rows: [makeApp('online/p2')], sid: 's1' });
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('pages');
+    });
+    await act(async () => {
+      await rendered.result.current.handleOnlineLoadMore();
+    });
+    expect(mocks.searchAppsOnline.mock.calls[1][4]).toBe(false);
+    expect(deps.lazyBackfillPlatforms.mock.calls.every((c) => c[2] === false)).toBe(true);
   });
 });
 

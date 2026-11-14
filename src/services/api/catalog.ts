@@ -118,6 +118,13 @@ export async function syncAffinitySignals(): Promise<number> {
   return tauriInvoke<number>(CMD.syncAffinitySignals);
 }
 
+/** 在线搜索一页：`sid` 为后端回声；`is_stale` 为联网失败回退的旧载荷，不应作为新鲜结果缓存。 */
+export interface OnlineSearchPage {
+  rows: AppSummary[];
+  sid: string;
+  is_stale?: boolean;
+}
+
 export async function searchAppsOnline(
   query: string,
   searchId?: string,
@@ -125,19 +132,17 @@ export async function searchAppsOnline(
   perPage?: number,
   // 显式手动提交（搜索提交/加载更多）传 true 走网络；缺席即后端 DB-only 回退。
   forceRefresh = false,
-): Promise<{ rows: AppSummary[]; sid: string }> {
+): Promise<OnlineSearchPage> {
   try {
     const args: Record<string, unknown> = { query, searchId, forceRefresh };
     if (page !== undefined && page !== null) args.page = page;
     if (perPage !== undefined && perPage !== null) args.perPage = perPage;
-    const res = await tauriInvoke<AppSummary[] | { rows: AppSummary[]; sid: string }>(
-      CMD.searchOnline,
-      args,
-    );
+    const res = await tauriInvoke<AppSummary[] | OnlineSearchPage>(CMD.searchOnline, args);
     if (Array.isArray(res)) return { rows: res, sid: '' };
     return {
       rows: Array.isArray(res.rows) ? res.rows : [],
       sid: typeof res.sid === 'string' ? res.sid : '',
+      ...(res.is_stale === true ? { is_stale: true } : {}),
     };
   } catch (err) {
     zlogWarn(

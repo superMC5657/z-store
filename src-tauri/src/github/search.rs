@@ -71,123 +71,165 @@ fn resolve_online_license(lic: Option<&OnlineRepoLicense>) -> Option<String> {
     None
 }
 
+/// Search API 载荷 → 卡片（`probe=false` 置空图标，零 DB）。
+async fn summaries_from_search(
+    client: &reqwest::Client,
+    data: OnlineSearchResponse,
+    token: Option<&str>,
+) -> Vec<AppSummary> {
+    futures_util::future::join_all(data.items.into_iter().map(|it| async move {
+        let owner = it.owner.login;
+        let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
+        if let Some(ref b) = it.default_branch {
+            crate::icons::remember_repo_default_branch(&owner, &repo, b);
+        }
+        let description_en = it.description.clone();
+        let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
+        let topics = it.topics.unwrap_or_default();
+        let license = resolve_online_license(it.license.as_ref())
+            .unwrap_or_else(|| "OpenSource".to_string());
+        let homepage = it.homepage.filter(|h| !h.trim().is_empty());
+        super::http::fallback_summary(
+            client,
+            it.full_name.to_lowercase(),
+            it.name,
+            owner,
+            repo,
+            description,
+            description_en,
+            it.stargazers_count,
+            it.forks_count,
+            license,
+            &topics,
+            homepage,
+            false,
+            None,
+            token,
+        )
+        .await
+    }))
+    .await
+}
+
+/// 关键词在线搜索的 GitHub Search API 端点（纯函数，亦作 `api_etag_cache` 键）。
+/// 空查询，或 `owner/repo` 形态翻到第 2 页以后（直查只占第 1 页），返回 `None`。
+pub(crate) fn online_search_endpoint(
+    query: &str,
+    page: Option<u32>,
+    per_page: Option<u32>,
+) -> Option<String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return None;
+    }
+    let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
+    if q.contains('/') && !q.contains(' ') && eff_page > 1 {
+        return None;
+    }
+    let per_page = crate::config::get_project_config()
+        .limits
+        .clamp_online_search_per_page(per_page);
+    Some(format!(
+        "https://api.github.com/search/repositories?q={}+in:name,description&sort=stars&order=desc&per_page={}&page={}",
+        urlencoding::encode(q),
+        per_page,
+        eff_page
+    ))
+}
+
+/// 关键词在线搜索结果：卡片 + 需落库的新 ETag `(url, etag, payload)` + 是否 304 命中（需 touch）+ 是否回退旧载荷。
+#[derive(Debug)]
+pub struct OnlineSearchFetch {
+    pub summaries: Vec<AppSummary>,
+    pub etag_write: Option<(String, String, String)>,
+    pub touched_url: Option<String>,
+    pub is_stale: bool,
+}
+
 impl CatalogService {
-    /// Top1 灭 N+1（`Send` 安全）：本函数零 DB（零直连零查询，`Send` 无借用），首屏 `probe=false` 置空图标；
-    /// 确认图标由调用方 `commands::catalog_search` 经 `state.db()` 单锁批量 enrich 统一回填（`ok()` 吞错不 panic）。
-    /// 单仓直查透传调用方预解析的 owned 确认图标（`Send`），免二次查询/直连。
+    /// 关键词在线搜索（GitHub Search API，走 `api_etag_cache` 条件请求）。
+    /// 本函数零 DB：调用方短锁预读 `cached_etag` / `cached_payload` 传入，返回后再统一落库或 touch。
+    /// - `200`：解析新载荷，返回待落库 ETag；
+    /// - `304`：解析缓存载荷，零配额；
+    /// - 网络/限流失败：有可解析旧载荷则回退（`is_stale=true`），否则上浮错误（区分「空结果」与「失败」）。
+    ///
+    /// 卡片 `probe=false` 置空图标，确认图标与后台补探由调用方处理。
+    #[allow(clippy::too_many_arguments)]
     pub async fn search_github_online(
         &self,
         query: &str,
         token: Option<&str>,
-        pre_confirmed_for_direct: Option<String>,
         page: Option<u32>,
         per_page: Option<u32>,
-    ) -> Result<Vec<AppSummary>, String> {
-        let q = query.trim();
-        if q.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // 检查是否直接输入了 owner/repo 格式（直查单条只回第 1 页，page>1 回空，与 mock 同语义）
-        if q.contains('/') && !q.contains(' ') {
-            if crate::config::LimitsConfig::normalize_online_search_page(page) > 1 {
-                return Ok(Vec::new());
-            }
-            let parts: Vec<&str> = q.split('/').collect();
-            if parts.len() == 2 {
-                let owner = parts[0];
-                let repo = parts[1];
-                if let Ok(item) = self
-                    .fetch_online_repo(owner, repo, token, pre_confirmed_for_direct)
-                    .await
-                {
-                    return Ok(vec![item]);
-                }
-            }
-        }
-
-        // 在线 GitHub Search API 回退
-        let client = super::http::build_api_client()?;
-
-        let headers = super::http::token_headers(token);
-
-        let per_page = crate::config::get_project_config()
-            .limits
-            .clamp_online_search_per_page(per_page);
-        let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
-        let url = format!(
-            "https://api.github.com/search/repositories?q={}+in:name,description&sort=stars&order=desc&per_page={}&page={}",
-            urlencoding::encode(q),
-            per_page,
-            eff_page
-        );
-
-        let resp = client.get(&url).headers(headers).send().await;
-
-        // 失败上浮错误态（区分 空结果 / 网络失败）：网络错误、非 2xx、
-        // JSON 解析失败一律返回 Err，不返回空结果冒充"无命中"；前端 `useSearchState`
-        // 已有 error 车道（`search.online_failed`），直查回退搜索的既有分流不变。
-        let res = match resp {
-            Ok(res) => res,
-            Err(e) => {
-                return Err(format!(
-                    "GitHub 搜索网络失败: {}",
-                    crate::log_support::short_reason(&e.to_string())
-                ));
-            }
+        cached_etag: Option<&str>,
+        cached_payload: Option<&str>,
+        api_base: Option<&str>,
+    ) -> Result<OnlineSearchFetch, String> {
+        let Some(url) = online_search_endpoint(query, page, per_page) else {
+            return Ok(OnlineSearchFetch {
+                summaries: Vec::new(),
+                etag_write: None,
+                touched_url: None,
+                is_stale: false,
+            });
         };
-
-        crate::notify_rate_limit("github.com", res.headers());
-        if !res.status().is_success() {
-            return Err(format!(
-                "GitHub 搜索请求失败（HTTP {}）",
-                res.status().as_u16()
-            ));
-        }
-        let data: OnlineSearchResponse = res
-            .json()
-            .await
-            .map_err(|e| format!("解析 GitHub 搜索结果失败: {}", e))?;
-        // Top1：零 DB（零直连零查询，`Send` 安全），每条直接 `None`；
-        // `fallback_summary`（`probe=false` + `None`）直接置空零直连，确认图标由调用方单锁批量回填。
-        let summaries: Vec<AppSummary> =
-            futures_util::future::join_all(data.items.into_iter().map(|it| {
-                let client = &client;
-                async move {
-                    let owner = it.owner.login;
-                    let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
-                    if let Some(ref b) = it.default_branch {
-                        crate::icons::remember_repo_default_branch(&owner, &repo, b);
-                    }
-                    let description_en = it.description.clone();
-                    let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
-                    let topics = it.topics.unwrap_or_default();
-                    let license = resolve_online_license(it.license.as_ref())
-                        .unwrap_or_else(|| "OpenSource".to_string());
-                    let homepage = it.homepage.filter(|h| !h.trim().is_empty());
-                    // 首屏快返：probe=false 置空图标，等后台快慢分离补探 emit。
-                    super::http::fallback_summary(
-                        client,
-                        it.full_name.to_lowercase(),
-                        it.name,
-                        owner,
-                        repo,
-                        description,
-                        description_en,
-                        it.stargazers_count,
-                        it.forks_count,
-                        license,
-                        &topics,
-                        homepage,
-                        false,
-                        None,
-                        token,
-                    )
-                    .await
+        let client = super::http::build_api_client()?;
+        let headers = super::http::token_headers(token);
+        let cached_ok = cached_payload
+            .filter(|p| serde_json::from_str::<OnlineSearchResponse>(p).is_ok());
+        // 没有可用旧载荷时不发 `If-None-Match`，避免 304 后无物可回。
+        let send_etag = cached_ok.and(cached_etag);
+        let (outcome, diag) =
+            super::http::get_with_etag_diag(&client, &url, api_base, &headers, send_etag).await;
+        use super::http::EtagGetOutcome;
+        match outcome {
+            EtagGetOutcome::Fresh { text, etag } => {
+                let data: OnlineSearchResponse = serde_json::from_str(&text)
+                    .map_err(|e| format!("解析 GitHub 搜索结果失败: {}", e))?;
+                let summaries = summaries_from_search(&client, data, token).await;
+                Ok(OnlineSearchFetch {
+                    summaries,
+                    etag_write: etag.map(|e| (url, e, text)),
+                    touched_url: None,
+                    is_stale: false,
+                })
+            }
+            EtagGetOutcome::NotModified => {
+                let data: OnlineSearchResponse = cached_ok
+                    .and_then(|p| serde_json::from_str(p).ok())
+                    .ok_or_else(|| "GitHub 搜索缓存缺失".to_string())?;
+                let summaries = summaries_from_search(&client, data, token).await;
+                Ok(OnlineSearchFetch {
+                    summaries,
+                    etag_write: None,
+                    touched_url: Some(url),
+                    is_stale: false,
+                })
+            }
+            EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed => {
+                if matches!(outcome, EtagGetOutcome::Unauthorized) {
+                    crate::check_auth_expired(401, "op=search_online");
                 }
-            }))
-            .await;
-        Ok(summaries)
+                if let Some(data) =
+                    cached_ok.and_then(|p| serde_json::from_str::<OnlineSearchResponse>(p).ok())
+                {
+                    let summaries = summaries_from_search(&client, data, token).await;
+                    return Ok(OnlineSearchFetch {
+                        summaries,
+                        etag_write: None,
+                        touched_url: None,
+                        is_stale: true,
+                    });
+                }
+                Err(match diag.status {
+                    Some(code) => format!("GitHub 搜索请求失败（HTTP {}）", code),
+                    None => format!(
+                        "GitHub 搜索网络失败: {}",
+                        diag.err_reason.as_deref().unwrap_or("network")
+                    ),
+                })
+            }
+        }
     }
 
     /// 纯同步从 GitHub `/repos/{owner}/{repo}` JSON 文本构建 `AppSummary`（零网络、零 DB 直连）。
@@ -279,6 +321,8 @@ impl CatalogService {
 
     /// 带预读 ETag 与缓存载荷的单仓拉取（fetch 内零 DB 查询、零 DB 直连，遵 ADR-0015）：
     /// 调用方在单次短锁内预读 `cached_etag` / `cached_payload` 传入，并在批量完成后统一落库返回的 `(endpoint_url, etag, payload_json)`。
+    /// `probe_icons=false` 时不内联探图（图标置空或沿用 `pre_confirmed`），供批量快返后交给后台流式补图。
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_online_repo_with_etag(
         &self,
         owner: &str,
@@ -287,6 +331,33 @@ impl CatalogService {
         pre_confirmed: Option<String>,
         cached_etag: Option<String>,
         cached_payload: Option<String>,
+        probe_icons: bool,
+    ) -> Result<(AppSummary, Option<(String, String, String)>), String> {
+        self.fetch_online_repo_with_etag_at(
+            owner,
+            repo,
+            token,
+            pre_confirmed,
+            cached_etag,
+            cached_payload,
+            probe_icons,
+            None,
+        )
+        .await
+    }
+
+    /// `fetch_online_repo_with_etag` 的可换 API 基址实现（`api_base` 仅测试指向本地 mock）。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn fetch_online_repo_with_etag_at(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+        pre_confirmed: Option<String>,
+        cached_etag: Option<String>,
+        cached_payload: Option<String>,
+        probe_icons: bool,
+        api_base: Option<&str>,
     ) -> Result<(AppSummary, Option<(String, String, String)>), String> {
         let client = crate::shared_http_client();
         let headers = super::http::token_headers(token);
@@ -297,7 +368,7 @@ impl CatalogService {
             urlencoding::encode(repo)
         );
 
-        match super::http::get_with_etag(&client, &url, None, &headers, cached_etag.as_deref())
+        match super::http::get_with_etag(&client, &url, api_base, &headers, cached_etag.as_deref())
             .await
         {
             super::http::EtagGetOutcome::Fresh { text, etag } => {
@@ -307,7 +378,7 @@ impl CatalogService {
                     repo,
                     &text,
                     pre_confirmed,
-                    true,
+                    probe_icons,
                     token,
                 )
                 .await?;
@@ -322,7 +393,7 @@ impl CatalogService {
                         repo,
                         cached_text,
                         pre_confirmed,
-                        true,
+                        probe_icons,
                         token,
                     )
                     .await?;
@@ -338,7 +409,7 @@ impl CatalogService {
                         repo,
                         cached_text,
                         pre_confirmed,
-                        true,
+                        probe_icons,
                         token,
                     )
                     .await
@@ -360,8 +431,211 @@ impl CatalogService {
         token: Option<&str>,
         pre_confirmed: Option<String>,
     ) -> Result<AppSummary, String> {
-        self.fetch_online_repo_with_etag(owner, repo, token, pre_confirmed, None, None)
+        self.fetch_online_repo_with_etag(owner, repo, token, pre_confirmed, None, None, true)
             .await
             .map(|(item, _)| item)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::github::developer_starred::test_support::*;
+    use std::collections::HashMap;
+
+    fn repo_body() -> String {
+        serde_json::json!({
+            "name": "tool",
+            "description": "A tool",
+            "stargazers_count": 12u64,
+            "forks_count": 3u64,
+            "default_branch": "main",
+            "topics": []
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn repo_fetch_without_probe_returns_blank_icon_and_single_request() {
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/repos/acme/tool".to_string(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: Some("\"r1\"".to_string()),
+                body: repo_body(),
+                honor_inm: Some("\"r1\"".to_string()),
+            },
+        );
+        let srv = spawn_mock(routes).await;
+        let svc = test_service();
+        let started = std::time::Instant::now();
+        let (item, etag) = svc
+            .fetch_online_repo_with_etag_at(
+                "acme",
+                "tool",
+                None,
+                None,
+                None,
+                None,
+                false,
+                Some(&srv.base),
+            )
+            .await
+            .unwrap();
+        assert_eq!(item.core.id, "acme/tool");
+        assert_eq!(item.core.stars, 12);
+        assert!(item.core.icon.is_empty(), "no inline probe: {}", item.core.icon);
+        let (url, tag, text) = etag.expect("fresh etag to persist");
+        assert_eq!(url, "https://api.github.com/repos/acme/tool");
+        assert_eq!(tag, "\"r1\"");
+
+        // 304 复用缓存载荷，同样不探图。
+        let (again, none) = svc
+            .fetch_online_repo_with_etag_at(
+                "acme",
+                "tool",
+                None,
+                None,
+                Some(tag),
+                Some(text),
+                false,
+                Some(&srv.base),
+            )
+            .await
+            .unwrap();
+        assert!(none.is_none());
+        assert!(again.core.icon.is_empty());
+        assert_eq!(
+            srv.seen_inm.lock().unwrap().get("/repos/acme/tool").cloned().flatten(),
+            Some("\"r1\"".to_string())
+        );
+        assert_eq!(srv.request_counts.lock().unwrap().len(), 1);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn repo_fetch_keeps_pre_confirmed_icon_without_probe() {
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/repos/acme/tool".to_string(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: repo_body(),
+                honor_inm: None,
+            },
+        );
+        let srv = spawn_mock(routes).await;
+        let (item, _) = test_service()
+            .fetch_online_repo_with_etag_at(
+                "acme",
+                "tool",
+                None,
+                Some("https://cdn.simpleicons.org/tool".to_string()),
+                None,
+                None,
+                false,
+                Some(&srv.base),
+            )
+            .await
+            .unwrap();
+        assert_eq!(item.core.icon, "https://cdn.simpleicons.org/tool");
+    }
+
+    #[tokio::test]
+    async fn keyword_search_uses_etag_and_recovers_on_304() {
+        let url = super::online_search_endpoint("tool", Some(1), Some(20)).unwrap();
+        let path = url.strip_prefix("https://api.github.com").unwrap().to_string();
+        let body = serde_json::json!({
+            "items": [{
+                "name": "tool",
+                "full_name": "Acme/tool",
+                "owner": {"login": "Acme"},
+                "description": "A tool",
+                "stargazers_count": 5u64,
+                "forks_count": 1u64
+            }]
+        })
+        .to_string();
+        let mut routes = HashMap::new();
+        routes.insert(
+            path.clone(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: Some("\"q1\"".to_string()),
+                body,
+                honor_inm: Some("\"q1\"".to_string()),
+            },
+        );
+        let srv = spawn_mock(routes).await;
+        let svc = test_service();
+        let first = svc
+            .search_github_online("tool", None, Some(1), Some(20), None, None, Some(&srv.base))
+            .await
+            .unwrap();
+        assert_eq!(first.summaries.len(), 1);
+        assert_eq!(first.summaries[0].core.id, "acme/tool");
+        assert!(first.summaries[0].core.icon.is_empty());
+        let (saved_url, etag, text) = first.etag_write.expect("etag");
+        assert_eq!(saved_url, url);
+
+        let second = svc
+            .search_github_online(
+                "tool",
+                None,
+                Some(1),
+                Some(20),
+                Some(&etag),
+                Some(&text),
+                Some(&srv.base),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            srv.seen_inm.lock().unwrap().get(&path).cloned().flatten(),
+            Some("\"q1\"".to_string())
+        );
+        assert_eq!(second.touched_url.as_deref(), Some(url.as_str()));
+        assert!(second.etag_write.is_none());
+        assert!(!second.is_stale);
+        assert_eq!(second.summaries[0].core.stars, 5);
+    }
+
+    #[tokio::test]
+    async fn keyword_search_falls_back_to_cached_payload_or_errors() {
+        // 无路由：mock 回 404，视为失败。
+        let srv = spawn_mock(HashMap::new()).await;
+        let cached = serde_json::json!({"items": []}).to_string();
+        let out = test_service()
+            .search_github_online(
+                "tool",
+                None,
+                None,
+                None,
+                Some("\"q\""),
+                Some(&cached),
+                Some(&srv.base),
+            )
+            .await
+            .unwrap();
+        assert!(out.is_stale);
+        let err = test_service()
+            .search_github_online("tool", None, None, None, None, None, Some(&srv.base))
+            .await
+            .err()
+            .unwrap();
+        assert!(err.contains("404"), "{}", err);
+    }
+
+    #[test]
+    fn search_endpoint_skips_empty_and_direct_page_two() {
+        assert!(super::online_search_endpoint("  ", None, None).is_none());
+        assert!(super::online_search_endpoint("a/b", Some(2), None).is_none());
+        let ep = super::online_search_endpoint("a/b", Some(1), Some(10)).unwrap();
+        assert!(ep.contains("q=a%2Fb+in:name,description"), "{}", ep);
+        assert!(ep.ends_with("per_page=10&page=1"), "{}", ep);
     }
 }

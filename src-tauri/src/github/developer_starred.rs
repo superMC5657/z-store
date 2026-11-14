@@ -1,5 +1,5 @@
 use super::{CatalogService, GITHUB_API_BASE};
-use reqwest::header::{AUTHORIZATION, LINK};
+use reqwest::header::AUTHORIZATION;
 
 /// Star 列表单页上限（GitHub `per_page` 最大值）。
 pub const STARRED_PAGE_MAX: u32 = 100;
@@ -79,59 +79,152 @@ pub fn parse_starred_payloads(body: &str) -> Result<Vec<StarredRepoPayload>, Str
         .collect())
 }
 
+/// 当前凭据下的 Star 列表地址（与 `fetch_starred_page` 判定「是否已登录」的口径一致）。
+/// 调用方据此预读 `api_etag_cache`。
+pub fn starred_url_for_token(
+    username: Option<&str>,
+    token: Option<&str>,
+    page: u32,
+    per_page: u32,
+) -> Result<String, String> {
+    let has_token = super::http::bearer_headers(token).contains_key(AUTHORIZATION);
+    starred_page_url(username, has_token, page, per_page)
+}
+
+/// 单页 Star 拉取结果：页内容 + 待落库 ETag `(url, etag, payload)` + 304 命中待 touch 的 URL +
+/// 是否回退旧载荷（`Some(true)`）。
+#[derive(Debug)]
+pub struct StarredFetchOutcome {
+    pub page: StarredPage,
+    pub etag_write: Option<(String, String, String)>,
+    pub touched_url: Option<String>,
+    pub is_stale: Option<bool>,
+}
+
+/// 可用的缓存载荷：须能解析为 JSON 数组，否则视同无缓存（不发 `If-None-Match`）。
+fn usable_payload(payload: Option<&str>) -> Option<&str> {
+    payload.filter(|p| serde_json::from_str::<Vec<serde_json::Value>>(p).is_ok())
+}
+
+/// 由缓存载荷恢复一页：`304` 可能省略 `Link`，满页即视为还有下一页。
+fn page_from_cached(body: &str, has_next: bool, per_page: u32) -> Result<StarredPage, String> {
+    let raw_len = serde_json::from_str::<Vec<serde_json::Value>>(body)
+        .map(|v| v.len())
+        .unwrap_or(0);
+    let full_page = raw_len >= per_page.clamp(1, STARRED_PAGE_MAX) as usize;
+    Ok(StarredPage {
+        repos: parse_starred_payloads(body)?,
+        has_more: has_next || full_page,
+    })
+}
+
+fn starred_error_message(status: Option<u16>, username: Option<&str>, reason: Option<&str>) -> String {
+    match status {
+        Some(401) => "GitHub 认证失败 (401)：登录凭据无效或已过期，请在「设置」中重新登录 GitHub 账号。".to_string(),
+        Some(403) | Some(429) => "GitHub API 限额已耗尽 (403): 触发了未登录 API 每小时 60 次的速率限制。请在「设置」中填入个人 GitHub Token (PAT) 即可免费提升至 5000 次/小时配额。".to_string(),
+        Some(404) => format!(
+            "未在 GitHub 上找到用户「{}」，请检查用户名拼写是否正确。",
+            username.map(str::trim).filter(|u| !u.is_empty()).unwrap_or("当前用户")
+        ),
+        Some(code) => format!("GitHub API 响应异常 (HTTP {})", code),
+        None => format!(
+            "连接 GitHub API 失败: {}. 如遇国内网络阻断，请检查网络设置或配置下载加速代理。",
+            reason.unwrap_or("network")
+        ),
+    }
+}
+
 impl CatalogService {
-    /// 拉取一页 Star 列表（一次请求；是否有下一页取自 `Link` 头）。
+    /// 拉取一页 Star 列表（`api_etag_cache` 条件请求；是否有下一页取自 `Link` 头）。
+    /// 本函数零 DB：调用方短锁预读 `cached_etag` / `cached_payload`，返回后统一落库或 touch。
+    /// - 有可用旧载荷即发 `If-None-Match`：GitHub 实时比对，未变 `304` 零配额、有变 `200` 新载荷；
+    ///   手动同步同样走条件请求，`force_refresh` 不跳过 ETag；
+    /// - `304` 但旧载荷不可用时去掉 ETag 重拉一次；
+    /// - 传输错误、限流（403/429）或 5xx 且有旧载荷时回退旧载荷并标 `is_stale`；
+    ///   401 经 `check_auth_expired` 通知并上浮错误，404 永不回退。
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_starred_page(
         &self,
         username: Option<&str>,
         token: Option<&str>,
         page: u32,
         per_page: u32,
+        cached_etag: Option<&str>,
+        cached_payload: Option<&str>,
         api_base: Option<&str>,
-    ) -> Result<StarredPage, String> {
+    ) -> Result<StarredFetchOutcome, String> {
+        use super::http::EtagGetOutcome;
         let client = super::http::build_api_client()?;
         let headers = super::http::bearer_headers(token);
-        let has_token = headers.contains_key(AUTHORIZATION);
-        let target_url = starred_page_url(username, has_token, page, per_page)?;
-        let resp = client
-            .get(Self::request_url(&target_url, api_base))
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| {
-                format!(
-                    "连接 GitHub API 失败: {}. 如遇国内网络阻断，请检查网络设置或配置下载加速代理。",
-                    e
-                )
-            })?;
-
-        crate::notify_rate_limit("github.com", resp.headers());
-        let status = resp.status();
-        if !status.is_success() {
-            let code = status.as_u16();
-            return Err(match code {
-                401 => "GitHub 认证失败 (401)：登录凭据无效或已过期，请在「设置」中重新登录 GitHub 账号。".to_string(),
-                403 => "GitHub API 限额已耗尽 (403): 触发了未登录 API 每小时 60 次的速率限制。请在「设置」中填入个人 GitHub Token (PAT) 即可免费提升至 5000 次/小时配额。".to_string(),
-                404 => format!(
-                    "未在 GitHub 上找到用户「{}」，请检查用户名拼写是否正确。",
-                    username.map(str::trim).filter(|u| !u.is_empty()).unwrap_or("当前用户")
-                ),
-                _ => format!(
-                    "GitHub API 响应异常 (HTTP {}): {}",
-                    code,
-                    status.canonical_reason().unwrap_or("未知错误")
-                ),
-            });
+        let target_url = starred_url_for_token(username, token, page, per_page)?;
+        let cached = usable_payload(cached_payload);
+        let mut send_etag = cached.and(cached_etag);
+        loop {
+            let (outcome, diag, has_next) = super::http::get_with_etag_with_link_diag(
+                &client,
+                &target_url,
+                api_base,
+                &headers,
+                send_etag,
+            )
+            .await;
+            match outcome {
+                EtagGetOutcome::Fresh { text, etag } => {
+                    let page = StarredPage {
+                        repos: parse_starred_payloads(&text)?,
+                        has_more: has_next,
+                    };
+                    return Ok(StarredFetchOutcome {
+                        page,
+                        etag_write: etag.map(|e| (target_url, e, text)),
+                        touched_url: None,
+                        is_stale: None,
+                    });
+                }
+                EtagGetOutcome::NotModified => match cached {
+                    Some(body) => {
+                        return Ok(StarredFetchOutcome {
+                            page: page_from_cached(body, has_next, per_page)?,
+                            etag_write: None,
+                            touched_url: Some(target_url),
+                            is_stale: None,
+                        });
+                    }
+                    None if send_etag.is_some() => {
+                        send_etag = None;
+                        continue;
+                    }
+                    None => {
+                        return Err(starred_error_message(Some(304), username, None));
+                    }
+                },
+                EtagGetOutcome::Unauthorized => {
+                    crate::check_auth_expired(401, "op=list_github_starred");
+                    return Err(starred_error_message(Some(401), username, None));
+                }
+                EtagGetOutcome::Failed => {
+                    let recoverable = match diag.status {
+                        None => true,
+                        Some(code) => code == 403 || code == 429 || code >= 500,
+                    };
+                    if recoverable {
+                        if let Some(body) = cached {
+                            return Ok(StarredFetchOutcome {
+                                page: page_from_cached(body, false, per_page)?,
+                                etag_write: None,
+                                touched_url: None,
+                                is_stale: Some(true),
+                            });
+                        }
+                    }
+                    return Err(starred_error_message(
+                        diag.status,
+                        username,
+                        diag.err_reason.as_deref(),
+                    ));
+                }
+            }
         }
-        let has_more = link_has_next(resp.headers().get(LINK).and_then(|v| v.to_str().ok()));
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| format!("读取 GitHub Starred 列表失败: {}", e))?;
-        Ok(StarredPage {
-            repos: parse_starred_payloads(&body)?,
-            has_more,
-        })
     }
 }
 

@@ -17,6 +17,8 @@ import {
   readSearchListCache,
 } from '../../services/search/searchListCache';
 import { __resetIconStoreForTests, admitIconHit } from '../../services/iconStore';
+import { clearTrendEnrichCache } from '../../services/trends/enrich';
+import { STARRED_OPTS_STORAGE_KEY } from '../../services/starred/starredCache';
 import { LOADING_SETTLE_MS } from '../../lib/platformFilter';
 import { makeApp } from '../test-utils/filterFixture';
 import type { AppSummary } from '../../types';
@@ -29,9 +31,15 @@ const pageOf = (prefix: string, n: number, cataloged = true): AppSummary[] =>
 
 const user = (login: string) => ({ login, avatar_url: '', has_list_scope: true, is_expired: false });
 
+function syncButton(): HTMLButtonElement {
+  const btn = document.querySelector('.starred-banner-actions button');
+  if (!btn) throw new Error('sync button not found');
+  return btn as HTMLButtonElement;
+}
+
 async function queryAs(value: string) {
   fireEvent.change(screen.getByPlaceholderText('GitHub 用户名'), { target: { value } });
-  fireEvent.click(screen.getByRole('button', { name: '查看' }));
+  fireEvent.click(syncButton());
 }
 
 const baseProps = {
@@ -48,7 +56,9 @@ beforeEach(async () => {
   await i18n.changeLanguage('zh-CN');
   resetStarredFeedMemory();
   clearSearchListCache();
+  clearTrendEnrichCache();
   __resetIconStoreForTests();
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -69,12 +79,12 @@ describe('StarredFeed', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看' }));
 
     await screen.findByText('p1-0');
-    expect(spy).toHaveBeenNthCalledWith(1, 'octocat', 1, STARRED_PER_PAGE);
+    expect(spy).toHaveBeenNthCalledWith(1, 'octocat', 1, STARRED_PER_PAGE, false);
     expect(screen.getByTestId('starred-armed-boundary')).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('starred-load-more'));
     await screen.findByText('p2-2');
-    expect(spy).toHaveBeenNthCalledWith(2, 'octocat', 2, STARRED_PER_PAGE);
+    expect(spy).toHaveBeenNthCalledWith(2, 'octocat', 2, STARRED_PER_PAGE, false);
     expect(screen.getByTestId('starred-grid').children).toHaveLength(STARRED_PER_PAGE + 3);
     expect(screen.getByTestId('starred-end').textContent).toContain(`${STARRED_PER_PAGE + 3} 个应用`);
   });
@@ -87,7 +97,7 @@ describe('StarredFeed', () => {
     fireEvent.change(screen.getByPlaceholderText('GitHub 用户名'), { target: { value: 'supermc' } });
     fireEvent.click(screen.getByRole('button', { name: '查看' }));
     await screen.findByText('me-0');
-    expect(spy).toHaveBeenCalledWith(undefined, 1, STARRED_PER_PAGE);
+    expect(spy).toHaveBeenCalledWith(undefined, 1, STARRED_PER_PAGE, false);
   });
 
   it('without login or username it asks for a username instead of calling the backend', () => {
@@ -196,7 +206,7 @@ describe('StarredFeed', () => {
 
     fireEvent.click(screen.getByTestId('starred-load-more'));
     await screen.findByText('p2-0');
-    expect(spy).toHaveBeenLastCalledWith(undefined, 2, STARRED_PER_PAGE);
+    expect(spy).toHaveBeenLastCalledWith(undefined, 2, STARRED_PER_PAGE, false);
   });
 
   it('an empty result is restored as empty instead of the not-queried state', async () => {
@@ -432,5 +442,125 @@ describe('StarredFeed', () => {
     // 卸载清空上报计数（回落收录库口径）。
     unmount();
     expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith(null);
+  });
+
+  describe('L1/L2 cache and SWR sync', () => {
+    const snapshot = (rows: AppSummary[], extra: Record<string, unknown> = {}) => ({
+      payload_json: JSON.stringify({ v: 1, rows, pages: 1, hasMore: false, ...extra }),
+      cached_at: Math.floor(Date.now() / 1000) - 60,
+    });
+
+    it('cold mount renders the SQLite snapshot with DB icons and zero list requests', async () => {
+      window.localStorage.setItem(STARRED_OPTS_STORAGE_KEY, JSON.stringify({ mode: 'user', username: 'Torvalds' }));
+      const listSpy = vi.spyOn(tauriApi, 'listGithubStarred');
+      const getSpy = vi
+        .spyOn(tauriApi, 'getStarredFeedCache')
+        .mockResolvedValue(
+          snapshot(
+            pageOf('snap', 2, false).map((r) => ({ ...r, icon: '' })),
+            { confirmedOther: ['snap/app-1'] },
+          ),
+        );
+      const iconSpy = vi
+        .spyOn(tauriApi, 'getConfirmedIconsBatch')
+        .mockResolvedValue(['https://cdn.example/snap0.png', null]);
+      vi.spyOn(tauriApi, 'getPlatformsLite').mockImplementation(() => new Promise(() => {}));
+
+      const view = render(<StarredFeed {...baseProps} />);
+      await screen.findByText('snap-0');
+      expect(getSpy).toHaveBeenCalledWith('torvalds');
+      expect((screen.getByPlaceholderText('GitHub 用户名') as HTMLInputElement).value).toBe('Torvalds');
+      await waitFor(() => {
+        expect(iconSpy).toHaveBeenCalledWith(['snap/app-0', 'snap/app-1']);
+        expect(view.container.querySelector('img[src="https://cdn.example/snap0.png"]')).toBeTruthy();
+      });
+      expect(listSpy).not.toHaveBeenCalled();
+    });
+
+    it('switching alice → bob → alice within 5 minutes serves alice from the page cache', async () => {
+      vi.spyOn(tauriApi, 'getStarredFeedCache').mockResolvedValue(null);
+      const spy = vi.spyOn(tauriApi, 'listGithubStarred').mockImplementation(async (username) => ({
+        rows: pageOf(String(username), 2),
+        has_more: false,
+      }));
+      render(<StarredFeed {...baseProps} />);
+      await queryAs('alice');
+      await screen.findByText('alice-0');
+      await queryAs('bob');
+      await screen.findByText('bob-0');
+      await queryAs('alice');
+      await screen.findByText('alice-0');
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy.mock.calls.map((c) => c[0])).toEqual(['alice', 'bob']);
+    });
+
+    it('re-sync keeps cards on screen, forces refresh and writes through to L1 + L2', async () => {
+      vi.spyOn(tauriApi, 'getStarredFeedCache').mockResolvedValue(null);
+      const saveSpy = vi.spyOn(tauriApi, 'saveStarredFeedCache').mockResolvedValue();
+      let resolveSecond: ((v: { rows: AppSummary[]; has_more: boolean }) => void) | undefined;
+      const spy = vi
+        .spyOn(tauriApi, 'listGithubStarred')
+        .mockResolvedValueOnce({ rows: pageOf('old', 2), has_more: false })
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+      render(<StarredFeed {...baseProps} />);
+      await queryAs('octocat');
+      await screen.findByText('old-0');
+
+      fireEvent.click(syncButton());
+      // 在途时旧卡片仍在屏。
+      await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+      expect(spy).toHaveBeenLastCalledWith('octocat', 1, STARRED_PER_PAGE, true);
+      expect(screen.getByText('old-0')).toBeTruthy();
+
+      await act(async () => {
+        resolveSecond?.({ rows: pageOf('new', 3), has_more: false });
+      });
+      await screen.findByText('new-2');
+      expect(screen.queryByText('old-0')).toBeNull();
+      expect(
+        readSearchListCache({ namespace: 'starred', query: 'octocat', page: 1, perPage: STARRED_PER_PAGE })?.map(
+          (r) => r.id,
+        ),
+      ).toEqual(['new/app-0', 'new/app-1', 'new/app-2']);
+      await waitFor(() => expect(saveSpy).toHaveBeenCalled(), { timeout: 3000 });
+      const [key, scope, payload] = saveSpy.mock.calls.at(-1)!;
+      expect(key).toBe('octocat');
+      expect(scope).toBe('octocat');
+      const env = JSON.parse(payload);
+      expect(env.v).toBe(1);
+      expect(env.rows.map((r: AppSummary) => r.id)).toEqual(['new/app-0', 'new/app-1', 'new/app-2']);
+      expect(env.rows[0].is_cataloged).toBeUndefined();
+    });
+
+    it('logging out clears the @me state and its memory cache', async () => {
+      vi.spyOn(tauriApi, 'getStarredFeedCache').mockResolvedValue(null);
+      vi.spyOn(tauriApi, 'listGithubStarred').mockResolvedValue({ rows: pageOf('mine', 2), has_more: false });
+      const view = render(<StarredFeed {...baseProps} oauthUser={user('alice')} />);
+      await queryAs('');
+      await screen.findByText('mine-0');
+      expect(
+        readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
+      ).toBeDefined();
+
+      view.rerender(<StarredFeed {...baseProps} oauthUser={null} />);
+      expect(screen.queryByText('mine-0')).toBeNull();
+      expect(
+        readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
+      ).toBeUndefined();
+    });
+
+    it('logging out before the debounced snapshot write never re-saves the @me snapshot, even on unmount', async () => {
+      vi.spyOn(tauriApi, 'getStarredFeedCache').mockResolvedValue(null);
+      const saveSpy = vi.spyOn(tauriApi, 'saveStarredFeedCache').mockResolvedValue();
+      vi.spyOn(tauriApi, 'listGithubStarred').mockResolvedValue({ rows: pageOf('mine', 2), has_more: false });
+      const view = render(<StarredFeed {...baseProps} oauthUser={user('alice')} />);
+      await queryAs('');
+      await screen.findByText('mine-0');
+
+      view.rerender(<StarredFeed {...baseProps} oauthUser={null} />);
+      view.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(saveSpy).not.toHaveBeenCalled();
+    });
   });
 });

@@ -4,6 +4,11 @@ import { tauriApi } from '../../services/api';
 import { patchRowsPlatforms } from '../../services/search/onlineRows';
 import { patchSearchListCacheRows } from '../../services/search/searchListCache';
 import {
+  isSharedRepoConfirmedOther,
+  recordSharedConfirmedOthers,
+  recordSharedRepoPlatforms,
+} from '../../services/repoEnrichCache';
+import {
   collectListLoadingKeys,
   createInflightGuard,
   createSeqGuard,
@@ -42,10 +47,17 @@ function mergeConfirmedIds(prev: Set<string>, ids: readonly string[]): Set<strin
   return changed ? next : prev;
 }
 
+/** 未收录行（只有这些行进三链路共享富卡池；收录行平台以收录库为准）。 */
+function isUncatalogedRow(s: AppSummary): boolean {
+  return s.is_cataloged !== true;
+}
+
 /**
  * 列表平台轻量回填共享执行器（主列表/在线搜索/Star 列表共用）：
- * 分批走 `getPlatformsLite`（经 `runLiteBatch`），成功将真实平台写透目标列表与 `searchListCache`，
- * 空且非 stale 的写入已确认 other；stale/失败保持 loading 交由 `scheduleSettleConfirm` 兜底。
+ * 共享富卡池里已确认 Other 的未收录行（非强刷）直接落定，不发 IPC；
+ * 其余分批走 `getPlatformsLite`（经 `runLiteBatch`），成功将真实平台写透目标列表、`searchListCache`
+ * 与共享富卡池，空且非 stale 的写入已确认 other（同步写回共享池）；
+ * stale/失败保持 loading 交由 `scheduleSettleConfirm` 兜底。
  */
 async function executeLiteBackfillBatch(opts: {
   summaries: readonly AppSummary[];
@@ -65,7 +77,28 @@ async function executeLiteBackfillBatch(opts: {
         return k !== '' && !opts.attempted!.has(k);
       })
     : opts.summaries;
-  const targets = selectListLiteTargets(candidates, {
+  const preConfirmedEmpty: string[] = [];
+  const preConfirmedSet = new Set<string>();
+  if (!opts.forceRefresh) {
+    for (const s of candidates) {
+      if (s.platforms && s.platforms.length > 0) continue;
+      if (!isUncatalogedRow(s)) continue;
+      const k = normalizeLoadingKey(s.id);
+      if (!k || opts.resolvedOther.has(k) || preConfirmedSet.has(k)) continue;
+      if (isSharedRepoConfirmedOther(k)) {
+        preConfirmedSet.add(k);
+        preConfirmedEmpty.push(k);
+      }
+    }
+  }
+  if (preConfirmedEmpty.length > 0) {
+    opts.onConfirmedEmpty(preConfirmedEmpty);
+  }
+  const liteCandidates =
+    preConfirmedSet.size > 0
+      ? candidates.filter((s) => !preConfirmedSet.has(normalizeLoadingKey(s.id)))
+      : candidates;
+  const targets = selectListLiteTargets(liteCandidates, {
     resolved: opts.resolvedOther,
     inflight: opts.inflight,
   });
@@ -83,11 +116,16 @@ async function executeLiteBackfillBatch(opts: {
       () => opts.seqGuard.isStale(opts.seq),
     );
     if (opts.seqGuard.isStale(opts.seq)) return;
+    const uncatalogedKeys = new Set(
+      opts.summaries.filter(isUncatalogedRow).map((s) => normalizeLoadingKey(s.id)),
+    );
     if (patched.size > 0) {
       patchSearchListCacheRows((prev) => patchRowsPlatforms(prev, patched));
+      recordSharedRepoPlatforms(opts.summaries.filter(isUncatalogedRow), patched);
       opts.onPatched(patched);
     }
     if (confirmedEmpty.length > 0) {
+      recordSharedConfirmedOthers(confirmedEmpty.filter((k) => uncatalogedKeys.has(normalizeLoadingKey(k))));
       opts.onConfirmedEmpty(confirmedEmpty);
     }
   } finally {
@@ -130,8 +168,8 @@ export function usePlatformBackfill({
   // 轻量取回仍为空（且非 stale 离线缓存）才记为已确认 other（单次落定更新），
   // 详情不可达或 stale 一律保持 loading 交由 settle 超时兜底，不报错。后端一律 `[]`，other 纯前端虚拟。
   // seq 过期则整批丢弃，绝不阻塞列表首绘。
-  // forceRefresh：显式手动路径（搜索提交/加载更多）传 true 走 ETag 条件请求；
-  // 缺席即读 TTL 缓存/DB（默认 DB-only）。
+  // forceRefresh：仅显式重试传 true（跳过详情 TTL 快径直探远端）；
+  // 常规搜索、翻页与首绘回填一律 false，复用 `app_details` TTL 与 `releases/latest` ETag。
   const lazyBackfillPlatforms = useCallback((summaries: AppSummary[], seq: number, forceRefresh = false) => {
     const guard = seqGuardRef.current;
     const inflight = inflightGuardRef.current;

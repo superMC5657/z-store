@@ -99,6 +99,8 @@ import {
   handleOAuthLogout,
   handleStarApp,
   handleListGithubStarred,
+  handleGetStarredFeedCache,
+  handleSaveStarredFeedCache,
   handleToggleFavorite,
   handleUnstarApp,
   handleUnwatchApp,
@@ -354,6 +356,10 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetDeveloperProfile(a);
     case 'list_github_starred':
       return handleListGithubStarred(a);
+    case 'get_starred_feed_cache':
+      return handleGetStarredFeedCache(a);
+    case 'save_starred_feed_cache':
+      return handleSaveStarredFeedCache(a);
     case 'get_watched_apps':
       return handleGetWatchedApps();
     case 'watch_app':

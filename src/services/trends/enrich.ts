@@ -5,8 +5,8 @@ import { normalizeId, normalizeIdSet } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
 export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-/** trendEnrichCache 至多 500 条。 */
-export const TREND_ENRICH_CACHE_MAX_ENTRIES = 500;
+/** trendEnrichCache 至多 600 条（与 iconStore 同容量；趋势、在线搜索与 Star 列表共用此池）。 */
+export const TREND_ENRICH_CACHE_MAX_ENTRIES = 600;
 /** 单次 enrich 最多 40 仓一次取回。 */
 export const TREND_ENRICH_MAX_TOTAL = 40;
 
@@ -16,8 +16,8 @@ export const TREND_ENRICH_MAX_TOTAL = 40;
  * loading 空平台永不覆盖已具平台值（mark 前检查 enrich 已具平台则跳过）。
  */
 const TREND_CONFIRMED_OTHER_TTL_MS = TREND_ENRICH_CACHE_TTL_MS;
-/** 已确认 Other 标记内存有界：至多 500 条，FIFO 裁剪（与 enrich 同口径）。 */
-const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 500;
+/** 已确认 Other 标记内存有界：至多 600 条，FIFO 裁剪（与 enrich 同口径）。 */
+const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 600;
 
 /**
  * 具平台判定（loading-never-overwrites-concrete 守卫的唯一口径）：
@@ -39,6 +39,23 @@ function readLoose(obj: object, key: string): unknown {
 /** 松散字段写入收口（merge prev 回填专用）：值均取自同类摘要同名字段，循环键受限。 */
 function writeLoose(obj: object, key: string, value: unknown): void {
   (obj as Record<string, unknown>)[key] = value;
+}
+
+/**
+ * 收录态标注剥离：`source` / `status` / `is_cataloged` 是后端按当前目录产物盖章的运行时标注，
+ * 随本地收录变更（收录/退回/转正）即时变化，永不进共享富卡池与 L2 落盘，避免旧标注滞留。
+ * 渲染侧按当前目录重新标注。
+ */
+export function stripCatalogAnnotations(summary: AppSummary): AppSummary {
+  if (
+    summary.source === undefined &&
+    summary.status === undefined &&
+    summary.is_cataloged === undefined
+  ) {
+    return summary;
+  }
+  const { source: _source, status: _status, is_cataloged: _cataloged, ...rest } = summary;
+  return rest as AppSummary;
 }
 
 const trendConfirmedOtherCache = new Map<string, number>();
@@ -223,12 +240,12 @@ function sweepExpiredTrendConfirmedOtherCache(): void {
   }
 }
 
-/** M1内存：trendEnrichCache（仅具平台坐标元数据 12h/500 FIFO；loading 空平台永不进内存）。 */
+/** M1内存：trendEnrichCache（仅具平台坐标元数据 12h/600 FIFO；loading 空平台永不进内存）。 */
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
 
 /**
  * trendEnrichCache 唯一写入口。
- * - 具平台恒进缓存（12h/500 FIFO）；sticky/icon 合并仅对具平台执行；
+ * - 具平台恒进缓存（12h/600 FIFO）；sticky/icon 合并仅对具平台执行；
  * - loading 空平台仅已确认键进内存（已确认 Other 随榜缓存同 key 落盘，重挂直展 Other 卡）；
  *   未确认 loading 入口直接 return（不进内存、不落库，只活当次 out 渲染）；
  * - 禁 loading 覆盖具平台：内存已有具平台值时 loading 回填直接丢弃；
@@ -246,7 +263,7 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
   // 图标回填只做升级不做准入（resolveIconWithBuffer）：已有真实图标（非空）不被空图标覆盖；
   // 有/无图标一视同仁进富卡，首字母兜底在渲染侧生成，不影响持久化；
   // data: 只驻 M1 内存缓冲（iconById），永不落入 trendEnrichCache 与 L2 榜缓存。
-  const resolved = resolveIconWithBuffer(cur?.data, entry.data);
+  const resolved = stripCatalogAnnotations(resolveIconWithBuffer(cur?.data, entry.data));
   const data =
     typeof resolved.icon === 'string' && resolved.icon.startsWith('data:')
       ? { ...resolved, icon: '' }
@@ -293,7 +310,7 @@ export function clearTrendEnrichCache(): void {
  * 向内存 `trendEnrichCache` 回填（slice 内部写口）。
  * View 侧唯一出口为 board.putBoardEnrichMemory，不直调此函数；
  * 图标合并经 `resolveIconWithBuffer` 单口。
- * - 具平台恒进缓存（12h/500 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
+ * - 具平台恒进缓存（12h/600 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
  * - loading 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
  *   未确认 loading 直接跳过（永不进内存/落库，只活当次 out 渲染）；
  * - 禁 loading 覆盖具平台（put 入口守卫）；
@@ -378,6 +395,27 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
 }
 
 /**
+ * 只读取用单条新鲜富卡（跨视图共享读口，零副作用）：12h 内且非 stale；
+ * 空平台条目仅在已确认 Other 新鲜时返回。
+ */
+export function peekFreshTrendEnrich(key: string, now = Date.now()): AppSummary | undefined {
+  const k = normalizeId(key);
+  if (!k) return undefined;
+  const hit = trendEnrichCache.get(k);
+  if (!hit) return undefined;
+  if (readLoose(hit.data, 'is_stale') === true) return undefined;
+  const elapsed = now - hit.timestamp;
+  if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) return undefined;
+  if (!hasConcretePlatforms(hit.data.platforms)) {
+    const ts = trendConfirmedOtherCache.get(k);
+    if (ts === undefined) return undefined;
+    const e = now - ts;
+    if (e < 0 || e >= TREND_CONFIRMED_OTHER_TTL_MS) return undefined;
+  }
+  return hit.data;
+}
+
+/**
  * Enrich 缓存新鲜条目取用单口（force→缺席→平台→确认→TTL）：
  * - force 直接不新鲜（重拉）；
  * - 无条目不新鲜；
@@ -433,7 +471,7 @@ export function mergeIconSticky(
  * 平台语义：`fallback_summary` 恒为 `[]`（后端不打标，other 纯前端虚拟），
  * 空 platforms 为 loading：未确认 loading 只活当次 out 渲染，永不进内存/落库（不进 trendEnrichCache）；
  * 已确认 loading 新鲜命中即直展（重挂免验，不重拉），stale 到期重拉；
- * 只有具平台才进 12h 内存（12h/500 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
+ * 只有具平台才进 12h 内存（12h/600 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
  *
  * 单次批量：最多 40 仓一次取回（BE take(40)+buffered(5) 保序不变）；
  * 超 40 的仓留占位（out 缺席，调用方保留旧小行），榜单永不置空；失败整批缺席。
@@ -594,7 +632,7 @@ export function appSummaryFromDetail(detail: AppDetail): AppSummary {
 
 /**
  * 详情治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一）：
- * loading 当次有效永不缓存，具平台 12h/500 FIFO；仅非空平台写入（空不写），
+ * loading 当次有效永不缓存，具平台 12h/600 FIFO；仅非空平台写入（空不写），
  * 后续同坐标 enrich 直接命中治愈值，不回退 `[]`。
  * 图标回填只做升级不做准入：详情弹窗特供的 data: 内联大图不进内存
  * （快照恒禁 data:，存了也落不了盘）；空图标不覆盖已有真实图标（put 入口合并）。
@@ -845,7 +883,7 @@ export function fillMissingFromPrev(
 
 /**
  * 富卡治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一，处理全字段）：
- * loading 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/500 FIFO；
+ * loading 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/600 FIFO；
  * - stale 详情整单丢弃，返回 null；
  * - icon data: 剥成 ''，空图标保留旧；
  * - 其余 string 空/占位不覆盖实（name '加载中...'、category 占位、license OpenSource 非 github、

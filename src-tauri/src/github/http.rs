@@ -39,6 +39,18 @@ pub(crate) async fn get_with_etag_with_link(
     (outcome, has_next)
 }
 
+/// 分页感知 + 诊断摘要的 ETag GET 通道：返回 `(EtagGetOutcome, HttpDiag, has_next)`，
+/// 供需要按 HTTP 状态区分错误文案的分页调用方使用。
+pub(crate) async fn get_with_etag_with_link_diag(
+    client: &reqwest::Client,
+    canonical_url: &str,
+    api_base: Option<&str>,
+    base_headers: &HeaderMap,
+    cached_etag: Option<&str>,
+) -> (EtagGetOutcome, crate::log_support::HttpDiag, bool) {
+    get_with_etag_diag_inner(client, canonical_url, api_base, base_headers, cached_etag).await
+}
+
 /// 带诊断摘要的 ETag GET 通道（返回 `(EtagGetOutcome, HttpDiag)` 供宽事件聚合作业使用）。
 pub(crate) async fn get_with_etag_diag(
     client: &reqwest::Client,

@@ -57,15 +57,15 @@ describe('Phase2治理：内存有界 FIFO', () => {
     expect(readTrendsCache('weekly|k200|', 'weekly')).toBeDefined();
   });
 
-  it('trendEnrichCache 经单一 put 入口裁剪至 500', () => {
-    expect(TREND_ENRICH_CACHE_MAX_ENTRIES).toBe(500);
+  it('trendEnrichCache 经单一 put 入口裁剪至 600', () => {
+    expect(TREND_ENRICH_CACHE_MAX_ENTRIES).toBe(600);
     const bulk: Record<string, ReturnType<typeof makeEnrichedApp>> = {};
-    for (let i = 0; i < 501; i += 1) {
+    for (let i = 0; i < 601; i += 1) {
       bulk[`acme/r${i}`] = makeEnrichedApp({ id: `acme/r${i}` });
     }
     putTrendEnrichMemory(bulk);
     const snap = snapshotTrendEnrichCache();
-    expect(Object.keys(snap).length).toBeLessThanOrEqual(500);
+    expect(Object.keys(snap).length).toBeLessThanOrEqual(600);
     // 最旧 acme/r0 被裁剪
     expect(snap['acme/r0']).toBeUndefined();
   });

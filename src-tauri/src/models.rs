@@ -310,6 +310,16 @@ pub struct DeveloperRepoItem {
 pub struct StarredPageResult {
     pub rows: Vec<AppSummary>,
     pub has_more: bool,
+    /// 网络或限流失败时回退了本地旧载荷（`Some(true)`）；正常结果省略。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_stale: Option<bool>,
+}
+
+/// Star 同步快照条目（纯透存：`payload_json` 原样往返，`cached_at` 为落库秒级时间戳，新鲜度由前端判定）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StarredFeedCacheEntry {
+    pub payload_json: String,
+    pub cached_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

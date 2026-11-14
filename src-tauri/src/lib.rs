@@ -352,6 +352,7 @@ pub fn run() {
             // 趋势榜与 ETag/详情缓存：启动后 best-effort 清扫过期/超量快照（吞错，不阻塞启动）。
             {
                 let _ = db.prune_expired_trend_board_cache(now_secs());
+                let _ = db.prune_starred_feed_cache(now_secs());
                 let _ = db.prune_bounded_caches(
                     crate::db::cache::API_ETAG_CACHE_MAX_ROWS,
                     crate::db::cache::APP_DETAILS_CACHE_MAX_ROWS,
@@ -562,6 +563,8 @@ pub fn run() {
             commands::set_app_hidden,
             commands::get_developer_profile,
             commands::list_github_starred,
+            commands::get_starred_feed_cache,
+            commands::save_starred_feed_cache,
             commands::sync_affinity_signals,
             commands::record_search_query,
             commands::get_search_history,

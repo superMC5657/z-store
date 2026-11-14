@@ -27,6 +27,9 @@ static STARRED_GEN: AtomicU64 = AtomicU64::new(0);
 pub struct OnlineSearchResult {
     pub rows: Vec<AppSummary>,
     pub sid: String,
+    /// 关键词搜索联网失败、回退旧载荷时为 `true`；前端据此不把这批行当新鲜结果写入列表缓存。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_stale: bool,
 }
 
 // 网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）；
@@ -197,7 +200,179 @@ fn backfill_uncataloged_card(
     if let Ok(Some(cached)) = db.get_app_detail(&item.core.id, None) {
         crate::github::CatalogService::apply_detail_to_summary_core(&mut item.core, &cached);
     }
+    backfill_release_from_etag_cache(db, item);
     staged
+}
+
+/// 版本号是否仍为占位（空串或 `latest`），需要从缓存的 Release 补齐。
+fn is_placeholder_version(v: &str) -> bool {
+    let t = v.trim();
+    t.is_empty() || t.eq_ignore_ascii_case("latest")
+}
+
+/// 零网络 Release 回填：`app_details` 未提供平台或真实版本时，读 `api_etag_cache` 中
+/// `get_platforms_lite` 落下的 `releases/latest` 载荷，推导平台并取 `tag_name`。
+/// `get_platforms_lite` 只写条件请求缓存、不写 `app_details`，因此重启后靠这里复原已知平台。
+/// 端点按原大小写与小写各查一次（收录坐标保留大小写，外部合成坐标为小写）。
+fn backfill_release_from_etag_cache(db: &crate::db::Database, item: &mut AppSummary) {
+    let need_platforms = item.core.platforms.is_empty();
+    let need_version = is_placeholder_version(&item.core.latest_version);
+    if !need_platforms && !need_version {
+        return;
+    }
+    let is_github = item
+        .core
+        .forge
+        .as_deref()
+        .unwrap_or("github")
+        .eq_ignore_ascii_case("github");
+    let owner = item.core.owner.trim();
+    let repo = item.core.repo.trim();
+    if !is_github || owner.is_empty() || repo.is_empty() {
+        return;
+    }
+    let exact = format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        owner, repo
+    );
+    let lower = exact.to_lowercase();
+    let payload = db
+        .get_cached_payload(&exact)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            if lower == exact {
+                None
+            } else {
+                db.get_cached_payload(&lower).ok().flatten()
+            }
+        });
+    let Some(payload) = payload else {
+        return;
+    };
+    let Ok(release) =
+        serde_json::from_str::<crate::github::models::GitHubReleaseResponse>(&payload)
+    else {
+        return;
+    };
+    if need_platforms {
+        let platforms =
+            crate::github::detail_assets::lite_platforms_for_github_assets(&release.assets, None);
+        if !platforms.is_empty() {
+            item.core.platforms = platforms;
+        }
+    }
+    if need_version && !release.tag_name.trim().is_empty() {
+        item.core.latest_version = release.tag_name.trim().to_string();
+    }
+}
+
+/// 搜索命中收录库时投影精选元数据（中文简介、官方图标、分类、预置平台），保留更新的远端 Star/Fork；
+/// 用户轮换过的确认图标优先。返回是否已投影（已投影行不走未收录回填）。
+fn project_curated_hit(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    item: &mut AppSummary,
+) -> bool {
+    let Some(cat_item) = catalog.get_catalog_item(&item.core.id) else {
+        return false;
+    };
+    let stars = item.core.stars.max(cat_item.stars);
+    let forks = item.core.forks.max(cat_item.forks);
+    let mut projected = catalog.item_to_stamped_summary(&cat_item);
+    projected.core.stars = stars;
+    projected.core.forks = forks;
+    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
+        db,
+        &projected.core.id,
+        &projected.core.owner,
+        &projected.core.repo,
+    ) {
+        projected.core.icon = ci;
+    }
+    *item = projected;
+    true
+}
+
+/// GitHub 单仓直查（`owner/repo`、`https://github.com/...`、`gh:...`）：
+/// 非强刷先查本地富卡（收录库 / 详情缓存 / 仓库 ETag 载荷），未命中再走 `/repos/{o}/{r}` 条件请求；
+/// 返回前统一回填详情与 `releases/latest` 平台、确认图标并盖收录章。失败返回 `None`，由调用方回退关键词搜索。
+async fn direct_github_lookup(
+    state: &AppState,
+    coord: &crate::forge::UniversalRepoCoord,
+    is_force: bool,
+) -> Option<AppSummary> {
+    let target = crate::icons::RepoCoord {
+        id: coord.to_app_id(),
+        owner: coord.owner.clone(),
+        repo: coord.repo.clone(),
+    };
+    let repo_url = format!(
+        "https://api.github.com/repos/{}/{}",
+        urlencoding::encode(&target.owner),
+        urlencoding::encode(&target.repo)
+    );
+    // 短锁预读（同步无 `await`）：确认图标、ETag、旧载荷与本地富卡命中，owned 值跨 `await`。
+    let (pre_confirmed, cached_etag, cached_payload, local_hit) = match state.db() {
+        Ok(db) => {
+            let pre = crate::icons::resolve_confirmed_icon_from_db(
+                &db,
+                &target.id,
+                &target.owner,
+                &target.repo,
+            );
+            let etag = if is_force {
+                None
+            } else {
+                db.get_etag(&repo_url).ok().flatten()
+            };
+            let payload = db.get_cached_payload(&repo_url).ok().flatten();
+            let hit = if is_force {
+                None
+            } else {
+                resolve_local_enrich_hit(
+                    &db,
+                    &state.catalog,
+                    &target,
+                    pre.as_deref(),
+                    payload.as_deref(),
+                )
+            };
+            (pre, etag, payload, hit)
+        }
+        Err(_) => (None, None, None, None),
+    };
+    let (mut item, etag_write) = match local_hit {
+        Some(hit) => (hit, None),
+        None => {
+            let token = crate::commands::resolve_active_github_token(state);
+            state
+                .catalog
+                .fetch_online_repo_with_etag(
+                    &target.owner,
+                    &target.repo,
+                    token.as_deref(),
+                    pre_confirmed,
+                    cached_etag,
+                    cached_payload,
+                    true,
+                )
+                .await
+                .ok()?
+        }
+    };
+    if let Ok(db) = state.db() {
+        if let Some((url, etag, text)) = &etag_write {
+            let _ = db.save_etag(url, etag, text, crate::now_secs());
+        }
+        if !project_curated_hit(&db, &state.catalog, &mut item) {
+            if let Some(cycle) = backfill_uncataloged_card(&db, &mut item) {
+                flush_icon_cycle_staged(&db, std::slice::from_ref(&cycle));
+            }
+        }
+    }
+    state.catalog.stamp_summary(&mut item);
+    Some(item)
 }
 
 /// icon_cycle 待写批量落库（`search_apps_online` / `enrich_trend_repos` 双调用点收敛）：
@@ -241,8 +416,9 @@ pub async fn search_apps(
 /// 在线搜索（可翻页）：`page`/`per_page` 均为 None=默认行为（第 1 页 20 条）。
 /// - `per_page` 默认复用 `limits.online_search_page_size`，钳制 1-50；
 /// - `page` 默认 1（0 归一为 1）；`owner/repo` 直查短路只回第 1 页 1 条，page>1 回空（与 mock 同语义）。
-/// - `force_refresh` 为手动刷新按钮透传位（前端统一调用签名）；
-///   网络默认允许：默认即走在线直查 + 后台图标流式，与显式手动刷新同路。
+/// - 关键词搜索与 GitHub 单仓直查均走 `api_etag_cache` 条件请求（`304` 零配额），失败时有旧载荷则回退；
+///   命中收录库的行投影精选元数据，未收录行回填详情与 `releases/latest` 平台；
+/// - `force_refresh=true`（显式重试）跳过 ETag 预读与本地富卡快径，直探远端。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn search_apps_online(
     app_handle: AppHandle,
@@ -253,7 +429,6 @@ pub async fn search_apps_online(
     per_page: Option<u32>,
     force_refresh: Option<bool>,
 ) -> crate::AppResult<OnlineSearchResult> {
-    // 手动刷新与默认同路：在线直查本就每次走网络，此处仅记录触发来源供诊断。
     let is_force = force_refresh.unwrap_or(false);
     // 单次 search_apps 只记一行 INFO `search done`（行为链 sid 关联），此处为唯一 INFO。
     let search_start = std::time::Instant::now();
@@ -269,6 +444,7 @@ pub async fn search_apps_online(
                 return Ok(OnlineSearchResult {
                     rows: Vec::new(),
                     sid: actual_search_id.clone(),
+                    is_stale: false,
                 });
             }
             let host_token = if let Ok(db) = state.db() {
@@ -344,6 +520,7 @@ pub async fn search_apps_online(
                 return Ok(OnlineSearchResult {
                     rows: vec![row],
                     sid: actual_search_id.clone(),
+                    is_stale: false,
                 });
             }
         } else if query.contains('/')
@@ -356,59 +533,10 @@ pub async fn search_apps_online(
                 return Ok(OnlineSearchResult {
                     rows: Vec::new(),
                     sid: actual_search_id.clone(),
+                    is_stale: false,
                 });
             }
-            let token = crate::commands::resolve_active_github_token(&state);
-            // Top1（`Send` 安全）：短锁预解析 owned 确认图标（同步无 `await`，锁即取即放），
-            // 传 owned `String` 跨 `await`（`Send`），`fetch` 内零查询零直连；传不进（锁失败）则 `None` 回退兜底不 panic。
-            let pre_confirmed: Option<String> = state.db().ok().and_then(|db| {
-                crate::icons::resolve_confirmed_icon_from_db(
-                    &db,
-                    &coord.to_app_id(),
-                    &coord.owner,
-                    &coord.repo,
-                )
-            });
-            if let Ok(mut item) = state
-                .catalog
-                .fetch_online_repo(&coord.owner, &coord.repo, token.as_deref(), pre_confirmed)
-                .await
-            {
-                if let Ok(db) = state.db() {
-                    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-                        &db,
-                        &item.core.id,
-                        &item.core.owner,
-                        &item.core.repo,
-                    ) {
-                        item.core.icon = ci;
-                    } else if !item.core.icon.trim().is_empty() {
-                        // 05 直查回填收敛到 merge（与 backfill_uncataloged_card 同口径）：
-                        // 先读旧行再合并，保留流式已攒槽位；pinned 行仅补槽不改选中。
-                        let icon = item.core.icon.trim().to_string();
-                        let level = crate::icons::level_for_detail_icon(&icon);
-                        let mut cycle = db
-                            .get_icon_cycle(&item.core.id)
-                            .ok()
-                            .flatten()
-                            .unwrap_or_else(|| {
-                                crate::db::AppIconCycle::new(
-                                    &item.core.id,
-                                    &item.core.owner,
-                                    &item.core.repo,
-                                )
-                            });
-                        crate::icons::merge_detail_icon(
-                            &mut cycle,
-                            level,
-                            &icon,
-                            false,
-                            crate::now_secs(),
-                        );
-                        let _ = db.upsert_icon_cycle(&cycle);
-                    }
-                }
-                state.catalog.stamp_summary(&mut item);
+            if let Some(item) = direct_github_lookup(&state, &coord, is_force).await {
                 let mut ev =
                     crate::z_log::WideEvent::new("search", "online ok").with_started(search_start);
                 ev.field("query", crate::log_support::short_reason(&query))
@@ -419,6 +547,7 @@ pub async fn search_apps_online(
                 return Ok(OnlineSearchResult {
                     rows: vec![item],
                     sid: actual_search_id.clone(),
+                    is_stale: false,
                 });
             }
         }
@@ -427,35 +556,30 @@ pub async fn search_apps_online(
     let token = crate::commands::resolve_active_github_token(&state);
     let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
 
-    // Top1（`Send` 安全）：直查 shortcut（`owner/repo`）短锁预解析 owned 确认图标（同步无 `await`），
-    // 传 owned 跨 `await`（`Send`），搜索侧零直连；非直查传 `None`，首屏置空由下方批量回填（`ok()` 吞错不 panic）。
-    let pre_for_direct: Option<String> = {
-        let q = query.trim();
-        if q.contains('/') && !q.contains(' ') {
-            let parts: Vec<&str> = q.split('/').collect();
-            if parts.len() == 2 {
-                let owner = parts[0].trim();
-                let repo = parts[1].trim();
-                if !owner.is_empty() && !repo.is_empty() {
-                    let app_id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
-                    state.db().ok().and_then(|db| {
-                        crate::icons::resolve_confirmed_icon_from_db(
-                            &db, &app_id, owner, repo,
-                        )
-                    })
-                } else {
-                    None
-                }
-            } else {
+    // 关键词搜索走 `api_etag_cache` 条件请求：非强刷时短锁预读 ETag 与旧载荷，`await` 期间零 DB。
+    let endpoint = crate::github::search::online_search_endpoint(&query, page, per_page);
+    let (cached_etag, cached_payload) = match (&endpoint, state.db()) {
+        (Some(ep), Ok(db)) => {
+            let etag = if is_force {
                 None
-            }
-        } else {
-            None
+            } else {
+                db.get_etag(ep).ok().flatten()
+            };
+            (etag, db.get_cached_payload(ep).ok().flatten())
         }
+        _ => (None, None),
     };
-    let mut results = match state
+    let fetched = match state
         .catalog
-        .search_github_online(&query, token.as_deref(), pre_for_direct, page, per_page)
+        .search_github_online(
+            &query,
+            token.as_deref(),
+            page,
+            per_page,
+            cached_etag.as_deref(),
+            cached_payload.as_deref(),
+            None,
+        )
         .await
     {
         Ok(r) => r,
@@ -470,13 +594,25 @@ pub async fn search_apps_online(
             return Err(e.into());
         }
     };
+    let search_stale = fetched.is_stale;
+    let search_not_modified = fetched.touched_url.is_some();
+    let mut results = fetched.summaries;
 
-    // Top1+2：循环外一次取 `db` 锁复用（单临界区同步无 `await`），读解析 + 写包事务化。
-    // 事务边界：`BEGIN IMMEDIATE` → N 条 `upsert_icon_cycle` → `COMMIT`（N=当页条数逐条提交变 1 提交），
-    // 失败整体 `ROLLBACK` 并回退逐条（保持 `let _ =` 吞错 + 下次重试语义）。
+    // 循环外一次取 `db` 锁复用（单临界区同步无 `await`）：ETag 落库/保鲜 + 收录投影 + 未收录回填，
+    // icon_cycle 写包事务化（`BEGIN IMMEDIATE` → N 条 → `COMMIT`，失败回退逐条）。
     if let Ok(db) = state.db() {
+        let now = crate::now_secs();
+        if let Some((url, etag, text)) = &fetched.etag_write {
+            let _ = db.save_etag(url, etag, text, now);
+        }
+        if let Some(url) = &fetched.touched_url {
+            let _ = db.touch_etag(url, now);
+        }
         let mut staged: Vec<crate::db::AppIconCycle> = Vec::new();
         for item in &mut results {
+            if project_curated_hit(&db, &state.catalog, item) {
+                continue;
+            }
             if let Some(cycle) = backfill_uncataloged_card(&db, item) {
                 staged.push(cycle);
             }
@@ -531,6 +667,8 @@ pub async fn search_apps_online(
         .dev("mode", "keyword")
         .dev("page", eff_page)
         .dev("force", is_force)
+        .dev("not_modified", search_not_modified)
+        .dev("stale", search_stale)
         .dev("icon_jobs", candidates.len());
     ev.info();
 
@@ -586,6 +724,7 @@ pub async fn search_apps_online(
     Ok(OnlineSearchResult {
         rows: filtered_results,
         sid: actual_search_id.clone(),
+        is_stale: search_stale,
     })
 }
 
@@ -685,7 +824,7 @@ pub(crate) fn resolve_local_enrich_hit(
 }
 
 /// 趋势 enrich 单仓批量直查：并发上限 5（`buffered` 保序，返回与入参一一对齐，fetch 内零 DB 直连）；
-/// 单仓 `api_timeout_or(10s)` 熔断；单仓失败回退 `fallback_detail` 或 `None`。
+/// 不内联探图（`probe_icons=false`）；单仓 `api_timeout_or(10s)` 熔断；单仓失败回退 `fallback_detail` 或 `None`。
 async fn fetch_enrich_batch(
     catalog: &crate::github::CatalogService,
     token: Option<String>,
@@ -708,6 +847,8 @@ async fn fetch_enrich_batch(
                     job.pre,
                     job.cached_etag,
                     job.cached_payload,
+                    // 首包只取仓库元数据快返；图标统一由后台 `fetch_icons_stream(Trend)` 补探一次。
+                    false,
                 ),
             )
             .await
@@ -864,13 +1005,13 @@ pub async fn enrich_trend_repos(
         flush_icon_cycle_staged(&db, &staged);
     }
 
-    // 后台流式：无确认图标的仓全部入 `fetch_icons_stream(Trend)`，
+    // 后台流式：未收录且无确认图标的仓全部入 `fetch_icons_stream(Trend)`（首包不探图，此处是唯一一次探测），
     // 快命中即返不等慢、逐张到达 `emit_icon_ready`（含 GitHub 失败的裸行仓，
-    // 前端缓冲等 enrich 重试/详情治愈时合并，空永不覆盖实）。
+    // 前端缓冲等 enrich 重试/详情治愈时合并，空永不覆盖实）；收录仓沿用收录库官方图标。
     let jobs: Vec<crate::icons::IconFetchJob> = targets
         .into_iter()
         .zip(pre_confirmed)
-        .filter(|(_, pre)| pre.is_none())
+        .filter(|(coord, pre)| !state.catalog.is_cataloged(&coord.id) && pre.is_none())
         .map(|(coord, _)| {
             coord.into_job(crate::icons::IconFetchCtx::Trend {
                 board: board_name.clone(),
@@ -1074,6 +1215,145 @@ mod tests {
         let mut confirmed = sample_summary("c/r", "c", "r", "");
         assert!(backfill_uncataloged_card(&db, &mut confirmed).is_none());
         assert_eq!(confirmed.core.icon, "https://example.com/c.png");
+    }
+
+    fn release_json(tag: &str, asset: &str) -> String {
+        serde_json::json!({
+            "tag_name": tag,
+            "body": null,
+            "assets": [{
+                "name": asset,
+                "size": 50_000_000u64,
+                "browser_download_url": format!("https://github.com/x/y/releases/download/{}/{}", tag, asset)
+            }]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn backfill_reads_cached_release_latest_when_no_app_detail() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        db.save_etag(
+            "https://api.github.com/repos/acme/tool/releases/latest",
+            "\"e1\"",
+            &release_json("v2.3.4", "tool-setup-x64.exe"),
+            crate::now_secs(),
+        )
+        .unwrap();
+        // 收录外坐标大小写混合：精确未命中时回退小写端点。
+        let mut card = sample_summary("acme/tool", "Acme", "Tool", "");
+        backfill_uncataloged_card(&db, &mut card);
+        assert_eq!(card.core.platforms, vec!["windows".to_string()]);
+        assert_eq!(card.core.latest_version, "v2.3.4");
+
+        // 已有平台与真实版本时不覆盖。
+        let mut known = sample_summary("acme/tool", "acme", "tool", "");
+        known.core.platforms = vec!["linux".to_string()];
+        known.core.latest_version = "v9".to_string();
+        backfill_uncataloged_card(&db, &mut known);
+        assert_eq!(known.core.platforms, vec!["linux".to_string()]);
+        assert_eq!(known.core.latest_version, "v9");
+
+        // 非 GitHub forge 不读 GitHub 端点。
+        let mut other = sample_summary("acme/tool", "acme", "tool", "");
+        other.core.forge = Some("gitea".to_string());
+        backfill_uncataloged_card(&db, &mut other);
+        assert!(other.core.platforms.is_empty());
+
+        // 损坏载荷静默跳过。
+        db.save_etag(
+            "https://api.github.com/repos/bad/json/releases/latest",
+            "\"e2\"",
+            "not-json",
+            crate::now_secs(),
+        )
+        .unwrap();
+        let mut bad = sample_summary("bad/json", "bad", "json", "");
+        backfill_uncataloged_card(&db, &mut bad);
+        assert!(bad.core.platforms.is_empty());
+        assert_eq!(bad.core.latest_version, "latest");
+    }
+
+    #[test]
+    fn backfill_prefers_app_detail_over_cached_release() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        db.save_etag(
+            "https://api.github.com/repos/acme/tool/releases/latest",
+            "\"e1\"",
+            &release_json("v0.0.1", "tool-setup-x64.exe"),
+            crate::now_secs(),
+        )
+        .unwrap();
+        let mut core = sample_summary("acme/tool", "acme", "tool", "").core;
+        core.description = "真实描述".to_string();
+        core.latest_version = "v5.0.0".to_string();
+        core.platforms = vec!["macos".to_string()];
+        let detail = crate::models::AppDetail {
+            core,
+            changelog: String::new(),
+            readme_markdown: String::new(),
+            readme_variants: None,
+            releases: vec![],
+            cached_at: None,
+            is_stale: None,
+        };
+        db.save_app_detail("acme/tool", &detail).unwrap();
+        let mut card = sample_summary("acme/tool", "acme", "tool", "");
+        backfill_uncataloged_card(&db, &mut card);
+        assert_eq!(card.core.platforms, vec!["macos".to_string()]);
+        assert_eq!(card.core.latest_version, "v5.0.0");
+    }
+
+    fn curated_item() -> crate::github::models::CatalogItem {
+        crate::github::models::CatalogItem {
+            id: "acme/tool".to_string(),
+            name: "精选工具".to_string(),
+            owner: "acme".to_string(),
+            repo: "tool".to_string(),
+            icon: "https://official.example/tool.png".to_string(),
+            icon_bg: "#111111".to_string(),
+            description: "精选中文简介".to_string(),
+            description_en: Some("Curated".to_string()),
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            default_version: "v1.0.0".to_string(),
+            added_at: None,
+            license: "MIT".to_string(),
+            stars: 100,
+            forks: 50,
+            is_verified: true,
+            homepage: None,
+            platforms: vec!["windows".to_string(), "linux".to_string()],
+            identifiers: std::collections::HashMap::new(),
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+        }
+    }
+
+    #[test]
+    fn curated_projection_keeps_fresher_counts_and_skips_uncataloged() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let catalog = crate::github::developer_starred::test_support::test_service();
+        *catalog.items.write().unwrap() = vec![curated_item()];
+
+        let mut hit = sample_summary("acme/tool", "acme", "tool", "");
+        hit.core.description = "remote english".to_string();
+        hit.core.stars = 250;
+        hit.core.forks = 10;
+        assert!(project_curated_hit(&db, &catalog, &mut hit));
+        assert_eq!(hit.core.description, "精选中文简介");
+        assert_eq!(hit.core.icon, "https://official.example/tool.png");
+        assert_eq!(hit.core.category, "dev");
+        assert_eq!(hit.core.platforms, vec!["windows".to_string(), "linux".to_string()]);
+        assert_eq!(hit.core.stars, 250);
+        assert_eq!(hit.core.forks, 50);
+        assert_eq!(hit.core.is_cataloged, Some(true));
+
+        let mut miss = sample_summary("other/repo", "other", "repo", "");
+        assert!(!project_curated_hit(&db, &catalog, &mut miss));
+        assert_eq!(miss.core.description, "");
     }
 
     #[test]

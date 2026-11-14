@@ -52,6 +52,7 @@ import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from '
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
+import { noteStarredLogin } from './services/starred/starredMemory';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 
@@ -105,6 +106,11 @@ export const App: React.FC = () => {
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
   // OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
+  // 登出/换账号即清内存里的 `@me:` 私有 Star 缓存，不论收藏页是否挂载。
+  const oauthLogin = oauthUser?.login || undefined;
+  useEffect(() => {
+    noteStarredLogin(oauthLogin);
+  }, [oauthLogin]);
   // 卡片 memo 稳定回调支撑：经 ref 读取最新列表/详情，避免 handleOpenDetail 依赖 apps 而每搜必变
   const appsRef = useRef<AppSummary[]>([]);
   appsRef.current = apps;
@@ -652,7 +658,9 @@ export const App: React.FC = () => {
                       <button
                         type="button"
                         className="btn-fluent btn-primary"
-                        onClick={() => handleSearchSubmit(searchQuery)}
+                        onClick={() =>
+                          handleSearchSubmit(searchQuery, { forceRefresh: onlineSearchPerformed })
+                        }
                       >
                         {onlineSearchPerformed
                           ? t('search.retry_online')
@@ -684,7 +692,7 @@ export const App: React.FC = () => {
                 onlineHasMore={onlineHasMore}
                 isLoadingOnlineMore={isLoadingOnlineMore}
                 onOnlineLoadMore={handleOnlineLoadMore}
-                onSearchOnline={() => handleSearchSubmit(searchQuery)}
+                onSearchOnline={(opts) => handleSearchSubmit(searchQuery, opts)}
                 customIds={customIds}
                 localApps={localLibrarySummaries}
               />

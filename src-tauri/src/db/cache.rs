@@ -126,6 +126,101 @@ impl Database {
     }
 }
 
+/// Star 同步快照单条至多 512 KiB，超限拒绝。
+pub const STARRED_FEED_CACHE_MAX_BYTES: usize = 512 * 1024;
+/// Star 同步快照最多保留的查询目标数（按 `cached_at DESC`）。
+pub const STARRED_FEED_CACHE_MAX_ROWS: usize = 15;
+/// Star 同步快照离线保留期：7 天。
+const STARRED_FEED_CACHE_RETENTION_SECS: i64 = 7 * 86400;
+
+impl Database {
+    /// 读取 Star 同步快照：返回 `(payload_json, cached_at)`。
+    pub fn get_starred_feed_cache(&self, cache_key: &str) -> Result<Option<(String, i64)>> {
+        let key = clean(cache_key);
+        if key.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT payload_json, cached_at FROM starred_feed_cache WHERE cache_key = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some((row.get(0)?, row.get(1)?)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 写入 Star 同步快照（键/范围/载荷 trim 后为空即跳过，超 512 KiB 拒绝）。
+    pub fn save_starred_feed_cache(
+        &self,
+        cache_key: &str,
+        owner_scope: &str,
+        payload: &str,
+    ) -> Result<()> {
+        let key = clean(cache_key);
+        let scope = clean(owner_scope);
+        let payload = payload.trim();
+        if key.is_empty() || scope.is_empty() || payload.is_empty() {
+            return Ok(());
+        }
+        if payload.len() > STARRED_FEED_CACHE_MAX_BYTES {
+            return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "starred_feed_payload_too_large",
+                ),
+            )));
+        }
+        self.exec_write(
+            r#"
+            INSERT INTO starred_feed_cache (cache_key, owner_scope, payload_json, payload_bytes, cached_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                owner_scope = excluded.owner_scope,
+                payload_json = excluded.payload_json,
+                payload_bytes = excluded.payload_bytes,
+                cached_at = excluded.cached_at;
+            "#,
+            params![key, scope, payload, payload.len() as i64, now_secs()],
+        )?;
+        Ok(())
+    }
+
+    /// 按 `owner_scope` 精确前缀删除快照（登出时清 `@me:` 私有快照），返回删除行数。
+    pub fn delete_starred_feed_cache_by_scope_prefix(&self, prefix: &str) -> Result<usize> {
+        if prefix.is_empty() {
+            return Ok(0);
+        }
+        let deleted = self.conn.execute(
+            "DELETE FROM starred_feed_cache WHERE substr(owner_scope, 1, length(?1)) = ?1",
+            params![prefix],
+        )?;
+        Ok(deleted)
+    }
+
+    /// 启动清扫：删除超 7 天的快照，再按 `cached_at DESC` 只保留最近 15 个目标。
+    pub fn prune_starred_feed_cache(&self, now: i64) -> Result<usize> {
+        let cutoff = now.saturating_sub(STARRED_FEED_CACHE_RETENTION_SECS);
+        let expired = self.conn.execute(
+            "DELETE FROM starred_feed_cache WHERE cached_at <= ?1",
+            params![cutoff],
+        )?;
+        let overflow = self.conn.execute(
+            r#"
+            DELETE FROM starred_feed_cache
+            WHERE cache_key NOT IN (
+                SELECT cache_key FROM starred_feed_cache
+                ORDER BY cached_at DESC, cache_key ASC
+                LIMIT ?1
+            )
+            "#,
+            params![STARRED_FEED_CACHE_MAX_ROWS as i64],
+        )?;
+        Ok(expired + overflow)
+    }
+}
+
 /// 图片磁盘缓存配额上限：2000 文件。
 pub const ASSET_CACHE_MAX_FILES: usize = 2000;
 /// 图片磁盘缓存配额上限：500MB。

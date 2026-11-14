@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-10-10
-- 关联：ADR-0014（趋势 L2/批量 40/等齐路）、ADR-0012（网络池化并发）
+- 关联：ADR-0014（趋势 L2/批量 40/等齐路）、ADR-0012（网络池化并发）、ADR-0026（§4、§5 的现行口径）
 
 ## 1. Core 接口与统一事件
 
@@ -27,17 +27,17 @@
 
 ## 4. 搜缓存（key/TTL/容量）
 
-- 搜缓存（搜缓存=搜索 L1）`services/search/searchListCache.ts` 纯前端内存独立 Map，不共用 `trendsCache`（榜缓存一级内存）实例；value=`{at, rows}`（当次页 rows，非累计）。
-- key=`search|normQuery|page|perPage`（norm=trim 小写连续空白压单空格，翻页不串）。
-- TTL 30min；空 norm/空 rows 拒绝写（空结果不存）；上限 50 条写时 FIFO 删最旧。
-- 切搜/翻页入口顺手 `sweepExpiredSearchListCache`，不加 timer；`elapsed<0`（时钟回拨/未来戳）按过期。切搜新词或清空搜索时立即清空上一词的在线列表，仅先展示本地结果（再由用户显式触发在线搜索）；读 cache miss 时直接走网络直查，仅当同词缓存已直展且后台 revalidate 失败/为空时保留该同词缓存列表。
+- 搜缓存（搜缓存=搜索 L1）`services/search/searchListCache.ts` 纯前端内存，按命名空间分桶（`search` / `starred`），不共用 `trendsCache`（榜缓存一级内存）实例；value=`{at, rows}`（当次页 rows，非累计）。
+- key=`命名空间|normQuery|page|perPage`（norm=trim 小写连续空白压单空格，翻页不串）。
+- 每个命名空间独立 50 条写时 FIFO；空 norm/空 rows 拒绝写（空结果不存）。写入后 5min 内新鲜（零网络直出），5–30min 可用但需后台重验，30min 起驱逐（见 ADR-0026 §2.4）。
+- 切搜/翻页入口顺手 `sweepExpiredSearchListCache`，不加 timer；`elapsed<0`（时钟回拨/未来戳）按过期。切搜新词或清空搜索时立即清空上一词的在线列表，仅先展示本地结果（再由用户显式触发在线搜索）；提交在线搜索时同词第 1 页新鲜即直出、5–30min 先展示再以 `forceRefresh=false` 后台重验，cache miss 或显式重试（`forceRefresh=true`）走网络；同词缓存已直展而后台重验失败/为空时保留该缓存列表。
 - 写前 JSON 字节预检复用 `services/trends/cache.ts` 的 256KB 阈值思想（同一 `TREND_DB_PAYLOAD_MAX_BYTES`），超限放弃写。
 
 ## 5. 列表与坐标共享裁决
 
-- 搜索列表不共用趋势坐标；搜索 L1 只活搜索页。
+- 列表顺序与分页缓存按视图隔离：搜索 L1 只活搜索页，Star 列表用 `starred` 命名空间。
 - 图标/坐标层共享：前端图标写入口唯一收口 `services/iconStore.ts::admitIconHit`（空永不覆盖实、搜索 `search_id` / 趋势 `board` 世代门控）。
-- enrich 单向共享：仅具平台 summary 经 `hydrate` 进共享 `trendEnrichCache`；loading 空平台只活当次列表，不进共享。
+- 单仓富卡派生字段三链路双向共享：具平台摘要与已确认 Other 经 `services/repoEnrichCache.ts`（底层即 `trendEnrichCache` / `trendConfirmedOtherCache`）在搜索、趋势与 Star 列表间互通；未确认的 loading 空平台只活当次列表，永不入池（见 ADR-0026 §2.3）。
 
 ## 6. 单一流式路径
 

@@ -4,7 +4,7 @@ use super::Database;
 use rusqlite::{params, Result};
 
 /// API ETag 缓存表最大保留行数（按 `last_checked_at DESC` LRU 淘汰）。
-pub const API_ETAG_CACHE_MAX_ROWS: usize = 1000;
+pub const API_ETAG_CACHE_MAX_ROWS: usize = 3000;
 
 impl Database {
     pub fn get_etag(&self, endpoint_url: &str) -> Result<Option<String>> {

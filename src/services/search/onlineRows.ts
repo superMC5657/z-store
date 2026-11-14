@@ -2,6 +2,7 @@ import type { AppSummary } from '../../types';
 import { normalizeLoadingKey } from '../../lib/platformFilter';
 import { queueAssembledRowIcons, resolveIconWithBuffer } from '../iconStore';
 import { normalizeId } from '../normalizeId';
+import { hydrateRowFromSharedEnrich } from '../repoEnrichCache';
 
 function rowKey(row: Pick<AppSummary, 'id'> | undefined): string {
   return normalizeId(row?.id);
@@ -11,7 +12,8 @@ function rowKey(row: Pick<AppSummary, 'id'> | undefined): string {
  * 在线分页行首绘组装（搜索结果 / GitHub Star 列表共用）：
  * 1. 按归一 id 去重；
  * 2. 经 `resolveIconWithBuffer` 粘性合并旧图标 + M1 缓冲回读（保留 L5 显式空徽章保护）；
- * 3. `queueAssembledRowIcons` 触发 http 远端图标落盘预热（前 30 上限）。
+ * 3. 缺平台的行从三链路共享的单仓富卡池回填平台与真实版本（首帧即出平台徽标）；
+ * 4. `queueAssembledRowIcons` 触发 http 远端图标落盘预热（前 30 上限）。
  */
 export function assembleOnlineRowsWithIcons(
   prev: readonly AppSummary[],
@@ -28,7 +30,7 @@ export function assembleOnlineRowsWithIcons(
     const k = rowKey(m);
     if (!k || seen.has(k)) continue;
     seen.add(k);
-    deduped.push(resolveIconWithBuffer(prevById.get(k), m));
+    deduped.push(hydrateRowFromSharedEnrich(resolveIconWithBuffer(prevById.get(k), m)));
   }
   queueAssembledRowIcons(deduped);
   return deduped;

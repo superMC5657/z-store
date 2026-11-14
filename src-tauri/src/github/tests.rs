@@ -31,7 +31,7 @@ async fn test_fetch_developer_profile_fallback() {
 #[tokio::test]
 async fn test_fetch_starred_page_empty_username_err() {
     let cat = CatalogService::new();
-    let result = cat.fetch_starred_page(Some("   "), None, 1, 20, None).await;
+    let result = cat.fetch_starred_page(Some("   "), None, 1, 20, None, None, None).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("请提供 GitHub 用户名"));
 }

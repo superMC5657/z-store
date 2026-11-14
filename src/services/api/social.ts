@@ -6,6 +6,7 @@ import type {
   OAuthPollResult,
   OAuthUser,
   StarAppResult,
+  StarredFeedCacheEntry,
   StarredPageResult,
   WatchDismissedEntry,
   WatchedAppEntry,
@@ -35,16 +36,41 @@ export async function getDeveloperProfile(developer: string): Promise<DeveloperP
 }
 
 // Star 列表单页：`username` 缺省即当前登录账号（含私有 Star）；缺字段回包按空页计。
+// 后端走 ETag 条件请求（未变 304 零配额）；`forceRefresh` 为手动同步透传位。
 export async function listGithubStarred(
   username: string | undefined,
   page: number,
   perPage: number,
+  forceRefresh = false,
 ): Promise<StarredPageResult> {
-  const res = await tauriInvoke<StarredPageResult>(CMD.listGithubStarred, { username, page, perPage });
-  return {
+  const res = await tauriInvoke<StarredPageResult>(CMD.listGithubStarred, {
+    username,
+    page,
+    perPage,
+    forceRefresh,
+  });
+  const out: StarredPageResult = {
     rows: Array.isArray(res?.rows) ? res.rows : [],
     has_more: res?.has_more === true,
   };
+  if (res?.is_stale === true) out.is_stale = true;
+  return out;
+}
+
+// Star 同步快照读：后端缺席或形态不符时按未命中计。
+export async function getStarredFeedCache(cacheKey: string): Promise<StarredFeedCacheEntry | null> {
+  const row = await tauriInvoke<StarredFeedCacheEntry | null>(CMD.getStarredFeedCache, { cacheKey });
+  if (!row || typeof row.payload_json !== 'string' || typeof row.cached_at !== 'number') return null;
+  return row;
+}
+
+// Star 同步快照写：`ownerScope` 以 `@me:` 开头的快照随登出清除。
+export async function saveStarredFeedCache(
+  cacheKey: string,
+  ownerScope: string,
+  payloadJson: string,
+): Promise<void> {
+  await tauriInvoke(CMD.saveStarredFeedCache, { cacheKey, ownerScope, payloadJson });
 }
 
 export async function getWatchedApps(): Promise<WatchedAppEntry[]> {

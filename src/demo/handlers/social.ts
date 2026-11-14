@@ -2,6 +2,7 @@ import type {
   DeveloperProfile,
   FavoriteEntry,
   StarAppResult,
+  StarredFeedCacheEntry,
   StarredPageResult,
   WatchedAppEntry,
 } from '../../types';
@@ -102,11 +103,40 @@ export function handleListGithubStarred(a: InvokeArgs): StarredPageResult {
   };
 }
 
+/** demo Star 同步快照：内存态透存（刷新页面即清空），与后端 512 KiB 上限同口径。 */
+const demoStarredFeedCache = new Map<string, StarredFeedCacheEntry & { owner_scope: string }>();
+const DEMO_STARRED_FEED_MAX_BYTES = 512 * 1024;
+
+export function handleGetStarredFeedCache(a: InvokeArgs): StarredFeedCacheEntry | null {
+  const key = argStr(a, 'cacheKey').trim();
+  const row = key ? demoStarredFeedCache.get(key) : undefined;
+  return row ? { payload_json: row.payload_json, cached_at: row.cached_at } : null;
+}
+
+export function handleSaveStarredFeedCache(a: InvokeArgs): null {
+  const key = argStr(a, 'cacheKey').trim();
+  const scope = argStr(a, 'ownerScope').trim();
+  const payload = argStr(a, 'payloadJson').trim();
+  if (!key || !scope || !payload) return null;
+  if (new TextEncoder().encode(payload).length > DEMO_STARRED_FEED_MAX_BYTES) {
+    throw new Error('starred_feed_payload_too_large');
+  }
+  demoStarredFeedCache.set(key, {
+    payload_json: payload,
+    cached_at: Math.floor(Date.now() / 1000),
+    owner_scope: scope,
+  });
+  return null;
+}
+
 export function handleGetOAuthUser(): null {
   return null;
 }
 
 export function handleOAuthLogout(): boolean {
+  for (const [key, row] of demoStarredFeedCache) {
+    if (row.owner_scope.startsWith('@me:')) demoStarredFeedCache.delete(key);
+  }
   return true;
 }
 

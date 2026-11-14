@@ -9,8 +9,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../../types';
 import {
+  SEARCH_LIST_FRESH_MS,
+  SEARCH_LIST_MAX_ENTRIES_PER_NAMESPACE,
+  SEARCH_LIST_TTL_MS,
   clearSearchListCache,
+  clearSearchListCacheNamespace,
   findInSearchListCache,
+  readSearchListCacheEntry,
+  touchSearchListCache,
   patchSearchListCacheIcon,
   patchSearchListCacheRows,
   readSearchListCache,
@@ -102,5 +108,90 @@ describe('patchSearchListCacheIcon', () => {
     expect(findInSearchListCache('acme/startool')?.stars).toBe(321);
     expect(findInSearchListCache('ACME/STARTOOL', 'starred')?.description).toBe('starred desc');
     expect(findInSearchListCache('acme/startool', 'search')).toBeUndefined();
+  });
+});
+
+describe('namespace buckets and freshness tiers', () => {
+  it('starred 写满 60 条只淘汰 starred 自身，search 条目完整保留', () => {
+    for (let p = 1; p <= 5; p += 1) {
+      writeSearchListCache({ query: 'q', page: p, perPage: 20 }, [row(`s/${p}`, '')]);
+    }
+    for (let p = 1; p <= 60; p += 1) {
+      writeSearchListCache({ namespace: 'starred', query: 'alice', page: p, perPage: 20 }, [
+        row(`a/${p}`, ''),
+      ]);
+    }
+    for (let p = 1; p <= 5; p += 1) {
+      expect(readSearchListCache({ query: 'q', page: p, perPage: 20 })).toBeDefined();
+    }
+    for (let p = 1; p <= 10; p += 1) {
+      expect(
+        readSearchListCache({ namespace: 'starred', query: 'alice', page: p, perPage: 20 }),
+      ).toBeUndefined();
+    }
+    for (let p = 11; p <= 60; p += 1) {
+      expect(
+        readSearchListCache({ namespace: 'starred', query: 'alice', page: p, perPage: 20 }),
+      ).toBeDefined();
+    }
+    expect(SEARCH_LIST_MAX_ENTRIES_PER_NAMESPACE).toBe(50);
+  });
+
+  it('readSearchListCacheEntry 报告 5min 新鲜、5–30min 可用、30min 或时钟回拨驱逐', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-11-14T10:00:00Z'));
+      const key = { query: 'rustdesk', page: 1, perPage: 20 };
+      writeSearchListCache(key, [row('o/r', '')]);
+      expect(readSearchListCacheEntry(key)?.isFresh).toBe(true);
+      vi.setSystemTime(Date.now() + SEARCH_LIST_FRESH_MS - 1);
+      expect(readSearchListCacheEntry(key)?.isFresh).toBe(true);
+      vi.setSystemTime(Date.now() + 2);
+      const stale = readSearchListCacheEntry(key);
+      expect(stale?.isFresh).toBe(false);
+      expect(stale?.rows).toHaveLength(1);
+      // 续期后回到新鲜。
+      touchSearchListCache(key);
+      expect(readSearchListCacheEntry(key)?.isFresh).toBe(true);
+      vi.setSystemTime(Date.now() + SEARCH_LIST_TTL_MS);
+      expect(readSearchListCacheEntry(key)).toBeUndefined();
+
+      writeSearchListCache(key, [row('o/r', '')]);
+      vi.setSystemTime(Date.now() - 1000);
+      expect(readSearchListCacheEntry(key)).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clearSearchListCacheNamespace('starred', '@me:') 只清私有条目", () => {
+    writeSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: 20 }, [
+      row('o/1', ''),
+    ]);
+    writeSearchListCache({ namespace: 'starred', query: 'torvalds', page: 1, perPage: 20 }, [
+      row('o/2', ''),
+    ]);
+    writeSearchListCache({ query: '@me:alice', page: 1, perPage: 20 }, [row('o/3', '')]);
+    clearSearchListCacheNamespace('starred', '@me:');
+    expect(
+      readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: 20 }),
+    ).toBeUndefined();
+    expect(
+      readSearchListCache({ namespace: 'starred', query: 'torvalds', page: 1, perPage: 20 }),
+    ).toBeDefined();
+    expect(readSearchListCache({ query: '@me:alice', page: 1, perPage: 20 })).toBeDefined();
+    clearSearchListCacheNamespace('starred');
+    expect(
+      readSearchListCache({ namespace: 'starred', query: 'torvalds', page: 1, perPage: 20 }),
+    ).toBeUndefined();
+  });
+
+  it('findInSearchListCache 可限定命名空间', () => {
+    writeSearchListCache({ namespace: 'starred', query: 'alice', page: 1, perPage: 20 }, [
+      row('o/only-starred', ''),
+    ]);
+    expect(findInSearchListCache('o/only-starred')).toBeDefined();
+    expect(findInSearchListCache('o/only-starred', 'starred')).toBeDefined();
+    expect(findInSearchListCache('o/only-starred', 'search')).toBeUndefined();
   });
 });

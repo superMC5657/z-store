@@ -198,7 +198,9 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(installer.selectFolder('/tmp', 't'));
     await swallow(social.toggleFavorite('o/r'));
     await swallow(social.getDeveloperProfile('dev'));
-    await swallow(social.listGithubStarred('user', 2, 20));
+    await swallow(social.listGithubStarred('user', 2, 20, true));
+    await swallow(social.getStarredFeedCache('user'));
+    await swallow(social.saveStarredFeedCache('user', 'user', '{}'));
     await swallow(social.watchApp('o/r'));
     await swallow(social.unwatchApp('o/r'));
     await swallow(social.getWatchNotifications());

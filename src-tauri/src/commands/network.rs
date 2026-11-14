@@ -169,13 +169,39 @@ impl TrendSend {
     }
 }
 
+fn is_github_api_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("api.github.com")
+}
+
+/// 趋势抓取附加请求头：仅 `api.github.com` 带 GitHub API 预设头（含 Token，若有）；其余主机为空。
+fn trends_auth_headers(host: &str, token: Option<&str>) -> reqwest::header::HeaderMap {
+    if is_github_api_host(host) {
+        let mut h = crate::github::http::token_headers(token);
+        // UA 统一由 `send_trends_once_with` 设置，避免重复头。
+        h.remove(reqwest::header::USER_AGENT);
+        h
+    } else {
+        reqwest::header::HeaderMap::new()
+    }
+}
+
 async fn send_trends_once(
     client: &reqwest::Client,
     url: &reqwest::Url,
     timeout: std::time::Duration,
 ) -> TrendSend {
+    send_trends_once_with(client, url, &reqwest::header::HeaderMap::new(), timeout).await
+}
+
+async fn send_trends_once_with(
+    client: &reqwest::Client,
+    url: &reqwest::Url,
+    extra_headers: &reqwest::header::HeaderMap,
+    timeout: std::time::Duration,
+) -> TrendSend {
     let send_fut = client
         .get(url.clone())
+        .headers(extra_headers.clone())
         .header("User-Agent", crate::forge::http::BROWSER_UA_VALUE)
         .send();
     match tokio::time::timeout(timeout, send_fut).await {
@@ -206,8 +232,10 @@ async fn send_direct_first(
 /// github.com / api.github.com 单跳 10s；doforce 直连 5s + 系统代理回退 6s。成功返回 body 文本。错误串内含可机读标记供前端映射：
 /// `upstream status {code}`（HTTP 状态）、`request timeout`（超时）、
 /// `network error`（连接/DNS 等）。完整 URL 永不回显（query 可能含参）。
+/// `api.github.com`（`new` 榜 Search API）附带当前活跃 GitHub Token 并上报限流，
+/// 已登录用户计入自身的认证 Search 配额而非匿名配额；`github.com` HTML 与 doforce 永不携带凭据。
 #[tauri::command]
-pub async fn fetch_trends_text(url: String) -> Result<String, String> {
+pub async fn fetch_trends_text(state: State<'_, AppState>, url: String) -> Result<String, String> {
     let start = std::time::Instant::now();
     let parsed = check_trends_text_url(&url).inspect_err(|e| {
         let mut ev = crate::z_log::WideEvent::new("trends", "fetch rejected").with_started(start);
@@ -231,12 +259,25 @@ pub async fn fetch_trends_text(url: String) -> Result<String, String> {
         .await
     } else {
         // 共享 API 池（跟随系统代理）；10s 语义由外层 timeout 保留。
-        let outcome = send_trends_once(
+        let is_api = is_github_api_host(&host);
+        let token = if is_api {
+            crate::commands::resolve_active_github_token(&state)
+        } else {
+            None
+        };
+        let auth = trends_auth_headers(&host, token.as_deref());
+        let outcome = send_trends_once_with(
             &crate::shared_http_client(),
             &parsed,
+            &auth,
             std::time::Duration::from_secs(10),
         )
         .await;
+        if is_api {
+            if let TrendSend::Resp(ref resp) = outcome {
+                crate::notify_rate_limit("github.com", resp.headers());
+            }
+        }
         (outcome, TrendVia::Direct)
     };
     let resp = match outcome {
@@ -425,7 +466,7 @@ mod trends_fallback_tests {
 
 #[cfg(test)]
 mod trends_text_tests {
-    use super::{check_trends_text_url, decode_truncated_utf8};
+    use super::{check_trends_text_url, decode_truncated_utf8, trends_auth_headers};
 
     #[test]
     fn truncation_cut_inside_multibyte_char_returns_valid_prefix() {
@@ -440,6 +481,28 @@ mod trends_text_tests {
     fn truncation_on_char_boundary_keeps_whole_text() {
         let full = "ab€cd";
         assert_eq!(decode_truncated_utf8(full.as_bytes()[..5].to_vec()), "ab€");
+    }
+
+    #[test]
+    fn auth_headers_only_for_github_api_host() {
+        use reqwest::header::AUTHORIZATION;
+        let api = trends_auth_headers("api.github.com", Some("tok123"));
+        let v = api.get(AUTHORIZATION).and_then(|v| v.to_str().ok()).unwrap_or("");
+        assert!(v.contains("tok123"), "{}", v);
+        assert!(api.get(reqwest::header::USER_AGENT).is_none());
+        assert!(trends_auth_headers("API.GitHub.com", Some("t"))
+            .get(AUTHORIZATION)
+            .is_some());
+        assert!(trends_auth_headers("api.github.com", None)
+            .get(AUTHORIZATION)
+            .is_none());
+        for host in ["github.com", "trend.doforce.dpdns.org"] {
+            assert!(
+                trends_auth_headers(host, Some("tok123")).is_empty(),
+                "{} must stay credential-free",
+                host
+            );
+        }
     }
 
     #[test]

@@ -151,6 +151,20 @@ describe('SearchResultsView online search armed boundary', () => {
     expect(triggerBtn.textContent).toContain('在线搜索');
     fireEvent.click(triggerBtn);
     expect(onSearchOnline).toHaveBeenCalledTimes(1);
+    expect(onSearchOnline).toHaveBeenCalledWith({ forceRefresh: false });
+  });
+
+  it('已搜过再点「重试在线搜索」传 forceRefresh=true', () => {
+    const onSearchOnline = vi.fn();
+    const { getByTestId } = renderOnlineSearch({
+      isOnlineResults: false,
+      onlineSearchPerformed: true,
+      onlineHasMore: false,
+      onlineApps: [],
+      onSearchOnline,
+    });
+    fireEvent.click(getByTestId('search-online-trigger'));
+    expect(onSearchOnline).toHaveBeenCalledWith({ forceRefresh: true });
   });
 
   it('hides online trigger button while local search is still running', () => {

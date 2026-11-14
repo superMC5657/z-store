@@ -41,8 +41,8 @@ interface SearchResultsViewProps extends ViewAppActions {
   isLoadingOnlineMore?: boolean;
   /** 在线下一页：App 负责 page+1 并拼接，失败/限流由 App toast。 */
   onOnlineLoadMore?: () => void;
-  /** 用户显式发起在线搜索。 */
-  onSearchOnline?: () => void;
+  /** 用户显式发起在线搜索：首次在线搜索传 `forceRefresh: false`（可命中列表缓存与 ETag）；已搜过再点「重试」传 `true`。 */
+  onSearchOnline?: (opts?: { forceRefresh?: boolean }) => void;
   /** custom 草稿已存在 id 集：抑制在线段富卡的移入入口。 */
   customIds?: ReadonlySet<string>;
   /** 本地收录全量：本地段/在线段叠加黄标（远端已存在同仓行亦命中，蓝优先）。 */
@@ -226,7 +226,7 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
                 type="button"
                 data-testid="search-online-trigger"
                 className={`btn-fluent ${onlineSearchPerformed ? 'btn-secondary' : 'btn-primary'}`}
-                onClick={onSearchOnline}
+                onClick={() => onSearchOnline({ forceRefresh: onlineSearchPerformed })}
               >
                 <Globe size={14} />
                 <span>{onlineSearchPerformed ? t('search.retry_online') : t('search.search_online_btn')}</span>

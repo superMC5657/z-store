@@ -36,6 +36,12 @@ import {
   readSearchListCache,
   writeSearchListCache,
 } from '../../services/search/searchListCache';
+import { clearTrendEnrichCache } from '../../services/trends/enrich';
+import {
+  isSharedRepoConfirmedOther,
+  readSharedRepoEnrich,
+  recordSharedConfirmedOthers,
+} from '../../services/repoEnrichCache';
 
 function makeRow(id: string, platforms: string[] = []): AppSummary {
   const [owner, repo] = id.split('/');
@@ -93,6 +99,7 @@ function applyList(setter: { mock: { calls: unknown[][] } }, prev: AppSummary[])
 beforeEach(() => {
   vi.clearAllMocks();
   clearSearchListCache();
+  clearTrendEnrichCache();
 });
 
 afterEach(() => {
@@ -183,6 +190,56 @@ describe('usePlatformBackfill：lazyBackfillPlatforms', () => {
       rendered.result.current.lazyBackfillPlatforms(rows, 0);
     });
     expect(mocks.getPlatformsLite).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('usePlatformBackfill：三链路共享富卡池', () => {
+  it('共享池已确认 Other 的未收录行直接落定，不发 lite', async () => {
+    recordSharedConfirmedOthers(['ext/other']);
+    const { rendered } = renderBackfill();
+    await act(async () => {
+      rendered.result.current.lazyBackfillPlatforms(
+        [{ ...makeRow('ext/other'), is_cataloged: false }],
+        0,
+      );
+    });
+    expect(mocks.getPlatformsLite).not.toHaveBeenCalled();
+    expect(rendered.result.current.platformResolvedOtherIds.has('ext/other')).toBe(true);
+  });
+
+  it('强刷不走共享池快径', async () => {
+    recordSharedConfirmedOthers(['ext/other']);
+    mocks.getPlatformsLite.mockResolvedValue({ id: 'ext/other', platforms: [] });
+    const { rendered } = renderBackfill();
+    await act(async () => {
+      rendered.result.current.lazyBackfillPlatforms(
+        [{ ...makeRow('ext/other'), is_cataloged: false }],
+        0,
+        true,
+      );
+    });
+    expect(mocks.getPlatformsLite).toHaveBeenCalledWith('ext/other', true);
+  });
+
+  it('lite 结果写回共享池（具平台与确认 Other），收录行不入池', async () => {
+    mocks.getPlatformsLite.mockImplementation(async (id: string) => ({
+      id,
+      platforms: id === 'ext/win' ? ['windows'] : [],
+    }));
+    const { rendered } = renderBackfill();
+    await act(async () => {
+      rendered.result.current.lazyBackfillPlatforms(
+        [
+          { ...makeRow('ext/win'), is_cataloged: false },
+          { ...makeRow('ext/none'), is_cataloged: false },
+          { ...makeRow('cat/none'), is_cataloged: true },
+        ],
+        0,
+      );
+    });
+    expect(readSharedRepoEnrich('ext/win')?.platforms).toEqual(['windows']);
+    expect(isSharedRepoConfirmedOther('ext/none')).toBe(true);
+    expect(isSharedRepoConfirmedOther('cat/none')).toBe(false);
   });
 });
 

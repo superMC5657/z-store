@@ -5,9 +5,11 @@ import { tauriApi, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
 import { assembleOnlineRowsWithIcons } from '../../services/search/onlineRows';
 import {
   readSearchListCache,
+  readSearchListCacheEntry,
   sweepExpiredSearchListCache,
   writeSearchListCache,
 } from '../../services/search/searchListCache';
+import { recordSharedRepoPlatforms } from '../../services/repoEnrichCache';
 import { zlogWarn } from '../../lib/z-log';
 
 interface UseSearchStateParams {
@@ -184,8 +186,10 @@ export function useSearchState({
     }
   };
 
-  // 第二阶段：在线搜索（由用户在搜索结果页显式选择触发）
-  const handleSearchSubmit = async (queryToSubmit?: string) => {
+  // 第二阶段：在线搜索（由用户在搜索结果页显式选择触发）。
+  // `forceRefresh` 仅显式「重试在线搜索」传 true：跳过列表缓存与后端 ETag/TTL 快径直探远端。
+  const handleSearchSubmit = async (queryToSubmit?: string, opts?: { forceRefresh?: boolean }) => {
+    const forceRefresh = opts?.forceRefresh === true;
     const q = (queryToSubmit !== undefined ? queryToSubmit : searchQueryRef.current).trim();
     if (!q) return;
     // 搜索列表缓存 sweep 过期。
@@ -238,12 +242,15 @@ export function useSearchState({
         }
       }
 
-      // 搜索列表缓存：提交前先读当前搜索词的搜索列表缓存，
-      // 后台仍 searchAppsOnline revalidate（沿用 searchSeqRef/guardFreshSearch 防串）；
-      // 换词冷启动的 loading 平台每次重查（lazyBackfill 照常跑，不跳过）。
+      // 搜索列表缓存（非强刷）：命中第 1 页先直展；5min 内新鲜即零网络返回，
+      // 5–30min 先展示再后台 `searchAppsOnline(force=false)` 走后端 ETag 静默重验
+      // （沿用 searchSeqRef/guardFreshSearch 防串）。缺平台行照常懒回填（不强穿 TTL）。
       let hadCacheHit = false;
-      const listCached = readSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE });
-      if (listCached && listCached.length > 0) {
+      const cacheHit = forceRefresh
+        ? undefined
+        : readSearchListCacheEntry({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE });
+      const listCached = cacheHit?.rows;
+      if (cacheHit && listCached && listCached.length > 0) {
         const assembledCached = assembleOnlineRowsWithIcons([], listCached);
         if (assembledCached.length > 0) {
           hadCacheHit = true;
@@ -258,7 +265,8 @@ export function useSearchState({
           const cachedHasMore = listCached.length >= ONLINE_SEARCH_PER_PAGE;
           setOnlineHasMore(cachedHasMore);
           onlineHasMoreRef.current = cachedHasMore;
-          lazyBackfillPlatforms(listCached, seq, true);
+          lazyBackfillPlatforms(assembledCached, seq, false);
+          if (cacheHit.isFresh) return;
         }
       }
 
@@ -267,7 +275,7 @@ export function useSearchState({
       // 首个回声到达即立期望（下行回声见下，直播首事件见 App 侧），之后异 sid 才丢。
       currentSearchIdRef.current = '';
       try {
-        const pageRes = await tauriApi.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE, true);
+        const pageRes = await tauriApi.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE, forceRefresh);
         if (guardFreshSearch(seq)) return;
         const onlineResults = pageRes.rows;
         // 以后端回声为唯一真源。
@@ -279,7 +287,9 @@ export function useSearchState({
           const deduped = assembleOnlineRowsWithIcons(prevForSameQuery, onlineResults);
           onlineAppsRef.current = deduped;
           setOnlineApps(deduped);
-          lazyBackfillPlatforms(onlineResults, seq, true);
+          // 收录投影或 `releases/latest` 回填已带平台的行回哺共享富卡池。
+          recordSharedRepoPlatforms(deduped);
+          lazyBackfillPlatforms(deduped, seq, forceRefresh);
           setIsOnlineResultSet(true);
           isOnlineResultSetRef.current = true;
           onlinePageRef.current = 1;
@@ -288,9 +298,12 @@ export function useSearchState({
           const hasMore = onlineResults.length >= ONLINE_SEARCH_PER_PAGE;
           setOnlineHasMore(hasMore);
           onlineHasMoreRef.current = hasMore;
-          // 搜索列表缓存（薄：只存行，不掺排名/平台判定）
-          writeSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE }, deduped);
-          showToast(t('search.online_success'), 'success');
+          // 搜索列表缓存（薄：只存行，不掺排名/平台判定）；联网失败回退的旧载荷不入缓存，下次仍联网重试。
+          if (!pageRes.is_stale) {
+            writeSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE }, deduped);
+          }
+          // 后台重验静默完成，不重复提示。
+          if (!hadCacheHit) showToast(t('search.online_success'), 'success');
         } else {
           // 同词缓存已直展时不清空。
           if (hadCacheHit) return;
@@ -348,7 +361,7 @@ export function useSearchState({
         }
         return toAppend.length > 0 ? [...prev, ...toAppend] : prev;
       });
-      lazyBackfillPlatforms(cachedMore, seq, true);
+      lazyBackfillPlatforms(fresh, seq, false);
       const cachedHasMore = cachedMore.length >= ONLINE_SEARCH_PER_PAGE;
       onlinePageRef.current = nextPage;
       setOnlineHasMore(cachedHasMore);
@@ -363,7 +376,7 @@ export function useSearchState({
         currentSearchIdRef.current || undefined,
         nextPage,
         ONLINE_SEARCH_PER_PAGE,
-        true,
+        false,
       );
       if (!settleMoreEcho(currentSearchIdRef, seq, searchSeqRef.current, moreRes.sid || '')) return;
       const more = moreRes.rows;
@@ -383,14 +396,17 @@ export function useSearchState({
           }
           return fresh.length > 0 ? [...prev, ...fresh] : prev;
         });
-        lazyBackfillPlatforms(more, seq, true);
+        recordSharedRepoPlatforms(assembledMore);
+        lazyBackfillPlatforms(assembledMore, seq, false);
         const hasMore = more.length >= ONLINE_SEARCH_PER_PAGE;
         onlinePageRef.current = nextPage;
         setOnlineHasMore(hasMore);
         onlineHasMoreRef.current = hasMore;
         // 搜索列表缓存（薄：只存行，不掺排名/平台判定；与首屏同口径存组装行，
-        // 粘性合并 + M1 缓冲回填已落定，回访即新图不丢图）
-        writeSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE }, assembledMore);
+        // 粘性合并 + M1 缓冲回填已落定，回访即新图不丢图）；联网失败回退的旧载荷不入缓存。
+        if (!moreRes.is_stale) {
+          writeSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE }, assembledMore);
+        }
       } else {
         setOnlineHasMore(false);
         onlineHasMoreRef.current = false;

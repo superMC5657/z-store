@@ -199,6 +199,17 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_trend_board_cache_board ON trend_board_cache(board);
 
+            -- Star 同步快照（纯透存，前端判新鲜度；owner_scope 以 `@me:` 开头的为账号私有，登出即清）
+            CREATE TABLE IF NOT EXISTS starred_feed_cache (
+                cache_key TEXT PRIMARY KEY,
+                owner_scope TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL DEFAULT 0,
+                cached_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_starred_feed_cache_cached_at ON starred_feed_cache(cached_at DESC);
+
             CREATE TABLE IF NOT EXISTS asset_cache (
                 url TEXT PRIMARY KEY,
                 hash TEXT NOT NULL,

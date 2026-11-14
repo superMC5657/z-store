@@ -38,7 +38,7 @@
   - `app`：启动横幅、配置/DB 异常、Panic、用户数据导入、深链解析失败
   - `catalog`：清单同步、自定义源审计、License Gate 审计
   - `search`：在线搜索与直查
-  - `detail`：应用详情、Multi-Forge、`platforms-lite` 失败降级
+  - `detail`：应用详情、Multi-Forge、`platforms-lite` 失败降级、Star 列表分页（`starred page ok/stale`）
   - `trends`：抓榜失败 / 429 限流 / 截断 / enrich 部分缺席汇总；doforce 经系统代理回退的抓取带 `via=proxy`（成功记一行 `fetch ok`）
   - `download`：安装包下载起止、镜像自动兜底、SHA-256 校验失败、本地命中跳过
   - `installer`：安装/卸载起止、MSI 静默降级向导、用户取消、幽灵应用隐藏
