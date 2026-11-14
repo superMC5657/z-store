@@ -157,3 +157,55 @@ fn clear_oauth_session_purges_private_starred_snapshots_only() {
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn clear_oauth_session_purges_private_repo_cards_and_search_lists_only() {
+    use crate::db::RepoCardUpsert;
+    use crate::models::{AppCore, AppSummary};
+    let db = crate::db::Database::open_in_memory().expect("in-memory db");
+    let card = |id: &str, is_private: bool| {
+        let (owner, repo) = id.split_once('/').unwrap();
+        RepoCardUpsert {
+            summary: AppSummary {
+                core: AppCore {
+                    id: id.to_string(),
+                    name: repo.to_string(),
+                    description_en: None,
+                    owner: owner.to_string(),
+                    repo: repo.to_string(),
+                    icon: String::new(),
+                    icon_bg: String::new(),
+                    description: "real".to_string(),
+                    stars: 1,
+                    forks: 0,
+                    license: "MIT".to_string(),
+                    latest_version: "v1".to_string(),
+                    category: "external".to_string(),
+                    category_name: "跨平台开源".to_string(),
+                    is_verified: false,
+                    forge: None,
+                    forge_host: None,
+                    homepage: None,
+                    platforms: vec![],
+                    is_cataloged: None,
+                    source: None,
+                    status: None,
+                    added_at: None,
+                },
+            },
+            confirmed_other: false,
+            is_private: Some(is_private),
+        }
+    };
+    db.upsert_repo_cards_batch(&[card("me/secret", true), card("pub/tool", false)])
+        .unwrap();
+    db.save_search_list_cache("mine|1|20", "mine", "{}", true).unwrap();
+    db.save_search_list_cache("rust|1|20", "rust", "{}", false).unwrap();
+
+    clear_oauth_session(&db).expect("clear session");
+
+    assert!(db.get_repo_card("me/secret").unwrap().is_none());
+    assert!(db.get_repo_card("pub/tool").unwrap().is_some());
+    assert!(db.get_search_list_cache("mine|1|20").unwrap().is_none());
+    assert!(db.get_search_list_cache("rust|1|20").unwrap().is_some());
+}

@@ -5,8 +5,7 @@
  * - 盘 confirmedOther 随驱逐清除（写透后重读无残留）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as clientModule from '../api/client';
-import { clearTrendsCache, saveBoardCacheMerged } from './cache';
+import { clearTrendsCache } from './cache';
 import {
   clearTrendEnrichCache,
   markConfirmedOthersFreshNow,
@@ -17,7 +16,7 @@ import {
   subscribeTrendConfirmedOtherChanges,
   sweepExpiredTrendEnrichCache,
 } from './enrich';
-import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
+import { makeEnrichedApp } from '../../views/test-utils/trendFixture';
 
 beforeEach(() => {
   clearTrendsCache();
@@ -113,56 +112,17 @@ describe('具平台驱逐删标记走同一 emit（写透联动）', () => {
   });
 });
 
-describe('驱逐写透：具平台到→盘 confirmedOther 清', () => {
-  it('save 合并口过滤具平台确认，重读无残留', async () => {
-    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const l2Store = new Map<string, { payload_json: string; cached_at: number }>();
-    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-      if (cmd === 'get_trend_board_cache') {
-        const k = (args as { cacheKey: string }).cacheKey;
-        return l2Store.get(k) ?? null;
-      }
-      if (cmd === 'save_trend_board_cache') {
-        const k = (args as { cacheKey: string }).cacheKey;
-        const payload = (args as { payloadJson: string }).payloadJson;
-        l2Store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
-        return undefined;
-      }
-      return undefined;
-    });
-    const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-    // 先确认 loading 并落盘：盘含确认。
+describe('具平台到场即清确认标记（内存所见即所得）', () => {
+  it('确认 Other 后具平台到达：标记移除且富卡升级为具平台', () => {
     markTrendConfirmedOther('acme/atlas');
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [], description: 'other' }),
     });
-    await saveBoardCacheMerged('weekly||', 'weekly', repos);
-    const first = JSON.parse([...l2Store.values()][0]?.payload_json as string) as {
-      confirmedOther?: string[];
-    };
-    expect(first.confirmedOther ?? []).toContain('acme/atlas');
-    // 具平台到场驱逐（put emit unmark，订阅方据此写透；此处模拟订阅写透调合并口）。
-    const events: Array<{ kind: string; keys: readonly string[] }> = [];
-    const unsub = subscribeTrendConfirmedOtherChanges((kind, keys) => {
-      events.push({ kind, keys });
+    expect(snapshotTrendConfirmedOthers()).toContain('acme/atlas');
+    putTrendEnrichMemory({
+      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
     });
-    try {
-      putTrendEnrichMemory({
-        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
-      });
-      expect(events).toHaveLength(1);
-      expect(events[0]?.kind).toBe('unmark');
-      // 写透：合并口过滤具平台确认，盘 cleared。
-      await saveBoardCacheMerged('weekly||', 'weekly', repos);
-      const second = JSON.parse([...l2Store.values()][0]?.payload_json as string) as {
-        confirmedOther?: string[];
-        enrich?: Record<string, { platforms?: string[] }>;
-      };
-      expect(second.confirmedOther ?? []).not.toContain('acme/atlas');
-      expect(second.enrich?.['acme/atlas']?.platforms).toEqual(['windows']);
-      expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
-    } finally {
-      unsub();
-    }
+    expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
+    expect(isTrendConfirmedOtherFresh('acme/atlas')).toBe(false);
   });
 });

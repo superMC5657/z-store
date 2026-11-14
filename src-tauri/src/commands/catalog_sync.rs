@@ -294,6 +294,8 @@ fn apply_manifest_to_db(
         )
         .map_err(|e| format!("保存收录清单到数据库失败: {}", e))?;
     state.catalog.sync_from_db(&db);
+    // 新转正的仓库改由精选目录承接，清除其单仓富卡旧行。
+    let _ = db.purge_cataloged_repo_cards();
     Ok(graduated)
 }
 

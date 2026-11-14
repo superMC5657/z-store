@@ -1,21 +1,55 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as clientModule from '../api/client';
-import {
-  buildTrendsCacheKey,
-  clearTrendsCache,
-  getDbTrendCache,
-  saveBoardCacheMerged,
-  saveDbTrendCache,
-} from './cache';
+import { buildTrendsCacheKey, clearTrendsCache, getDbTrendCache } from './cache';
 import {
   clearTrendEnrichCache,
   putTrendEnrichMemory,
   markTrendConfirmedOther,
   snapshotTrendEnrichCache,
 } from './enrich';
-import { fetchTrendsResult } from '../trends';
-import { tauriApi } from '../api';
+import { createTrendBoardSession, fetchTrendsResult } from '../trends';
+import { CMD, tauriApi } from '../api';
+import type { AppSummary, HydratedRepoCard, TrendsResult } from '../../types';
 import { makeTrendRepo, makeEnrichedApp } from '../../views/test-utils/trendFixture';
+
+function v2Index(ids: string[]): string {
+  return JSON.stringify({ v: 2, items: ids.map((id, i) => ({ id, stars: 1000 - i })) });
+}
+
+function hydrated(summary: AppSummary, patch: Partial<HydratedRepoCard> = {}): HydratedRepoCard {
+  return { summary, confirmed_other: false, updated_at: Math.floor(Date.now() / 1000), ...patch };
+}
+
+/** 冷启动：L2 v2 排行索引 + `repo_card_cache` 批量水合（经 tauriInvoke mock）。 */
+function mockColdStart(boardPayload: string, cards: Record<string, HydratedRepoCard>) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const batchCalls: string[][] = [];
+  vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
+    if (cmd === CMD.getTrendBoardCache) return { payload_json: boardPayload, cached_at: nowSec - 60 };
+    if (cmd === CMD.getRepoCardsBatch) {
+      const ids = (args as { ids: string[] }).ids;
+      batchCalls.push(ids);
+      return ids.map((id) => cards[id] ?? null);
+    }
+    return undefined;
+  });
+  return batchCalls;
+}
+
+async function hydrateSession(result: TrendsResult) {
+  const session = createTrendBoardSession();
+  session.start();
+  session.syncBoard({ trendResult: result, activeBoard: 'weekly', trendFetchOpts: {} });
+  session.syncEnrichment({
+    trendResult: result,
+    activeBoard: 'weekly',
+    trendFetchOpts: {},
+    displayItems: result.repos.map((repo) => ({ type: 'uncataloged' as const, repo })),
+    boardReady: true,
+    consumeForceEnrich: () => false,
+  });
+  return session;
+}
 
 describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', () => {
   beforeEach(() => {
@@ -30,60 +64,73 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     vi.restoreAllMocks();
   });
 
-  it('已确认 Other 落盘后重挂直展 Other 富卡（确认集随信封，不闪裸行，无需网络）', async () => {
+  it('冷启动：v2 排行索引 + repo_card_cache 批量水合直展已确认 Other 富卡（零网络、零 enrich）', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
-    const loading = makeEnrichedApp({ id: 'acme/atlas', platforms: [], icon: 'https://x/atlas.png' });
-
-    // 落盘：富信封含已确认 loading（未确认 loading 永不落盘，此处随确认集落盘）
-    const saved: string[] = [];
-    const saveSpy = vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-      if (cmd === 'save_trend_board_cache') {
-        saved.push((args as { payloadJson: string }).payloadJson);
-      }
-      return undefined;
+    const batchCalls = mockColdStart(v2Index(['acme/atlas', 'acme/noicon']), {
+      'acme/atlas': hydrated(makeEnrichedApp({ id: 'acme/atlas', platforms: [], icon: 'https://x/atlas.png' }), {
+        confirmed_other: true,
+      }),
+      'acme/noicon': hydrated(makeEnrichedApp({ id: 'acme/noicon', platforms: [], icon: '' }), {
+        confirmed_other: true,
+      }),
     });
-    await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/atlas': loading }, ['acme/atlas']);
-    expect(saveSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(saved[0] as string) as {
-      v: number;
-      repos: unknown[];
-      enrich: Record<string, { platforms: string[] }>;
-      confirmedOther: string[];
-    };
-    expect(payload.v).toBe(1);
-    expect(payload.enrich['acme/atlas']).toBeDefined();
-    expect(payload.enrich['acme/atlas']?.platforms).toEqual([]);
-    expect(payload.confirmedOther).toContain('acme/atlas');
-    saveSpy.mockRestore();
-
-    // 重挂：清内存模拟重启，L2 新鲜命中
-    clearTrendEnrichCache();
-    expect(snapshotTrendEnrichCache(repos)).toEqual({});
-    const nowSec = Math.floor(Date.now() / 1000);
     const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
-    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
-      if (cmd === 'get_trend_board_cache') {
-        return { payload_json: saved[0], cached_at: nowSec - 60 };
-      }
-      return undefined;
-    });
-
+    const enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos');
     const res = await fetchTrendsResult('weekly');
     expect(res.status).toBe('ok');
-    expect(res.repos).toHaveLength(1);
-    // L2 富信封已 hydrate 进内存：确认集先回填，loading 随确认进内存，快照直展 Other 富卡，无需网络
-    const snap = snapshotTrendEnrichCache(res.repos);
-    expect(snap['acme/atlas']).toBeDefined();
-    expect(snap['acme/atlas']?.platforms).toEqual([]);
-    expect(networkSpy).not.toHaveBeenCalled();
+    expect(res.repos.map((r) => r.id)).toEqual(['acme/atlas', 'acme/noicon']);
+    // L2 读盘零副作用：富卡由会话水合承接。
+    expect(snapshotTrendEnrichCache(res.repos)).toEqual({});
+
+    const session = await hydrateSession(res);
+    try {
+      await vi.waitFor(() => {
+        const snap = session.getSnapshot();
+        expect(snap.enrichedApps['acme/atlas']?.icon).toBe('https://x/atlas.png');
+        expect(snap.enrichedApps['acme/noicon']).toBeDefined();
+        expect(snap.confirmedOtherIds.has('acme/atlas')).toBe(true);
+        expect(snap.confirmedOtherIds.has('acme/noicon')).toBe(true);
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(batchCalls).toEqual([['acme/atlas', 'acme/noicon']]);
+      expect(networkSpy).not.toHaveBeenCalled();
+      expect(enrichSpy).not.toHaveBeenCalled();
+      // 已确认 Other 写回共享池，跨视图可见。
+      expect(snapshotTrendEnrichCache(res.repos)['acme/atlas']?.platforms).toEqual([]);
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it('冷启动：水合缺失或超 12h 的卡片才进 enrich', async () => {
+    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
+    const staleSecs = Math.floor(Date.now() / 1000) - 13 * 3600;
+    mockColdStart(v2Index(['acme/fresh', 'acme/old', 'acme/missing']), {
+      'acme/fresh': hydrated(makeEnrichedApp({ id: 'acme/fresh', platforms: ['windows'] })),
+      'acme/old': hydrated(makeEnrichedApp({ id: 'acme/old', platforms: ['linux'] }), { updated_at: staleSecs }),
+    });
+    const enrichSpy = vi
+      .spyOn(tauriApi, 'enrichTrendRepos')
+      .mockImplementation(async (rs) => rs.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: ['macos'] })));
+    const res = await fetchTrendsResult('weekly');
+    const session = await hydrateSession(res);
+    try {
+      await vi.waitFor(() => expect(enrichSpy).toHaveBeenCalledTimes(1));
+      const requested = enrichSpy.mock.calls[0][0].map((r) => `${r.owner}/${r.repo}`).sort();
+      expect(requested).toEqual(['acme/missing', 'acme/old']);
+      await vi.waitFor(() => {
+        expect(session.getSnapshot().enrichedApps['acme/missing']?.platforms).toEqual(['macos']);
+      });
+      expect(session.getSnapshot().enrichedApps['acme/fresh']?.platforms).toEqual(['windows']);
+    } finally {
+      session.dispose();
+    }
   });
 
   it('L2 过期后才重抓网络（weekly cached_at 超 12h 按 miss；daily 按 1h）', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
-    const loading = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
-    const envelope = JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': loading } });
+    const envelope = v2Index(repos.map((r) => r.id));
     const nowSec = Math.floor(Date.now() / 1000);
 
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
@@ -110,9 +157,7 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
 
   it('读侧 elapsed<0 按过期（未来 cached_at 不直展）', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-    const loading = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
-    const envelope = JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': loading } });
+    const envelope = v2Index(['acme/atlas']);
     const futureSec = Math.floor(Date.now() / 1000) + 3600;
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
       payload_json: envelope,
@@ -130,77 +175,11 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     expect(snap['acme/atlas']?.platforms).toEqual(['windows']);
   });
 
-  it('无图标已确认 Other 重挂仍富卡（icon 空即保留，仅禁 data:）', async () => {
-    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const repos = [makeTrendRepo({ id: 'acme/noicon', stars: 500 })];
-    // 无 token 时慢探不跑，enrich 常无图标（icon 空串）
-    const loadingNoIcon = makeEnrichedApp({ id: 'acme/noicon', platforms: [], icon: '' });
-    const saved: string[] = [];
-    const saveSpy = vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-      if (cmd === 'save_trend_board_cache') {
-        saved.push((args as { payloadJson: string }).payloadJson);
-      }
-      return undefined;
-    });
-    await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/noicon': loadingNoIcon }, [
-      'acme/noicon',
-    ]);
-    expect(saveSpy).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(saved[0] as string).enrich['acme/noicon']).toBeDefined();
-    saveSpy.mockRestore();
-
-    // 重挂：读盘先回填确认集，已确认 loading 直展富卡
-    clearTrendEnrichCache();
-    const nowSec = Math.floor(Date.now() / 1000);
-    const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
-    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
-      if (cmd === 'get_trend_board_cache') {
-        return { payload_json: saved[0], cached_at: nowSec - 60 };
-      }
-      return undefined;
-    });
-    const res = await fetchTrendsResult('weekly');
-    expect(res.status).toBe('ok');
-    const snap = snapshotTrendEnrichCache(res.repos);
-    expect(snap['acme/noicon']).toBeDefined();
-    expect(snap['acme/noicon']?.platforms).toEqual([]);
-    expect(networkSpy).not.toHaveBeenCalled();
-  });
-
-  it('合并写盘 await 落稳不丢：裸存不得覆盖已有富信封', async () => {
-    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
-    const rich = makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], icon: 'https://x/a.png' });
-    const richEnvelope = JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': rich } });
-    const nowSec = Math.floor(Date.now() / 1000);
-    const saved: Array<{ payloadJson: string }> = [];
-    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-      if (cmd === 'get_trend_board_cache') {
-        return { payload_json: richEnvelope, cached_at: nowSec - 60 };
-      }
-      if (cmd === 'save_trend_board_cache') {
-        saved.push(args as { payloadJson: string });
-      }
-      return undefined;
-    });
-    // 关闭前/主体落盘统一走合并口：await 返回时 invoke 已完成，富条目保留
-    await saveBoardCacheMerged('weekly||', 'weekly', repos);
-    expect(saved).toHaveLength(1);
-    const payload = JSON.parse(saved[0]?.payloadJson as string) as {
-      v: number;
-      enrich: Record<string, { platforms: string[] }>;
-    };
-    expect(payload.v).toBe(1);
-    expect(payload.enrich['acme/atlas']?.platforms).toEqual(['windows']);
-  });
-
   it('归一 key 直命中：大小写/空格归一后单次读盘命中', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const newKey = buildTrendsCacheKey('weekly', { language: ' Python ' });
     expect(newKey).toBe('weekly|python|');
-    const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 12000 })];
-    const rich = makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], icon: 'https://x/a.png' });
-    const richEnvelope = JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': rich } });
+    const richEnvelope = v2Index(['acme/atlas']);
     const nowSec = Math.floor(Date.now() / 1000);
     const seenKeys: string[] = [];
     const savedKeys: string[] = [];
@@ -225,8 +204,6 @@ describe('SWR 旧富卡直展：已确认 Other 落盘后重挂直展富卡', ()
     expect(seenKeys).toEqual([newKey]);
     // 读命中不触发回迁写
     expect(savedKeys).toEqual([]);
-    // 富卡进内存，直展
-    expect(snapshotTrendEnrichCache(res.repos)['acme/atlas']?.platforms).toEqual(['windows']);
   });
 });
 
@@ -243,62 +220,27 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
     vi.restoreAllMocks();
   });
 
-  it('有真实图标与无图标空 icon 重挂都直展富卡', async () => {
+  it('有真实图标与无图标空 icon 的卡片冷启动水合后都直展富卡', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const repos = [
-      makeTrendRepo({ id: 'acme/real', stars: 9000 }),
-      makeTrendRepo({ id: 'acme/bare', stars: 100 }),
-    ];
-    const realIcon = makeEnrichedApp({
-      id: 'acme/real',
-      platforms: ['windows'],
-      icon: 'https://simpleicons.org/icons/rust.svg',
+    mockColdStart(v2Index(['acme/real', 'acme/bare']), {
+      'acme/real': hydrated(
+        makeEnrichedApp({ id: 'acme/real', platforms: ['windows'], icon: 'https://simpleicons.org/icons/rust.svg' }),
+      ),
+      'acme/bare': hydrated(makeEnrichedApp({ id: 'acme/bare', platforms: [], icon: '' }), { confirmed_other: true }),
     });
-    const emptyIcon = makeEnrichedApp({ id: 'acme/bare', platforms: [], icon: '' });
-    const saved: string[] = [];
-    const saveSpy = vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-      if (cmd === 'save_trend_board_cache') {
-        saved.push((args as { payloadJson: string }).payloadJson);
-      }
-      return undefined;
-    });
-    await saveDbTrendCache(
-      'weekly||',
-      'weekly',
-      repos,
-      {
-        'acme/real': realIcon,
-        'acme/bare': emptyIcon,
-      },
-      ['acme/bare'],
-    );
-    expect(saveSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(saved[0] as string) as {
-      v: number;
-      enrich: Record<string, { icon: string; platforms: string[] }>;
-    };
-    expect(payload.enrich['acme/real']?.icon).toBe('https://simpleicons.org/icons/rust.svg');
-    expect(payload.enrich['acme/bare']).toBeDefined();
-    expect(payload.enrich['acme/bare']?.icon).toBe('');
-    saveSpy.mockRestore();
-
-    // 重挂：两者都直展富卡，无需网络
-    clearTrendEnrichCache();
-    const nowSec = Math.floor(Date.now() / 1000);
     const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
-    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
-      if (cmd === 'get_trend_board_cache') {
-        return { payload_json: saved[0], cached_at: nowSec - 60 };
-      }
-      return undefined;
-    });
     const res = await fetchTrendsResult('weekly');
-    expect(res.status).toBe('ok');
-    const snap = snapshotTrendEnrichCache(res.repos);
-    expect(snap['acme/real']?.icon).toBe('https://simpleicons.org/icons/rust.svg');
-    expect(snap['acme/bare']).toBeDefined();
-    expect(snap['acme/bare']?.platforms).toEqual([]);
-    expect(networkSpy).not.toHaveBeenCalled();
+    const session = await hydrateSession(res);
+    try {
+      await vi.waitFor(() => {
+        const snap = session.getSnapshot().enrichedApps;
+        expect(snap['acme/real']?.icon).toBe('https://simpleicons.org/icons/rust.svg');
+        expect(snap['acme/bare']?.platforms).toEqual([]);
+      });
+      expect(networkSpy).not.toHaveBeenCalled();
+    } finally {
+      session.dispose();
+    }
   });
 
   it('图标回填只做升级：空图标不覆盖已有真实图标，平台照常治愈', async () => {

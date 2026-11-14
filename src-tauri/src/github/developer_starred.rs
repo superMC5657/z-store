@@ -10,6 +10,8 @@ pub const STARRED_PAGE_MAX: u32 = 100;
 pub struct StarredRepoPayload {
     pub coord: crate::icons::RepoCoord,
     pub payload: String,
+    /// 仓库 JSON 标记为私有（`private == true` 或 `visibility == "private"`）。
+    pub is_private: bool,
 }
 
 /// GitHub 单页 Star 列表（按 Star 时间倒序）。
@@ -67,7 +69,13 @@ pub fn parse_starred_payloads(body: &str) -> Result<Vec<StarredRepoPayload>, Str
                 return None;
             }
             let id = crate::forge::canonical_app_id(&full_name)?;
+            let is_private = item.get("private").and_then(|v| v.as_bool()) == Some(true)
+                || item
+                    .get("visibility")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|v| v.eq_ignore_ascii_case("private"));
             Some(StarredRepoPayload {
+                is_private,
                 coord: crate::icons::RepoCoord {
                     id,
                     owner: owner.to_string(),

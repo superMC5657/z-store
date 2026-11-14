@@ -12,7 +12,6 @@ import { makeApp } from './test-utils/filterFixture';
 import { tauriApi } from '../services/api';
 import * as clientModule from '../services/api/client';
 import { clearTrendEnrichCache, clearTrendsCache, snapshotTrendEnrichCache } from '../services/trends';
-import type { TrendRepo } from '../types';
 
 describe('裸行直展：未就绪展裸行不展骨架', () => {
   (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
@@ -67,24 +66,31 @@ describe('裸行直展：未就绪展裸行不展骨架', () => {
     expect(screen.queryByTestId('trends-skeleton')).toBeNull();
   });
 
-  it('就绪展盘值免重搜：L2 具平台直展富卡，零 enrich/lite', async () => {
+  it('就绪展盘值免重搜：L2 排行索引 + repo_card_cache 具平台卡片直展富卡，零 enrich/lite', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    // L2 盘：三仓具平台富信封 + 无确认集（具平台无需确认）。
-    const repos = [
-      { id: 'acme/atlas', owner: 'acme', repo: 'atlas', name: 'acme/atlas', stars: 12000, url: 'https://github.com/acme/atlas' },
-      { id: 'acme/beacon', owner: 'acme', repo: 'beacon', name: 'acme/beacon', stars: 1500, url: 'https://github.com/acme/beacon' },
-      { id: 'acme/comet', owner: 'acme', repo: 'comet', name: 'acme/comet', stars: 1200, url: 'https://github.com/acme/comet' },
-    ] as unknown as TrendRepo[];
-    const enrich = {
+    // L2：三仓 v2 排行索引；单仓富卡由 repo_card_cache 批量水合（具平台无需确认）。
+    const index = JSON.stringify({
+      v: 2,
+      items: [
+        { id: 'acme/atlas', stars: 12000 },
+        { id: 'acme/beacon', stars: 1500 },
+        { id: 'acme/comet', stars: 1200 },
+      ],
+    });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const cards: Record<string, ReturnType<typeof makeEnrichedApp>> = {
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: ['macos'] }),
       'acme/comet': makeEnrichedApp({ id: 'acme/comet', platforms: ['linux'] }),
     };
-    const envelope = JSON.stringify({ v: 1, repos, enrich });
-    const nowSec = Math.floor(Date.now() / 1000);
-    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
+    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
       if (cmd === 'get_trend_board_cache') {
-        return { payload_json: envelope, cached_at: nowSec - 60 };
+        return { payload_json: index, cached_at: nowSec - 60 };
+      }
+      if (cmd === 'get_repo_cards_batch') {
+        return ((args as { ids: string[] }).ids ?? []).map((id) =>
+          cards[id] ? { summary: cards[id], confirmed_other: false, updated_at: nowSec - 60 } : null,
+        );
       }
       return undefined;
     });

@@ -1,31 +1,32 @@
 /**
  * Star 同步快照（L2，SQLite `starred_feed_cache`）与查询目标记忆（localStorage）。
  *
- * - 快照信封 `{ v: 1, rows, pages, hasMore, emptyPages?, confirmedOther? }`：至多 3 页 / 60 条，
- *   入盘前剥离 `data:` 图标与收录态标注；超 256KB 先截长文本，再退到第 1 页，仍超即不写；
+ * - 快照信封 `{ v: 2, pages: [{ page, ids }], hasMore }`：按页有序规范 id 索引，至多前 3 页 / 60 个 id，
+ *   不含任何卡片字段（卡片经 `hydrateCardsByIds` 从目录与 `repo_card_cache` 水合）；32 KiB 前端预检；
  * - 新鲜度由本模块判定：12h 内为新鲜；更旧的快照（后端保留 7 天）只作离线兜底与 SWR 首绘；
  * - `localStorage['zstore.starred.opts']` 只记查询模式与公开用户名，永不存仓库数据。
  */
-import type { AppSummary } from '../../types';
 import { tauriApi } from '../api';
-import { TREND_DB_PAYLOAD_MAX_BYTES, utf8ByteLength } from '../trends';
-import { stripCatalogAnnotations } from '../trends/enrich';
+import { normalizeId } from '../normalizeId';
+import { utf8ByteLength } from '../trends';
 
 export const STARRED_OPTS_STORAGE_KEY = 'zstore.starred.opts';
 /** 快照新鲜期：12h（与趋势榜 L2 同口径）。 */
 export const STARRED_L2_TTL_MS = 12 * 60 * 60 * 1000;
 export const STARRED_L2_MAX_PERSISTED_PAGES = 3;
 export const STARRED_L2_MAX_PERSISTED_ROWS = 60;
-const STARRED_L2_PAGE_ROWS = 20;
-const TEXT_TRUNCATE_CHARS = 500;
+/** 快照前端预检上限 32 KiB（后端硬上限 64 KiB）。 */
+export const STARRED_L2_MAX_BYTES = 32 * 1024;
+
+export interface StarredPageIds {
+  page: number;
+  ids: string[];
+}
 
 export interface StarredCacheEnvelope {
-  v: 1;
-  rows: AppSummary[];
-  pages: number;
+  v: 2;
+  pages: StarredPageIds[];
   hasMore: boolean;
-  emptyPages?: number[];
-  confirmedOther?: string[];
 }
 
 export type StarredOpts = { mode: 'self' } | { mode: 'user'; username: string };
@@ -53,80 +54,67 @@ export function persistStarredOpts(opts: StarredOpts): void {
   }
 }
 
-function sanitizeRow(row: AppSummary): AppSummary {
-  const clean = stripCatalogAnnotations(row);
-  return typeof clean.icon === 'string' && clean.icon.startsWith('data:') ? { ...clean, icon: '' } : clean;
-}
-
-function truncateText(row: AppSummary): AppSummary {
-  const cut = (v: string | null | undefined): string | null | undefined =>
-    typeof v === 'string' && v.length > TEXT_TRUNCATE_CHARS ? v.slice(0, TEXT_TRUNCATE_CHARS) : v;
-  return {
-    ...row,
-    description: cut(row.description) ?? '',
-    description_en: cut(row.description_en) as AppSummary['description_en'],
-    homepage: cut(row.homepage) as AppSummary['homepage'],
-  };
-}
-
 /**
- * 入盘信封整形：截前 3 页 / 60 条（截断时 `hasMore` 置真，续拉从 `pages + 1` 接上），
- * 剥离 `data:` 与收录标注，并按 256KB 逐级降级；放弃写盘时返回 `undefined`。
+ * 入盘信封整形：按页号升序去重归一 id，截前 3 页 / 60 个 id（截断时 `hasMore` 置真，续拉从下一页接上）；
+ * 无任何 id 或超 32 KiB 时返回 `undefined`（放弃写盘）。
  */
 export function buildStarredEnvelopeJson(envelope: StarredCacheEnvelope): string | undefined {
-  if (!Array.isArray(envelope.rows) || envelope.rows.length === 0) return undefined;
-  const pages = Math.max(1, Math.min(Math.floor(envelope.pages) || 1, STARRED_L2_MAX_PERSISTED_PAGES));
-  const truncatedByPages = envelope.pages > pages || envelope.rows.length > STARRED_L2_MAX_PERSISTED_ROWS;
-  const rows = envelope.rows.slice(0, STARRED_L2_MAX_PERSISTED_ROWS).map(sanitizeRow);
-  const ids = new Set(rows.map((r) => (r.id || '').toLowerCase()));
-  const base: StarredCacheEnvelope = {
-    v: 1,
-    rows,
-    pages,
-    hasMore: envelope.hasMore || truncatedByPages,
-  };
-  const emptyPages = (envelope.emptyPages ?? []).filter((p) => Number.isInteger(p) && p >= 1 && p <= pages);
-  if (emptyPages.length > 0) base.emptyPages = emptyPages;
-  const confirmedOther = (envelope.confirmedOther ?? []).filter((k) => ids.has((k || '').toLowerCase()));
-  if (confirmedOther.length > 0) base.confirmedOther = confirmedOther;
-
-  const fits = (e: StarredCacheEnvelope): string | undefined => {
-    const json = JSON.stringify(e);
-    return utf8ByteLength(json) <= TREND_DB_PAYLOAD_MAX_BYTES ? json : undefined;
-  };
-  const full = fits(base);
-  if (full) return full;
-  const trimmed: StarredCacheEnvelope = { ...base, rows: base.rows.map(truncateText) };
-  const shortText = fits(trimmed);
-  if (shortText) return shortText;
-  const firstPage: StarredCacheEnvelope = {
-    ...trimmed,
-    rows: trimmed.rows.slice(0, STARRED_L2_PAGE_ROWS),
-    pages: 1,
-    hasMore: true,
-  };
-  delete firstPage.emptyPages;
-  return fits(firstPage);
+  if (!envelope || !Array.isArray(envelope.pages)) return undefined;
+  const sorted = envelope.pages
+    .filter((p) => p && Number.isInteger(p.page) && p.page >= 1 && Array.isArray(p.ids))
+    .sort((a, b) => a.page - b.page);
+  const seen = new Set<string>();
+  const pages: StarredPageIds[] = [];
+  let total = 0;
+  let truncated = false;
+  for (const p of sorted) {
+    if (pages.some((x) => x.page === p.page)) continue;
+    if (p.page > STARRED_L2_MAX_PERSISTED_PAGES) {
+      truncated = true;
+      break;
+    }
+    const ids: string[] = [];
+    for (const raw of p.ids) {
+      const id = typeof raw === 'string' ? normalizeId(raw) : '';
+      if (!id || seen.has(id)) continue;
+      if (total >= STARRED_L2_MAX_PERSISTED_ROWS) {
+        truncated = true;
+        break;
+      }
+      seen.add(id);
+      ids.push(id);
+      total += 1;
+    }
+    pages.push({ page: p.page, ids });
+    if (truncated) break;
+  }
+  if (total === 0) return undefined;
+  const out: StarredCacheEnvelope = { v: 2, pages, hasMore: envelope.hasMore === true || truncated };
+  const json = JSON.stringify(out);
+  return utf8ByteLength(json) <= STARRED_L2_MAX_BYTES ? json : undefined;
 }
 
 function parseEnvelope(json: string): StarredCacheEnvelope | undefined {
   try {
     const parsed = JSON.parse(json) as Partial<StarredCacheEnvelope>;
-    if (parsed?.v !== 1 || !Array.isArray(parsed.rows) || parsed.rows.length === 0) return undefined;
-    const rows = parsed.rows.filter(
-      (r): r is AppSummary => !!r && typeof r === 'object' && typeof (r as AppSummary).id === 'string',
-    );
-    if (rows.length === 0) return undefined;
-    return {
-      v: 1,
-      rows,
-      pages: Math.max(1, Math.floor(Number(parsed.pages) || 1)),
-      hasMore: parsed.hasMore === true,
-      emptyPages: Array.isArray(parsed.emptyPages) ? parsed.emptyPages.filter(Number.isInteger) : undefined,
-      confirmedOther: Array.isArray(parsed.confirmedOther)
-        ? parsed.confirmedOther.filter((k): k is string => typeof k === 'string')
-        : undefined,
-    };
+    if (parsed?.v !== 2 || !Array.isArray(parsed.pages)) return undefined;
+    const pages: StarredPageIds[] = [];
+    let total = 0;
+    for (const raw of parsed.pages) {
+      if (!raw || typeof raw !== 'object') continue;
+      const page = Number((raw as StarredPageIds).page);
+      const rawIds = (raw as StarredPageIds).ids;
+      if (!Number.isInteger(page) || page < 1 || !Array.isArray(rawIds)) continue;
+      if (pages.some((p) => p.page === page)) continue;
+      const ids = rawIds
+        .map((id) => (typeof id === 'string' ? normalizeId(id) : ''))
+        .filter((id) => id !== '');
+      total += ids.length;
+      pages.push({ page, ids });
+    }
+    if (total === 0) return undefined;
+    pages.sort((a, b) => a.page - b.page);
+    return { v: 2, pages, hasMore: parsed.hasMore === true };
   } catch {
     return undefined;
   }

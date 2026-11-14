@@ -3,6 +3,8 @@ import type {
   AppDetail,
   AppMatchResult,
   AppSummary,
+  HydratedRepoCard,
+  SearchListCacheEntry,
   SyncCatalogResult,
 } from '../../types';
 import type { AppIconCycleResult, PlatformsLiteResult, ReadmeVariantsResult } from '../../services/api';
@@ -162,6 +164,53 @@ export function handleGetCachedAppDetailsBatch(a: InvokeArgs): (AppSummary | nul
   return ids.map((id) =>
     typeof id === 'string' && id.trim() !== '' ? findSummary(id) ?? null : null,
   );
+}
+
+/** demo 单仓富卡批量水合：仅从内置 fixtures 投影（DB-only 同语义，与入参一一对齐）。 */
+export function handleGetRepoCardsBatch(a: InvokeArgs): (HydratedRepoCard | null)[] {
+  const raw = a['ids'];
+  const ids: unknown[] = Array.isArray(raw) ? raw : [];
+  const now = Math.floor(Date.now() / 1000);
+  return ids.map((id) => {
+    if (typeof id !== 'string' || id.trim() === '') return null;
+    const summary = findSummary(id);
+    return summary ? { summary, confirmed_other: false, updated_at: now } : null;
+  });
+}
+
+/** demo 在线搜索列表快照：内存态透存（刷新页面即清空），与后端 64 KiB 上限同口径。 */
+const demoSearchListCache = new Map<string, SearchListCacheEntry & { has_private: boolean }>();
+const DEMO_SEARCH_LIST_MAX_BYTES = 64 * 1024;
+
+export function handleGetSearchListCache(a: InvokeArgs): SearchListCacheEntry | null {
+  const key = argStr(a, 'cacheKey').trim();
+  const row = key ? demoSearchListCache.get(key) : undefined;
+  return row
+    ? { payload_json: row.payload_json, cached_at: row.cached_at, has_private: row.has_private }
+    : null;
+}
+
+export function handleSaveSearchListCache(a: InvokeArgs): null {
+  const key = argStr(a, 'cacheKey').trim();
+  const normQuery = argStr(a, 'normQuery').trim();
+  const payload = argStr(a, 'payloadJson').trim();
+  if (!key || !normQuery || !payload) return null;
+  if (new TextEncoder().encode(payload).length > DEMO_SEARCH_LIST_MAX_BYTES) {
+    throw new Error('search_list_payload_too_large');
+  }
+  demoSearchListCache.set(key, {
+    payload_json: payload,
+    cached_at: Math.floor(Date.now() / 1000),
+    has_private: a['hasPrivate'] === true,
+  });
+  return null;
+}
+
+/** 登出：清除含私有仓库的 demo 搜索列表快照。 */
+export function clearDemoPrivateSearchListCache(): void {
+  for (const [key, row] of demoSearchListCache) {
+    if (row.has_private) demoSearchListCache.delete(key);
+  }
 }
 
 export function handleGetReadmeVariants(a: InvokeArgs): ReadmeVariantsResult {

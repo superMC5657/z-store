@@ -1069,6 +1069,100 @@ fn test_trend_board_cache_prune_two_tiers_and_idempotent_schema() {
 }
 
 #[test]
+fn test_list_snapshot_caps_are_64_kib() {
+    assert_eq!(cache::TREND_BOARD_CACHE_MAX_BYTES, 64 * 1024);
+    assert_eq!(cache::STARRED_FEED_CACHE_MAX_BYTES, 64 * 1024);
+    assert_eq!(cache::SEARCH_LIST_CACHE_MAX_BYTES, 64 * 1024);
+}
+
+#[test]
+fn test_trend_board_cache_prune_caps_row_count() {
+    let db = fixtures::test_db();
+    let now = now_secs();
+    for i in 0..(cache::TREND_BOARD_CACHE_MAX_ROWS + 5) {
+        db.conn
+            .execute(
+                "INSERT INTO trend_board_cache (cache_key, board, payload_json, payload_bytes, cached_at) VALUES (?1, 'daily', '{}', 2, ?2)",
+                rusqlite::params![format!("k{:02}", i), now - i as i64],
+            )
+            .unwrap();
+    }
+    assert_eq!(db.prune_expired_trend_board_cache(now).unwrap(), 5);
+    assert!(db.get_trend_board_cache("k00").unwrap().is_some());
+    assert!(db
+        .get_trend_board_cache(&format!("k{:02}", cache::TREND_BOARD_CACHE_MAX_ROWS))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn test_search_list_cache_roundtrip_cap_and_private_purge() {
+    let db = fixtures::test_db();
+    assert!(db.get_search_list_cache(" ").unwrap().is_none());
+    db.save_search_list_cache(" rust|1|20 ", "rust", " {\"v\":2,\"ids\":[\"a/b\"],\"hasMore\":true} ", false)
+        .unwrap();
+    let (payload, cached_at, has_private) = db.get_search_list_cache("rust|1|20").unwrap().unwrap();
+    assert_eq!(payload, "{\"v\":2,\"ids\":[\"a/b\"],\"hasMore\":true}");
+    assert!(cached_at > 0);
+    assert!(!has_private);
+
+    // 空键/空查询/空载荷跳过。
+    db.save_search_list_cache("x", " ", "{}", false).unwrap();
+    db.save_search_list_cache("y", "y", "  ", false).unwrap();
+    assert!(db.get_search_list_cache("x").unwrap().is_none());
+    assert!(db.get_search_list_cache("y").unwrap().is_none());
+
+    let edge = "a".repeat(cache::SEARCH_LIST_CACHE_MAX_BYTES);
+    db.save_search_list_cache("edge|1|20", "edge", &edge, false).unwrap();
+    let big = "a".repeat(cache::SEARCH_LIST_CACHE_MAX_BYTES + 1);
+    let err = db
+        .save_search_list_cache("rust|1|20", "rust", &big, false)
+        .unwrap_err();
+    assert!(err.to_string().contains("search_list_payload_too_large"));
+    assert!(db.get_search_list_cache("rust|1|20").unwrap().unwrap().0.starts_with("{"));
+
+    db.save_search_list_cache("mine|1|20", "mine", "{}", true).unwrap();
+    assert!(db.get_search_list_cache("mine|1|20").unwrap().unwrap().2);
+    assert_eq!(db.delete_private_search_list_cache().unwrap(), 1);
+    assert!(db.get_search_list_cache("mine|1|20").unwrap().is_none());
+    assert!(db.get_search_list_cache("rust|1|20").unwrap().is_some());
+}
+
+#[test]
+fn test_search_list_cache_prune_retention_and_row_cap() {
+    let db = fixtures::test_db();
+    let now = now_secs();
+    let seed = |key: &str, cached_at: i64| {
+        db.conn
+            .execute(
+                "INSERT INTO search_list_cache (cache_key, norm_query, payload_json, payload_bytes, has_private, cached_at) VALUES (?1, ?1, '{}', 2, 0, ?2)",
+                rusqlite::params![key, cached_at],
+            )
+            .unwrap();
+    };
+    seed("expired", now - 7 * 86400 - 1);
+    for i in 0..(cache::SEARCH_LIST_CACHE_MAX_ROWS + 3) {
+        seed(&format!("q{:03}", i), now - i as i64);
+    }
+    assert_eq!(db.prune_search_list_cache(now).unwrap(), 1 + 3);
+    assert!(db.get_search_list_cache("expired").unwrap().is_none());
+    assert!(db.get_search_list_cache("q000").unwrap().is_some());
+    assert!(db
+        .get_search_list_cache(&format!("q{:03}", cache::SEARCH_LIST_CACHE_MAX_ROWS))
+        .unwrap()
+        .is_none());
+
+    // 写入时同样按行数上限裁剪。
+    db.save_search_list_cache("fresh|1|20", "fresh", "{}", false).unwrap();
+    let count: i64 = db
+        .query_scalar_opt("SELECT COUNT(*) FROM search_list_cache", [])
+        .unwrap()
+        .unwrap();
+    assert_eq!(count as usize, cache::SEARCH_LIST_CACHE_MAX_ROWS);
+    assert!(db.get_search_list_cache("fresh|1|20").unwrap().is_some());
+}
+
+#[test]
 fn test_starred_feed_cache_roundtrip_and_size_cap() {
     let db = fixtures::test_db();
     assert!(db.get_starred_feed_cache("  ").unwrap().is_none());
@@ -1082,7 +1176,7 @@ fn test_starred_feed_cache_roundtrip_and_size_cap() {
     db.save_starred_feed_cache("y", "y", "   ").unwrap();
     assert!(db.get_starred_feed_cache("x").unwrap().is_none());
     assert!(db.get_starred_feed_cache("y").unwrap().is_none());
-    // 512 KiB 上限：恰好上限可写，超出拒绝且不覆盖旧值。
+    // 64 KiB 上限：恰好上限可写，超出拒绝且不覆盖旧值。
     let edge = "a".repeat(cache::STARRED_FEED_CACHE_MAX_BYTES);
     db.save_starred_feed_cache("edge", "edge", &edge).unwrap();
     let big = "a".repeat(cache::STARRED_FEED_CACHE_MAX_BYTES + 1);

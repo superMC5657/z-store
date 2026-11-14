@@ -58,7 +58,8 @@ pub async fn list_github_starred(
         )
         .await?;
     let not_modified = fetched.touched_url.is_some();
-    let (rows, need_icon) = {
+    let persist_cards = fetched.is_stale != Some(true);
+    let cards = {
         let db = state.db()?;
         let now = crate::now_secs();
         if let Some((u, etag, text)) = &fetched.etag_write {
@@ -67,9 +68,15 @@ pub async fn list_github_starred(
         if let Some(u) = &fetched.touched_url {
             let _ = db.touch_etag(u, now);
         }
-        super::catalog_search::cards_from_repo_payloads(&db, &state.catalog, fetched.page.repos)
+        super::catalog_search::cards_from_repo_payloads(
+            &db,
+            &state.catalog,
+            fetched.page.repos,
+            persist_cards,
+        )
     };
-    super::catalog_search::spawn_starred_icon_stream(&app_handle, need_icon, token, page == 1);
+    let rows = cards.rows;
+    super::catalog_search::spawn_starred_icon_stream(&app_handle, cards.need_icon, token, page == 1);
     if fetched.is_stale == Some(true) {
         let mut ev = crate::z_log::WideEvent::new("detail", "starred page stale").with_started(start);
         ev.field("page", page)
@@ -87,6 +94,8 @@ pub async fn list_github_starred(
         rows,
         has_more: fetched.page.has_more,
         is_stale: fetched.is_stale,
+        confirmed_other_ids: cards.confirmed_other_ids,
+        private_ids: cards.private_ids,
     })
 }
 
@@ -105,7 +114,7 @@ pub fn get_starred_feed_cache(
         }))
 }
 
-/// 保存 Star 同步快照：键、范围与载荷经 trim，空串跳过；单条超过 512 KiB 拒绝。
+/// 保存 Star 同步快照：键、范围与载荷经 trim，空串跳过；单条超过 64 KiB 拒绝。
 #[tauri::command(rename_all = "camelCase")]
 pub fn save_starred_feed_cache(
     state: State<'_, AppState>,

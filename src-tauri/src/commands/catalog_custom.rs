@@ -422,6 +422,8 @@ pub fn collect_local_app(
     let db = state.db().map_err(crate::AppError::from)?;
     let entry = db.mark_custom_app_collected(&key)?;
     sync_custom_app_cache_and_cycle(&db, &entry.item);
+    // 入本地库即视为已收录，单仓富卡旧行不再参与水合。
+    let _ = db.purge_cataloged_repo_cards();
     drop(db);
     sync_catalog_overlay(&state);
     Ok(entry)

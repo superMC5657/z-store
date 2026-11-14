@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-10-08
 - 关联：ADR-0011（doforce 例外）、ADR-0010（小写 canonical）
+- 修订：§1 的载荷形态、§5 的字节上限与 §8 的写透口径由 ADR-0027 取代——`trend_board_cache` 只存 `{ v: 2, items }` 排行索引（64 KiB / 30 行），仅在抓榜成功时写一次，单仓富卡改存 `repo_card_cache`。
 
 ## 1. 表结构
 

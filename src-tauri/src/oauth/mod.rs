@@ -344,6 +344,8 @@ pub fn clear_oauth_session(db: &crate::db::Database) -> Result<Option<String>, S
     let _ = db.clear_github_account_signals();
     let _ = db.delete_etags_by_prefix("https://api.github.com/user/");
     let _ = db.delete_starred_feed_cache_by_scope_prefix("@me:");
+    let _ = db.delete_private_repo_cards();
+    let _ = db.delete_private_search_list_cache();
     Ok(db
         .get_host_token("github.com")
         .ok()

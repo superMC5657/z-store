@@ -18,6 +18,7 @@ import {
 } from '../../services/search/searchListCache';
 import { __resetIconStoreForTests, admitIconHit } from '../../services/iconStore';
 import { clearTrendEnrichCache } from '../../services/trends/enrich';
+import { peekFreshRepoCard } from '../../services/repoEnrichCache';
 import { STARRED_OPTS_STORAGE_KEY } from '../../services/starred/starredCache';
 import { LOADING_SETTLE_MS } from '../../lib/platformFilter';
 import { makeApp } from '../test-utils/filterFixture';
@@ -445,36 +446,43 @@ describe('StarredFeed', () => {
   });
 
   describe('L1/L2 cache and SWR sync', () => {
-    const snapshot = (rows: AppSummary[], extra: Record<string, unknown> = {}) => ({
-      payload_json: JSON.stringify({ v: 1, rows, pages: 1, hasMore: false, ...extra }),
+    const snapshot = (pages: Array<{ page: number; ids: string[] }>, hasMore = false) => ({
+      payload_json: JSON.stringify({ v: 2, pages, hasMore }),
       cached_at: Math.floor(Date.now() / 1000) - 60,
     });
 
-    it('cold mount renders the SQLite snapshot with DB icons and zero list requests', async () => {
+    it('cold mount hydrates the v2 snapshot via one getRepoCardsBatch call: icons, platforms, Other, zero list/lite', async () => {
       window.localStorage.setItem(STARRED_OPTS_STORAGE_KEY, JSON.stringify({ mode: 'user', username: 'Torvalds' }));
       const listSpy = vi.spyOn(tauriApi, 'listGithubStarred');
       const getSpy = vi
         .spyOn(tauriApi, 'getStarredFeedCache')
-        .mockResolvedValue(
-          snapshot(
-            pageOf('snap', 2, false).map((r) => ({ ...r, icon: '' })),
-            { confirmedOther: ['snap/app-1'] },
-          ),
-        );
-      const iconSpy = vi
-        .spyOn(tauriApi, 'getConfirmedIconsBatch')
-        .mockResolvedValue(['https://cdn.example/snap0.png', null]);
-      vi.spyOn(tauriApi, 'getPlatformsLite').mockImplementation(() => new Promise(() => {}));
+        .mockResolvedValue(snapshot([{ page: 1, ids: ['snap/app-0', 'snap/app-1'] }]));
+      const [card0, card1] = pageOf('snap', 2, false);
+      const nowSecs = Math.floor(Date.now() / 1000);
+      const batchSpy = vi.spyOn(tauriApi, 'getRepoCardsBatch').mockResolvedValue([
+        {
+          summary: { ...card0, icon: 'https://cdn.example/snap0.png', platforms: ['windows'] },
+          confirmed_other: false,
+          updated_at: nowSecs,
+        },
+        { summary: { ...card1, icon: '', platforms: [] }, confirmed_other: true, updated_at: nowSecs },
+      ]);
+      const iconSpy = vi.spyOn(tauriApi, 'getConfirmedIconsBatch');
+      const liteSpy = vi.spyOn(tauriApi, 'getPlatformsLite').mockImplementation(() => new Promise(() => {}));
+      const onConfirm = vi.fn();
 
-      const view = render(<StarredFeed {...baseProps} />);
+      const view = render(<StarredFeed {...baseProps} onConfirmPlatformOtherIds={onConfirm} />);
       await screen.findByText('snap-0');
       expect(getSpy).toHaveBeenCalledWith('torvalds');
       expect((screen.getByPlaceholderText('GitHub 用户名') as HTMLInputElement).value).toBe('Torvalds');
-      await waitFor(() => {
-        expect(iconSpy).toHaveBeenCalledWith(['snap/app-0', 'snap/app-1']);
-        expect(view.container.querySelector('img[src="https://cdn.example/snap0.png"]')).toBeTruthy();
-      });
+      expect(batchSpy).toHaveBeenCalledTimes(1);
+      expect(batchSpy).toHaveBeenCalledWith(['snap/app-0', 'snap/app-1']);
+      expect(view.container.querySelector('img[src="https://cdn.example/snap0.png"]')).toBeTruthy();
+      expect(onConfirm).toHaveBeenCalledWith(['snap/app-1']);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(iconSpy).not.toHaveBeenCalled();
       expect(listSpy).not.toHaveBeenCalled();
+      expect(liteSpy).not.toHaveBeenCalled();
     });
 
     it('switching alice → bob → alice within 5 minutes serves alice from the page cache', async () => {
@@ -522,19 +530,56 @@ describe('StarredFeed', () => {
           (r) => r.id,
         ),
       ).toEqual(['new/app-0', 'new/app-1', 'new/app-2']);
-      await waitFor(() => expect(saveSpy).toHaveBeenCalled(), { timeout: 3000 });
+      // 首次同步与手动重同步各直接写一次 v2 id 快照（无防抖）。
+      expect(saveSpy).toHaveBeenCalledTimes(2);
       const [key, scope, payload] = saveSpy.mock.calls.at(-1)!;
       expect(key).toBe('octocat');
       expect(scope).toBe('octocat');
-      const env = JSON.parse(payload);
-      expect(env.v).toBe(1);
-      expect(env.rows.map((r: AppSummary) => r.id)).toEqual(['new/app-0', 'new/app-1', 'new/app-2']);
-      expect(env.rows[0].is_cataloged).toBeUndefined();
+      expect(JSON.parse(payload)).toEqual({
+        v: 2,
+        pages: [{ page: 1, ids: ['new/app-0', 'new/app-1', 'new/app-2'] }],
+        hasMore: false,
+      });
+      expect(payload).not.toContain('is_cataloged');
     });
 
-    it('logging out clears the @me state and its memory cache', async () => {
+    it('platform and icon updates never rewrite the snapshot; load-more writes the next page ids once', async () => {
       vi.spyOn(tauriApi, 'getStarredFeedCache').mockResolvedValue(null);
-      vi.spyOn(tauriApi, 'listGithubStarred').mockResolvedValue({ rows: pageOf('mine', 2), has_more: false });
+      const saveSpy = vi.spyOn(tauriApi, 'saveStarredFeedCache').mockResolvedValue();
+      vi.spyOn(tauriApi, 'getPlatformsLite').mockImplementation(async (id: string) => ({
+        id,
+        platforms: ['linux'],
+        is_stale: false,
+      }));
+      vi.spyOn(tauriApi, 'listGithubStarred')
+        .mockResolvedValueOnce({ rows: pageOf('ext', STARRED_PER_PAGE, false).map((r) => ({ ...r, platforms: [] })), has_more: true })
+        .mockResolvedValueOnce({ rows: pageOf('more', 2, false), has_more: false });
+      render(<StarredFeed {...baseProps} />);
+      await queryAs('octocat');
+      await screen.findByText('ext-0');
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      act(() => {
+        admitIconHit({ id: 'ext/app-0', icon: 'https://cdn.example/late.png', via: 'live' });
+      });
+      await new Promise((r) => setTimeout(r, 1000));
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByTestId('starred-load-more'));
+      await screen.findByText('more-1');
+      await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(2));
+      const env = JSON.parse(saveSpy.mock.calls[1][2]);
+      expect(env.pages.map((p: { page: number }) => p.page)).toEqual([1, 2]);
+      expect(env.pages[1].ids).toEqual(['more/app-0', 'more/app-1']);
+      expect(env.hasMore).toBe(false);
+    });
+
+    it('logging out clears the @me state, its memory cache and private repo cards', async () => {
+      vi.spyOn(tauriApi, 'getStarredFeedCache').mockResolvedValue(null);
+      vi.spyOn(tauriApi, 'listGithubStarred').mockResolvedValue({
+        rows: pageOf('mine', 2, false),
+        has_more: false,
+        private_ids: ['mine/app-0'],
+      });
       const view = render(<StarredFeed {...baseProps} oauthUser={user('alice')} />);
       await queryAs('');
       await screen.findByText('mine-0');
@@ -542,25 +587,30 @@ describe('StarredFeed', () => {
         readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
       ).toBeDefined();
 
+      expect(peekFreshRepoCard('mine/app-0')).toBeDefined();
+
       view.rerender(<StarredFeed {...baseProps} oauthUser={null} />);
       expect(screen.queryByText('mine-0')).toBeNull();
       expect(
         readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
       ).toBeUndefined();
+      expect(peekFreshRepoCard('mine/app-0')).toBeUndefined();
     });
 
-    it('logging out before the debounced snapshot write never re-saves the @me snapshot, even on unmount', async () => {
+    it('after logout the @me snapshot is never written again, even on unmount or late responses', async () => {
       vi.spyOn(tauriApi, 'getStarredFeedCache').mockResolvedValue(null);
       const saveSpy = vi.spyOn(tauriApi, 'saveStarredFeedCache').mockResolvedValue();
       vi.spyOn(tauriApi, 'listGithubStarred').mockResolvedValue({ rows: pageOf('mine', 2), has_more: false });
       const view = render(<StarredFeed {...baseProps} oauthUser={user('alice')} />);
       await queryAs('');
       await screen.findByText('mine-0');
+      const savedBeforeLogout = saveSpy.mock.calls.length;
+      expect(savedBeforeLogout).toBe(1);
 
       view.rerender(<StarredFeed {...baseProps} oauthUser={null} />);
       view.unmount();
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      expect(saveSpy).not.toHaveBeenCalled();
+      expect(saveSpy).toHaveBeenCalledTimes(savedBeforeLogout);
     });
   });
 });

@@ -148,44 +148,27 @@ describe('Phase1B C5（SWR）：已确认 loading 进盘直展，未确认永不
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/empty');
   });
 
-  it('saveDbTrendCache 消毒：loading 进盘，data: URI 兜底不进 L2', async () => {
+  it('saveDbTrendCache 只写排行索引：卡片、平台与 data: 图标均不进 L2', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-    const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 10 })];
-    const empty = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
-    const dataUri = makeEnrichedApp({
-      id: 'acme/beacon',
-      platforms: ['windows'],
-      icon: 'data:image/png;base64,xxx',
+    putTrendEnrichMemory({
+      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
+      'acme/beacon': makeEnrichedApp({
+        id: 'acme/beacon',
+        platforms: ['windows'],
+        icon: 'data:image/png;base64,xxx',
+      }),
     });
-    const good = makeEnrichedApp({
-      id: 'acme/good',
-      platforms: ['windows'],
-      icon: 'https://x/icon.png',
-    });
-    await saveDbTrendCache('weekly|python|', 'weekly', repos, {
-      'acme/atlas': empty,
-      'acme/beacon': dataUri,
-      'acme/good': good,
-    });
+    const repos = [makeTrendRepo({ id: 'acme/atlas', stars: 10 }), makeTrendRepo({ id: 'acme/beacon', stars: 5 })];
+    await saveDbTrendCache('weekly|python|', 'weekly', repos);
     expect(invokeSpy).toHaveBeenCalledTimes(1);
     const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
-    const payload = JSON.parse(args.payloadJson) as {
-      v: number;
-      repos: unknown[];
-      enrich: Record<string, { platforms: string[]; icon: string }>;
-    };
-    expect(payload.v).toBe(1);
-    expect(payload.enrich['acme/good']).toBeDefined();
-    // SWR：loading 空平台随信封落盘，首屏直展 loading 卡
-    expect(payload.enrich['acme/atlas']).toBeDefined();
-    expect(payload.enrich['acme/atlas']?.platforms).toEqual([]);
-    // 携带 data: 图标的富卡：剥离 data: 为空串后保留富卡落盘，不丢弃富卡
-    expect(payload.enrich['acme/beacon']).toBeDefined();
-    expect(payload.enrich['acme/beacon']?.icon).toBe('');
-    for (const summary of Object.values(payload.enrich)) {
-      expect(Array.isArray(summary.platforms)).toBe(true);
-      expect(summary.icon.startsWith('data:')).toBe(false);
+    const payload = JSON.parse(args.payloadJson) as { v: number; items: Array<Record<string, unknown>> };
+    expect(payload.v).toBe(2);
+    expect(payload.items.map((i) => i.id)).toEqual(['acme/atlas', 'acme/beacon']);
+    for (const item of payload.items) {
+      expect(Object.keys(item).every((k) => ['id', 'stars', 'starsGained', 'forks'].includes(k))).toBe(true);
     }
+    expect(args.payloadJson).not.toContain('data:');
   });
 });

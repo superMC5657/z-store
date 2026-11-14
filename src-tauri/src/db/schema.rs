@@ -3,7 +3,7 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 5;
+const CURRENT_USER_VERSION: i64 = 6;
 
 impl Database {
     pub(crate) fn init_schema(&self) -> Result<()> {
@@ -199,6 +199,8 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_trend_board_cache_board ON trend_board_cache(board);
 
+            CREATE INDEX IF NOT EXISTS idx_trend_board_cache_cached_at ON trend_board_cache(cached_at DESC);
+
             -- Star 同步快照（纯透存，前端判新鲜度；owner_scope 以 `@me:` 开头的为账号私有，登出即清）
             CREATE TABLE IF NOT EXISTS starred_feed_cache (
                 cache_key TEXT PRIMARY KEY,
@@ -209,6 +211,52 @@ impl Database {
             );
 
             CREATE INDEX IF NOT EXISTS idx_starred_feed_cache_cached_at ON starred_feed_cache(cached_at DESC);
+
+            -- 未收录应用单仓轻量富卡（ADR-0027）：与 catalog_apps / custom_apps 物理隔离，
+            -- 不含收录态标注与 data: 图标；updated_at = 0 为平台预写壳（批量水合不可见）；
+            -- is_private = 1 随登出清除；按 last_accessed_at 有界 LRU。
+            CREATE TABLE IF NOT EXISTS repo_card_cache (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                description_en TEXT,
+                icon TEXT NOT NULL DEFAULT '',
+                icon_bg TEXT NOT NULL DEFAULT '',
+                stars INTEGER NOT NULL DEFAULT 0,
+                forks INTEGER NOT NULL DEFAULT 0,
+                license TEXT NOT NULL DEFAULT '',
+                latest_version TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'external',
+                category_name TEXT NOT NULL DEFAULT '跨平台开源',
+                forge TEXT NOT NULL DEFAULT 'github',
+                forge_host TEXT NOT NULL DEFAULT 'github.com',
+                homepage TEXT,
+                platforms_json TEXT NOT NULL DEFAULT '[]',
+                confirmed_other INTEGER NOT NULL DEFAULT 0,
+                is_private INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0,
+                last_accessed_at INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_repo_card_cache_lru ON repo_card_cache(last_accessed_at ASC);
+
+            CREATE INDEX IF NOT EXISTS idx_repo_card_cache_private ON repo_card_cache(is_private) WHERE is_private = 1;
+
+            -- 在线搜索分页有序 id 索引快照（v: 2，纯透存，前端判新鲜度；has_private = 1 随登出清除）
+            CREATE TABLE IF NOT EXISTS search_list_cache (
+                cache_key TEXT PRIMARY KEY,
+                norm_query TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL DEFAULT 0,
+                has_private INTEGER NOT NULL DEFAULT 0,
+                cached_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_search_list_cache_cached_at ON search_list_cache(cached_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_search_list_cache_query ON search_list_cache(norm_query);
 
             CREATE TABLE IF NOT EXISTS asset_cache (
                 url TEXT PRIMARY KEY,
@@ -347,6 +395,7 @@ impl Database {
                 2 => self.migrate_v2_to_v3()?,
                 3 => self.migrate_v3_to_v4()?,
                 4 => self.migrate_v4_to_v5()?,
+                5 => self.migrate_v5_to_v6()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -416,6 +465,14 @@ impl Database {
             "INSERT OR IGNORE INTO user_settings (key, value)
              SELECT 'enable_github_affinity', value FROM user_settings
              WHERE key = 'enable_local_affinity';",
+        )
+    }
+
+    /// v5 → v6：趋势榜与 Star 列表快照改为 `v: 2` 瘦 id 索引，旧 `v: 1` 富信封整表清除。
+    fn migrate_v5_to_v6(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "DELETE FROM trend_board_cache;
+             DELETE FROM starred_feed_cache;",
         )
     }
 
@@ -518,6 +575,43 @@ mod schema_migration_tests {
             .unwrap()
             .unwrap_or(0);
         assert_eq!(tables, 3, "幂等基底在高版本库上仍应补齐表结构");
+    }
+
+    #[test]
+    fn v5_db_purges_fat_list_snapshots_and_creates_card_tables() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE trend_board_cache (
+                cache_key TEXT PRIMARY KEY,
+                board TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_bytes INTEGER DEFAULT 0,
+                cached_at INTEGER
+            );
+            CREATE TABLE starred_feed_cache (
+                cache_key TEXT PRIMARY KEY,
+                owner_scope TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL DEFAULT 0,
+                cached_at INTEGER NOT NULL
+            );
+            INSERT INTO trend_board_cache VALUES ('daily||', 'daily', '{"v":1,"repos":[]}', 10, 1);
+            INSERT INTO starred_feed_cache VALUES ('@me:x', '@me:x', '{"v":1,"rows":[]}', 10, 1);
+            PRAGMA user_version = 5;
+            "#,
+        )
+        .unwrap();
+        let db = Database { conn };
+        db.init_schema().unwrap();
+        assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
+        let count = |sql: &str| -> i64 { db.query_scalar_opt(sql, []).unwrap().unwrap_or(-1) };
+        assert_eq!(count("SELECT COUNT(*) FROM trend_board_cache"), 0);
+        assert_eq!(count("SELECT COUNT(*) FROM starred_feed_cache"), 0);
+        assert_eq!(
+            count("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('repo_card_cache', 'search_list_cache')"),
+            2
+        );
     }
 
     #[test]

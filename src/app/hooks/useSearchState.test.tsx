@@ -17,6 +17,9 @@ import type { AppSummary } from '../../types';
 const mocks = vi.hoisted(() => ({
   searchApps: vi.fn(),
   searchAppsOnline: vi.fn(),
+  getSearchListCache: vi.fn(),
+  saveSearchListCache: vi.fn(),
+  getRepoCardsBatch: vi.fn(),
 }));
 
 vi.mock('../../services/api', async () => {
@@ -27,6 +30,9 @@ vi.mock('../../services/api', async () => {
       get: (target, prop) => {
         if (prop === 'searchApps') return mocks.searchApps;
         if (prop === 'searchAppsOnline') return mocks.searchAppsOnline;
+        if (prop === 'getSearchListCache') return mocks.getSearchListCache;
+        if (prop === 'saveSearchListCache') return mocks.saveSearchListCache;
+        if (prop === 'getRepoCardsBatch') return mocks.getRepoCardsBatch;
         return (target as Record<string | symbol, unknown>)[prop];
       },
     }),
@@ -36,9 +42,13 @@ vi.mock('../../services/api', async () => {
 import {
   ONLINE_SEARCH_PER_PAGE,
 } from '../../services/api';
-import { clearSearchListCache, readSearchListCache } from '../../services/search/searchListCache';
+import {
+  clearPrivateSearchListCacheEntries,
+  clearSearchListCache,
+  readSearchListCache,
+} from '../../services/search/searchListCache';
 import { clearTrendEnrichCache } from '../../services/trends/enrich';
-import { recordSharedRepoPlatforms } from '../../services/repoEnrichCache';
+import { isSharedRepoConfirmedOther, recordSharedRepoPlatforms } from '../../services/repoEnrichCache';
 import { adoptEchoInWindow, settleMoreEcho, settlePageEcho, useSearchState } from './useSearchState';
 
 function makeApp(id: string, over: Partial<AppSummary> = {}): AppSummary {
@@ -583,5 +593,113 @@ describe('useSearchState：回声窗纯函数（echo 三语义）', () => {
     const ref2 = { current: '' };
     expect(adoptEchoInWindow(ref2, 'trends', 'sid-e')).toBe(false);
     expect(ref2.current).toBe('');
+  });
+});
+
+describe('useSearchState：L2 search_list_cache 冷启动水合与写盘', () => {
+  const ids = ['acme/alpha', 'acme/beta'];
+  const l2Row = (ageMs: number) => ({
+    payload_json: JSON.stringify({ v: 2, ids, hasMore: false }),
+    cached_at: Math.floor((Date.now() - ageMs) / 1000),
+  });
+  const cards = () =>
+    ids.map((id) => ({
+      summary: makeApp(id, { is_cataloged: false }),
+      confirmed_other: false,
+      updated_at: Math.floor(Date.now() / 1000),
+    }));
+
+  it('L1 空、L2 5min 内快照：批量水合直展，零 searchAppsOnline', async () => {
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.getSearchListCache.mockResolvedValue(l2Row(60_000));
+    mocks.getRepoCardsBatch.mockImplementation(async () => cards());
+    const { rendered, deps } = renderSearch('home');
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('Alpha  Tools');
+    });
+    expect(mocks.getSearchListCache).toHaveBeenCalledWith(`alpha tools|1|${ONLINE_SEARCH_PER_PAGE}`);
+    expect(mocks.getRepoCardsBatch).toHaveBeenCalledTimes(1);
+    expect(rendered.result.current.onlineApps.map((a) => a.id)).toEqual(ids);
+    expect(rendered.result.current.onlineHasMore).toBe(false);
+    expect(mocks.searchAppsOnline).not.toHaveBeenCalled();
+    expect(deps.lazyBackfillPlatforms).toHaveBeenCalled();
+  });
+
+  it('L2 has_private 快照回填 L1 时保留私有标记：登出清除后 L1 不再命中', async () => {
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.getSearchListCache.mockResolvedValue({ ...l2Row(60_000), has_private: true });
+    mocks.getRepoCardsBatch.mockImplementation(async () => cards());
+    const { rendered } = renderSearch('home');
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('alpha');
+    });
+    const key = { query: 'alpha', page: 1, perPage: ONLINE_SEARCH_PER_PAGE };
+    expect(readSearchListCache(key)?.map((a) => a.id)).toEqual(ids);
+    clearPrivateSearchListCacheEntries();
+    expect(readSearchListCache(key)).toBeUndefined();
+  });
+
+  it('L2 超 5min：先展示快照，再后台 searchAppsOnline(forceRefresh=false) 静默重验', async () => {
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.getSearchListCache.mockResolvedValue(l2Row(10 * 60_000));
+    mocks.getRepoCardsBatch.mockImplementation(async () => cards());
+    let resolveOnline: ((v: unknown) => void) | undefined;
+    mocks.searchAppsOnline.mockImplementation(
+      () => new Promise((resolve) => { resolveOnline = resolve; }),
+    );
+    const { rendered, deps } = renderSearch('home');
+    let pending: Promise<void> | undefined;
+    await act(async () => {
+      pending = rendered.result.current.handleSearchSubmit('alpha');
+      await vi.waitFor(() => expect(mocks.searchAppsOnline).toHaveBeenCalled());
+    });
+    expect(rendered.result.current.onlineApps.map((a) => a.id)).toEqual(ids);
+    expect(mocks.searchAppsOnline.mock.calls[0][4]).toBe(false);
+    await act(async () => {
+      resolveOnline?.({ rows: [makeApp('acme/alpha'), makeApp('acme/gamma')], sid: 's1' });
+      await pending;
+    });
+    expect(rendered.result.current.onlineApps.map((a) => a.id)).toEqual(['acme/alpha', 'acme/gamma']);
+    // 后台重验静默完成，不弹成功提示。
+    expect(deps.showToast).not.toHaveBeenCalledWith(expect.anything(), 'success');
+  });
+
+  it('联网非 stale 结果写 L1 与 L2 { v: 2, ids, hasMore }；private_ids 标 hasPrivate，confirmed_other_ids 记入共享池', async () => {
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.getSearchListCache.mockResolvedValue(null);
+    const rows = Array.from({ length: ONLINE_SEARCH_PER_PAGE }, (_, i) =>
+      makeApp(`acme/r${i}`, { is_cataloged: false, platforms: i === 1 ? [] : ['windows'] }),
+    );
+    mocks.searchAppsOnline.mockResolvedValue({
+      rows,
+      sid: 's1',
+      private_ids: ['acme/r0'],
+      confirmed_other_ids: ['acme/r1'],
+    });
+    const { rendered } = renderSearch('home');
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('private');
+    });
+    await vi.waitFor(() => expect(mocks.saveSearchListCache).toHaveBeenCalledTimes(1));
+    const [cacheKey, normQuery, payload, hasPrivate] = mocks.saveSearchListCache.mock.calls[0];
+    expect(cacheKey).toBe(`private|1|${ONLINE_SEARCH_PER_PAGE}`);
+    expect(normQuery).toBe('private');
+    expect(JSON.parse(payload)).toEqual({ v: 2, ids: rows.map((r) => r.id), hasMore: true });
+    expect(hasPrivate).toBe(true);
+    expect(readSearchListCache({ query: 'private', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })).toHaveLength(
+      ONLINE_SEARCH_PER_PAGE,
+    );
+    expect(isSharedRepoConfirmedOther('acme/r1')).toBe(true);
+  });
+
+  it('联网 stale 回退不写 L2', async () => {
+    mocks.searchApps.mockResolvedValue([]);
+    mocks.getSearchListCache.mockResolvedValue(null);
+    mocks.searchAppsOnline.mockResolvedValue({ rows: [makeApp('acme/x')], sid: 's1', is_stale: true });
+    const { rendered } = renderSearch('home');
+    await act(async () => {
+      await rendered.result.current.handleSearchSubmit('staleonly');
+    });
+    expect(mocks.saveSearchListCache).not.toHaveBeenCalled();
   });
 });

@@ -454,6 +454,17 @@ pub fn run() {
                 while auth_rx.recv().await.is_some() {
                     if let Ok(db) = db_for_auth.lock() {
                         let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN);
+                        // 无 github.com 主机令牌兜底时，私有列表快照与私有仓富卡随凭据失效一并清除。
+                        let has_host_fallback = db
+                            .get_host_token("github.com")
+                            .ok()
+                            .flatten()
+                            .is_some_and(|s| !s.trim().is_empty());
+                        if !has_host_fallback {
+                            let _ = db.delete_starred_feed_cache_by_scope_prefix("@me:");
+                            let _ = db.delete_private_repo_cards();
+                            let _ = db.delete_private_search_list_cache();
+                        }
                         if let Ok(Some(user_json)) = db.get_setting(crate::oauth::SETTING_OAUTH_USER) {
                             match serde_json::from_str::<crate::oauth::OAuthUser>(&user_json) {
                                 Ok(mut user) => {
@@ -565,6 +576,9 @@ pub fn run() {
             commands::list_github_starred,
             commands::get_starred_feed_cache,
             commands::save_starred_feed_cache,
+            commands::get_repo_cards_batch,
+            commands::get_search_list_cache,
+            commands::save_search_list_cache,
             commands::sync_affinity_signals,
             commands::record_search_query,
             commands::get_search_history,

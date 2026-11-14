@@ -43,13 +43,18 @@ impl Database {
     }
 }
 
-/// 榜缓存二级落盘单条至多 512 KiB，超限拒绝。
-pub const TREND_BOARD_CACHE_MAX_BYTES: usize = 512 * 1024;
+/// 榜缓存二级落盘单条至多 64 KiB（`v: 2` 瘦排行索引），超限拒绝。
+pub const TREND_BOARD_CACHE_MAX_BYTES: usize = 64 * 1024;
+/// 榜缓存最多保留的行数（覆盖 6 榜及筛选组合，按 `cached_at DESC`）。
+pub const TREND_BOARD_CACHE_MAX_ROWS: usize = 30;
+/// 列表快照离线保留期：7 天（三张瘦索引快照表同口径）。
+const LIST_SNAPSHOT_RETENTION_SECS: i64 = 7 * 86400;
 pub use super::details::APP_DETAILS_CACHE_MAX_ROWS;
 pub use super::etag::API_ETAG_CACHE_MAX_ROWS;
 
 impl Database {
-    /// 统一裁剪 `api_etag_cache` 与 `app_details` 容量上限，返回 `(etag_deleted, detail_deleted)`。
+    /// 统一裁剪 `api_etag_cache` 与 `app_details` 容量上限，返回 `(etag_deleted, detail_deleted)`；
+    /// 同时清除已收录的单仓富卡并按 LRU 裁剪 `repo_card_cache`，清扫超期/超量搜索列表快照。
     pub fn prune_bounded_caches(
         &self,
         max_etag_rows: usize,
@@ -57,6 +62,9 @@ impl Database {
     ) -> Result<(usize, usize)> {
         let etag_deleted = self.prune_api_etag_cache(max_etag_rows)?;
         let detail_deleted = self.prune_app_details(max_detail_rows)?;
+        let _ = self.purge_cataloged_repo_cards();
+        let _ = self.prune_repo_card_cache(super::REPO_CARD_CACHE_MAX_ROWS);
+        let _ = self.prune_search_list_cache(now_secs());
         Ok((etag_deleted, detail_deleted))
     }
 
@@ -115,23 +123,34 @@ impl Database {
         Ok(())
     }
 
-    /// 榜缓存二级落盘清扫（保留 7 天软过期窗口供弱网/离线回退，新鲜度由前端 TTL 控制）。
+    /// 榜缓存二级落盘清扫：保留 7 天软过期窗口供弱网/离线回退（新鲜度由前端 TTL 控制），
+    /// 再按 `cached_at DESC` 只保留最近 30 行。
     pub fn prune_expired_trend_board_cache(&self, now: i64) -> Result<usize> {
-        let cutoff = now.saturating_sub(7 * 86400);
-        let deleted = self.conn.execute(
+        let cutoff = now.saturating_sub(LIST_SNAPSHOT_RETENTION_SECS);
+        let expired = self.conn.execute(
             "DELETE FROM trend_board_cache WHERE cached_at <= ?1",
             params![cutoff],
         )?;
-        Ok(deleted)
+        let overflow = self.conn.execute(
+            r#"
+            DELETE FROM trend_board_cache
+            WHERE cache_key NOT IN (
+                SELECT cache_key FROM trend_board_cache
+                ORDER BY cached_at DESC, cache_key ASC
+                LIMIT ?1
+            )
+            "#,
+            params![TREND_BOARD_CACHE_MAX_ROWS as i64],
+        )?;
+        Ok(expired + overflow)
     }
 }
 
-/// Star 同步快照单条至多 512 KiB，超限拒绝。
-pub const STARRED_FEED_CACHE_MAX_BYTES: usize = 512 * 1024;
+/// Star 同步快照单条至多 64 KiB（`v: 2` 按页 id 索引），超限拒绝。
+pub const STARRED_FEED_CACHE_MAX_BYTES: usize = 64 * 1024;
 /// Star 同步快照最多保留的查询目标数（按 `cached_at DESC`）。
 pub const STARRED_FEED_CACHE_MAX_ROWS: usize = 15;
-/// Star 同步快照离线保留期：7 天。
-const STARRED_FEED_CACHE_RETENTION_SECS: i64 = 7 * 86400;
+const STARRED_FEED_CACHE_RETENTION_SECS: i64 = LIST_SNAPSHOT_RETENTION_SECS;
 
 impl Database {
     /// 读取 Star 同步快照：返回 `(payload_json, cached_at)`。
@@ -151,7 +170,7 @@ impl Database {
         }
     }
 
-    /// 写入 Star 同步快照（键/范围/载荷 trim 后为空即跳过，超 512 KiB 拒绝）。
+    /// 写入 Star 同步快照（键/范围/载荷 trim 后为空即跳过，超 64 KiB 拒绝）。
     pub fn save_starred_feed_cache(
         &self,
         cache_key: &str,
@@ -218,6 +237,106 @@ impl Database {
             params![STARRED_FEED_CACHE_MAX_ROWS as i64],
         )?;
         Ok(expired + overflow)
+    }
+}
+
+/// 在线搜索列表快照单条至多 64 KiB（`v: 2` 分页 id 索引），超限拒绝。
+pub const SEARCH_LIST_CACHE_MAX_BYTES: usize = 64 * 1024;
+/// 在线搜索列表快照最多保留的 `(norm_query, page, per_page)` 分页数（按 `cached_at DESC`）。
+pub const SEARCH_LIST_CACHE_MAX_ROWS: usize = 100;
+const SEARCH_LIST_CACHE_RETENTION_SECS: i64 = LIST_SNAPSHOT_RETENTION_SECS;
+
+impl Database {
+    /// 读取在线搜索列表快照：返回 `(payload_json, cached_at, has_private)`。
+    pub fn get_search_list_cache(&self, cache_key: &str) -> Result<Option<(String, i64, bool)>> {
+        let key = clean(cache_key);
+        if key.is_empty() {
+            return Ok(None);
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT payload_json, cached_at, has_private FROM search_list_cache WHERE cache_key = ?1 LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 写入在线搜索列表快照（键/查询/载荷 trim 后为空即跳过，超 64 KiB 拒绝），写后裁剪超量行。
+    pub fn save_search_list_cache(
+        &self,
+        cache_key: &str,
+        norm_query: &str,
+        payload: &str,
+        has_private: bool,
+    ) -> Result<()> {
+        let key = clean(cache_key);
+        let query = clean(norm_query);
+        let payload = payload.trim();
+        if key.is_empty() || query.is_empty() || payload.is_empty() {
+            return Ok(());
+        }
+        if payload.len() > SEARCH_LIST_CACHE_MAX_BYTES {
+            return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "search_list_payload_too_large",
+                ),
+            )));
+        }
+        self.exec_write(
+            r#"
+            INSERT INTO search_list_cache (cache_key, norm_query, payload_json, payload_bytes, has_private, cached_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                norm_query = excluded.norm_query,
+                payload_json = excluded.payload_json,
+                payload_bytes = excluded.payload_bytes,
+                has_private = excluded.has_private,
+                cached_at = excluded.cached_at;
+            "#,
+            params![
+                key,
+                query,
+                payload,
+                payload.len() as i64,
+                has_private as i64,
+                now_secs()
+            ],
+        )?;
+        self.prune_search_list_overflow()?;
+        Ok(())
+    }
+
+    fn prune_search_list_overflow(&self) -> Result<usize> {
+        self.exec_write(
+            r#"
+            DELETE FROM search_list_cache
+            WHERE cache_key NOT IN (
+                SELECT cache_key FROM search_list_cache
+                ORDER BY cached_at DESC, cache_key ASC
+                LIMIT ?1
+            )
+            "#,
+            params![SEARCH_LIST_CACHE_MAX_ROWS as i64],
+        )
+    }
+
+    /// 启动清扫：删除超 7 天的搜索列表快照，再按 `cached_at DESC` 只保留最近 100 页。
+    pub fn prune_search_list_cache(&self, now: i64) -> Result<usize> {
+        let cutoff = now.saturating_sub(SEARCH_LIST_CACHE_RETENTION_SECS);
+        let expired = self.exec_write(
+            "DELETE FROM search_list_cache WHERE cached_at <= ?1",
+            params![cutoff],
+        )?;
+        Ok(expired + self.prune_search_list_overflow()?)
+    }
+
+    /// 登出 / 凭据失效：删除含私有仓库的搜索列表快照。
+    pub fn delete_private_search_list_cache(&self) -> Result<usize> {
+        self.exec_write("DELETE FROM search_list_cache WHERE has_private = 1", [])
     }
 }
 

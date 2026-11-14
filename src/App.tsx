@@ -227,6 +227,7 @@ export const App: React.FC = () => {
     lazyBackfillPlatforms: (summaries, seq, forceRefresh) => lazyBackfillRef.current(summaries, seq, forceRefresh),
     showToast,
     t,
+    catalogAppsRef: fullCatalogAppsRef,
   });
 
   const {

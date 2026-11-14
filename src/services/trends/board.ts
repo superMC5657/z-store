@@ -1,19 +1,20 @@
 /**
  * 趋势榜单深模块（trend-board vertical slice）。
  *
- * 合并抓榜数据源（trending HTML / doforce / GitHub Search）、L1/L2 缓存读写、
- * SWR-fill、DB 确认图标回填、enrich 批处理、lite 补验、15s settle 兜底、
- * 详情治愈总线（detail-platforms / detail-richcard）、`icon-ready` 流式图标与
- * 防抖 L2 写透于单一 `TrendBoardSession` 控制器。
+ * 合并抓榜数据源（trending HTML / doforce / GitHub Search）、L1/L2 排行索引读写、
+ * SWR-fill、`repo_card_cache` 批量水合、enrich 批处理、lite 补验、15s settle 兜底、
+ * 详情治愈总线（detail-platforms / detail-richcard）与 `icon-ready` 流式图标于单一
+ * `TrendBoardSession` 控制器。
  *
- * 约束（ADR-0011 / ADR-0014+D9）：
+ * 约束（ADR-0011 / ADR-0014 / ADR-0027）：
  * - doforce 仅 rising/healthy，经 fetch_trends_text 单飞 12h 共享；429 至多单次重试。
  * - L1 daily 1h / weekly-monthly-new 12h / 其余 5min；L2 daily 1h / 其余 12h + 0-30s 抖动扣减。
- * - FE 256KB 预检降级 + BE 512KiB 硬拒绝；data:/未确认 loading 永不落盘。
+ * - L2 只存 `{ v: 2, items }` 排行索引，仅在上游抓榜成功时写一次；单仓卡片变更只更新富卡镜像。
  */
 
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo, TrendsResult } from '../../types';
 import { tauriApi } from '../api';
+import { hydrateCardsByIds } from '../repoEnrichCache';
 import {
   admitIconHit,
   patchIconMirror,
@@ -42,7 +43,7 @@ import {
   isPersistableIcon,
   readDoforceShared,
   readTrendsCache,
-  saveBoardCacheMerged,
+  saveDbTrendCache,
   setDoforceInflight,
   sweepExpiredTrendsCache,
   writeDoforceShared,
@@ -53,12 +54,11 @@ import {
   DETAIL_RICHCARD_HEAL_EVENT,
   enrichTrendRepos,
   isPlaceholderDescription,
-  markConfirmedOthersFreshNow,
   markTrendConfirmedOthers,
   putTrendEnrichMemory,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
-  subscribeTrendConfirmedOtherChanges,
+  snapshotTrendRepoCards,
   sweepExpiredTrendEnrichCache,
   unmarkTrendConfirmedOthers,
   type DetailPlatformsHealPayload,
@@ -226,13 +226,6 @@ function emitBoardHydrated(board: string, key: string): void {
   }
 }
 
-function hydrateBoardDbHit(dbHit: TrendRepo[]): void {
-  const enrich = (dbHit as { enrich?: Record<string, AppSummary> }).enrich;
-  if (enrich) putTrendEnrichMemory(enrich);
-  const confirmed = (dbHit as { confirmedOther?: unknown }).confirmedOther;
-  if (Array.isArray(confirmed)) markConfirmedOthersFreshNow(confirmed);
-}
-
 async function fetchBoardWithL2(
   board: TrendBoardId,
   key: string,
@@ -248,7 +241,6 @@ async function fetchBoardWithL2(
 
     const dbHit = await getDbTrendCache(key, board);
     if (dbHit && dbHit.length > 0) {
-      hydrateBoardDbHit(dbHit);
       writeTrendsCache(key, dbHit);
       emitBoardHydrated(board, key);
       return { repos: dbHit, status: 'ok', stale: false };
@@ -258,14 +250,13 @@ async function fetchBoardWithL2(
   const result = await load();
   if (result.status === 'ok') {
     writeTrendsCache(key, result.repos);
-    await saveBoardCacheMerged(key, board, result.repos);
+    await saveDbTrendCache(key, board, result.repos);
     emitBoardHydrated(board, key);
     return result;
   }
   if (result.status === 'error') {
     const staleHit = await getDbTrendCache(key, board, { allowStale: true });
     if (staleHit && staleHit.length > 0) {
-      hydrateBoardDbHit(staleHit);
       writeTrendsCache(key, staleHit);
       emitBoardHydrated(board, key);
       return { repos: staleHit, status: 'ok', stale: true };
@@ -329,7 +320,6 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
       if (!forceRefresh) {
         const dbHit = await getDbTrendCache(key, 'doforce');
         if (dbHit && dbHit.length > 0) {
-          hydrateBoardDbHit(dbHit);
           writeDoforceShared(dbHit);
           emitBoardHydrated('doforce', key);
           return dbHit;
@@ -340,14 +330,13 @@ async function fetchDoforceShared(opts: FetchTrendsOptions = {}): Promise<TrendR
         const repos = await fetchDoforceWithRetry();
         if (repos.length > 0) {
           writeDoforceShared(repos);
-          await saveBoardCacheMerged(key, 'doforce', repos);
+          await saveDbTrendCache(key, 'doforce', repos);
           emitBoardHydrated('doforce', key);
         }
         return repos;
       } catch (err) {
         const staleHit = await getDbTrendCache(key, 'doforce', { allowStale: true });
         if (staleHit && staleHit.length > 0) {
-          hydrateBoardDbHit(staleHit);
           writeDoforceShared(staleHit);
           emitBoardHydrated('doforce', key);
           return staleHit;
@@ -403,45 +392,6 @@ export async function fetchTrendsResult(
 /* B. 模块内部持久化、镜像合并、lite 补验、settle 与治愈总线         */
 /* ------------------------------------------------------------------ */
 
-interface BoardCacheRef {
-  cacheKey: string;
-  cacheBoard: TrendBoardId | 'doforce';
-  repos: TrendRepo[];
-}
-
-function resolveBoardCacheKey(
-  board: TrendBoardId,
-  opts: FetchTrendsOptions = {},
-): { cacheKey: string; cacheBoard: TrendBoardId | 'doforce' } {
-  if (board === 'rising' || board === 'healthy') {
-    return { cacheKey: buildDoforceCacheKey(opts), cacheBoard: 'doforce' };
-  }
-  return { cacheKey: buildTrendsCacheKey(board, opts), cacheBoard: board };
-}
-
-/** 供跨页详情治愈复用最近展示榜单坐标（TrendsView 卸载后仍可触发二级缓存写透）。 */
-let lastDetailHealBoardRef: BoardCacheRef = { cacheKey: '', cacheBoard: 'weekly', repos: [] };
-let detailHealTimer: ReturnType<typeof setTimeout> | null = null;
-
-function flushBoardRef(ref: BoardCacheRef, latest?: Record<string, AppSummary>): void {
-  try {
-    if (latest && typeof latest === 'object' && Object.keys(latest).length > 0) {
-      putTrendEnrichMemory(latest);
-    }
-  } catch {
-    // hydrate 失败不阻塞落盘
-  }
-  const { cacheKey, cacheBoard, repos } = ref;
-  if (!cacheKey || repos.length === 0) {
-    return;
-  }
-  const snapSize = Object.keys(snapshotTrendEnrichCache(repos)).length;
-  if (snapSize === 0) {
-    return;
-  }
-  void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
-}
-
 function boardRepoKeys(repos: readonly TrendRepo[] | undefined): Set<string> {
   const out = new Set<string>();
   for (const r of repos ?? []) {
@@ -451,23 +401,6 @@ function boardRepoKeys(repos: readonly TrendRepo[] | undefined): Set<string> {
   return out;
 }
 
-/**
- * 详情更新写透榜单二级缓存（即使 `TrendsView` 当前未挂载）：
- * 若最近加载过的榜单包含该应用，调度节流写盘将最新 `trendEnrichCache` 快照持久化至 SQLite `trend_board_cache`。
- */
-export function persistBoardCacheFromDetailIfPresent(keys: readonly string[]): void {
-  const { cacheKey, cacheBoard, repos } = lastDetailHealBoardRef;
-  if (!cacheKey || !Array.isArray(repos) || repos.length === 0) return;
-  const repoKeys = boardRepoKeys(repos);
-  const hit = keys.some((k) => repoKeys.has(String(k ?? '').trim().toLowerCase()));
-  if (!hit) return;
-  if (detailHealTimer) clearTimeout(detailHealTimer);
-  detailHealTimer = setTimeout(() => {
-    detailHealTimer = null;
-    void saveBoardCacheMerged(cacheKey, cacheBoard, repos);
-  }, 800);
-}
-
 interface SwrFill {
   snap: Record<string, AppSummary>;
   trustedConcrete: Set<string>;
@@ -475,7 +408,7 @@ interface SwrFill {
 }
 
 function buildSwrFill(repos: TrendRepo[]): SwrFill {
-  const snap = snapshotTrendEnrichCache(repos);
+  const snap = snapshotTrendRepoCards(repos);
   const trustedConcrete = new Set(
     Object.entries(snap)
       .filter(([, v]) => !!v.platforms && v.platforms.length > 0)
@@ -598,12 +531,14 @@ export type DisplayTrendItem =
 function collectMissingEnrichRepos(
   items: readonly DisplayTrendItem[],
   enrichedApps: Record<string, AppSummary>,
+  needsRefresh: ReadonlySet<string>,
 ): Map<string, TrendRepo> {
   const missing = new Map<string, TrendRepo>();
   for (const item of items) {
     if (item.type !== 'uncataloged') continue;
     const key = item.repo.id.toLowerCase();
-    if (!enrichedApps[key] && !missing.has(key)) missing.set(key, item.repo);
+    if (missing.has(key)) continue;
+    if (!enrichedApps[key] || needsRefresh.has(key)) missing.set(key, item.repo);
   }
   return missing;
 }
@@ -748,11 +683,10 @@ function mergeLitePatchedMirror(
   return changed ? next : prev;
 }
 
-async function maybePersistLitePatched(
+function recordLitePatched(
   patched: Map<string, string[]>,
   latest: Record<string, AppSummary>,
-  boardRef: BoardCacheRef,
-): Promise<void> {
+): void {
   const toHydrate: Record<string, AppSummary> = {};
   for (const [k, plats] of patched) {
     const normKey = String(k).trim().toLowerCase();
@@ -764,17 +698,12 @@ async function maybePersistLitePatched(
   }
   if (Object.keys(toHydrate).length === 0) return;
   putTrendEnrichMemory(toHydrate);
-  const { cacheKey, cacheBoard, repos } = boardRef;
-  if (cacheKey && repos.length > 0) {
-    await saveBoardCacheMerged(cacheKey, cacheBoard, repos);
-  }
 }
 
-async function confirmLiteEmpty(
+function confirmLiteEmpty(
   confirmedEmpty: readonly string[],
   latest: Record<string, AppSummary>,
-  boardRef: BoardCacheRef,
-): Promise<string[]> {
+): string[] {
   const aliasConfirmed: string[] = [];
   for (const raw of confirmedEmpty) {
     const k = String(raw).trim().toLowerCase();
@@ -804,14 +733,6 @@ async function confirmLiteEmpty(
     }
   } catch {
     // hydrate 失败不影响确认标记
-  }
-  const { cacheKey, cacheBoard, repos } = boardRef;
-  if (aliasConfirmed.length > 0 && repos.length > 0 && cacheKey) {
-    try {
-      await saveBoardCacheMerged(cacheKey, cacheBoard, repos);
-    } catch {
-      // 写透失败不影响内存落定
-    }
   }
   return aliasConfirmed;
 }
@@ -1092,12 +1013,10 @@ function applyRichcardHealToMirror(
   return changed ? next : prev;
 }
 
-function maybePersistRichcardHeal(
+function recordRichcardHeal(
   latest: Record<string, AppSummary>,
   payload: DetailRichcardHealPayload,
   repoKeys: ReadonlySet<string>,
-  boardRef: BoardCacheRef,
-  schedulePersist: (cacheKey: string) => void,
 ): void {
   try {
     const keys = normalizeHealKeys(payload.keys);
@@ -1134,10 +1053,8 @@ function maybePersistRichcardHeal(
     }
     if (Object.keys(toHydrate).length === 0) return;
     putTrendEnrichMemory(toHydrate);
-    const { cacheKey } = boardRef;
-    if (cacheKey) schedulePersist(cacheKey);
   } catch {
-    // 落盘失败不影响内存 merge
+    // 镜像同步失败不影响内存 merge
   }
 }
 
@@ -1188,8 +1105,9 @@ export interface TrendBoardSession {
 }
 
 /**
- * 创建趋势榜会话控制器：收口 SWR 直展、DB 确认图标回填、enrich 批处理、
- * lite 补验、settle 超时、详情治愈总线、`icon-ready` 订阅与 L2 防抖写透。
+ * 创建趋势榜会话控制器：收口 SWR 直展、`repo_card_cache` 批量水合、DB 确认图标回填、
+ * enrich 批处理、lite 补验、settle 超时、详情治愈总线与 `icon-ready` 订阅。
+ * 单仓卡片变更只写富卡镜像（`repoEnrichCache`），不重写榜单 L2 快照。
  */
 export function createTrendBoardSession(
   options: TrendBoardSessionOptions = {},
@@ -1223,27 +1141,10 @@ export function createTrendBoardSession(
   const liteInflightGuard = createInflightGuard();
   let lastTrustedResult: TrendsResult | null = null;
   let trustedConcreteCache = new Set<string>();
-  let sessionBoardRef: BoardCacheRef = { cacheKey: '', cacheBoard: 'weekly', repos: [] };
-  const sessionPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-  function scheduleSessionPersist(cacheKey: string): void {
-    if (!cacheKey) return;
-    const pending = sessionPersistTimers.get(cacheKey);
-    if (pending) clearTimeout(pending);
-    const timer = setTimeout(() => {
-      sessionPersistTimers.delete(cacheKey);
-      const { cacheKey: key, cacheBoard, repos } = sessionBoardRef;
-      if (!key || repos.length === 0) return;
-      void saveBoardCacheMerged(key, cacheBoard, repos);
-    }, 800);
-    sessionPersistTimers.set(cacheKey, timer);
-  }
-
-  function flushSessionPersist(latest: Record<string, AppSummary>): void {
-    for (const timer of sessionPersistTimers.values()) clearTimeout(timer);
-    sessionPersistTimers.clear();
-    flushBoardRef(sessionBoardRef, latest);
-  }
+  /** 当前榜单的批量水合（`get_repo_cards_batch`）：enrich 决策等待其完成，避免重复请求。 */
+  let hydration: { trendResult: TrendsResult; promise: Promise<void> } | null = null;
+  /** 已水合但元数据超出 12h 新鲜窗口、仍需 enrich 刷新的键。 */
+  const staleHydratedKeys = new Set<string>();
 
   function getSnapshot(): TrendMirrorState {
     return { enrichedApps, confirmedOtherIds };
@@ -1316,7 +1217,6 @@ export function createTrendBoardSession(
         }
         if (Object.keys(toHydrate).length > 0) {
           putTrendEnrichMemory(toHydrate);
-          if (sessionBoardRef.cacheKey) scheduleSessionPersist(sessionBoardRef.cacheKey);
         }
       } catch {
         // 内存同步失败不影响已呈现
@@ -1343,7 +1243,6 @@ export function createTrendBoardSession(
       updateConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, keys));
       unmarkTrendConfirmedOthers(keys);
       putTrendEnrichMemory(next);
-      if (sessionBoardRef.cacheKey) scheduleSessionPersist(sessionBoardRef.cacheKey);
     };
 
     const onRichcard = (e: Event): void => {
@@ -1358,7 +1257,7 @@ export function createTrendBoardSession(
       const repoKeys = boardRepoKeys(currentTrendResult?.repos);
       const next = applyRichcardHealToMirror(enrichedApps, payload, repoKeys);
       updateEnrichedApps(next);
-      maybePersistRichcardHeal(next, payload, repoKeys, sessionBoardRef, scheduleSessionPersist);
+      recordRichcardHeal(next, payload, repoKeys);
     };
 
     window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatforms);
@@ -1428,9 +1327,8 @@ export function createTrendBoardSession(
           }
           if (Object.keys(toHydrate).length === 0) return;
           putTrendEnrichMemory(toHydrate);
-          if (sessionBoardRef.cacheKey) scheduleSessionPersist(sessionBoardRef.cacheKey);
         } catch {
-          // 落盘失败不影响内存即时补齐
+          // 镜像同步失败不影响内存即时补齐
         }
       })
       .then((u) => {
@@ -1449,6 +1347,79 @@ export function createTrendBoardSession(
     };
   }
 
+  /** enrich 批量取回后并入镜像（`enrichTrendRepos` 内已写富卡池，榜单 L2 不重写）。 */
+  function runEnrichment(
+    toEnrich: TrendRepo[],
+    force: boolean,
+    seqAtStart: number,
+    epochAtStart: number,
+  ): void {
+    const isStale = (): boolean => epochAtStart !== sessionEpoch || enrichCycle.seq !== seqAtStart;
+    void enrichTrendRepos(toEnrich, force ? { forceRefresh: true } : undefined).then((found) => {
+      if (isStale() || found.size === 0) return;
+      const { next, concreteKeys } = mergeEnrichFoundMirror(enrichedApps, found);
+      if (next !== enrichedApps) updateEnrichedApps(next);
+      queueAssembledRowIcons([...found.values()]);
+      for (const k of found.keys()) staleHydratedKeys.delete(k);
+      const remainingEmptyKeys = collectEmptyIconKeys(next);
+      if (remainingEmptyKeys.length > 0) backfillDbIconsForEmptyKeys(remainingEmptyKeys, isStale);
+      if (concreteKeys.length > 0) {
+        unmarkTrendConfirmedOthers(concreteKeys);
+        updateConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, concreteKeys));
+      }
+    });
+  }
+
+  /**
+   * 榜单未在池内命中的仓库经 `hydrateCardsByIds` 批量水合（同一 trendResult 只发一次）：
+   * 命中卡片并入镜像与确认集；超 12h 的卡片照常展示，但记入 `staleHydratedKeys` 交由 enrich 刷新。
+   * 完成后对仍缺图标的键回填 DB 确认图标。
+   */
+  function ensureHydration(trendResult: TrendsResult): Promise<void> {
+    if (hydration && hydration.trendResult === trendResult) return hydration.promise;
+    const myEpoch = sessionEpoch;
+    const myToken = swrBackfillToken;
+    const isCancelled = (): boolean => myEpoch !== sessionEpoch || myToken !== swrBackfillToken;
+    const snap = snapshotTrendRepoCards(trendResult.repos);
+    const pending: string[] = [];
+    for (const r of trendResult.repos) {
+      const key = (r.id || '').trim().toLowerCase();
+      if (!key || snap[key] || enrichedApps[key]) continue;
+      pending.push(key);
+    }
+    const promise = (async (): Promise<void> => {
+      if (pending.length > 0) {
+        let hydrated: Awaited<ReturnType<typeof hydrateCardsByIds>> | null = null;
+        try {
+          hydrated = await hydrateCardsByIds(pending, { uncatalogedOnly: true });
+        } catch {
+          hydrated = null;
+        }
+        if (hydrated && !isCancelled()) {
+          const found: Record<string, AppSummary> = {};
+          for (const [k, card] of hydrated.byId) {
+            if (card.is_cataloged === true) continue;
+            found[k] = card;
+            if (hydrated.freshCardIds.has(k)) staleHydratedKeys.delete(k);
+            else staleHydratedKeys.add(k);
+          }
+          if (Object.keys(found).length > 0) {
+            updateEnrichedApps((prev) => mergeSwrEnrichedMirror(prev, found));
+            queueAssembledRowIcons(Object.values(found));
+          }
+          if (hydrated.confirmedOtherIds.length > 0) {
+            updateConfirmedOtherIds((prev) => addConfirmedMirror(prev, hydrated!.confirmedOtherIds));
+          }
+        }
+      }
+      if (isCancelled()) return;
+      const emptyKeys = collectEmptyIconKeys(enrichedApps);
+      if (emptyKeys.length > 0) backfillDbIconsForEmptyKeys(emptyKeys, isCancelled);
+    })();
+    hydration = { trendResult, promise };
+    return promise;
+  }
+
   return {
     getSnapshot,
 
@@ -1462,18 +1433,6 @@ export function createTrendBoardSession(
     start() {
       if (activeCleanups.length > 0) return;
       const startEpoch = sessionEpoch;
-      const onPageHide = (): void => {
-        try {
-          flushSessionPersist(enrichedApps);
-        } catch {
-          // 卸载兜底不抛错
-        }
-      };
-      window.addEventListener('pagehide', onPageHide);
-      const unsubPageHide = () => window.removeEventListener('pagehide', onPageHide);
-      const unsubConfirmed = subscribeTrendConfirmedOtherChanges(() => {
-        if (sessionBoardRef.cacheKey) scheduleSessionPersist(sessionBoardRef.cacheKey);
-      });
       const unsubStreamIcons = attachStreamIconListener(startEpoch);
       const unsubHeal = attachHealBus();
       const unsubIconWrites = subscribeIconWrites(({ targets, icon }) => {
@@ -1485,13 +1444,10 @@ export function createTrendBoardSession(
           updateEnrichedApps(next);
           if (typeof icon === 'string' && !icon.startsWith('data:')) {
             putTrendEnrichMemory(next);
-            if (sessionBoardRef.cacheKey) scheduleSessionPersist(sessionBoardRef.cacheKey);
           }
         }
       });
       activeCleanups = [
-        unsubConfirmed,
-        unsubPageHide,
         unsubStreamIcons,
         unsubHeal,
         unsubIconWrites,
@@ -1507,18 +1463,15 @@ export function createTrendBoardSession(
       enrichCycle.trendResult = null;
       enrichCycle.seq += 1;
       attemptedEnrichKeys.clear();
+      hydration = null;
+      staleHydratedKeys.clear();
       boardSeq += 1;
       const cleanups = activeCleanups;
       activeCleanups = [];
       for (const cleanup of cleanups) cleanup();
-      try {
-        flushSessionPersist(enrichedApps);
-      } catch {
-        // 卸载兜底不抛错
-      }
     },
 
-    syncBoard({ trendResult, activeBoard, trendFetchOpts }) {
+    syncBoard({ trendResult, activeBoard }) {
       currentActiveBoard = activeBoard;
       currentTrendResult = trendResult;
       if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
@@ -1528,27 +1481,17 @@ export function createTrendBoardSession(
         }
         return;
       }
-      const { cacheKey, cacheBoard } = resolveBoardCacheKey(activeBoard, trendFetchOpts);
-      sessionBoardRef = { cacheKey, cacheBoard, repos: trendResult.repos };
-      lastDetailHealBoardRef = sessionBoardRef;
-
       if (lastSwrResult === trendResult) return;
       lastSwrResult = trendResult;
       swrBackfillToken += 1;
-      const myToken = swrBackfillToken;
-      const myEpoch = sessionEpoch;
 
       const { snap, l2Confirmed } = buildSwrFill(trendResult.repos);
       if (l2Confirmed.length > 0) {
         updateConfirmedOtherIds((prev) => mergeSwrConfirmedMirror(prev, l2Confirmed, snap));
       }
-      const nextMirror = mergeSwrEnrichedMirror(enrichedApps, snap);
-      updateEnrichedApps(nextMirror);
+      updateEnrichedApps(mergeSwrEnrichedMirror(enrichedApps, snap));
       queueAssembledRowIcons(Object.values(snap));
-      const emptyKeys = collectEmptyIconKeys(nextMirror);
-      if (emptyKeys.length > 0) {
-        backfillDbIconsForEmptyKeys(emptyKeys, () => myEpoch !== sessionEpoch || myToken !== swrBackfillToken);
-      }
+      void ensureHydration(trendResult);
     },
 
     resetLoadingBoard(activeBoard, trendResult) {
@@ -1557,14 +1500,7 @@ export function createTrendBoardSession(
       boardSeq += 1;
     },
 
-    syncEnrichment({
-      trendResult,
-      activeBoard,
-      trendFetchOpts,
-      displayItems,
-      boardReady,
-      consumeForceEnrich,
-    }) {
+    syncEnrichment({ trendResult, activeBoard, displayItems, boardReady, consumeForceEnrich }) {
       if (trendResult?.status !== 'ok' || !boardReady) return;
       const enrichForce = consumeForceEnrich();
       if (
@@ -1577,44 +1513,24 @@ export function createTrendBoardSession(
         enrichCycle.seq += 1;
         attemptedEnrichKeys.clear();
       }
-      const { snap } = buildSwrFill(trendResult.repos);
-      const effectiveEnriched = mergeSwrEnrichedMirror(enrichedApps, snap);
-      const missing = collectMissingEnrichRepos(displayItems, effectiveEnriched);
-      if (missing.size === 0) return;
-      const toEnrich: TrendRepo[] = [];
-      for (const [key, repo] of missing) {
-        if (attemptedEnrichKeys.has(key)) continue;
-        attemptedEnrichKeys.add(key);
-        toEnrich.push(repo);
-      }
-      if (toEnrich.length === 0) return;
       const seqAtStart = enrichCycle.seq;
       const epochAtStart = sessionEpoch;
-      void enrichTrendRepos(toEnrich, enrichForce ? { forceRefresh: true } : undefined).then(
-        async (found) => {
-          if (epochAtStart !== sessionEpoch || enrichCycle.seq !== seqAtStart || found.size === 0) {
-            return;
-          }
-          const { next, hasNewEnrich, concreteKeys } = mergeEnrichFoundMirror(enrichedApps, found);
-          if (next !== enrichedApps) updateEnrichedApps(next);
-          if (found.size > 0) queueAssembledRowIcons([...found.values()]);
-          const remainingEmptyKeys = collectEmptyIconKeys(next);
-          if (remainingEmptyKeys.length > 0) {
-            backfillDbIconsForEmptyKeys(
-              remainingEmptyKeys,
-              () => epochAtStart !== sessionEpoch || enrichCycle.seq !== seqAtStart,
-            );
-          }
-          if (concreteKeys.length > 0) {
-            unmarkTrendConfirmedOthers(concreteKeys);
-            updateConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, concreteKeys));
-          }
-          if (hasNewEnrich && trendResult.repos.length > 0) {
-            const { cacheKey, cacheBoard } = resolveBoardCacheKey(activeBoard, trendFetchOpts);
-            await saveBoardCacheMerged(cacheKey, cacheBoard, trendResult.repos);
-          }
-        },
-      );
+      // 冷启动：先等本榜批量水合落定，再判定真正缺失（或超 12h）的仓库，避免重复 enrich。
+      void ensureHydration(trendResult).then(() => {
+        if (epochAtStart !== sessionEpoch || enrichCycle.seq !== seqAtStart) return;
+        const { snap } = buildSwrFill(trendResult.repos);
+        const effectiveEnriched = mergeSwrEnrichedMirror(enrichedApps, snap);
+        const missing = collectMissingEnrichRepos(displayItems, effectiveEnriched, staleHydratedKeys);
+        if (missing.size === 0) return;
+        const toEnrich: TrendRepo[] = [];
+        for (const [key, repo] of missing) {
+          if (attemptedEnrichKeys.has(key)) continue;
+          attemptedEnrichKeys.add(key);
+          toEnrich.push(repo);
+        }
+        if (toEnrich.length === 0) return;
+        runEnrichment(toEnrich, enrichForce, seqAtStart, epochAtStart);
+      });
     },
 
     syncLiteVerify({ trendResult, rawItems, globalConfirmed, fetchLite }) {
@@ -1634,7 +1550,6 @@ export function createTrendBoardSession(
       const claimed = new Set(liteInflightGuard.take(sel.targets.map((t) => t.key)));
       const runTargets = sel.targets.filter((t) => claimed.has(t.key));
       if (runTargets.length === 0) return;
-      const boardAtStart = sessionBoardRef;
       void (async () => {
         try {
           const { patched, confirmedEmpty } = await runLiteBatch(
@@ -1652,17 +1567,13 @@ export function createTrendBoardSession(
               removeConfirmedForConcrete(prev, [...patched.keys()]),
             );
             try {
-              await maybePersistLitePatched(patched, preLiteSnapshot, boardAtStart);
+              recordLitePatched(patched, preLiteSnapshot);
             } catch {
-              // 写透失败不影响内存落定
+              // 镜像同步失败不影响内存落定
             }
           }
           if (confirmedEmpty.length > 0) {
-            const aliasConfirmed = await confirmLiteEmpty(
-              confirmedEmpty,
-              preLiteSnapshot,
-              boardAtStart,
-            );
+            const aliasConfirmed = confirmLiteEmpty(confirmedEmpty, preLiteSnapshot);
             if (
               aliasConfirmed.length > 0 &&
               epochAtStart === sessionEpoch &&
@@ -1716,14 +1627,6 @@ export function createTrendBoardSession(
           );
           if (Object.keys(toHydrate).length > 0) {
             updateEnrichedApps((prev) => mergeSettleSyntheticMirror(prev, toHydrate));
-          }
-          const { cacheKey, cacheBoard, repos: curRepos } = sessionBoardRef;
-          if (cacheKey && curRepos.length > 0) {
-            try {
-              void saveBoardCacheMerged(cacheKey, cacheBoard, curRepos);
-            } catch {
-              // 写透失败不影响内存落定
-            }
           }
         },
       });

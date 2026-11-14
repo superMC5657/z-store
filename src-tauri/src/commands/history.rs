@@ -164,7 +164,9 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
             return Some(summary);
         }
     }
-    None
+    // 无详情行：回退单仓富卡（列表里直接收藏/浏览过的未收录应用）。
+    let clean_id = crate::forge::canonical_app_id(trimmed)?;
+    crate::repositories::DetailRepository::repo_card_summary(db, &clean_id)
 }
 
 /// AppDetail → AppSummary（字段与前端 AppSummary 对齐；`data:` 置空兜底）。

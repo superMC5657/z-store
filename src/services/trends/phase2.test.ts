@@ -136,93 +136,43 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
     vi.restoreAllMocks();
   });
 
-  it('FE 预检 256KB 常量', () => {
-    expect(TREND_DB_PAYLOAD_MAX_BYTES).toBe(256 * 1024);
+  it('FE 预检 32 KiB 常量', () => {
+    expect(TREND_DB_PAYLOAD_MAX_BYTES).toBe(32 * 1024);
     expect(utf8ByteLength('hello')).toBe(5);
     expect(utf8ByteLength('中文')).toBeGreaterThan(2);
   });
 
-  it('超限分级降级：先截长文本，仍超才丢 loading，最后降裸榜', async () => {
+  it('长描述不入盘：v2 排行索引只含 id 与计数，体积与卡片文本无关', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-    // 裸榜小，但单条 enrich 描述巨大（300KB）→ 信封超限 → 长文本截断后落富信封
-    const repos = [makeTrendRepo({ id: 'acme/small' })];
-    const huge = makeEnrichedApp({ id: 'acme/huge' });
-    (huge as unknown as Record<string, unknown>).description = 'y'.repeat(300 * 1024);
-    await saveDbTrendCache('weekly||', 'weekly', repos, { 'acme/huge': huge });
+    await saveDbTrendCache('weekly||', 'weekly', [bigRepo('acme/big', 300 * 1024)]);
     expect(invokeSpy).toHaveBeenCalledTimes(1);
     const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
-    const parsed: unknown = JSON.parse(args.payloadJson);
-    // 截断后为富信封，描述截至 500 字符
-    expect(Array.isArray(parsed)).toBe(false);
-    const envelope = parsed as { v: number; enrich: Record<string, { description: string }> };
-    expect(envelope.v).toBe(1);
-    expect(envelope.enrich['acme/huge']?.description).toHaveLength(500);
+    expect(JSON.parse(args.payloadJson)).toEqual({ v: 2, items: [{ id: 'acme/big', stars: 10 }] });
   });
 
-  it('超限降级裸榜：截断+丢 loading 仍超限时去 enrich 落库', async () => {
+  it('仍超限放弃写盘：排行索引本身超 32 KiB 时不 invoke', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-    // 裸榜小，但 loading 富卡名称巨大（不可截断字段）→ 截断无效 → 丢 loading 后富信封可存
-    const repos = [makeTrendRepo({ id: 'acme/small' })];
-    const hugeLoading = makeEnrichedApp({ id: 'acme/huge', platforms: [] });
-    (hugeLoading as unknown as Record<string, unknown>).name = 'n'.repeat(300 * 1024);
-    const good = makeEnrichedApp({ id: 'acme/good', platforms: ['windows'] });
-    await saveDbTrendCache('weekly||', 'weekly', repos, {
-      'acme/huge': hugeLoading,
-      'acme/good': good,
-    });
-    expect(invokeSpy).toHaveBeenCalledTimes(1);
-    const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
-    const parsed: unknown = JSON.parse(args.payloadJson);
-    expect(Array.isArray(parsed)).toBe(false);
-    const envelope = parsed as { v: number; enrich: Record<string, unknown> };
-    expect(envelope.enrich['acme/good']).toBeDefined();
-    expect(envelope.enrich['acme/huge']).toBeUndefined();
-  });
-
-  it('仍超限放弃写盘：裸榜本身超 256KB 时不 invoke', async () => {
-    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-    const repos = [bigRepo('acme/big', 300 * 1024)];
+    const repos = Array.from({ length: 1500 }, (_, i) =>
+      makeTrendRepo({ id: `owner-number-${i}/repository-number-${i}`, stars: i }),
+    );
     await saveDbTrendCache('weekly||', 'weekly', repos);
     expect(invokeSpy).not.toHaveBeenCalled();
   });
 
-  it('dataURI 永不进 payload_json（回归）：字符串级断言，loading 可进盘', async () => {
+  it('dataURI 与任何卡片字段永不进 payload_json（回归）', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-    const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-    const loading = makeEnrichedApp({
-      id: 'acme/atlas',
-      platforms: [],
+    putTrendEnrichMemory({
+      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'], icon: 'data:image/png;base64,xxx' }),
     });
-    const dataUri = makeEnrichedApp({
-      id: 'acme/beacon',
-      platforms: ['windows'],
-      icon: 'data:image/png;base64,xxx',
-    });
-    const good = makeEnrichedApp({
-      id: 'acme/good',
-      platforms: ['windows'],
-      icon: 'https://x/icon.png',
-    });
-    await saveDbTrendCache('weekly||', 'weekly', repos, {
-      'acme/atlas': loading,
-      'acme/beacon': dataUri,
-      'acme/good': good,
-    });
-    expect(invokeSpy).toHaveBeenCalledTimes(1);
+    await saveDbTrendCache('weekly||', 'weekly', [makeTrendRepo({ id: 'acme/atlas' })]);
     const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
     expect(args.payloadJson).not.toContain('data:');
-    const payload = JSON.parse(args.payloadJson) as {
-      enrich: Record<string, { icon?: string }>;
-    };
-    expect(payload.enrich['acme/beacon']).toBeDefined();
-    expect(payload.enrich['acme/beacon']?.icon).toBe('');
-    expect(payload.enrich['acme/good']).toBeDefined();
-    // SWR：loading 空平台随信封落盘
-    expect(payload.enrich['acme/atlas']).toBeDefined();
+    expect(args.payloadJson).not.toContain('icon');
+    expect(args.payloadJson).not.toContain('platforms');
+    expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['windows']);
   });
 });
 

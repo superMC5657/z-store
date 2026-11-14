@@ -2,25 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as clientModule from '../api/client';
 import {
   DOFORCE_SHARED_CACHE_KEY,
+  TREND_DB_PAYLOAD_MAX_BYTES,
   TREND_DB_TTL_MS,
   buildDoforceCacheKey,
+  buildTrendRankIndex,
   clearTrendsCache,
   getDbTrendCache,
   readTrendsCache,
-  saveBoardCacheMerged,
   saveDbTrendCache,
   trendDbTtlMs,
   writeTrendsCache,
 } from './cache';
-import {
-  clearTrendEnrichCache,
-  markConfirmedOthersFreshNow,
-  putTrendEnrichMemory,
-  markTrendConfirmedOthers,
-  snapshotTrendConfirmedOthers,
-  snapshotTrendEnrichCache,
-} from './enrich';
-import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
+import { snapshotTrendEnrichCache } from './enrich';
 import { fetchTrendsResult } from '../trends';
 import type { TrendRepo } from '../../types';
 import { tauriApi } from '../api';
@@ -31,12 +24,29 @@ const mockRepo: TrendRepo = {
   owner: 'test',
   repo: 'repo',
   stars: 100,
+  starsGained: 12,
   forks: 10,
   description: 'test repo',
   url: 'https://github.com/test/repo',
 };
 
-describe('trends L2 persistence cache', () => {
+/** v2 读出重建的榜单行（只含排行索引字段）。 */
+const rebuiltRepo: TrendRepo = {
+  id: 'test/repo',
+  name: 'test/repo',
+  owner: 'test',
+  repo: 'repo',
+  stars: 100,
+  starsGained: 12,
+  forks: 10,
+  url: 'https://github.com/test/repo',
+};
+
+function v2(items: unknown[]): string {
+  return JSON.stringify({ v: 2, items });
+}
+
+describe('trends L2 rank index cache (v: 2)', () => {
   beforeEach(() => {
     clearTrendsCache();
     vi.restoreAllMocks();
@@ -49,513 +59,222 @@ describe('trends L2 persistence cache', () => {
 
   it('getDbTrendCache returns undefined when not in Tauri environment', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(false);
-    const result = await getDbTrendCache('weekly||', 'weekly');
-    expect(result).toBeUndefined();
+    expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
   });
 
-  it('getDbTrendCache returns parsed repos when fresh in L2 DB', async () => {
+  it('getDbTrendCache rebuilds TrendRepo[] from a fresh v2 index without touching the card pool', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const nowSec = Math.floor(Date.now() / 1000);
     vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
-      cached_at: nowSec - 60, // 1 min ago
+      payload_json: v2([{ id: 'Test/Repo', stars: 100, starsGained: 12, forks: 10 }, { id: 'bad id' }]),
+      cached_at: nowSec - 60,
     });
-
     const result = await getDbTrendCache('weekly||', 'weekly');
-    expect(result).toEqual([mockRepo]);
+    expect(result).toEqual([rebuiltRepo]);
+    expect(snapshotTrendEnrichCache()).toEqual({});
   });
 
   it('buildDoforceCacheKey builds filter-aware key', () => {
     expect(buildDoforceCacheKey()).toBe('doforce||');
     expect(buildDoforceCacheKey({})).toBe('doforce||');
-    // C3 key归一：language/category 统一 trim().toLowerCase()，读写同源
     expect(buildDoforceCacheKey({ language: 'rust' })).toBe('doforce|rust|');
     expect(buildDoforceCacheKey({ language: ' Rust ', category: ' CLI ' })).toBe('doforce|rust|cli');
-    expect(buildDoforceCacheKey({ language: 'Rust', category: 'CLI' })).toBe('doforce|rust|cli');
     expect(DOFORCE_SHARED_CACHE_KEY).toBe('doforce||');
   });
 
-  it('getDbTrendCache rejects non-struct formats (tuple / non-envelope) as miss', async () => {
+  it('getDbTrendCache rejects legacy v1 envelopes, plain arrays, tuples and empty indexes as miss', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const nowSec = Math.floor(Date.now() / 1000);
-    // tuple format rejected
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce([
-      JSON.stringify([mockRepo]),
-      nowSec - 60,
-    ]);
+    const invoke = vi.spyOn(clientModule, 'tauriInvoke');
+    invoke.mockResolvedValueOnce([JSON.stringify([mockRepo]), nowSec - 60]);
     expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
-
-    // 非信封载荷视为 miss（旧纯数组 JSON）
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify([mockRepo]),
+    invoke.mockResolvedValueOnce({ payload_json: JSON.stringify([mockRepo]), cached_at: nowSec - 60 });
+    expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
+    invoke.mockResolvedValueOnce({
+      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
       cached_at: nowSec - 60,
     });
     expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
+    invoke.mockResolvedValueOnce({ payload_json: v2([]), cached_at: nowSec - 60 });
+    expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
+    invoke.mockResolvedValueOnce({ payload_json: 'invalid-json', cached_at: nowSec });
+    expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
   });
 
-  it('getDbTrendCache respects per-board L2 TTL (daily 1h, others 12h)', async () => {
+  it('getDbTrendCache respects per-board L2 TTL (daily 1h, others 12h), clock skew and allowStale', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const nowSec = Math.floor(Date.now() / 1000);
     expect(TREND_DB_TTL_MS).toBe(12 * 60 * 60 * 1000);
     expect(trendDbTtlMs('daily')).toBe(60 * 60 * 1000);
     expect(trendDbTtlMs('weekly')).toBe(TREND_DB_TTL_MS);
-    expect(trendDbTtlMs('new')).toBe(TREND_DB_TTL_MS);
+    const payload = v2([{ id: 'test/repo', stars: 100, starsGained: 12, forks: 10 }]);
+    const invoke = vi.spyOn(clientModule, 'tauriInvoke');
 
-    // daily cached 30m ago (<1h DB TTL) is fresh in DB
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
-      cached_at: nowSec - 1800,
-    });
-    const freshDaily = await getDbTrendCache('daily||', 'daily');
-    expect(freshDaily).toEqual([mockRepo]);
-
-    // daily cached 2h ago (>1h DB TTL, <12h) is expired in DB
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
-      cached_at: nowSec - 2 * 3600,
-    });
+    invoke.mockResolvedValueOnce({ payload_json: payload, cached_at: nowSec - 1800 });
+    expect(await getDbTrendCache('daily||', 'daily')).toEqual([rebuiltRepo]);
+    invoke.mockResolvedValueOnce({ payload_json: payload, cached_at: nowSec - 2 * 3600 });
     expect(await getDbTrendCache('daily||', 'daily')).toBeUndefined();
-
-    // new cached 2h ago (<12h DB TTL) is fresh in DB
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
-      cached_at: nowSec - 2 * 3600,
-    });
-    const freshNew = await getDbTrendCache('new||', 'new');
-    expect(freshNew).toEqual([mockRepo]);
-
-    // weekly cached_at exceeding 12h returns undefined (expired)
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
-      cached_at: nowSec - (12 * 3600 + 60),
-    });
-    const expired = await getDbTrendCache('weekly||', 'weekly');
-    expect(expired).toBeUndefined();
-  });
-
-  it('getDbTrendCache returns undefined on corrupted JSON or empty array', async () => {
-    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const nowSec = Math.floor(Date.now() / 1000);
-
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: 'invalid-json',
-      cached_at: nowSec,
-    });
+    invoke.mockResolvedValueOnce({ payload_json: payload, cached_at: nowSec - 2 * 3600 });
+    expect(await getDbTrendCache('new||', 'new')).toEqual([rebuiltRepo]);
+    invoke.mockResolvedValueOnce({ payload_json: payload, cached_at: nowSec - (12 * 3600 + 60) });
     expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
-
-    vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValueOnce({
-      payload_json: '[]',
-      cached_at: nowSec,
-    });
+    invoke.mockResolvedValueOnce({ payload_json: payload, cached_at: nowSec + 3600 });
     expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
+    invoke.mockResolvedValueOnce({ payload_json: payload, cached_at: nowSec - 20 * 3600 });
+    expect(await getDbTrendCache('weekly||', 'weekly', { allowStale: true })).toEqual([rebuiltRepo]);
   });
 
   it('getDbTrendCache swallows invoke failure and returns undefined', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     vi.spyOn(clientModule, 'tauriInvoke').mockRejectedValueOnce(new Error('command not found'));
-
-    const result = await getDbTrendCache('weekly||', 'weekly');
-    expect(result).toBeUndefined();
+    expect(await getDbTrendCache('weekly||', 'weekly')).toBeUndefined();
   });
 
-  it('saveDbTrendCache invokes save_trend_board_cache with payload', async () => {
+  it('saveDbTrendCache writes { v: 2, items } with zero card fields', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-
-    await saveDbTrendCache('weekly||', 'weekly', [mockRepo]);
-    expect(invokeSpy).toHaveBeenCalledWith('save_trend_board_cache', {
-      cacheKey: 'weekly||',
-      board: 'weekly',
-      payloadJson: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
+    await saveDbTrendCache('weekly||', 'weekly', [
+      mockRepo,
+      { ...mockRepo, id: 'TEST/REPO' },
+      { id: 'acme/new', name: 'acme/new', owner: 'acme', repo: 'new', stars: 5 },
+    ]);
+    expect(invokeSpy).toHaveBeenCalledTimes(1);
+    const args = invokeSpy.mock.calls[0]?.[1] as { cacheKey: string; board: string; payloadJson: string };
+    expect(args.cacheKey).toBe('weekly||');
+    expect(args.board).toBe('weekly');
+    expect(JSON.parse(args.payloadJson)).toEqual({
+      v: 2,
+      items: [
+        { id: 'test/repo', stars: 100, starsGained: 12, forks: 10 },
+        { id: 'acme/new', stars: 5 },
+      ],
     });
+    for (const field of ['description', 'icon', 'platforms', 'enrich', 'confirmedOther']) {
+      expect(args.payloadJson).not.toContain(field);
+    }
   });
 
-  it('saveDbTrendCache skips empty array and swallows error', async () => {
+  it('saveDbTrendCache skips empty boards, oversize payloads, and swallows errors', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockRejectedValue(new Error('db error'));
-
     await expect(saveDbTrendCache('weekly||', 'weekly', [])).resolves.toBeUndefined();
     expect(invokeSpy).not.toHaveBeenCalled();
-
     await expect(saveDbTrendCache('weekly||', 'weekly', [mockRepo])).resolves.toBeUndefined();
+
+    invokeSpy.mockClear();
+    expect(TREND_DB_PAYLOAD_MAX_BYTES).toBe(32 * 1024);
+    const huge: TrendRepo[] = Array.from({ length: 2000 }, (_, i) => ({
+      id: `owner-${i}/repository-with-a-long-name-${i}`,
+      name: '',
+      owner: `owner-${i}`,
+      repo: `repository-with-a-long-name-${i}`,
+      stars: 1,
+    }));
+    await saveDbTrendCache('weekly||', 'weekly', huge);
+    expect(invokeSpy).not.toHaveBeenCalled();
   });
 
-  it('saveDbTrendCache 剥离收录态标注（source/status/is_cataloged 不入盘）', async () => {
-    vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-    const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke').mockResolvedValue(undefined);
-
-    const stamped = {
-      ...makeEnrichedApp({ id: 'acme/atlas' }),
-      source: 'local',
-      status: 'collected',
-      is_cataloged: true,
-    } as never;
-    await saveDbTrendCache('weekly||', 'weekly', [mockRepo], { 'acme/atlas': stamped });
-    const args = invokeSpy.mock.calls[0]?.[1] as { payloadJson: string };
-    const payload = JSON.parse(args.payloadJson) as {
-      enrich: Record<string, Record<string, unknown>>;
-    };
-    const row = payload.enrich['acme/atlas'];
-    expect(row).toBeTruthy();
-    expect(row?.['source']).toBeUndefined();
-    expect(row?.['status']).toBeUndefined();
-    expect(row?.['is_cataloged']).toBeUndefined();
-    // 业务字段保留
-    expect(row?.['id']).toBe('acme/atlas');
+  it('buildTrendRankIndex keeps rank order, dedupes and only keeps finite counters', () => {
+    expect(
+      buildTrendRankIndex([
+        { ...mockRepo, starsGained: undefined, forks: Number.NaN },
+        { ...mockRepo },
+        { id: 'only/id', name: '', owner: '', repo: '', stars: -3 },
+      ]),
+    ).toEqual([
+      { id: 'test/repo', stars: 100 },
+      { id: 'only/id', stars: 0 },
+    ]);
   });
-
-  describe('已确认 Other 写透→重读恢复（Other-persist）', () => {
-    function mockL2() {
-      const store = new Map<string, { payload_json: string; cached_at: number }>();
-      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-        if (cmd === 'get_trend_board_cache') {
-          const k = (args as { cacheKey: string }).cacheKey;
-          return store.get(k) ?? null;
-        }
-        if (cmd === 'save_trend_board_cache') {
-          const k = (args as { cacheKey: string }).cacheKey;
-          const payload = (args as { payloadJson: string }).payloadJson;
-          store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
-          return undefined;
-        }
-        return undefined;
-      });
-      return store;
-    }
-
-    it('mark 后合并写透：确认集随信封落盘，重读恢复确认', async () => {
-      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-      const store = mockL2();
-      const repos = [makeTrendRepo({ id: 'acme/atlas' }), makeTrendRepo({ id: 'acme/beacon' })];
-      markTrendConfirmedOthers(['acme/atlas', 'acme/beacon']);
-      putTrendEnrichMemory({
-        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
-        'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
-      });
-      await saveBoardCacheMerged('weekly||', 'weekly', repos);
-      expect(store.size).toBe(1);
-      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
-        v: number;
-        enrich: Record<string, { platforms: string[] }>;
-        confirmedOther: string[];
-      };
-      expect(payload.v).toBe(1);
-      expect(payload.enrich['acme/atlas']?.platforms).toEqual([]);
-      expect(payload.confirmedOther).toContain('acme/atlas');
-      expect(payload.confirmedOther).toContain('acme/beacon');
-
-      // 重读恢复：确认集 hydrate 进内存
-      clearTrendEnrichCache();
-      expect(snapshotTrendConfirmedOthers()).toEqual([]);
-      const reread = await getDbTrendCache('weekly||', 'weekly');
-      expect(reread).toHaveLength(2);
-      expect(snapshotTrendConfirmedOthers()).toContain('acme/atlas');
-      expect(snapshotTrendConfirmedOthers()).toContain('acme/beacon');
-      expect(snapshotTrendEnrichCache(reread ?? [])['acme/atlas']?.platforms).toEqual([]);
-    });
-
-    it('重启等价：清空内存后同 key 命中，不联网重搜', async () => {
-      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-      mockL2();
-      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-      markTrendConfirmedOthers(['acme/atlas']);
-      putTrendEnrichMemory({
-        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
-      });
-      await saveBoardCacheMerged('weekly||', 'weekly', repos);
-
-      // 重启等价：清空全部内存（含 L1/确认/enrich），保 L2 存盘
-      clearTrendsCache();
-      clearTrendEnrichCache();
-      const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
-      const res = await fetchTrendsResult('weekly');
-      expect(res.status).toBe('ok');
-      expect(res.repos).toHaveLength(1);
-      expect(networkSpy).not.toHaveBeenCalled();
-      // 同 key 命中不回 loading：确认集已恢复
-      expect(snapshotTrendConfirmedOthers()).toContain('acme/atlas');
-    });
-
-    it('未确认 loading 永不落盘：旧盘残留 loading 无确认则丢弃', async () => {
-      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-      const store = mockL2();
-      const nowSec = Math.floor(Date.now() / 1000);
-      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-      const staleLoading = makeEnrichedApp({ id: 'acme/atlas', platforms: [] });
-      vi.spyOn(clientModule, 'tauriInvoke').mockImplementationOnce(async () => ({
-        payload_json: JSON.stringify({ v: 1, repos, enrich: { 'acme/atlas': staleLoading } }),
-        cached_at: nowSec - 60,
-      }));
-      // 旧盘读：无确认集，loading 丢弃不进内存
-      const hit = await getDbTrendCache('weekly||', 'weekly');
-      expect(hit).toHaveLength(1);
-      expect(snapshotTrendEnrichCache(hit ?? [])).not.toHaveProperty('acme/atlas');
-      expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
-
-      // 恢复常规 L2 mock 后再合并写透：残留 loading 不回写
-      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-        if (cmd === 'get_trend_board_cache') {
-          const k = (args as { cacheKey: string }).cacheKey;
-          return store.get(k) ?? null;
-        }
-        if (cmd === 'save_trend_board_cache') {
-          const k = (args as { cacheKey: string }).cacheKey;
-          const payload = (args as { payloadJson: string }).payloadJson;
-          store.set(k, { payload_json: payload, cached_at: Math.floor(Date.now() / 1000) });
-          return undefined;
-        }
-        return undefined;
-      });
-      await saveBoardCacheMerged('weekly||', 'weekly', repos);
-      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
-        enrich?: Record<string, unknown>;
-        confirmedOther?: string[];
-      };
-      expect(payload.enrich?.['acme/atlas']).toBeUndefined();
-      expect(payload.confirmedOther ?? []).not.toContain('acme/atlas');
-    });
-
-    it('具平台升级覆盖：确认后 concrete 到达，确认移除且富卡保留', async () => {
-      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-      const store = mockL2();
-      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-      markTrendConfirmedOthers(['acme/atlas']);
-      putTrendEnrichMemory({
-        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
-      });
-      // put 具平台自动移除确认
-      expect(snapshotTrendConfirmedOthers()).not.toContain('acme/atlas');
-      await saveBoardCacheMerged('weekly||', 'weekly', repos);
-      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
-        enrich: Record<string, { platforms: string[] }>;
-        confirmedOther?: string[];
-      };
-      expect(payload.enrich['acme/atlas']?.platforms).toEqual(['windows']);
-      expect(payload.confirmedOther ?? []).not.toContain('acme/atlas');
-    });
-
-    it('读侧 hydrate 确认集可独立恢复（无内存条目时 L2 标记仍有效）', async () => {
-      markConfirmedOthersFreshNow(['acme/ghost']);
-      expect(snapshotTrendConfirmedOthers()).toContain('acme/ghost');
-    });
-  });
-
-  describe('saveBoardCacheMerged 写竞态串行化', () => {
-    it('同 key 并发合并写按序排队：后写基于前写已落盘快照 rebase，双侧 enrich/confirmed 均保留', async () => {
-      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-      const store = new Map<string, { payload_json: string; cached_at: number }>();
-      const calls: string[] = [];
-      let gateFirstGet: (() => void) | undefined;
-      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-        const k = (args as { cacheKey: string }).cacheKey;
-        calls.push(`${cmd}:${k}`);
-        if (cmd === 'get_trend_board_cache') {
-          // 首读挂起在途：后续合并写必须排队等它写完，不得交错读盘
-          if (!gateFirstGet) {
-            await new Promise<void>((resolve) => {
-              gateFirstGet = resolve;
-            });
-          }
-          return store.get(k) ?? null;
-        }
-        if (cmd === 'save_trend_board_cache') {
-          store.set(k, {
-            payload_json: (args as { payloadJson: string }).payloadJson,
-            cached_at: Math.floor(Date.now() / 1000),
-          });
-        }
-        return undefined;
-      });
-      const repos = [makeTrendRepo({ id: 'acme/atlas' }), makeTrendRepo({ id: 'acme/beacon' })];
-
-      // 写 A：仅 atlas（loading + 已确认）进内存（先 mark 后 put：未确认 loading 不进内存）
-      markTrendConfirmedOthers(['acme/atlas']);
-      putTrendEnrichMemory({
-        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
-      });
-      const a = saveBoardCacheMerged('weekly||', 'weekly', repos);
-      await vi.waitFor(() => expect(gateFirstGet).toBeTruthy());
-
-      // 写 B 后到：清内存仅留 beacon，模拟并发写透的另一侧数据
-      clearTrendEnrichCache();
-      markTrendConfirmedOthers(['acme/beacon']);
-      putTrendEnrichMemory({
-        'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
-      });
-      const b = saveBoardCacheMerged('weekly||', 'weekly', repos);
-      await Promise.resolve();
-      await Promise.resolve();
-      // B 尚未读盘：串行链令其排队等 A 写完（无修复时此处已交错为 get, get）
-      expect(calls.filter((c) => c.startsWith('get_trend_board_cache')).length).toBe(1);
-
-      gateFirstGet?.();
-      await a;
-      await b;
-      // 调用序严格交错：读 A → 写 A → 读 B → 写 B（B 读到的即 A 刚写的快照）
-      expect(calls).toEqual([
-        'get_trend_board_cache:weekly||',
-        'save_trend_board_cache:weekly||',
-        'get_trend_board_cache:weekly||',
-        'save_trend_board_cache:weekly||',
-      ]);
-      const payload = JSON.parse(store.get('weekly||')?.payload_json as string) as {
-        enrich: Record<string, unknown>;
-        confirmedOther?: string[];
-      };
-      expect(payload.enrich['acme/atlas']).toBeTruthy();
-      expect(payload.enrich['acme/beacon']).toBeTruthy();
-      expect(payload.confirmedOther).toContain('acme/atlas');
-      expect(payload.confirmedOther).toContain('acme/beacon');
-    });
-
-    it('串行链空转后清理：写完再写仍正常落盘（链表不悬挂）', async () => {
-      vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-      const store = new Map<string, { payload_json: string; cached_at: number }>();
-      vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-        if (cmd === 'save_trend_board_cache') {
-          const k = (args as { cacheKey: string }).cacheKey;
-          store.set(k, {
-            payload_json: (args as { payloadJson: string }).payloadJson,
-            cached_at: Math.floor(Date.now() / 1000),
-          });
-        }
-        return undefined;
-      });
-      const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-      markTrendConfirmedOthers(['acme/atlas']);
-      putTrendEnrichMemory({
-        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
-      });
-      await saveBoardCacheMerged('weekly||', 'weekly', repos);
-      await saveBoardCacheMerged('weekly||', 'weekly', repos);
-      await expect(saveBoardCacheMerged('weekly||', 'weekly', repos)).resolves.toBeUndefined();
-      expect(store.get('weekly||')?.payload_json).toBeTruthy();
-    });
-  });
-
 
   describe('L1 -> L2 -> Network integration in boards', () => {
     it('hits L2 on L1 miss and populates L1 for subsequent calls', async () => {
       vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
       const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
       const nowSec = Math.floor(Date.now() / 1000);
-
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
         if (cmd === 'get_trend_board_cache') {
-          return {
-            payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
-            cached_at: nowSec - 10,
-          };
+          return { payload_json: v2([{ id: 'test/repo', stars: 100, starsGained: 12, forks: 10 }]), cached_at: nowSec - 10 };
         }
         return undefined;
       });
-
-      // L1 is empty initially -> hits L2
       const res1 = await fetchTrendsResult('weekly');
       expect(res1.status).toBe('ok');
-      expect(res1.repos).toEqual([mockRepo]);
+      expect(res1.repos).toEqual([rebuiltRepo]);
       expect(networkSpy).not.toHaveBeenCalled();
 
-      // Second call hits L1 directly (no L2 invoke, no network)
       const invokeSpy = vi.spyOn(clientModule, 'tauriInvoke');
       const res2 = await fetchTrendsResult('weekly');
-      expect(res2.status).toBe('ok');
-      expect(res2.repos).toEqual([mockRepo]);
+      expect(res2.repos).toEqual([rebuiltRepo]);
       expect(invokeSpy).not.toHaveBeenCalled();
       expect(networkSpy).not.toHaveBeenCalled();
     });
 
-    it('forceRefresh bypasses L1 and L2 and writes through to both on success', async () => {
+    it('forceRefresh bypasses L1 and L2 and writes the rank index once on success', async () => {
       vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
-      const savedCalls: unknown[] = [];
+      const savedCalls: Array<{ payloadJson: string }> = [];
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-        if (cmd === 'save_trend_board_cache') {
-          savedCalls.push(args);
-        }
+        if (cmd === 'save_trend_board_cache') savedCalls.push(args as { payloadJson: string });
         return undefined;
       });
-
-      // Prepopulate L1
       writeTrendsCache('weekly||', [{ ...mockRepo, stars: 999 }]);
-
-      // Mock network fetch
       vi.spyOn(tauriApi, 'fetchTrendsText').mockResolvedValueOnce(
         `<article class="Box-row">
            <h2 class="h3"><a href="/newowner/newrepo">newowner / newrepo</a></h2>
            <span class="d-inline-block float-sm-right">50 stars this week</span>
          </article>`,
       );
-
       const res = await fetchTrendsResult('weekly', { forceRefresh: true });
       expect(res.status).toBe('ok');
       expect(res.repos[0]?.repo).toBe('newrepo');
-
-      // L1 was updated
-      const l1 = readTrendsCache('weekly||', 'weekly');
-      expect(l1?.[0]?.repo).toBe('newrepo');
-
-      // L2 was written through
-      expect(savedCalls.length).toBe(1);
+      expect(readTrendsCache('weekly||', 'weekly')?.[0]?.repo).toBe('newrepo');
+      expect(savedCalls).toHaveLength(1);
+      expect(JSON.parse(savedCalls[0].payloadJson).v).toBe(2);
     });
 
     it('doforce shared L2 hit serves rising and healthy with filter-aware cache key', async () => {
       vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
       const networkSpy = vi.spyOn(tauriApi, 'fetchTrendsText');
       const nowSec = Math.floor(Date.now() / 1000);
-
       const opts = { language: 'rust', category: 'cli' };
       const expectedKey = buildDoforceCacheKey(opts);
-
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
         if (cmd === 'get_trend_board_cache') {
           expect((args as { cacheKey?: string }).cacheKey).toBe(expectedKey);
           return {
-            payload_json: JSON.stringify({ v: 1, repos: [mockRepo], enrich: {} }),
+            payload_json: v2([
+              { id: 'a/fast', stars: 10, starsGained: 90, forks: 1 },
+              { id: 'b/healthy', stars: 10, starsGained: 10, forks: 500 },
+            ]),
             cached_at: nowSec - 100,
           };
         }
         return undefined;
       });
-
       const rising = await fetchTrendsResult('rising', opts);
-      expect(rising.status).toBe('ok');
-      expect(rising.repos).toHaveLength(1);
-      expect(networkSpy).not.toHaveBeenCalled();
-
-      // healthy shares L1 directly
+      expect(rising.repos.map((r) => r.id)).toEqual(['a/fast', 'b/healthy']);
       const healthy = await fetchTrendsResult('healthy', opts);
-      expect(healthy.status).toBe('ok');
-      expect(healthy.repos).toHaveLength(1);
+      expect(healthy.repos.map((r) => r.id)).toEqual(['b/healthy', 'a/fast']);
       expect(networkSpy).not.toHaveBeenCalled();
     });
 
-    it('falls back to expired L2 cache (stale: true) when network fetch fails', async () => {
+    it('falls back to expired L2 index (stale: true) when network fetch fails', async () => {
       vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
       const nowSec = Math.floor(Date.now() / 1000);
       vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd) => {
         if (cmd === 'get_trend_board_cache') {
           return {
-            payload_json: JSON.stringify({
-              v: 1,
-              repos: [mockRepo],
-              enrich: {
-                'test/repo': makeEnrichedApp({ id: 'test/repo', platforms: ['windows'] }),
-              },
-            }),
-            // 20 小时前（超过 12h L2 TTL，但在 7d SQLite 保留期内）
+            payload_json: v2([{ id: 'test/repo', stars: 100, starsGained: 12, forks: 10 }]),
             cached_at: nowSec - 20 * 3600,
           };
         }
         return undefined;
       });
       vi.spyOn(tauriApi, 'fetchTrendsText').mockRejectedValueOnce(new Error('network jitter'));
-
       const res = await fetchTrendsResult('weekly');
       expect(res.status).toBe('ok');
       expect(res.stale).toBe(true);
-      expect(res.repos).toHaveLength(1);
-      expect(res.repos[0]).toEqual(mockRepo);
-      expect(snapshotTrendEnrichCache()['test/repo']?.platforms).toEqual(['windows']);
+      expect(res.repos).toEqual([rebuiltRepo]);
     });
   });
 });

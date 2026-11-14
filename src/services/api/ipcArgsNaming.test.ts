@@ -125,6 +125,9 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.getAppDetails('o/r', true));
     await swallow(catalog.getCachedAppDetailsBatch(['o/r']));
     await swallow(catalog.getConfirmedIconsBatch(['o/r']));
+    await swallow(catalog.getRepoCardsBatch(['o/r']));
+    await swallow(catalog.getSearchListCache('q|1|20'));
+    await swallow(catalog.saveSearchListCache('q|1|20', 'q', '{}', true));
     await swallow(catalog.getPlatformsLite('o/r', true));
     await swallow(catalog.getReadmeVariants('o/r'));
     await swallow(catalog.fetchOrCacheAssetUrl('https://example.com/x.png', 'o/r'));

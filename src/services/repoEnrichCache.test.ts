@@ -10,13 +10,22 @@ vi.mock('./api/catalog', () => ({
 }));
 
 import {
+  clearPrivateSharedRepoCards,
+  hasSettledRepoPlatforms,
+  hydrateCardsByIds,
   hydrateRowFromSharedEnrich,
   isSharedRepoConfirmedOther,
+  peekFreshRepoCard,
   readSharedRepoEnrich,
   recordSharedConfirmedOthers,
+  recordSharedPrivateRepos,
+  recordSharedRepoCards,
   recordSharedRepoPlatforms,
 } from './repoEnrichCache';
+import { tauriApi } from './api';
+import { getBufferedIcon } from './iconStore';
 import { clearTrendEnrichCache, putTrendEnrichMemory } from './trends/enrich';
+import type { HydratedRepoCard } from '../types';
 import { assembleOnlineRowsWithIcons } from './search/onlineRows';
 
 function row(id: string, patch: Partial<AppSummary> = {}): AppSummary {
@@ -108,5 +117,174 @@ describe('repoEnrichCache', () => {
   it('未确认的空平台不入池', () => {
     recordSharedRepoPlatforms([row('empty/repo')]);
     expect(readSharedRepoEnrich('empty/repo')).toBeUndefined();
+  });
+});
+
+describe('三态单仓富卡镜像', () => {
+  it('平台未知 / 已确认 Other / 具平台三态均入池，剥离 data: 与收录标注', () => {
+    recordSharedRepoCards([
+      row('acme/unknown', { description: 'Unknown tool', icon: 'data:image/png;base64,AA', source: 'remote' }),
+      row('acme/other', { description: 'Other tool' }),
+      row('acme/win', { platforms: ['windows'], latest_version: 'v1.0.0' }),
+    ]);
+    recordSharedConfirmedOthers(['acme/other']);
+
+    const unknown = peekFreshRepoCard('acme/unknown');
+    expect(unknown?.description).toBe('Unknown tool');
+    expect(unknown?.icon).toBe('');
+    expect(unknown?.source).toBeUndefined();
+    expect(getBufferedIcon('acme/unknown')).toBe('data:image/png;base64,AA');
+    expect(hasSettledRepoPlatforms('acme/unknown')).toBe(false);
+    expect(hasSettledRepoPlatforms('acme/other')).toBe(true);
+    expect(isSharedRepoConfirmedOther('acme/other')).toBe(true);
+    expect(readSharedRepoEnrich('acme/win')?.platforms).toEqual(['windows']);
+  });
+
+  it('未知平台与占位字段写入不覆盖已有具平台、真实版本与简介', () => {
+    recordSharedRepoCards([
+      row('acme/win', {
+        platforms: ['windows'],
+        latest_version: 'v1.0.0',
+        description: 'Real desc',
+        license: 'MIT',
+      }),
+    ]);
+    recordSharedRepoCards([row('acme/win', { description: '开源软件项目', license: '', stars: 99 })]);
+    const card = peekFreshRepoCard('acme/win');
+    expect(card?.platforms).toEqual(['windows']);
+    expect(card?.latest_version).toBe('v1.0.0');
+    expect(card?.description).toBe('Real desc');
+    expect(card?.license).toBe('MIT');
+    expect(card?.stars).toBe(99);
+  });
+
+  it('收录卡不入池', () => {
+    recordSharedRepoCards([row('acme/curated', { is_cataloged: true, platforms: ['linux'] })]);
+    expect(peekFreshRepoCard('acme/curated')).toBeUndefined();
+  });
+
+  it('裸壳行从池内卡片补简介、协议与图标，无可改进保持引用', () => {
+    recordSharedRepoCards([
+      row('acme/tool', {
+        description: 'Pooled desc',
+        license: 'Apache-2.0',
+        icon: 'https://example.com/i.png',
+      }),
+    ]);
+    const bare = row('acme/tool', { description: '开源软件项目', license: 'OpenSource' });
+    const out = hydrateRowFromSharedEnrich(bare);
+    expect(out).not.toBe(bare);
+    expect(out.description).toBe('Pooled desc');
+    expect(out.license).toBe('Apache-2.0');
+    expect(out.icon).toBe('https://example.com/i.png');
+    const rich = row('acme/tool', {
+      description: 'Own desc',
+      description_en: 'Own desc',
+      license: 'MIT',
+      homepage: 'https://own.example',
+      icon: 'https://example.com/own.png',
+    });
+    expect(hydrateRowFromSharedEnrich(rich)).toBe(rich);
+  });
+
+  it('clearPrivateSharedRepoCards 只清私有仓库', () => {
+    recordSharedRepoCards([row('me/secret', { description: 's' }), row('pub/tool', { description: 'p' })]);
+    recordSharedConfirmedOthers(['me/secret']);
+    recordSharedPrivateRepos(['Me/Secret']);
+    clearPrivateSharedRepoCards();
+    expect(peekFreshRepoCard('me/secret')).toBeUndefined();
+    expect(isSharedRepoConfirmedOther('me/secret')).toBe(false);
+    expect(peekFreshRepoCard('pub/tool')?.description).toBe('p');
+  });
+});
+
+describe('hydrateCardsByIds', () => {
+  const api = tauriApi as unknown as {
+    getRepoCardsBatch?: (ids: string[]) => Promise<(HydratedRepoCard | null)[]>;
+  };
+
+  function card(
+    id: string,
+    patch: Partial<HydratedRepoCard> = {},
+    summary: Partial<AppSummary> = {},
+  ): HydratedRepoCard {
+    return {
+      summary: row(id, { description: `${id} desc`, ...summary }),
+      confirmed_other: false,
+      updated_at: Math.floor(Date.now() / 1000),
+      ...patch,
+    };
+  }
+
+  it('M1 热命中零 IPC，目录优先，按入参顺序返回', async () => {
+    const batch = vi.fn(async () => [] as (HydratedRepoCard | null)[]);
+    api.getRepoCardsBatch = batch;
+    recordSharedRepoCards([row('acme/warm', { description: 'warm' })]);
+    const curated = row('acme/curated', { description: 'curated', is_cataloged: true });
+    const out = await hydrateCardsByIds(['acme/warm', 'ACME/Curated', 'acme/warm'], {
+      catalogApps: [curated],
+    });
+    expect(batch).not.toHaveBeenCalled();
+    expect(out.rows.map((r) => r.id)).toEqual(['acme/warm', 'acme/curated']);
+    expect(out.byId.get('acme/curated')?.description).toBe('curated');
+    expect(out.freshCardIds.has('acme/warm')).toBe(true);
+  });
+
+  it('只为 M1 缺失项批量取数，恢复 data: 图标、已确认 Other、私有与新鲜度', async () => {
+    recordSharedRepoCards([row('acme/warm', { description: 'warm' })]);
+    const staleSecs = Math.floor((Date.now() - 13 * 3600 * 1000) / 1000);
+    const batch = vi.fn(async (ids: string[]) =>
+      ids.map((id) => {
+        if (id === 'acme/icon') return card(id, {}, { icon: 'data:image/png;base64,ZZ' });
+        if (id === 'acme/other') return card(id, { confirmed_other: true });
+        if (id === 'me/secret') return card(id, { is_private: true });
+        if (id === 'acme/old') return card(id, { updated_at: staleSecs });
+        return null;
+      }),
+    );
+    api.getRepoCardsBatch = batch;
+    const out = await hydrateCardsByIds([
+      'acme/warm',
+      'acme/icon',
+      'acme/other',
+      'me/secret',
+      'acme/old',
+      'acme/missing',
+    ]);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0][0]).toEqual([
+      'acme/icon',
+      'acme/other',
+      'me/secret',
+      'acme/old',
+      'acme/missing',
+    ]);
+    expect(out.rows.map((r) => r.id)).toEqual([
+      'acme/warm',
+      'acme/icon',
+      'acme/other',
+      'me/secret',
+      'acme/old',
+    ]);
+    // data: 只在返回对象上，池内卡片无 data:。
+    expect(out.byId.get('acme/icon')?.icon).toBe('data:image/png;base64,ZZ');
+    expect(peekFreshRepoCard('acme/icon')?.icon).toBe('');
+    expect(out.confirmedOtherIds).toEqual(['acme/other']);
+    expect(isSharedRepoConfirmedOther('acme/other')).toBe(true);
+    expect([...out.freshCardIds].sort()).toEqual(['acme/icon', 'acme/other', 'acme/warm', 'me/secret']);
+    // 超 12h 的卡片仍可展示，但不进 M1、不计新鲜。
+    expect(peekFreshRepoCard('acme/old')).toBeUndefined();
+
+    clearPrivateSharedRepoCards();
+    expect(peekFreshRepoCard('me/secret')).toBeUndefined();
+    expect(peekFreshRepoCard('acme/icon')).toBeDefined();
+  });
+
+  it('IPC 失败按全部缺失计，不抛错', async () => {
+    api.getRepoCardsBatch = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    const out = await hydrateCardsByIds(['acme/x']);
+    expect(out.rows).toEqual([]);
   });
 });

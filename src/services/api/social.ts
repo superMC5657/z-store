@@ -54,6 +54,12 @@ export async function listGithubStarred(
     has_more: res?.has_more === true,
   };
   if (res?.is_stale === true) out.is_stale = true;
+  const pickIds = (raw: unknown): string[] =>
+    Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string' && v.trim() !== '') : [];
+  const confirmedOther = pickIds(res?.confirmed_other_ids);
+  if (confirmedOther.length > 0) out.confirmed_other_ids = confirmedOther;
+  const privateIds = pickIds(res?.private_ids);
+  if (privateIds.length > 0) out.private_ids = privateIds;
   return out;
 }
 

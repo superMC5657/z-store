@@ -9,6 +9,7 @@ import type {
 import { summaries, findSummary } from '../fixtures';
 import { getFavSet, getStarSet, getWatchSet, persistSets } from '../demoState';
 import { argNum, argStr, type InvokeArgs } from './common';
+import { clearDemoPrivateSearchListCache } from './catalog';
 
 export function handleGetFavorites(): string[] {
   const favSet = getFavSet();
@@ -103,9 +104,9 @@ export function handleListGithubStarred(a: InvokeArgs): StarredPageResult {
   };
 }
 
-/** demo Star 同步快照：内存态透存（刷新页面即清空），与后端 512 KiB 上限同口径。 */
+/** demo Star 同步快照：内存态透存（刷新页面即清空），与后端 64 KiB 上限同口径。 */
 const demoStarredFeedCache = new Map<string, StarredFeedCacheEntry & { owner_scope: string }>();
-const DEMO_STARRED_FEED_MAX_BYTES = 512 * 1024;
+const DEMO_STARRED_FEED_MAX_BYTES = 64 * 1024;
 
 export function handleGetStarredFeedCache(a: InvokeArgs): StarredFeedCacheEntry | null {
   const key = argStr(a, 'cacheKey').trim();
@@ -137,6 +138,7 @@ export function handleOAuthLogout(): boolean {
   for (const [key, row] of demoStarredFeedCache) {
     if (row.owner_scope.startsWith('@me:')) demoStarredFeedCache.delete(key);
   }
+  clearDemoPrivateSearchListCache();
   return true;
 }
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AppSummary } from '../../types';
 import { tauriApi } from '../api';
 import {
+  STARRED_L2_MAX_BYTES,
   STARRED_L2_MAX_PERSISTED_ROWS,
   STARRED_L2_TTL_MS,
   STARRED_OPTS_STORAGE_KEY,
@@ -12,30 +12,8 @@ import {
   saveDbStarredCache,
 } from './starredCache';
 
-function row(id: string, patch: Partial<AppSummary> = {}): AppSummary {
-  const [owner, repo] = id.split('/');
-  return {
-    id,
-    name: repo ?? id,
-    description_en: undefined,
-    owner: owner ?? '',
-    repo: repo ?? '',
-    icon: 'https://cdn.example/i.png',
-    icon_bg: '',
-    description: 'desc',
-    stars: 0,
-    forks: 0,
-    license: 'MIT',
-    latest_version: 'v1',
-    category: 'external',
-    category_name: '',
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage: null,
-    platforms: [],
-    ...patch,
-  };
+function ids(prefix: string, n: number): string[] {
+  return Array.from({ length: n }, (_, i) => `${prefix}/repo-${i}`);
 }
 
 beforeEach(() => {
@@ -47,53 +25,73 @@ afterEach(() => {
 });
 
 describe('buildStarredEnvelopeJson', () => {
-  it('strips data: icons and catalog annotations', () => {
+  it('writes { v: 2, pages: [{ page, ids }], hasMore } with zero card fields', () => {
     const json = buildStarredEnvelopeJson({
-      v: 1,
-      rows: [row('a/b', { icon: 'data:image/png;base64,AA', is_cataloged: true, source: 'remote', status: 'collected' })],
-      pages: 1,
+      v: 2,
+      pages: [
+        { page: 2, ids: ['C/D'] },
+        { page: 1, ids: ['A/B', 'a/b'] },
+      ],
       hasMore: false,
-      confirmedOther: ['a/b', 'gone/repo'],
     });
-    const env = JSON.parse(json!);
-    expect(env.rows[0].icon).toBe('');
-    expect(env.rows[0].is_cataloged).toBeUndefined();
-    expect(env.rows[0].source).toBeUndefined();
-    expect(env.rows[0].status).toBeUndefined();
-    // 只保留仍在快照里的确认 Other。
-    expect(env.confirmedOther).toEqual(['a/b']);
+    expect(json).toBeDefined();
+    expect(JSON.parse(json!)).toEqual({
+      v: 2,
+      pages: [
+        { page: 1, ids: ['a/b'] },
+        { page: 2, ids: ['c/d'] },
+      ],
+      hasMore: false,
+    });
+    for (const field of ['description', 'icon', 'platforms', 'rows', 'confirmedOther']) {
+      expect(json).not.toContain(field);
+    }
   });
 
-  it('caps at 3 pages / 60 rows and marks more pages available', () => {
-    const rows = Array.from({ length: 80 }, (_, i) => row(`o/r${i}`));
-    const env = JSON.parse(buildStarredEnvelopeJson({ v: 1, rows, pages: 4, hasMore: false })!);
-    expect(env.rows).toHaveLength(STARRED_L2_MAX_PERSISTED_ROWS);
-    expect(env.pages).toBe(3);
-    expect(env.hasMore).toBe(true);
+  it('caps at 3 pages / 60 ids and marks hasMore when truncated', () => {
+    const byPages = JSON.parse(
+      buildStarredEnvelopeJson({
+        v: 2,
+        pages: [1, 2, 3, 4].map((page) => ({ page, ids: ids(`p${page}`, 5) })),
+        hasMore: false,
+      })!,
+    );
+    expect(byPages.pages.map((p: { page: number }) => p.page)).toEqual([1, 2, 3]);
+    expect(byPages.hasMore).toBe(true);
+
+    const byRows = JSON.parse(
+      buildStarredEnvelopeJson({
+        v: 2,
+        pages: [1, 2, 3].map((page) => ({ page, ids: ids(`p${page}`, 25) })),
+        hasMore: false,
+      })!,
+    );
+    const total = byRows.pages.reduce((n: number, p: { ids: string[] }) => n + p.ids.length, 0);
+    expect(total).toBe(STARRED_L2_MAX_PERSISTED_ROWS);
+    expect(byRows.hasMore).toBe(true);
   });
 
-  it('truncates long text, then falls back to the first page, then gives up', () => {
-    const long = 'x'.repeat(6000);
-    const rows = Array.from({ length: 60 }, (_, i) => row(`o/r${i}`, { description: long }));
-    const env = JSON.parse(buildStarredEnvelopeJson({ v: 1, rows, pages: 3, hasMore: false })!);
-    expect(env.rows).toHaveLength(60);
-    expect(env.rows[0].description).toHaveLength(500);
-
-    const heavy = Array.from({ length: 60 }, (_, i) => row(`o/r${i}`, { name: 'n'.repeat(6000) }));
-    const firstPage = JSON.parse(buildStarredEnvelopeJson({ v: 1, rows: heavy, pages: 3, hasMore: false })!);
-    expect(firstPage.rows).toHaveLength(20);
-    expect(firstPage.pages).toBe(1);
-    expect(firstPage.hasMore).toBe(true);
-
-    const huge = [row('o/r', { name: 'n'.repeat(300 * 1024) })];
-    expect(buildStarredEnvelopeJson({ v: 1, rows: huge, pages: 1, hasMore: false })).toBeUndefined();
-    expect(buildStarredEnvelopeJson({ v: 1, rows: [], pages: 1, hasMore: false })).toBeUndefined();
+  it('keeps empty pages but rejects envelopes without any id', () => {
+    const json = buildStarredEnvelopeJson({
+      v: 2,
+      pages: [
+        { page: 1, ids: [] },
+        { page: 2, ids: ['a/b'] },
+      ],
+      hasMore: true,
+    });
+    expect(JSON.parse(json!).pages).toEqual([
+      { page: 1, ids: [] },
+      { page: 2, ids: ['a/b'] },
+    ]);
+    expect(buildStarredEnvelopeJson({ v: 2, pages: [{ page: 1, ids: [] }], hasMore: false })).toBeUndefined();
+    expect(STARRED_L2_MAX_BYTES).toBe(32 * 1024);
   });
 });
 
 describe('readDbStarredCache', () => {
   const now = 1_800_000_000_000;
-  const payload = JSON.stringify({ v: 1, rows: [row('a/b')], pages: 1, hasMore: false });
+  const payload = JSON.stringify({ v: 2, pages: [{ page: 1, ids: ['a/b'] }], hasMore: false });
 
   it('reports 12h freshness and honors allowStale', async () => {
     const spy = vi.spyOn(tauriApi, 'getStarredFeedCache');
@@ -104,14 +102,19 @@ describe('readDbStarredCache', () => {
     expect(await readDbStarredCache('k', { now })).toBeUndefined();
     const stale = await readDbStarredCache('k', { now, allowStale: true });
     expect(stale?.isFresh).toBe(false);
-    expect(stale?.envelope.rows).toHaveLength(1);
+    expect(stale?.envelope.pages).toEqual([{ page: 1, ids: ['a/b'] }]);
   });
 
-  it('rejects clock skew, bad shapes and backend errors', async () => {
+  it('rejects legacy v1 envelopes, clock skew, empty indexes and backend errors', async () => {
     const spy = vi.spyOn(tauriApi, 'getStarredFeedCache');
     spy.mockResolvedValue({ payload_json: payload, cached_at: Math.floor((now + 60_000) / 1000) });
     expect(await readDbStarredCache('k', { now, allowStale: true })).toBeUndefined();
-    spy.mockResolvedValue({ payload_json: '{"v":2,"rows":[]}', cached_at: Math.floor(now / 1000) });
+    spy.mockResolvedValue({
+      payload_json: JSON.stringify({ v: 1, rows: [{ id: 'a/b' }], pages: 1, hasMore: false }),
+      cached_at: Math.floor(now / 1000),
+    });
+    expect(await readDbStarredCache('k', { now, allowStale: true })).toBeUndefined();
+    spy.mockResolvedValue({ payload_json: '{"v":2,"pages":[{"page":1,"ids":[]}]}', cached_at: Math.floor(now / 1000) });
     expect(await readDbStarredCache('k', { now, allowStale: true })).toBeUndefined();
     spy.mockRejectedValue(new Error('offline'));
     expect(await readDbStarredCache('k', { now, allowStale: true })).toBeUndefined();
@@ -124,18 +127,18 @@ describe('saveDbStarredCache', () => {
     const order: string[] = [];
     let releaseFirst: (() => void) | undefined;
     const spy = vi.spyOn(tauriApi, 'saveStarredFeedCache').mockImplementation(async (_k, _s, json) => {
-      const tag = JSON.parse(json).rows[0].id as string;
+      const tag = JSON.parse(json).pages[0].ids[0] as string;
       if (tag === 'first/x') await new Promise<void>((resolve) => { releaseFirst = resolve; });
       order.push(tag);
     });
-    const a = saveDbStarredCache('k', 'k', { v: 1, rows: [row('first/x')], pages: 1, hasMore: false });
-    const b = saveDbStarredCache('k', 'k', { v: 1, rows: [row('second/x')], pages: 1, hasMore: false });
+    const a = saveDbStarredCache('k', 'k', { v: 2, pages: [{ page: 1, ids: ['first/x'] }], hasMore: false });
+    const b = saveDbStarredCache('k', 'k', { v: 2, pages: [{ page: 1, ids: ['second/x'] }], hasMore: false });
     await vi.waitFor(() => expect(releaseFirst).toBeDefined());
     releaseFirst?.();
     await Promise.all([a, b]);
     expect(order).toEqual(['first/x', 'second/x']);
 
-    await saveDbStarredCache('k', 'k', { v: 1, rows: [], pages: 1, hasMore: false });
+    await saveDbStarredCache('k', 'k', { v: 2, pages: [], hasMore: false });
     expect(spy).toHaveBeenCalledTimes(2);
   });
 });

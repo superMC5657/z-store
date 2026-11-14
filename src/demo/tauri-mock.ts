@@ -38,6 +38,9 @@ import {
   handleGetPlatformsLite,
   handleGetReadmeVariants,
   handleGetRecentlyViewedApps,
+  handleGetRepoCardsBatch,
+  handleGetSearchListCache,
+  handleSaveSearchListCache,
   handleGetSearchHistory,
   handleImportMatchedApps,
   handleRecordAppView,
@@ -235,6 +238,12 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetAppDetails(a);
     case 'get_cached_app_details_batch':
       return handleGetCachedAppDetailsBatch(a);
+    case 'get_repo_cards_batch':
+      return handleGetRepoCardsBatch(a);
+    case 'get_search_list_cache':
+      return handleGetSearchListCache(a);
+    case 'save_search_list_cache':
+      return handleSaveSearchListCache(a);
     case 'get_platforms_lite':
       return handleGetPlatformsLite(a);
     case 'get_home_feed':

@@ -8,7 +8,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../../types';
+import { tauriApi } from '../api';
+import { peekFreshRepoCard } from '../repoEnrichCache';
+import { clearTrendEnrichCache } from '../trends/enrich';
 import {
+  buildSearchListDbKey,
+  clearPrivateSearchListCacheEntries,
+  readDbSearchListCache,
+  saveDbSearchListCache,
   SEARCH_LIST_FRESH_MS,
   SEARCH_LIST_MAX_ENTRIES_PER_NAMESPACE,
   SEARCH_LIST_TTL_MS,
@@ -193,5 +200,87 @@ describe('namespace buckets and freshness tiers', () => {
     expect(findInSearchListCache('o/only-starred')).toBeDefined();
     expect(findInSearchListCache('o/only-starred', 'starred')).toBeDefined();
     expect(findInSearchListCache('o/only-starred', 'search')).toBeUndefined();
+  });
+});
+
+describe('slim id index', () => {
+  beforeEach(() => {
+    clearTrendEnrichCache();
+  });
+
+  it('L1 条目只记有序 id 与 hasMore，同 id 卡片单份共享并写入共享富卡镜像', () => {
+    writeSearchListCache({ query: 'q', page: 1, perPage: 2 }, [row('O/R', ''), row('o/b', '')]);
+    writeSearchListCache({ query: 'q', page: 2, perPage: 2 }, [row('o/r', '')], { hasMore: false });
+    const p1 = readSearchListCacheEntry({ query: 'q', page: 1, perPage: 2 });
+    expect(p1?.ids).toEqual(['o/r', 'o/b']);
+    expect(p1?.hasMore).toBe(true);
+    const p2 = readSearchListCacheEntry({ query: 'q', page: 2, perPage: 2 });
+    expect(p2?.hasMore).toBe(false);
+    expect(p1?.rows[0]).toBe(p2?.rows[0]);
+    expect(peekFreshRepoCard('o/r')).toBeDefined();
+  });
+
+  it('clearPrivateSearchListCacheEntries 只清含私有仓的搜索分页', () => {
+    writeSearchListCache({ query: 'mine', page: 1, perPage: 12 }, [row('me/secret', '')], { hasPrivate: true });
+    writeSearchListCache({ query: 'pub', page: 1, perPage: 12 }, [row('o/r', '')]);
+    clearPrivateSearchListCacheEntries();
+    expect(readSearchListCache({ query: 'mine', page: 1, perPage: 12 })).toBeUndefined();
+    expect(readSearchListCache({ query: 'pub', page: 1, perPage: 12 })?.[0].id).toBe('o/r');
+    expect(findInSearchListCache('me/secret')).toBeUndefined();
+  });
+});
+
+describe('L2 search_list_cache', () => {
+  const api = tauriApi as unknown as {
+    getSearchListCache: (k: string) => Promise<{ payload_json: string; cached_at: number } | null>;
+    saveSearchListCache: (k: string, q: string, p: string, h?: boolean) => Promise<void>;
+  };
+
+  it('buildSearchListDbKey 归一词 + 页码 + 页大小', () => {
+    expect(buildSearchListDbKey('  Rust   GUI ', 2, 20)).toEqual({
+      cacheKey: 'rust gui|2|20',
+      normQuery: 'rust gui',
+    });
+  });
+
+  it('saveDbSearchListCache 写 { v: 2, ids, hasMore } 并可往返读出', async () => {
+    const store = new Map<string, { payload_json: string; cached_at: number }>();
+    const save = vi
+      .spyOn(api, 'saveSearchListCache')
+      .mockImplementation(async (k: string, _q: string, p: string) => {
+        store.set(k, { payload_json: p, cached_at: Math.floor(Date.now() / 1000) });
+      });
+    vi.spyOn(api, 'getSearchListCache').mockImplementation(async (k: string) => store.get(k) ?? null);
+    const key = { query: 'Rust', page: 1, perPage: 20 };
+    await saveDbSearchListCache(key, ['A/B', 'a/b', 'c/d'], true, true);
+    expect(save).toHaveBeenCalledWith('rust|1|20', 'rust', expect.any(String), true);
+    const payload = JSON.parse(save.mock.calls[0][2]);
+    expect(payload).toEqual({ v: 2, ids: ['a/b', 'c/d'], hasMore: true });
+    const hit = await readDbSearchListCache(key);
+    expect(hit?.ids).toEqual(['a/b', 'c/d']);
+    expect(hit?.hasMore).toBe(true);
+    expect(hit?.isFresh).toBe(true);
+    expect(hit?.withinTtl).toBe(true);
+    // 空 id 不写。
+    save.mockClear();
+    await saveDbSearchListCache(key, [], false);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('readDbSearchListCache 拒绝旧格式、未来时间戳，过期快照仅 allowStale 返回', async () => {
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const rows: Record<string, { payload_json: string; cached_at: number }> = {
+      'v1|1|20': { payload_json: JSON.stringify({ v: 1, rows: [] }), cached_at: nowSecs },
+      'future|1|20': { payload_json: JSON.stringify({ v: 2, ids: ['a/b'], hasMore: false }), cached_at: nowSecs + 3600 },
+      'old|1|20': { payload_json: JSON.stringify({ v: 2, ids: ['a/b'], hasMore: false }), cached_at: nowSecs - 3600 },
+    };
+    vi.spyOn(api, 'getSearchListCache').mockImplementation(async (k: string) => rows[k] ?? null);
+    expect(await readDbSearchListCache({ query: 'v1', page: 1, perPage: 20 })).toBeUndefined();
+    expect(await readDbSearchListCache({ query: 'future', page: 1, perPage: 20 })).toBeUndefined();
+    expect(await readDbSearchListCache({ query: 'old', page: 1, perPage: 20 })).toBeUndefined();
+    const stale = await readDbSearchListCache({ query: 'old', page: 1, perPage: 20 }, { allowStale: true });
+    expect(stale?.ids).toEqual(['a/b']);
+    expect(stale?.isFresh).toBe(false);
+    expect(stale?.withinTtl).toBe(false);
   });
 });

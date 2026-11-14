@@ -4,6 +4,7 @@
 - 日期：2026-11-14
 - 关联：ADR-0003（SQLite 持久化与 ETag 缓存）、ADR-0007（可配 TTL 缓存）、ADR-0010（规范应用标识）、ADR-0014（趋势榜 L2）、ADR-0015（统一图标获取与搜索对齐；本 ADR 修订其 §4、§5）、ADR-0019（资产面手动缓存；本 ADR 补充其 §2）、ADR-0025（动态系统代理）
 - 落地计划：`.scratch/richcard-cache-and-pipeline-convergence/`
+- 修订：§2.3 的富卡池准入（三态均入池并落盘 `repo_card_cache`）、§2.4 的分页桶形态（只存有序 id + L2 `search_list_cache`）与 §2.5 的 Star 快照信封（`v: 2` 按页 id 索引）由 ADR-0027 取代。
 - 实现：`src-tauri/src/github/search.rs`、`src-tauri/src/github/developer_starred.rs`、`src-tauri/src/github/http.rs`、`src-tauri/src/commands/catalog_search.rs`、`src-tauri/src/commands/forge.rs`、`src-tauri/src/commands/network.rs`、`src-tauri/src/db/cache.rs`、`src-tauri/src/db/etag.rs`、`src-tauri/src/oauth/mod.rs`、`src/services/repoEnrichCache.ts`、`src/services/trends/enrich.ts`、`src/services/search/searchListCache.ts`、`src/services/search/onlineRows.ts`、`src/services/starred/starredCache.ts`、`src/app/hooks/usePlatformBackfill.ts`、`src/app/hooks/useSearchState.ts`、`src/views/FavoritesView/StarredFeed.tsx`
 
 ## 1. 背景

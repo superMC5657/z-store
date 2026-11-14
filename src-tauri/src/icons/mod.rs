@@ -936,6 +936,7 @@ fn seal_empty_level_selection(
     if let Ok(db) = state.db() {
         let _ = db.upsert_icon_cycle(cycle);
         let _ = db.sync_detail_icon(canonical_id, "");
+        let _ = db.sync_repo_card_icon(canonical_id, "", true);
     }
 }
 
@@ -985,6 +986,7 @@ fn persist_manual_selection(
         let sel = cycle.selected_url.trim();
         if !sel.starts_with("data:") {
             let _ = db.sync_detail_icon(canonical_id, sel);
+            let _ = db.sync_repo_card_icon(canonical_id, sel, false);
         }
     }
 

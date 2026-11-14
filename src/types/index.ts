@@ -384,6 +384,27 @@ export interface StarredPageResult {
   has_more: boolean;
   /** 网络或限流失败时后端回退了本地旧载荷。 */
   is_stale?: boolean;
+  /** 本页 `repo_card_cache` 已确认无可安装资产的未收录行规范 id。 */
+  confirmed_other_ids?: string[];
+  /** 本页私有仓库的规范 id（登出时清理内存私有卡）。 */
+  private_ids?: string[];
+}
+
+/** 按 id 批量水合的单仓富卡（`get_repo_cards_batch`，DB-only）。 */
+export interface HydratedRepoCard {
+  summary: AppSummary;
+  confirmed_other: boolean;
+  is_private?: boolean;
+  /** 完整卡片元数据写入时间（秒）；仅详情缓存回退命中时为 0。 */
+  updated_at: number;
+}
+
+/** 在线搜索列表快照条目（`search_list_cache` 纯透存，`cached_at` 为秒级时间戳）。 */
+export interface SearchListCacheEntry {
+  payload_json: string;
+  cached_at: number;
+  /** 本页含私有仓库：回填 L1 时保留标记，登出随之清除。 */
+  has_private?: boolean;
 }
 
 /** Star 同步快照条目（`starred_feed_cache` 纯透存，`cached_at` 为秒级时间戳）。 */

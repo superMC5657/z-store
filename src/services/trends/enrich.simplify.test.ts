@@ -17,6 +17,7 @@ import {
   putTrendEnrichMemory,
   snapshotTrendEnrichCache,
   mergeIconSticky,
+  TREND_ENRICH_CACHE_TTL_MS,
 } from './enrich';
 import { tauriApi } from '../api';
 import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
@@ -100,15 +101,15 @@ describe('takeFreshEnrichEntry 分支', () => {
     expect(out.get('acme/atlas')?.icon).toBe('');
   });
 
-  it('未确认 loading 不新鲜并驱逐', () => {
-    markTrendConfirmedOther('acme/atlas');
+  it('平台未知的卡片 12h 内新鲜命中，过期即驱逐', () => {
+    const t0 = Date.now();
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
     });
-    clearTrendConfirmedOtherCache();
-    expect(takeFreshEnrichEntry('acme/atlas', Date.now(), false)).toBe(false);
-    // 已驱逐：快照无条目。
+    expect(takeFreshEnrichEntry('acme/atlas', t0, false)).toBe(true);
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
+    expect(takeFreshEnrichEntry('acme/atlas', t0 + TREND_ENRICH_CACHE_TTL_MS + 1, false)).toBe(false);
+    expect(takeFreshEnrichEntry('acme/atlas', t0, false)).toBe(false);
   });
 
   it('已确认 loading 新鲜命中', () => {

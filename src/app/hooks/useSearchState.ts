@@ -4,13 +4,21 @@ import type { AppSummary, Navigate, ViewType } from '../../types';
 import { tauriApi, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
 import { assembleOnlineRowsWithIcons } from '../../services/search/onlineRows';
 import {
-  readSearchListCache,
+  readDbSearchListCache,
   readSearchListCacheEntry,
+  saveDbSearchListCache,
   sweepExpiredSearchListCache,
   writeSearchListCache,
 } from '../../services/search/searchListCache';
-import { recordSharedRepoPlatforms } from '../../services/repoEnrichCache';
+import {
+  hydrateCardsByIds,
+  recordSharedConfirmedOthers,
+  recordSharedPrivateRepos,
+  recordSharedRepoPlatforms,
+} from '../../services/repoEnrichCache';
+import { normalizeId } from '../../services/normalizeId';
 import { zlogWarn } from '../../lib/z-log';
+import type { OnlineSearchPage } from '../../services/api/catalog';
 
 interface UseSearchStateParams {
   currentView: ViewType;
@@ -20,6 +28,37 @@ interface UseSearchStateParams {
   lazyBackfillPlatforms: (summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
+  /** 合并目录全量（远端精选 + 本地收录）：L2 快照水合时收录项零 IPC 直接投影。 */
+  catalogAppsRef?: React.MutableRefObject<readonly AppSummary[]>;
+}
+
+const EMPTY_CATALOG: readonly AppSummary[] = [];
+
+/** 回包里的私有仓 / 已确认 Other 记入共享富卡池（已确认 Other 的行随后由平台回填零 IPC 落定）。 */
+function recordPageSignals(page: OnlineSearchPage): boolean {
+  const privateIds = page.private_ids ?? [];
+  if (privateIds.length > 0) recordSharedPrivateRepos(privateIds);
+  const confirmed = page.confirmed_other_ids ?? [];
+  if (confirmed.length > 0) recordSharedConfirmedOthers(confirmed);
+  return privateIds.length > 0;
+}
+
+/** 在线分页 L1 + L2 同步写：L1 存组装行（卡片进共享卡片表），L2 只存有序 id。 */
+function persistOnlinePage(
+  q: string,
+  page: number,
+  rows: AppSummary[],
+  hasMore: boolean,
+  hasPrivate: boolean,
+): void {
+  const key = { query: q, page, perPage: ONLINE_SEARCH_PER_PAGE };
+  writeSearchListCache(key, rows, { hasMore, hasPrivate });
+  void saveDbSearchListCache(
+    key,
+    rows.map((r) => normalizeId(r.id)),
+    hasMore,
+    hasPrivate,
+  );
 }
 
 /**
@@ -63,6 +102,7 @@ export function useSearchState({
   lazyBackfillPlatforms,
   showToast,
   t,
+  catalogAppsRef,
 }: UseSearchStateParams) {
   const [searchQuery, setSearchQuery] = useState('');
   const searchQueryRef = useRef('');
@@ -246,27 +286,48 @@ export function useSearchState({
       // 5–30min 先展示再后台 `searchAppsOnline(force=false)` 走后端 ETag 静默重验
       // （沿用 searchSeqRef/guardFreshSearch 防串）。缺平台行照常懒回填（不强穿 TTL）。
       let hadCacheHit = false;
+      const paintCached = (rows: AppSummary[], cachedHasMore: boolean): boolean => {
+        const assembledCached = assembleOnlineRowsWithIcons([], rows);
+        if (assembledCached.length === 0) return false;
+        hadCacheHit = true;
+        onlineAppsRef.current = assembledCached;
+        setOnlineApps(assembledCached);
+        setOnlineSearchPerformed(true);
+        setIsOnlineResultSet(true);
+        isOnlineResultSetRef.current = true;
+        onlinePageRef.current = 1;
+        onlineQueryRef.current = q;
+        setOnlineHasMore(cachedHasMore);
+        onlineHasMoreRef.current = cachedHasMore;
+        lazyBackfillPlatforms(assembledCached, seq, false);
+        return true;
+      };
       const cacheHit = forceRefresh
         ? undefined
         : readSearchListCacheEntry({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE });
-      const listCached = cacheHit?.rows;
-      if (cacheHit && listCached && listCached.length > 0) {
-        const assembledCached = assembleOnlineRowsWithIcons([], listCached);
-        if (assembledCached.length > 0) {
-          hadCacheHit = true;
-          onlineAppsRef.current = assembledCached;
-          setOnlineApps(assembledCached);
-          setOnlineSearchPerformed(true);
-          setIsOnlineResultSet(true);
-          isOnlineResultSetRef.current = true;
-          onlinePageRef.current = 1;
-          onlineQueryRef.current = q;
-          // 满页即视为还有下一页（与网络分支同口径；单条直查只回 1 条，天然到底）。
-          const cachedHasMore = listCached.length >= ONLINE_SEARCH_PER_PAGE;
-          setOnlineHasMore(cachedHasMore);
-          onlineHasMoreRef.current = cachedHasMore;
-          lazyBackfillPlatforms(assembledCached, seq, false);
-          if (cacheHit.isFresh) return;
+      if (cacheHit && cacheHit.rows.length > 0) {
+        if (paintCached(cacheHit.rows, cacheHit.hasMore) && cacheHit.isFresh) return;
+      } else if (!forceRefresh) {
+        // L1 未命中（如冷启动）：读 SQLite 有序 id 快照，经目录 + `repo_card_cache` 批量水合首绘；
+        // 5min 内且全部水合即零网络返回，否则先展示再后台 ETag 静默重验。
+        const firstKey = { query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE };
+        const l2Hit = await readDbSearchListCache(firstKey, { allowStale: true });
+        if (guardFreshSearch(seq)) return;
+        if (l2Hit) {
+          const hydrated = await hydrateCardsByIds(l2Hit.ids, {
+            catalogApps: catalogAppsRef?.current ?? EMPTY_CATALOG,
+          });
+          if (guardFreshSearch(seq)) return;
+          if (hydrated.rows.length > 0) {
+            const complete = hydrated.rows.length === l2Hit.ids.length;
+            if (l2Hit.withinTtl && complete) {
+              writeSearchListCache(firstKey, hydrated.rows, {
+                hasMore: l2Hit.hasMore,
+                hasPrivate: l2Hit.hasPrivate,
+              });
+            }
+            if (paintCached(hydrated.rows, l2Hit.hasMore) && l2Hit.isFresh && complete) return;
+          }
         }
       }
 
@@ -277,6 +338,7 @@ export function useSearchState({
       try {
         const pageRes = await tauriApi.searchAppsOnline(q, searchId, 1, ONLINE_SEARCH_PER_PAGE, forceRefresh);
         if (guardFreshSearch(seq)) return;
+        const hasPrivate = recordPageSignals(pageRes);
         const onlineResults = pageRes.rows;
         // 以后端回声为唯一真源。
         if (pageRes.sid) settlePageEcho(currentSearchIdRef, pageRes.sid);
@@ -298,9 +360,10 @@ export function useSearchState({
           const hasMore = onlineResults.length >= ONLINE_SEARCH_PER_PAGE;
           setOnlineHasMore(hasMore);
           onlineHasMoreRef.current = hasMore;
-          // 搜索列表缓存（薄：只存行，不掺排名/平台判定）；联网失败回退的旧载荷不入缓存，下次仍联网重试。
+          // 搜索列表缓存 L1 + L2（只存有序 id；卡片在共享富卡池与 `repo_card_cache`）；
+          // 联网失败回退的旧载荷不入缓存，下次仍联网重试。
           if (!pageRes.is_stale) {
-            writeSearchListCache({ query: q, page: 1, perPage: ONLINE_SEARCH_PER_PAGE }, deduped);
+            persistOnlinePage(q, 1, deduped, hasMore, hasPrivate);
           }
           // 后台重验静默完成，不重复提示。
           if (!hadCacheHit) showToast(t('search.online_success'), 'success');
@@ -340,15 +403,13 @@ export function useSearchState({
     sweepExpiredSearchListCache();
     const seq = searchSeqRef.current;
     const nextPage = onlinePageRef.current + 1;
-    const cachedMore = readSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE });
-    if (cachedMore && cachedMore.length > 0) {
+    const pageKey = { query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE };
+    const appendCached = (rows: AppSummary[], cachedHasMore: boolean) => {
       // 命中组装同样走回填分支：与旧在线段 sticky 合并 + 缓冲回填，再去重追加。
-      const fresh = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], cachedMore).filter(
-        (item) => {
-          const k = (item.id || '').toLowerCase();
-          return k && !(onlineAppsRef.current ?? []).some((a) => (a.id || '').toLowerCase() === k);
-        },
-      );
+      const fresh = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], rows).filter((item) => {
+        const k = (item.id || '').toLowerCase();
+        return k && !(onlineAppsRef.current ?? []).some((a) => (a.id || '').toLowerCase() === k);
+      });
       // 二次守卫：过滤基于 ref 快照，set 内再按最新 prev 去重一次，防并发追加串页。
       setOnlineApps((prev) => {
         const seen = new Set(prev.map((a) => (a.id || '').toLowerCase()));
@@ -362,15 +423,35 @@ export function useSearchState({
         return toAppend.length > 0 ? [...prev, ...toAppend] : prev;
       });
       lazyBackfillPlatforms(fresh, seq, false);
-      const cachedHasMore = cachedMore.length >= ONLINE_SEARCH_PER_PAGE;
       onlinePageRef.current = nextPage;
       setOnlineHasMore(cachedHasMore);
       onlineHasMoreRef.current = cachedHasMore;
+    };
+    const cachedMore = readSearchListCacheEntry(pageKey);
+    if (cachedMore && cachedMore.rows.length > 0) {
+      appendCached(cachedMore.rows, cachedMore.hasMore);
       return;
     }
     setIsLoadingOnlineMore(true);
     isLoadingOnlineMoreRef.current = true;
     try {
+      // L1 未命中：30min 内的 L2 快照且全部水合即零网络追加，否则走网络。
+      const l2Hit = await readDbSearchListCache(pageKey);
+      if (seq !== searchSeqRef.current) return;
+      if (l2Hit) {
+        const hydrated = await hydrateCardsByIds(l2Hit.ids, {
+          catalogApps: catalogAppsRef?.current ?? EMPTY_CATALOG,
+        });
+        if (seq !== searchSeqRef.current) return;
+        if (hydrated.rows.length > 0 && hydrated.rows.length === l2Hit.ids.length) {
+          writeSearchListCache(pageKey, hydrated.rows, {
+            hasMore: l2Hit.hasMore,
+            hasPrivate: l2Hit.hasPrivate,
+          });
+          appendCached(hydrated.rows, l2Hit.hasMore);
+          return;
+        }
+      }
       const moreRes = await tauriApi.searchAppsOnline(
         q,
         currentSearchIdRef.current || undefined,
@@ -379,6 +460,7 @@ export function useSearchState({
         false,
       );
       if (!settleMoreEcho(currentSearchIdRef, seq, searchSeqRef.current, moreRes.sid || '')) return;
+      const morePrivate = recordPageSignals(moreRes);
       const more = moreRes.rows;
       if (more && more.length > 0) {
         // 按 id 去重后追加到在线段（跳过在线段已有项；本地段不动）。
@@ -402,10 +484,9 @@ export function useSearchState({
         onlinePageRef.current = nextPage;
         setOnlineHasMore(hasMore);
         onlineHasMoreRef.current = hasMore;
-        // 搜索列表缓存（薄：只存行，不掺排名/平台判定；与首屏同口径存组装行，
-        // 粘性合并 + M1 缓冲回填已落定，回访即新图不丢图）；联网失败回退的旧载荷不入缓存。
+        // 搜索列表缓存 L1 + L2（与首屏同口径）；联网失败回退的旧载荷不入缓存。
         if (!moreRes.is_stale) {
-          writeSearchListCache({ query: q, page: nextPage, perPage: ONLINE_SEARCH_PER_PAGE }, assembledMore);
+          persistOnlinePage(q, nextPage, assembledMore, hasMore, morePrivate);
         }
       } else {
         setOnlineHasMore(false);
@@ -421,7 +502,7 @@ export function useSearchState({
         isLoadingOnlineMoreRef.current = false;
       }
     }
-  }, [isSearchingOnline, searchQuery, showToast, t, lazyBackfillPlatforms]);
+  }, [isSearchingOnline, searchQuery, showToast, t, lazyBackfillPlatforms, catalogAppsRef]);
 
   return {
     searchQuery,

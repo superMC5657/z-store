@@ -10,7 +10,6 @@ export {
   boardGainKey,
   createTrendBoardSession,
   fetchTrendsResult,
-  persistBoardCacheFromDetailIfPresent,
   resolveTrendBoard,
   subscribeBoardHydrated,
   type DisplayTrendItem,

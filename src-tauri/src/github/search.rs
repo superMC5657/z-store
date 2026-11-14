@@ -23,6 +23,10 @@ struct OnlineSearchItem {
     default_branch: Option<String>,
     #[serde(default)]
     topics: Option<Vec<String>>,
+    #[serde(default)]
+    private: bool,
+    #[serde(default)]
+    visibility: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,13 +75,33 @@ fn resolve_online_license(lic: Option<&OnlineRepoLicense>) -> Option<String> {
     None
 }
 
-/// Search API 载荷 → 卡片（`probe=false` 置空图标，零 DB）。
+/// 仓库 JSON 私有标记：`private == true` 或 `visibility == "private"`。
+fn is_private_flag(private: bool, visibility: Option<&str>) -> bool {
+    private || visibility.is_some_and(|v| v.trim().eq_ignore_ascii_case("private"))
+}
+
+/// 从 GitHub 仓库 JSON 文本读取私有标记；无法解析返回 `None`。
+pub(crate) fn repo_json_is_private(payload_json: &str) -> Option<bool> {
+    let v: serde_json::Value = serde_json::from_str(payload_json).ok()?;
+    let obj = v.as_object()?;
+    let private = obj.get("private").and_then(|p| p.as_bool()).unwrap_or(false);
+    let visibility = obj.get("visibility").and_then(|p| p.as_str());
+    Some(is_private_flag(private, visibility))
+}
+
+/// Search API 载荷 → 卡片与私有仓库规范 id 集（`probe=false` 置空图标，零 DB）。
 async fn summaries_from_search(
     client: &reqwest::Client,
     data: OnlineSearchResponse,
     token: Option<&str>,
-) -> Vec<AppSummary> {
-    futures_util::future::join_all(data.items.into_iter().map(|it| async move {
+) -> (Vec<AppSummary>, Vec<String>) {
+    let private_ids: Vec<String> = data
+        .items
+        .iter()
+        .filter(|it| is_private_flag(it.private, it.visibility.as_deref()))
+        .filter_map(|it| crate::forge::canonical_app_id(&it.full_name))
+        .collect();
+    let summaries = futures_util::future::join_all(data.items.into_iter().map(|it| async move {
         let owner = it.owner.login;
         let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
         if let Some(ref b) = it.default_branch {
@@ -108,7 +132,8 @@ async fn summaries_from_search(
         )
         .await
     }))
-    .await
+    .await;
+    (summaries, private_ids)
 }
 
 /// 关键词在线搜索的 GitHub Search API 端点（纯函数，亦作 `api_etag_cache` 键）。
@@ -141,6 +166,8 @@ pub(crate) fn online_search_endpoint(
 #[derive(Debug)]
 pub struct OnlineSearchFetch {
     pub summaries: Vec<AppSummary>,
+    /// 本页私有仓库的规范 id（`private`/`visibility == "private"`）。
+    pub private_ids: Vec<String>,
     pub etag_write: Option<(String, String, String)>,
     pub touched_url: Option<String>,
     pub is_stale: bool,
@@ -168,6 +195,7 @@ impl CatalogService {
         let Some(url) = online_search_endpoint(query, page, per_page) else {
             return Ok(OnlineSearchFetch {
                 summaries: Vec::new(),
+                private_ids: Vec::new(),
                 etag_write: None,
                 touched_url: None,
                 is_stale: false,
@@ -186,9 +214,10 @@ impl CatalogService {
             EtagGetOutcome::Fresh { text, etag } => {
                 let data: OnlineSearchResponse = serde_json::from_str(&text)
                     .map_err(|e| format!("解析 GitHub 搜索结果失败: {}", e))?;
-                let summaries = summaries_from_search(&client, data, token).await;
+                let (summaries, private_ids) = summaries_from_search(&client, data, token).await;
                 Ok(OnlineSearchFetch {
                     summaries,
+                    private_ids,
                     etag_write: etag.map(|e| (url, e, text)),
                     touched_url: None,
                     is_stale: false,
@@ -198,9 +227,10 @@ impl CatalogService {
                 let data: OnlineSearchResponse = cached_ok
                     .and_then(|p| serde_json::from_str(p).ok())
                     .ok_or_else(|| "GitHub 搜索缓存缺失".to_string())?;
-                let summaries = summaries_from_search(&client, data, token).await;
+                let (summaries, private_ids) = summaries_from_search(&client, data, token).await;
                 Ok(OnlineSearchFetch {
                     summaries,
+                    private_ids,
                     etag_write: None,
                     touched_url: Some(url),
                     is_stale: false,
@@ -213,9 +243,11 @@ impl CatalogService {
                 if let Some(data) =
                     cached_ok.and_then(|p| serde_json::from_str::<OnlineSearchResponse>(p).ok())
                 {
-                    let summaries = summaries_from_search(&client, data, token).await;
+                    let (summaries, private_ids) =
+                        summaries_from_search(&client, data, token).await;
                     return Ok(OnlineSearchFetch {
                         summaries,
+                        private_ids,
                         etag_write: None,
                         touched_url: None,
                         is_stale: true,

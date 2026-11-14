@@ -1081,10 +1081,9 @@ describe('TrendsView L2可信分档：具平台免验，loading后台补验', ()
     expect(liteSpy).not.toHaveBeenCalled();
   });
 
-  it('含loading则仅loading补验：具平台直展，loading 经 enrich+lite 落定', async () => {
-    // L2 新鲜混合：atlas 具平台直展免验；beacon/comet 未确认 loading 永不进内存，
-    // 首屏裸行占位，后台 enrich 取回 loading 再走 lite 补验
-    //（beacon 治愈为具平台，comet 确认为空 Other），落定后富卡齐展。
+  it('含平台未知卡则仅其补验：具平台直展，未知卡免 enrich 只经 lite 落定', async () => {
+    // 池内三态：atlas 具平台直展免验；beacon/comet 为平台未知的新鲜卡壳，
+    // 卡片元数据免 enrich，仅走 lite 推导平台（beacon 治愈为具平台，comet 确认为空 Other）。
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: ['windows'] }),
       'acme/beacon': makeEnrichedApp({ id: 'acme/beacon', platforms: [] }),
@@ -1103,14 +1102,9 @@ describe('TrendsView L2可信分档：具平台免验，loading后台补验', ()
     });
     const { container } = renderLiteBoard();
 
-    // 挂载即加载周榜；atlas 直展富卡，loading 裸行占位后后台补验。
+    // 挂载即加载周榜；三张卡均由池内新鲜卡直展。
     await clickTrendsRefresh();
-    // 首屏：atlas 直展富卡；beacon/comet 未确认 loading 无旧卡，裸行占位（恒可见，不断榜）。
     await screen.findByText('acme/atlas enriched desc');
-    // 后台 enrich 拉回缺席项；lite 仅补 beacon/comet。
-    await waitFor(() => {
-      expect(enrichSpy).toHaveBeenCalled();
-    });
     await waitFor(() => {
       expect(liteSpy.mock.calls.length).toBeGreaterThan(0);
     });
@@ -1120,6 +1114,8 @@ describe('TrendsView L2可信分档：具平台免验，loading后台补验', ()
     expect(calledIds).toContain('acme/beacon');
     expect(calledIds).toContain('acme/comet');
     expect(calledIds.some((id) => id === 'acme/atlas')).toBe(false);
+    // 新鲜卡片不重拉元数据。
+    expect(enrichSpy).not.toHaveBeenCalled();
     // 回来即 patch/确认后富卡齐展，不闪裸：仍零裸行，富卡描述保留。
     await waitFor(() => {
       expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);

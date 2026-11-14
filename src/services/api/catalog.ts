@@ -9,8 +9,10 @@ import type {
   AppSummary,
   FeaturedPage,
   FeedbackScope,
+  HydratedRepoCard,
   ImportAppRequest,
   ProfileState,
+  SearchListCacheEntry,
   SyncCatalogResult,
 } from '../../types';
 import {
@@ -123,6 +125,16 @@ export interface OnlineSearchPage {
   rows: AppSummary[];
   sid: string;
   is_stale?: boolean;
+  /** 本页 `repo_card_cache` 已确认无可安装资产的未收录行规范 id。 */
+  confirmed_other_ids?: string[];
+  /** 本页私有仓库的规范 id。 */
+  private_ids?: string[];
+}
+
+function stringIds(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const ids = raw.filter((v): v is string => typeof v === 'string' && v.trim() !== '');
+  return ids.length > 0 ? ids : undefined;
 }
 
 export async function searchAppsOnline(
@@ -139,10 +151,14 @@ export async function searchAppsOnline(
     if (perPage !== undefined && perPage !== null) args.perPage = perPage;
     const res = await tauriInvoke<AppSummary[] | OnlineSearchPage>(CMD.searchOnline, args);
     if (Array.isArray(res)) return { rows: res, sid: '' };
+    const confirmedOtherIds = stringIds(res.confirmed_other_ids);
+    const privateIds = stringIds(res.private_ids);
     return {
       rows: Array.isArray(res.rows) ? res.rows : [],
       sid: typeof res.sid === 'string' ? res.sid : '',
       ...(res.is_stale === true ? { is_stale: true } : {}),
+      ...(confirmedOtherIds ? { confirmed_other_ids: confirmedOtherIds } : {}),
+      ...(privateIds ? { private_ids: privateIds } : {}),
     };
   } catch (err) {
     zlogWarn(
@@ -210,6 +226,45 @@ export async function getCachedAppDetailsBatch(ids: string[]): Promise<(AppSumma
 export async function getConfirmedIconsBatch(ids: string[]): Promise<(string | null)[]> {
   if (!Array.isArray(ids) || ids.length === 0) return [];
   return tauriInvoke<(string | null)[]>(CMD.getConfirmedIconsBatch, { ids });
+}
+
+// 按 id 批量水合单仓富卡（DB-only，零网络）：与入参一一对齐，无本地数据即 null。
+// 空入参直接回空，不进 IPC；后端缺席或形态不符时整批按未命中计。
+export async function getRepoCardsBatch(ids: string[]): Promise<(HydratedRepoCard | null)[]> {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  if (!isTauri) return ids.map(() => null);
+  try {
+    const res = await tauriInvoke<(HydratedRepoCard | null)[]>(CMD.getRepoCardsBatch, { ids });
+    if (!Array.isArray(res)) return ids.map(() => null);
+    return ids.map((_, i) => {
+      const card = res[i];
+      return card && typeof card === 'object' && card.summary ? card : null;
+    });
+  } catch (err) {
+    zlogWarn(
+      `get_repo_cards_batch is not available or failed: ${
+        err instanceof Error ? err.stack ?? err.message : String(err)
+      }`,
+    );
+    return ids.map(() => null);
+  }
+}
+
+// 在线搜索列表快照读：后端缺席或形态不符时按未命中计。
+export async function getSearchListCache(cacheKey: string): Promise<SearchListCacheEntry | null> {
+  const row = await tauriInvoke<SearchListCacheEntry | null>(CMD.getSearchListCache, { cacheKey });
+  if (!row || typeof row.payload_json !== 'string' || typeof row.cached_at !== 'number') return null;
+  return row;
+}
+
+// 在线搜索列表快照写：`hasPrivate` 为真时随登出清除。
+export async function saveSearchListCache(
+  cacheKey: string,
+  normQuery: string,
+  payloadJson: string,
+  hasPrivate = false,
+): Promise<void> {
+  await tauriInvoke(CMD.saveSearchListCache, { cacheKey, normQuery, payloadJson, hasPrivate });
 }
 
 export async function getPlatformsLite(

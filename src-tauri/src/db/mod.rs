@@ -7,6 +7,7 @@ pub mod details;
 pub mod etag;
 pub mod history;
 pub mod icon_cycle;
+pub mod repo_cards;
 pub mod rules;
 pub mod schema;
 pub mod settings;
@@ -22,6 +23,10 @@ pub use custom_apps::CustomAppEntry;
 pub use details::APP_DETAILS_CACHE_MAX_ROWS;
 pub use etag::API_ETAG_CACHE_MAX_ROWS;
 pub use icon_cycle::AppIconCycle;
+pub use repo_cards::{
+    RepoCardPlatformState, RepoCardUpsert, StoredRepoCard, REPO_CARD_CACHE_MAX_ROWS,
+    REPO_CARD_FRESH_TTL_SECS,
+};
 pub use settings::*;
 pub use update_results::UpdateCheckRow;
 

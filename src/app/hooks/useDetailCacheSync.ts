@@ -14,7 +14,6 @@ import {
   detailHealKeysFor,
   evictTrendEnrichCachesForDetail,
   isPlaceholderDescription,
-  persistBoardCacheFromDetailIfPresent,
   snapshotTrendEnrichCache,
   upsertTrendEnrichFromDetail,
   upsertTrendEnrichRichcard,
@@ -373,7 +372,6 @@ export function useDetailCacheSync({
       });
       evictTrendEnrichCachesForDetail(idClean, detail.owner, detail.repo);
       upsertTrendEnrichFromDetail(detail);
-      persistBoardCacheFromDetailIfPresent(healKeys);
       try {
         const payload: DetailPlatformsHealPayload = {
           keys: healKeys,
@@ -405,7 +403,6 @@ export function useDetailCacheSync({
           for (const k of extraKeys) {
             if (k && !richKeys.includes(k)) richKeys.push(k);
           }
-          persistBoardCacheFromDetailIfPresent(richKeys);
           const payload: DetailRichcardHealPayload = {
             keys: richKeys,
             summary: healed.summary,

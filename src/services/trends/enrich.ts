@@ -240,36 +240,35 @@ function sweepExpiredTrendConfirmedOtherCache(): void {
   }
 }
 
-/** M1内存：trendEnrichCache（仅具平台坐标元数据 12h/600 FIFO；loading 空平台永不进内存）。 */
+/**
+ * M1 内存：trendEnrichCache（`repo_card_cache` 的前端镜像，12h/600 FIFO）。
+ * 未收录单仓富卡三态均可入池：具体平台 > 已确认 Other（平台空 + 确认标记）> 平台未知（平台空、待推导）。
+ */
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
 
 /**
- * trendEnrichCache 唯一写入口。
- * - 具平台恒进缓存（12h/600 FIFO）；sticky/icon 合并仅对具平台执行；
- * - loading 空平台仅已确认键进内存（已确认 Other 随榜缓存同 key 落盘，重挂直展 Other 卡）；
- *   未确认 loading 入口直接 return（不进内存、不落库，只活当次 out 渲染）；
- * - 禁 loading 覆盖具平台：内存已有具平台值时 loading 回填直接丢弃；
- * - 详情具平台治愈（upsertTrendEnrichFromDetail / upsertTrendEnrichRichcard）为唯一回填口。
+ * trendEnrichCache 唯一写入口（非破坏单调合并）：
+ * - 三态富卡均入池；入站字段经 `fillMissingFromPrev` 合并，空/占位不覆盖已有实值，
+ *   空平台不覆盖已具平台值（版本占位同样保留旧值）；
+ * - 时间戳取新旧较大者（批量水合带回的旧 `updated_at` 不回退池内新鲜度）；
+ * - 图标经 `resolveIconWithBuffer` 只升级不降级；`data:` 只驻 iconStore M1 缓冲，池内剥空；
+ * - 具平台入池即撤销已确认 Other 标记。
  */
 function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppSummary }): void {
   const k = normalizeId(key);
   if (!k) return;
   // is_stale 透出：stale 条目永不进内存（调用方可据 TrendsResult.stale 区分真零与失败空）。
   if (readLoose(entry.data, 'is_stale') === true) return;
-  const incomingConcrete = hasConcretePlatforms(entry.data.platforms);
   const cur = trendEnrichCache.get(k);
-  if (cur && hasConcretePlatforms(cur.data.platforms) && !incomingConcrete) return;
-  if (!incomingConcrete && !trendConfirmedOtherCache.has(k)) return;
-  // 图标回填只做升级不做准入（resolveIconWithBuffer）：已有真实图标（非空）不被空图标覆盖；
-  // 有/无图标一视同仁进富卡，首字母兜底在渲染侧生成，不影响持久化；
-  // data: 只驻 M1 内存缓冲（iconById），永不落入 trendEnrichCache 与 L2 榜缓存。
-  const resolved = stripCatalogAnnotations(resolveIconWithBuffer(cur?.data, entry.data));
+  const merged = fillMissingFromPrev(cur?.data, { ...stripCatalogAnnotations(entry.data) });
+  const resolved = stripCatalogAnnotations(resolveIconWithBuffer(cur?.data, merged));
   const data =
     typeof resolved.icon === 'string' && resolved.icon.startsWith('data:')
       ? { ...resolved, icon: '' }
       : resolved;
+  const timestamp = cur ? Math.max(cur.timestamp, entry.timestamp) : entry.timestamp;
   if (trendEnrichCache.has(k)) trendEnrichCache.delete(k);
-  trendEnrichCache.set(k, { timestamp: entry.timestamp, data });
+  trendEnrichCache.set(k, { timestamp, data });
   // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（loading 永不覆盖具平台的另一半）。
   // 现状：驱逐删标记走与 mark/unmark 同一 emit，触发写透（调用方不另行写透，不双写）。
   if (hasConcretePlatforms(data.platforms)) {
@@ -307,43 +306,68 @@ export function clearTrendEnrichCache(): void {
 }
 
 /**
- * 向内存 `trendEnrichCache` 回填（slice 内部写口）。
- * View 侧唯一出口为 board.putBoardEnrichMemory，不直调此函数；
- * 图标合并经 `resolveIconWithBuffer` 单口。
- * - 具平台恒进缓存（12h/600 FIFO），后续靠应用详情刷新治愈（upsert from detail）；
- * - loading 空平台仅已确认键进内存（调用方先 mark；读盘时先 hydrate 确认集再 hydrate enrich）；
- *   未确认 loading 直接跳过（永不进内存/落库，只活当次 out 渲染）；
- * - 禁 loading 覆盖具平台（put 入口守卫）；
- * - 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；
- * - 约束：不存 dataURI（若 icon 是 data: 开头则跳过）；
- * - 键统一转为小写 `owner/repo`。
+ * 向内存 `trendEnrichCache` 回填（三链路共享写口）：
+ * - 准入：id/owner/repo 非空、`platforms` 为数组、非 stale、非已收录（`is_cataloged !== true`）；
+ *   三态富卡均入池（平台未知的卡壳同样保留，平台由 lite 通道推导）；
+ * - `data:` 图标先入 iconStore M1 缓冲（via=m2），池内剥空；
+ * - `opts.timestamp` 为新鲜度基准（批量水合传数据库 `updated_at`），缺省为当前时刻；
+ * - 键统一转为小写，同时写坐标键 `owner/repo` 别名。
  */
 export function putTrendEnrichMemory(
   map?: Record<string, AppSummary> | Map<string, AppSummary> | null,
+  opts?: { timestamp?: number },
 ): void {
   if (!map) return;
   const entries = map instanceof Map ? map.entries() : Object.entries(map);
-  const now = Date.now();
+  const at =
+    typeof opts?.timestamp === 'number' && Number.isFinite(opts.timestamp)
+      ? opts.timestamp
+      : Date.now();
   for (const [rawKey, summary] of entries) {
     if (!summary || typeof summary !== 'object') continue;
     if (readLoose(summary, 'is_stale') === true) continue;
+    if (summary.is_cataloged === true) continue;
     if (typeof summary.id !== 'string' || summary.id.trim() === '') continue;
     if (typeof summary.owner !== 'string' || summary.owner.trim() === '') continue;
     if (typeof summary.repo !== 'string' || summary.repo.trim() === '') continue;
     if (!Array.isArray(summary.platforms)) continue;
     const key = normalizeId(rawKey);
     if (!key) continue;
-    if (!hasConcretePlatforms(summary.platforms) && !trendConfirmedOtherCache.has(key)) continue;
     if (typeof summary.icon === 'string' && summary.icon.startsWith('data:')) {
       admitIconHit({ id: key, icon: summary.icon, via: 'm2' });
     }
-    putTrendEnrichCache(key, { timestamp: now, data: summary });
+    putTrendEnrichCache(key, { timestamp: at, data: summary });
     if (summary.owner && summary.repo) {
       const coordKey = trendEnrichKey(summary.owner, summary.repo);
       if (coordKey !== key) {
-        putTrendEnrichCache(coordKey, { timestamp: now, data: summary });
+        putTrendEnrichCache(coordKey, { timestamp: at, data: summary });
       }
     }
+  }
+}
+
+/**
+ * 读池内新鲜（12h 内）的单仓富卡，三态均返回（卡片存在性）；
+ * 平台是否落定见 `peekFreshTrendEnrich`。
+ */
+export function peekFreshRepoCard(key: string, now = Date.now()): AppSummary | undefined {
+  const k = normalizeId(key);
+  if (!k) return undefined;
+  const hit = trendEnrichCache.get(k);
+  if (!hit) return undefined;
+  if (readLoose(hit.data, 'is_stale') === true) return undefined;
+  const elapsed = now - hit.timestamp;
+  if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) return undefined;
+  return hit.data;
+}
+
+/** 按键驱逐池内富卡与已确认 Other 标记（登出清理私有仓库用）。 */
+export function evictTrendEnrichKeys(keys: Iterable<string>): void {
+  for (const raw of keys) {
+    const k = normalizeId(raw);
+    if (!k) continue;
+    trendEnrichCache.delete(k);
+    trendConfirmedOtherCache.delete(k);
   }
 }
 
@@ -395,6 +419,28 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
 }
 
 /**
+ * 榜单可展示卡片快照（三态均收，12h 内、非 stale、跳过 `data:` 图标条目）：
+ * 键为榜单行坐标键（无坐标时取 id 键）。平台是否落定由调用方按 `platforms` / 确认集判断。
+ */
+export function snapshotTrendRepoCards(repos: readonly TrendRepo[]): Record<string, AppSummary> {
+  const now = Date.now();
+  const out: Record<string, AppSummary> = {};
+  for (const r of repos ?? []) {
+    const coordKey = r.owner && r.repo ? trendEnrichKey(r.owner, r.repo) : '';
+    const idKey = r.id ? normalizeId(r.id) : '';
+    const targetKey = coordKey || idKey;
+    if (!targetKey) continue;
+    const hit = (coordKey ? trendEnrichCache.get(coordKey) : undefined) ?? (idKey ? trendEnrichCache.get(idKey) : undefined);
+    if (!hit || readLoose(hit.data, 'is_stale') === true) continue;
+    const elapsed = now - hit.timestamp;
+    if (elapsed < 0 || elapsed >= TREND_ENRICH_CACHE_TTL_MS) continue;
+    if (typeof hit.data.icon === 'string' && hit.data.icon.startsWith('data:')) continue;
+    out[targetKey] = hit.data;
+  }
+  return out;
+}
+
+/**
  * 只读取用单条新鲜富卡（跨视图共享读口，零副作用）：12h 内且非 stale；
  * 空平台条目仅在已确认 Other 新鲜时返回。
  */
@@ -416,23 +462,17 @@ export function peekFreshTrendEnrich(key: string, now = Date.now()): AppSummary 
 }
 
 /**
- * Enrich 缓存新鲜条目取用单口（force→缺席→平台→确认→TTL）：
+ * Enrich 缓存新鲜条目取用单口（force→缺席→TTL）：
  * - force 直接不新鲜（重拉）；
  * - 无条目不新鲜；
- * - loading 需已确认新鲜 + TTL 新鲜，否则驱逐后重拉；
- * - 具平台 TTL 新鲜即命中；时钟倒退按过期驱逐；stale 保留旧值供图标合并后重拉。
- * 副作用：应驱逐时直接删条目（stale 具平台保留），调用方据返回值决定命中或重拉。
+ * - 卡片 12h 内即命中（三态一致：平台未知的卡片不重拉元数据，平台交由 lite 通道推导）；
+ * - 空平台条目过期即驱逐；具平台条目过期保留旧值供图标合并后重拉；时钟倒退按过期驱逐。
  */
 export function takeFreshEnrichEntry(key: string, now = Date.now(), force = false): boolean {
   if (force) return false;
   const hit = trendEnrichCache.get(key);
   if (!hit) return false;
   if (!hasConcretePlatforms(hit.data.platforms)) {
-    // 已确认 loading 新鲜命中即直展；stale/未确认删后重拉。
-    if (!isTrendConfirmedOtherFresh(key)) {
-      trendEnrichCache.delete(key);
-      return false;
-    }
     const elapsed = now - hit.timestamp;
     if (elapsed >= 0 && elapsed < TREND_ENRICH_CACHE_TTL_MS) return true;
     trendEnrichCache.delete(key);
@@ -539,9 +579,8 @@ async function enrichTrendReposCore(
     // 图标单口：data: 原样透出供当次 out 直显；putTrendEnrichCache 内部会自动剥离 data: 为 '' 存入缓存，不丢弃富卡本身。
     s = mergeIconSticky(cur?.data, s);
     out.set(key, s);
-    // loading 当次有效永不缓存，只活当次 out；具平台富卡（含携带 data: 图标的富卡）写入缓存。
-    if (!hasConcretePlatforms(s.platforms)) return;
-    // icon 粘性 supersede-only 已在单口内合并，具平台才 put（putTrendEnrichCache 内将 data: 剥为 ''）。
+    // 收录卡不入未收录富卡池；其余三态富卡均写入（池内 data: 剥空、空平台不覆盖具平台）。
+    if (s.is_cataloged === true) return;
     putTrendEnrichCache(key, { timestamp: at, data: s });
   });
   return out;

@@ -1,16 +1,9 @@
-import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo } from '../../types';
+import type { FetchTrendsOptions, TrendBoardId, TrendRepo } from '../../types';
 import { CMD } from '../api';
 import { isTauri, tauriInvoke } from '../api/client';
-import { normalizeId, normalizeIdSet } from '../normalizeId';
+import { normalizeId } from '../normalizeId';
 import { zlogWarn } from '../../lib/z-log';
-import {
-  clearTrendEnrichCache,
-  markConfirmedOthersFreshNow,
-  stripCatalogAnnotations,
-  putTrendEnrichMemory,
-  snapshotTrendConfirmedOthers,
-  snapshotTrendEnrichCache,
-} from './enrich';
+import { clearTrendEnrichCache } from './enrich';
 
 export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存回落（未知榜；daily/weekly/monthly/new 均为显式分档见 trendsBoardTtlMs；仅成功结果写入；rising/healthy 除外，见下）
 /**
@@ -32,8 +25,8 @@ export const GITHUB_SEARCH_TIMEOUT_MS = 10_000; // GitHub Search 主源 10s 熔�
 
 /** 榜缓存一级内存至多 200 条，写时 FIFO 删最旧。 */
 export const TRENDS_CACHE_MAX_ENTRIES = 200;
-/** 写盘前 UTF-8 预检上限 256KB。 */
-export const TREND_DB_PAYLOAD_MAX_BYTES = 256 * 1024;
+/** 写盘前 UTF-8 预检上限 32 KiB（`v: 2` 瘦排行索引；后端硬上限 64 KiB）。 */
+export const TREND_DB_PAYLOAD_MAX_BYTES = 32 * 1024;
 /** 榜缓存二级落盘读错峰抖动上限 30s。 */
 const TREND_L2_JITTER_MAX_MS = 30_000;
 
@@ -150,19 +143,21 @@ export function buildDoforceCacheKey(opts: FetchTrendsOptions = {}): string {
 
 export const DOFORCE_SHARED_CACHE_KEY = buildDoforceCacheKey();
 
+/** 榜单 L2 排行索引项：有序规范 id + 上游独有的星数 / 周期涨星 / Fork 数。 */
+export interface TrendRankIndexItem {
+  id: string;
+  stars: number;
+  starsGained?: number;
+  forks?: number;
+}
+
 /**
- * 榜单持久化信封 v1：
- * 包装榜单裸仓列表与对应的坐标 enrich 派生摘要。
- * enrich 键为小写 `owner/repo`，收录具真实平台与 loading 空平台条目（首屏直展，Other 加载中语义）；
- * 仅禁 dataURI（图标 data: 开头一律不进盘）。
- * confirmedOther 为已确认 Other 键集。
- * 新鲜度复用 `cached_at` + 按榜 TTL。
+ * 榜单 L2 快照信封 `v: 2`（`trend_board_cache.payload_json`）：只存排行索引，不含任何卡片字段；
+ * 未收录卡片由 `repo_card_cache` 承接，读侧经 `hydrateCardsByIds` 批量水合。
  */
-interface TrendCacheEnvelope {
-  v: 1;
-  repos: TrendRepo[];
-  enrich?: Record<string, AppSummary>;
-  confirmedOther?: string[];
+export interface TrendBoardIndexEnvelope {
+  v: 2;
+  items: TrendRankIndexItem[];
 }
 
 interface DbTrendBoardCacheRow {
@@ -170,16 +165,71 @@ interface DbTrendBoardCacheRow {
   cached_at?: number;
 }
 
+/** 榜单行 → 规范坐标（`owner/repo` 优先，其次 `id`）；无法解析返回 undefined。 */
+function trendRepoCoord(r: TrendRepo): { id: string; owner: string; repo: string } | undefined {
+  const owner = typeof r.owner === 'string' ? r.owner.trim() : '';
+  const repo = typeof r.repo === 'string' ? r.repo.trim() : '';
+  if (owner && repo) {
+    return { id: normalizeId(`${owner}/${repo}`), owner, repo };
+  }
+  const id = typeof r.id === 'string' ? normalizeId(r.id) : '';
+  const [o, p, ...rest] = id.split('/');
+  if (!o || !p || rest.length > 0 || id.includes(':')) return undefined;
+  return { id, owner: o, repo: p };
+}
+
+function finiteCount(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : undefined;
+}
+
+/** 榜单 → 去重有序排行索引。 */
+export function buildTrendRankIndex(repos: readonly TrendRepo[]): TrendRankIndexItem[] {
+  const out: TrendRankIndexItem[] = [];
+  const seen = new Set<string>();
+  for (const r of repos ?? []) {
+    if (!r || typeof r !== 'object') continue;
+    const coord = trendRepoCoord(r);
+    if (!coord || seen.has(coord.id)) continue;
+    seen.add(coord.id);
+    const item: TrendRankIndexItem = {
+      id: coord.id,
+      stars: Math.max(0, finiteCount(r.stars) ?? 0),
+    };
+    const gained = finiteCount(r.starsGained);
+    if (gained !== undefined) item.starsGained = gained;
+    const forks = finiteCount(r.forks);
+    if (forks !== undefined) item.forks = forks;
+    out.push(item);
+  }
+  return out;
+}
+
+function repoFromIndexItem(raw: unknown): TrendRepo | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const item = raw as Partial<TrendRankIndexItem>;
+  const id = typeof item.id === 'string' ? normalizeId(item.id) : '';
+  const [owner, repo, ...rest] = id.split('/');
+  if (!owner || !repo || rest.length > 0 || id.includes(':')) return undefined;
+  const out: TrendRepo = {
+    id,
+    name: id,
+    owner,
+    repo,
+    stars: Math.max(0, finiteCount(item.stars) ?? 0),
+    url: `https://github.com/${id}`,
+  };
+  const gained = finiteCount(item.starsGained);
+  if (gained !== undefined) out.starsGained = gained;
+  const forks = finiteCount(item.forks);
+  if (forks !== undefined) out.forks = forks;
+  return out;
+}
+
 /**
- * 榜缓存二级落盘读：
- * - 解析 `{ v: 1, repos, enrich, confirmedOther }` 信封（唯一形状），repos 必须非空数组，
- *   enrich 逐项守卫后调 putTrendEnrichMemory 载入内存，并返回 repos；
- *   其余载荷（含旧纯数组 JSON）视为 miss 走网络；
- * - 命中且未过期返回解析后的 TrendRepo[]；过期判定含错峰抖动（见下）；
- * - 回填顺序：先 hydrate 确认集，再 hydrate enrich（loading 仅已确认键进内存，未确认 loading 丢弃）；
- * - 命令未就绪 / DB 损坏 / 反序列化失败 / 已过期一律降级返回 undefined（视为 miss 走网络）。
- * - 时钟钳制 elapsed<0 按过期；
- * - 读抖动 0-30s，只扣减不延长。
+ * 榜缓存二级落盘读：只接受 `{ v: 2, items }` 且至少一项有效，重建 `TrendRepo[]`（零副作用，不碰富卡镜像）；
+ * 其余载荷（含旧 `v: 1` 富信封）视为 miss 走网络。
+ * - 新鲜度：`daily` 1h、其余 12h，扣减 0–30s 错峰抖动（只扣不延）；`allowStale` 跳过新鲜度判定；
+ * - 时钟钳制 elapsed<0 按过期；命令未就绪 / 反序列化失败一律降级返回 undefined。
  */
 export async function getDbTrendCache(
   key: string,
@@ -192,14 +242,11 @@ export async function getDbTrendCache(
       cacheKey: key,
     });
     if (!row) return undefined;
-
     const payloadStr = row.payload_json;
     const cachedAtSec = row.cached_at;
-
     if (typeof payloadStr !== 'string' || typeof cachedAtSec !== 'number' || cachedAtSec <= 0) {
       return undefined;
     }
-
     const elapsedMs = Date.now() - cachedAtSec * 1000;
     if (!opts?.allowStale) {
       if (elapsedMs < 0) return undefined;
@@ -208,242 +255,54 @@ export async function getDbTrendCache(
         return undefined;
       }
     }
-
     const parsed: unknown = JSON.parse(payloadStr);
-
-    // v === 1 信封（唯一形状）
-    if (parsed && typeof parsed === 'object' && (parsed as { v?: unknown }).v === 1) {
-      const envelope = parsed as TrendCacheEnvelope;
-      if (!Array.isArray(envelope.repos) || envelope.repos.length === 0) {
-        return undefined;
-      }
-
-      // 已确认 Other 先回填：与 enrich 同 key 落盘；仅收非空小写键并 hydrate 进内存
-      // （具平台键由 hydrate 侧跳过，到期由 TTL 重验；读盘永不触发写盘）。
-      const rawConfirmed = (envelope as { confirmedOther?: unknown }).confirmedOther;
-      let guardedConfirmed: string[] = [];
-      if (Array.isArray(rawConfirmed)) {
-        guardedConfirmed = normalizeIdSet(rawConfirmed);
-        if (guardedConfirmed.length > 0) {
-          markConfirmedOthersFreshNow(guardedConfirmed);
-        }
-      }
-
-      // enrich 逐项守卫：id/owner/repo 非空即保留（无 token 时慢探不跑，enrich 常无图标，
-      // 重启直展要求 loading 允许 icon 空）；仅禁 dataURI；platforms 仅要求为数组。
-      // loading 进内存与否由 hydrate 侧按确认集裁决（已确认 loading 进，未确认丢弃）。
-      const guardedEnrich: Record<string, AppSummary> = {};
-      if (envelope.enrich && typeof envelope.enrich === 'object') {
-        for (const [rawKey, item] of Object.entries(envelope.enrich)) {
-          if (!item || typeof item !== 'object') continue;
-          const candidate = item as Partial<AppSummary>;
-          if (
-            typeof candidate.id === 'string' &&
-            candidate.id.trim() !== '' &&
-            typeof candidate.owner === 'string' &&
-            candidate.owner.trim() !== '' &&
-            typeof candidate.repo === 'string' &&
-            candidate.repo.trim() !== '' &&
-            !isDataIcon(candidate.icon) &&
-            Array.isArray(candidate.platforms)
-          ) {
-            guardedEnrich[normalizeId(rawKey)] = item as AppSummary;
-          }
-        }
-      }
-
-      putTrendEnrichMemory(guardedEnrich);
-      const repos = envelope.repos as TrendRepo[] & {
-        enrich?: Record<string, AppSummary>;
-        confirmedOther?: string[];
-      };
-      if (Object.keys(guardedEnrich).length > 0) {
-        repos.enrich = guardedEnrich;
-      }
-      if (guardedConfirmed.length > 0) {
-        repos.confirmedOther = guardedConfirmed;
-      }
-      return repos;
+    if (!parsed || typeof parsed !== 'object' || (parsed as { v?: unknown }).v !== 2) {
+      return undefined;
     }
-
-    return undefined;
+    const items = (parsed as { items?: unknown }).items;
+    if (!Array.isArray(items)) return undefined;
+    const repos: TrendRepo[] = [];
+    const seen = new Set<string>();
+    for (const raw of items) {
+      const repo = repoFromIndexItem(raw);
+      if (!repo || seen.has(repo.id)) continue;
+      seen.add(repo.id);
+      repos.push(repo);
+    }
+    return repos.length > 0 ? repos : undefined;
   } catch {
     return undefined;
   }
 }
 
-/**
- * 榜缓存二级落盘写：统一 `{ v: 1, repos, enrich, confirmedOther? }` 信封落盘。
- * - enrich 可选：缺省按空对象写入信封；
- * - confirmedOther 可选：已确认 Other 键集（小写），与 enrich 同 key 落盘（data 仍禁由 enrich 守卫保证）；
- *   具平台键调用方已过滤，此处再做一次去重归一；为空即省略字段。
- * - 富信封：loading 空平台随信封落盘（首屏直展 loading 卡，Other 加载中语义）；仅禁 dataURI。
- * - 已确认 Other 同信封落盘：settle 兜底 / lite 空非 stale 确认后按正常 enrich 同 key 写透，重挂免验直展 Other 卡；
- *   具平台到达即移除（可覆盖升级），按榜窗口（daily 1h，其余 12h）由 cached_at + 按榜 TTL 把关，到期重验。
- * - 字节上限：FE utf8ByteLength 预检 256KB；超限先丢 confirmed，再富卡长文本截断，
- *   最后丢 loading 空平台条，仍超限放弃写盘。
- *   BE 512KiB 硬拒绝保持（见 db/cache.rs TREND_BOARD_CACHE_MAX_BYTES），FE 预检避免无谓 invoke。
- * - 空榜不写盘。
- */
-export async function saveDbTrendCache(
-  key: string,
-  board: string,
-  repos: TrendRepo[],
-  enrich?: Record<string, AppSummary>,
-  confirmedOther?: readonly string[],
-): Promise<void> {
-  if (!isTauri || !Array.isArray(repos) || repos.length === 0) return;
-  try {
-    const sanitizedEnrich: Record<string, AppSummary> = {};
-    for (const [k, summary] of Object.entries(enrich ?? {})) {
-      if (!summary || typeof summary !== 'object') continue;
-      // 准入只看三件套：id/owner/repo 非空必填（有/无图标一视同仁，icon 空也保留）；仅禁 dataURI。
-      const s = summary as Partial<AppSummary>;
-      if (typeof s.id !== 'string' || s.id.trim() === '') continue;
-      if (typeof s.owner !== 'string' || s.owner.trim() === '') continue;
-      if (typeof s.repo !== 'string' || s.repo.trim() === '') continue;
-      if (!Array.isArray(summary.platforms)) continue;
-      const cleanSummary = isDataIcon(summary.icon) ? { ...summary, icon: '' } : summary;
-      const cleanKey = normalizeId(k);
-      if (cleanKey) {
-        sanitizedEnrich[cleanKey] = stripCatalogAnnotations(cleanSummary);
-      }
-    }
-    const envelope: TrendCacheEnvelope = {
-      v: 1,
-      repos,
-      enrich: sanitizedEnrich,
-    };
-    if (confirmedOther !== undefined) {
-      const cleanConfirmed: string[] = normalizeIdSet(confirmedOther);
-      if (cleanConfirmed.length > 0) {
-        envelope.confirmedOther = cleanConfirmed;
-      }
-    }
-    let payloadJson = JSON.stringify(envelope);
-    if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
-      // 超限先丢 confirmed（enrich 富卡优先）
-      const slim: TrendCacheEnvelope = { v: 1, repos, enrich: sanitizedEnrich };
-      payloadJson = JSON.stringify(slim);
-      if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
-        // 富卡长文本截断：description(_en) 各截 500 字符，homepage 截 500
-        const truncated: Record<string, AppSummary> = {};
-        for (const [k, s] of Object.entries(sanitizedEnrich)) {
-          const c: AppSummary = { ...s };
-          if (typeof c.description === 'string' && c.description.length > 500) {
-            c.description = c.description.slice(0, 500);
-          }
-          if (typeof c.description_en === 'string' && c.description_en.length > 500) {
-            c.description_en = c.description_en.slice(0, 500);
-          }
-          if (typeof c.homepage === 'string' && c.homepage.length > 500) {
-            c.homepage = c.homepage.slice(0, 500);
-          }
-          truncated[k] = c;
-        }
-        payloadJson = JSON.stringify({ v: 1, repos, enrich: truncated } as TrendCacheEnvelope);
-        if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
-          // 丢 loading 空平台条（具平台优先）
-          const concrete: Record<string, AppSummary> = {};
-          for (const [k, s] of Object.entries(truncated)) {
-            if (Array.isArray(s.platforms) && s.platforms.length > 0) concrete[k] = s;
-          }
-          payloadJson = JSON.stringify({ v: 1, repos, enrich: concrete } as TrendCacheEnvelope);
-          if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
-            zlogWarn(`[trends] persist skipped reason=payload-too-large key=${key} bytes=${utf8ByteLength(payloadJson)}`);
-            return;
-          }
-        }
-      }
-    }
-
-    await tauriInvoke(CMD.saveTrendBoardCache, {
-      cacheKey: key,
-      board,
-      payloadJson,
-    });
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
-    zlogWarn(`[trends] persist save failed key=${key} reason=${reason.slice(0, 160)}`);
-  }
-}
-
-/** 榜单 enrich 键全集。 */
-function wantedEnrichKeys(repos: TrendRepo[]): Set<string> {
-  const out = new Set<string>();
-  for (const r of repos) {
-    if (r.owner && r.repo) {
-      out.add(`${normalizeId(r.owner)}/${normalizeId(r.repo)}`);
-    }
-    if (r.id) out.add(normalizeId(r.id));
-  }
-  return out;
-}
-
-/**
- * 图标展示态判定 SSOT（趋势榜 + 榜缓存二级共用）：
- * - `isDataIcon`：`data:` 前缀即内联展示态（前后空格容忍）；
- * - `isMissingIconForDisplay`：空串或内联展示态一律视为缺失（内联态永不进盘）；
- * - `isPersistableIcon`：非缺失即实图（内联态永不进盘）。
- * 本模块唯一前缀判定实现处，其余一律复用三函数，不自立规则。
- */
-export function isDataIcon(icon: unknown): boolean {
-  return typeof icon === 'string' && icon.trim().startsWith('data:');
-}
-
-/** 图标缺失判定：空串或 `data:` 视为缺失（重挂自愈与落盘守卫共用）。 */
-export function isMissingIconForDisplay(icon: unknown): boolean {
-  if (typeof icon !== 'string') return true;
-  if (icon.trim() === '') return true;
-  return isDataIcon(icon);
-}
-
-/** 可落盘图标判定：非缺失即实图（`data:` 永不进盘，见信封守卫）。 */
-export function isPersistableIcon(icon: unknown): boolean {
-  return !isMissingIconForDisplay(icon);
-}
-
-/**
- * 图标互补合并（落盘守卫）：空/`data:` 永不覆实；一方实图即取实图，
- * 双方实图取内存侧（调用方保证首参为内存新鲜值）；双方均空取内存侧。
- */
-function preferRealIcon(
-  memory: AppSummary,
-  disk: AppSummary,
-): AppSummary {
-  const memoryReal = isPersistableIcon(memory.icon);
-  const diskReal = isPersistableIcon(disk.icon);
-  if (memoryReal) return memory;
-  if (diskReal) return { ...memory, icon: disk.icon };
-  // 双方均缺失：统一剥成空串（`data:` 永不进盘），其余字段取内存侧。
-  if (isDataIcon(memory.icon)) {
-    return { ...memory, icon: '' };
-  }
-  return memory;
-}
-
-/** 按榜单 key 维护的合并写在途链：同 key 读-合并-写全程串行，跨 key 互不阻塞。 */
+/** 按榜单 key 串行的写盘链（同 key 后写覆盖先写，跨 key 互不阻塞）。 */
 const boardSaveChains = new Map<string, Promise<void>>();
 
 /**
- * 榜单写盘合并口（先读后写，防裸覆盖富），debounce 写透/pagehide flush/确认写透/
- * lite 持久化全走此唯一入口——按 key 串行排队，后到合并基于前一次已写快照 rebase，
- * 按 key 串行保证并发交错不丢任一侧 enrich/confirmedOther。
- * - 已确认 Other 同 key 合并：内存确认 + 旧盘确认取并集（仍属本榜），具平台键剔除；
- * - 旧盘富条目合并：具平台恒保留；loading 仅确认键保留，未确认 loading 永不回写；
- * - 合并后有富条目或有确认集即存富信封（含确认集），否则存裸数组；空榜直接返回不写盘。
- * boards 主体落盘与 TrendsView 写透统一走此口，关闭前丢失/裸存覆盖即被堵住。
- * - 写透节流仍由调用方 debounce（TrendsView scheduleBoardWriteThrough 800ms）保持；
- *   读路径 hydrate/sweep 不触发写放大，仅显式变化（mark/unmark/具平台驱逐 emit）触发写透。
+ * 榜缓存二级落盘写：仅在上游排行抓取成功时调用一次，写 `{ v: 2, items }` 排行索引；
+ * 单仓图标 / 平台 / 详情变更只更新富卡镜像与 `repo_card_cache`，不重写榜单快照。
+ * 空榜不写；UTF-8 预检超 32 KiB 放弃写盘；失败静默（下次抓榜重写）。
  */
-export function saveBoardCacheMerged(
-  key: string,
-  board: string,
-  repos: TrendRepo[],
-): Promise<void> {
+export function saveDbTrendCache(key: string, board: string, repos: readonly TrendRepo[]): Promise<void> {
+  if (!isTauri || !Array.isArray(repos) || repos.length === 0) return Promise.resolve();
+  const items = buildTrendRankIndex(repos);
+  if (items.length === 0) return Promise.resolve();
+  const envelope: TrendBoardIndexEnvelope = { v: 2, items };
+  const payloadJson = JSON.stringify(envelope);
+  if (utf8ByteLength(payloadJson) > TREND_DB_PAYLOAD_MAX_BYTES) {
+    zlogWarn(`[trends] persist skipped reason=payload-too-large key=${key} bytes=${utf8ByteLength(payloadJson)}`);
+    return Promise.resolve();
+  }
   const task = (boardSaveChains.get(key) ?? Promise.resolve())
-    .catch(() => {})
-    .then(() => runBoardCacheMerged(key, board, repos));
+    .catch(() => undefined)
+    .then(() => tauriInvoke(CMD.saveTrendBoardCache, { cacheKey: key, board, payloadJson }))
+    .then(
+      () => undefined,
+      (err: unknown) => {
+        const reason = err instanceof Error ? err.message : String(err);
+        zlogWarn(`[trends] persist save failed key=${key} reason=${reason.slice(0, 160)}`);
+      },
+    );
   boardSaveChains.set(key, task);
   const cleanup = (): void => {
     if (boardSaveChains.get(key) === task) boardSaveChains.delete(key);
@@ -452,74 +311,27 @@ export function saveBoardCacheMerged(
   return task;
 }
 
-/** 合并写单次执行（读-合并-写）。内部全吞错永不变 reject，串行链依赖此约定。 */
-async function runBoardCacheMerged(
-  key: string,
-  board: string,
-  repos: TrendRepo[],
-): Promise<void> {
-  if (!isTauri || !Array.isArray(repos) || repos.length === 0) return;
-  const wanted = wantedEnrichKeys(repos);
-  const merged: Record<string, AppSummary> = { ...snapshotTrendEnrichCache(repos) };
-  // 内存已确认快照（仍属本榜 + 新鲜 + 非具平台由 snapshot 保证）。
-  let mergedConfirmed: string[] = snapshotTrendConfirmedOthers(repos).filter((k) => wanted.has(k));
-  try {
-    const prev = await getDbTrendCache(key, board);
-    // 确认集合并优先：旧盘确认先并入，后续旧富条目以全集过滤（未确认 loading 永不回写）。
-    const prevConfirmed = (prev as { confirmedOther?: unknown } | undefined)?.confirmedOther;
-    if (Array.isArray(prevConfirmed)) {
-      const seen = new Set(mergedConfirmed);
-      for (const raw of prevConfirmed) {
-        if (typeof raw !== 'string') continue;
-        const k = normalizeId(raw);
-        if (!k || !wanted.has(k) || seen.has(k)) continue;
-        mergedConfirmed.push(k);
-        seen.add(k);
-      }
-    }
-    const prevEnrich = (prev as { enrich?: Record<string, AppSummary> } | undefined)?.enrich;
-    if (prevEnrich) {
-      const confirmedSet = new Set(mergedConfirmed);
-      for (const [k, v] of Object.entries(prevEnrich)) {
-        if (!wanted.has(k)) continue;
-        const prevHas = Array.isArray(v.platforms) && v.platforms.length > 0;
-        if (!prevHas && !confirmedSet.has(k)) continue;
-        const cur = merged[k];
-        if (!cur) {
-          merged[k] = v;
-          continue;
-        }
-        const curHas = Array.isArray(cur.platforms) && cur.platforms.length > 0;
-        if (!curHas && prevHas) {
-          merged[k] = preferRealIcon(v, cur);
-          continue;
-        }
-        // 同级（同 loading / 同具平台）图标跟进：空/`data:` 永不覆实，实图互补。
-        merged[k] = preferRealIcon(cur, v);
-      }
-    }
-  } catch {
-    // 读旧失败即按内存快照落盘，不阻塞
-  }
-  // 禁 loading/确认覆盖具平台：合并后为具平台的键一律移出确认集（升级覆盖）。
-  if (mergedConfirmed.length > 0) {
-    mergedConfirmed = mergedConfirmed.filter((k) => {
-      const hit = merged[k];
-      if (hit && Array.isArray(hit.platforms) && hit.platforms.length > 0) return false;
-      return true;
-    });
-  }
-  if (Object.keys(merged).length > 0 || mergedConfirmed.length > 0) {
-    await saveDbTrendCache(
-      key,
-      board,
-      repos,
-      merged,
-      mergedConfirmed.length > 0 ? mergedConfirmed : undefined,
-    );
-  } else {
-    await saveDbTrendCache(key, board, repos);
-  }
+/**
+ * 图标展示态判定 SSOT（趋势榜共用）：
+ * - `isDataIcon`：`data:` 前缀即内联展示态（前后空格容忍）；
+ * - `isMissingIconForDisplay`：空串或内联展示态一律视为缺失；
+ * - `isPersistableIcon`：非缺失即实图（内联态永不进富卡池）。
+ * 本模块唯一前缀判定实现处，其余一律复用三函数，不自立规则。
+ */
+export function isDataIcon(icon: unknown): boolean {
+  return typeof icon === 'string' && icon.trim().startsWith('data:');
+}
+
+/** 图标缺失判定：空串或 `data:` 视为缺失（重挂自愈共用）。 */
+export function isMissingIconForDisplay(icon: unknown): boolean {
+  if (typeof icon !== 'string') return true;
+  if (icon.trim() === '') return true;
+  return isDataIcon(icon);
+}
+
+/** 可入池图标判定：非缺失即实图。 */
+export function isPersistableIcon(icon: unknown): boolean {
+  return !isMissingIconForDisplay(icon);
 }
 
 /**

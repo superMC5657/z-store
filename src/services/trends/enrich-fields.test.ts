@@ -120,7 +120,7 @@ describe('loading 永不持久化', () => {
     );
   });
 
-  it('enrich loading 只活当次 out，二次进榜无缓存命中走重拉', async () => {
+  it('平台未知的卡壳入池（12h 内不重拉元数据），但不计入已落定快照', async () => {
     const spy = vi
       .spyOn(tauriApi, 'enrichTrendRepos')
       .mockImplementation(async (rs) =>
@@ -129,13 +129,12 @@ describe('loading 永不持久化', () => {
     const repos = [makeTrendRepo({ id: 'acme/atlas' })];
     const first = await enrichTrendRepos(repos);
     expect(first.get('acme/atlas')?.platforms).toEqual([]);
-    // loading 永不进内存：快照无条目。
+    // 已落定快照只收具平台 / 已确认 Other。
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
     const second = await enrichTrendRepos(repos);
     expect(second.get('acme/atlas')?.platforms).toEqual([]);
-    // 二次进榜无缓存命中：再次走重拉。
-    expect(spy).toHaveBeenCalledTimes(2);
-    expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
+    // 卡片新鲜命中：平台交由 lite 通道推导，不再重拉元数据。
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it('详情治愈后命中（具平台进缓存，不再重拉）', async () => {

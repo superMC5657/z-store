@@ -59,3 +59,27 @@ describe('noteStarredLogin', () => {
     expect(getQueryMemory('@me:alice')).toBeUndefined();
   });
 });
+
+describe('logout clears private data across caches', () => {
+  it('forgetPrivateStarredQueries 清 @me: 列表、含私有仓的搜索分页与私有富卡', async () => {
+    const { recordSharedPrivateRepos, recordSharedRepoCards, peekFreshRepoCard } = await import(
+      '../repoEnrichCache'
+    );
+    const { forgetPrivateStarredQueries } = await import('./starredMemory');
+    const secret = { id: 'me/secret', owner: 'me', repo: 'secret', platforms: [], name: 'secret' } as unknown as AppSummary;
+    const pub = { id: 'pub/tool', owner: 'pub', repo: 'tool', platforms: [], name: 'tool' } as unknown as AppSummary;
+    seed(selfQueryKey('alice'));
+    writeSearchListCache({ query: 'mine', page: 1, perPage: 20 }, [secret], { hasPrivate: true });
+    writeSearchListCache({ query: 'pub', page: 1, perPage: 20 }, [pub]);
+    recordSharedRepoCards([secret, pub]);
+    recordSharedPrivateRepos(['me/secret']);
+
+    forgetPrivateStarredQueries();
+
+    expect(readSearchListCache(pageKey(selfQueryKey('alice')))).toBeUndefined();
+    expect(readSearchListCache({ query: 'mine', page: 1, perPage: 20 })).toBeUndefined();
+    expect(readSearchListCache({ query: 'pub', page: 1, perPage: 20 })?.[0].id).toBe('pub/tool');
+    expect(peekFreshRepoCard('me/secret')).toBeUndefined();
+    expect(peekFreshRepoCard('pub/tool')).toBeDefined();
+  });
+});

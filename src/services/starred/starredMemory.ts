@@ -3,7 +3,11 @@
  * 以及登录名跟踪——登录名一变（登出/换账号）即清掉所有 `@me:` 私有条目，含分页缓存，
  * 不依赖收藏页是否挂载。
  */
-import { clearSearchListCacheNamespace } from '../search/searchListCache';
+import { clearPrivateSharedRepoCards } from '../repoEnrichCache';
+import {
+  clearPrivateSearchListCacheEntries,
+  clearSearchListCacheNamespace,
+} from '../search/searchListCache';
 
 /** 分页缓存命名空间。 */
 export const STARRED_CACHE_NAMESPACE = 'starred';
@@ -72,9 +76,14 @@ export function isNetworkSynced(key: string): boolean {
   return networkSyncedKeys.has(key);
 }
 
-/** 清掉内存里所有 `@me:` 私有查询（分页缓存、查询记录与同步标记）。 */
+/**
+ * 清掉内存里所有私有数据：`@me:` 查询（分页缓存、查询记录与同步标记）、
+ * 含私有仓库的在线搜索分页，以及共享单仓富卡镜像中的私有仓库卡片。
+ */
 export function forgetPrivateStarredQueries(): void {
   clearSearchListCacheNamespace(STARRED_CACHE_NAMESPACE, PRIVATE_QUERY_PREFIX);
+  clearPrivateSearchListCacheEntries();
+  clearPrivateSharedRepoCards();
   for (const key of [...queryMemories.keys()]) {
     if (isPrivateKey(key)) queryMemories.delete(key);
   }

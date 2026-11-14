@@ -12,14 +12,20 @@ import {
 } from '../../services/search/searchListCache';
 import { appendUniqueOnlineRows, assembleOnlineRowsWithIcons } from '../../services/search/onlineRows';
 import { normalizeId, normalizeIdLowerSet } from '../../services/normalizeId';
-import { admitIconHit, patchAppIconList, subscribeIconWrites } from '../../services/iconStore';
-import { recordSharedConfirmedOthers, recordSharedRepoPlatforms } from '../../services/repoEnrichCache';
+import { patchAppIconList, subscribeIconWrites } from '../../services/iconStore';
 import {
+  hydrateCardsByIds,
+  recordSharedConfirmedOthers,
+  recordSharedPrivateRepos,
+} from '../../services/repoEnrichCache';
+import {
+  STARRED_L2_MAX_PERSISTED_PAGES,
   loadPersistedStarredOpts,
   persistStarredOpts,
   readDbStarredCache,
   saveDbStarredCache,
   type StarredL2Hit,
+  type StarredPageIds,
 } from '../../services/starred/starredCache';
 import {
   STARRED_CACHE_NAMESPACE,
@@ -37,7 +43,6 @@ import {
 import {
   isPlatformLoading,
   matchPlatformSetWithLoading,
-  normalizeLoadingKey,
   type PlatformId,
 } from '../../lib/platformFilter';
 import { useListPlatformBackfill } from '../../app/hooks/usePlatformBackfill';
@@ -56,8 +61,6 @@ import { FilterEmptyState, resolvePlatformReset, type ViewAppActions } from '../
 
 /** 每页条数，与搜索页在线续拉一致。 */
 export const STARRED_PER_PAGE = 20;
-/** L2 写透防抖。 */
-const L2_SAVE_DEBOUNCE_MS = 800;
 
 /** 测试用：清掉 Star 同步会话内存。 */
 export function resetStarredFeedMemory(): void {
@@ -85,6 +88,8 @@ function cacheKey(key: string, page: number) {
 interface RestoredQuery {
   memory: StarredQueryMemory;
   rows: AppSummary[];
+  /** 每页有序 id（写 L2 快照用）。 */
+  pageIds: StarredPageIds[];
   /** 第 1 页仍在 5min 新鲜窗口内。 */
   isFresh: boolean;
 }
@@ -97,18 +102,23 @@ function restoreQuery(target: StarredTarget): RestoredQuery | null {
   const known = getQueryMemory(target.key);
   const memory: StarredQueryMemory = known ?? { target, pages: 1, hasMore: false, emptyPages: [] };
   let rows: AppSummary[] = [];
+  const pageIds: StarredPageIds[] = [];
   let isFresh = true;
   for (let p = 1; p <= memory.pages; p++) {
-    if (memory.emptyPages.includes(p)) continue;
+    if (memory.emptyPages.includes(p)) {
+      pageIds.push({ page: p, ids: [] });
+      continue;
+    }
     const hit = readSearchListCacheEntry(cacheKey(memory.target.key, p));
     if (!hit) return null;
     if (p === 1) {
       isFresh = hit.isFresh;
-      if (!known) memory.hasMore = hit.rows.length >= STARRED_PER_PAGE;
+      if (!known) memory.hasMore = hit.hasMore;
     }
+    pageIds.push({ page: p, ids: hit.ids });
     rows = appendUniqueOnlineRows(rows, hit.rows);
   }
-  return { memory, rows, isFresh };
+  return { memory, rows, pageIds, isFresh };
 }
 
 /** 最近一次查询（且属于当前登录账号）从分页缓存恢复。 */
@@ -127,37 +137,13 @@ function initialTarget(login: string | undefined): StarredTarget | null {
   return login ? { key: selfQueryKey(login), input: login } : null;
 }
 
-/** 快照行按页切片写入分页缓存（空页跳过，余数并入最后一页）。 */
-function seedPageCache(key: string, rows: AppSummary[], pages: number, emptyPages: readonly number[]): void {
-  const filled = Array.from({ length: pages }, (_, i) => i + 1).filter((p) => !emptyPages.includes(p));
-  filled.forEach((p, idx) => {
-    const start = idx * STARRED_PER_PAGE;
-    const end = idx === filled.length - 1 ? rows.length : start + STARRED_PER_PAGE;
-    const slice = rows.slice(start, end);
-    if (slice.length > 0) writeSearchListCache(cacheKey(key, p), slice);
-  });
-}
-
-/** 快照首绘后用本地已确认图标（DB，零网络）补齐空图标。 */
-function backfillConfirmedIcons(rows: readonly AppSummary[]): void {
-  const ids = rows
-    .filter((r) => !r.icon)
-    .map((r) => normalizeId(r.id))
-    .filter(Boolean);
-  if (ids.length === 0) return;
-  void (async () => {
-    let icons: (string | null)[];
-    try {
-      icons = await tauriApi.getConfirmedIconsBatch(ids);
-    } catch {
-      return;
-    }
-    if (!Array.isArray(icons)) return;
-    ids.forEach((id, i) => {
-      const icon = icons[i];
-      if (typeof icon === 'string' && icon.trim() !== '') admitIconHit({ id, icon, via: 'm2' });
-    });
-  })();
+/** 快照页号 → 查询进度（缺页记为空页）。 */
+function memoryFromPages(target: StarredTarget, pageIds: readonly StarredPageIds[], hasMore: boolean): StarredQueryMemory {
+  const pages = pageIds.reduce((max, p) => Math.max(max, p.page), 0);
+  const filled = new Set(pageIds.filter((p) => p.ids.length > 0).map((p) => p.page));
+  const emptyPages: number[] = [];
+  for (let p = 1; p <= pages; p++) if (!filled.has(p)) emptyPages.push(p);
+  return { target, pages: Math.max(1, pages), hasMore, emptyPages };
 }
 
 interface StarredFeedProps
@@ -194,7 +180,8 @@ interface StarredFeedProps
  *   不自动联网（收藏页手动同步）；
  * - 切换目标：分页缓存 5min 内直出，5–30min 先展示再后台同步第 1 页；否则读快照（12h 内直出，更旧先展示再同步）；
  * - 对当前目标点「同步」：旧卡片保留在屏，第 1 页经后端 ETag 条件请求更新（未变 304 零配额）；
- * - 与 GitHub 同步过的目标，结果（含后续平台/图标升级）防抖写透快照；登出即清 `@me:` 私有缓存。
+ * - 快照只存前 3 页有序 id：与 GitHub 同步第 1 页或续拉成功时直接写一次，卡片平台/图标变更不重写；
+ *   快照恢复经 `hydrateCardsByIds` 一次水合（目录 + `repo_card_cache` + 确认图标）；登出即清 `@me:` 私有缓存。
  */
 export const StarredFeed: React.FC<StarredFeedProps> = ({
   oauthUser,
@@ -243,6 +230,12 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
   // 每次新查询（或清空）+1：旧查询在途回包一律丢弃。
   const queryGenRef = useRef(0);
   const prevLoginRef = useRef(login);
+  const loginRef = useRef(login);
+  loginRef.current = login;
+  // 当前结果按页有序 id（L2 快照只存它）。
+  const pageIdsRef = useRef<StarredPageIds[]>(initial?.pageIds ?? []);
+  const catalogRef = useRef({ catalogApps, localApps });
+  catalogRef.current = { catalogApps, localApps };
 
   /** 把一次查询的结果放到屏上并记住进度。 */
   const showQuery = (memory: StarredQueryMemory, nextRows: AppSummary[]) => {
@@ -255,16 +248,49 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     rememberQuery({ ...memory, emptyPages: [...memory.emptyPages] });
   };
 
-  /** 快照首绘：回哺共享富卡池，新鲜快照同时铺进分页缓存，再用本地已确认图标补齐。 */
-  const showSnapshot = (target: StarredTarget, hit: StarredL2Hit) => {
+  /**
+   * 快照首绘：按页 id 一次批量水合（目录 → 共享富卡池 → `repo_card_cache` + 确认图标），
+   * 已确认 Other 上报平台落定；新鲜快照同时铺进分页缓存。查询已切换或账号已变即丢弃。
+   * 返回是否已上屏。
+   */
+  const hydrateSnapshot = async (target: StarredTarget, hit: StarredL2Hit, gen: number): Promise<boolean> => {
     const env = hit.envelope;
-    recordSharedConfirmedOthers(env.confirmedOther ?? []);
-    recordSharedRepoPlatforms(env.rows);
-    const emptyPages = env.emptyPages ?? [];
-    if (hit.isFresh) seedPageCache(target.key, env.rows, env.pages, emptyPages);
-    const assembled = assembleOnlineRowsWithIcons([], env.rows);
-    showQuery({ target, pages: env.pages, hasMore: env.hasMore, emptyPages }, assembled);
-    backfillConfirmedIcons(assembled);
+    const allIds = env.pages.flatMap((p) => p.ids);
+    const hydrated = await hydrateCardsByIds(allIds, catalogRef.current);
+    if (gen !== queryGenRef.current || !belongsToLogin(target, loginRef.current)) return false;
+    if (hydrated.confirmedOtherIds.length > 0) onConfirmPlatformOtherIds?.(hydrated.confirmedOtherIds);
+    const memory = memoryFromPages(target, env.pages, env.hasMore);
+    if (hit.isFresh) {
+      for (const p of env.pages) {
+        const slice = p.ids.map((id) => hydrated.byId.get(id)).filter((r): r is AppSummary => !!r);
+        if (slice.length > 0) {
+          writeSearchListCache(cacheKey(target.key, p.page), slice, {
+            hasMore: p.page < memory.pages || env.hasMore,
+          });
+        }
+      }
+    }
+    pageIdsRef.current = env.pages.map((p) => ({ page: p.page, ids: [...p.ids] }));
+    showQuery(memory, assembleOnlineRowsWithIcons([], hydrated.rows));
+    return true;
+  };
+
+  /** 与 GitHub 同步过的当前目标：把前 3 页有序 id 直接写快照（登出后的 `@me:` 永不写回）。 */
+  const persistPageIds = (target: StarredTarget, nextHasMore: boolean) => {
+    if (!belongsToLogin(target, loginRef.current) || !isNetworkSynced(target.key)) return;
+    const pages = pageIdsRef.current.filter((p) => p.page <= STARRED_L2_MAX_PERSISTED_PAGES);
+    if (!pages.some((p) => p.ids.length > 0)) return;
+    const truncated = pageIdsRef.current.some((p) => p.page > STARRED_L2_MAX_PERSISTED_PAGES);
+    void saveDbStarredCache(target.key, target.key, {
+      v: 2,
+      pages,
+      hasMore: nextHasMore || truncated,
+    });
+  };
+
+  const setPageIds = (page: number, ids: string[]) => {
+    const rest = pageIdsRef.current.filter((p) => p.page !== page);
+    pageIdsRef.current = [...rest, { page, ids }].sort((a, b) => a.page - b.page);
   };
 
   // 登录名变化：登出/换账号即清内存里的 `@me:` 私有缓存；显示中的「自己的 Star」若不属于新账号即清空；
@@ -280,6 +306,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       queryGenRef.current++;
       targetRef.current = null;
       emptyPagesRef.current = [];
+      pageIdsRef.current = [];
       setQueryKey(null);
       setRows([]);
       setPages(0);
@@ -294,6 +321,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       const restored = restoreLastQuery(login);
       if (restored) {
         setInput(restored.memory.target.input);
+        pageIdsRef.current = restored.pageIds;
         showQuery(restored.memory, restored.rows);
         return;
       }
@@ -304,7 +332,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
         void readDbStarredCache(target.key, { allowStale: true }).then((hit) => {
           if (!hit || gen !== queryGenRef.current || targetRef.current) return;
           setInput(target.input);
-          showSnapshot(target, hit);
+          void hydrateSnapshot(target, hit, gen);
         });
       }
     }
@@ -342,54 +370,17 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     forceRefresh: false,
   });
 
-  // L2 写透：与 GitHub 同步过的目标，结果、页数或平台落定变化后防抖 800ms 写快照，卸载时补写。
-  const pendingSaveRef = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    const target = targetRef.current;
-    if (!target || !isNetworkSynced(target.key) || pages === 0 || rows.length === 0) {
-      pendingSaveRef.current = null;
-      return;
-    }
-    const confirmedOther = rows
-      .filter(
-        (r) => (!r.platforms || r.platforms.length === 0) && resolvedOtherIds.has(normalizeLoadingKey(r.id)),
-      )
-      .map((r) => normalizeId(r.id));
-    const envelope = {
-      v: 1 as const,
-      rows,
-      pages,
-      hasMore,
-      emptyPages: [...emptyPagesRef.current],
-      confirmedOther,
-    };
-    const key = target.key;
-    // 执行时复核：登出/换账号已清同步标记的私有目标不再写回（后端已清快照）。
-    const save = () => {
-      if (isNetworkSynced(key)) void saveDbStarredCache(key, key, envelope);
-    };
-    pendingSaveRef.current = save;
-    const timer = setTimeout(() => {
-      if (pendingSaveRef.current === save) pendingSaveRef.current = null;
-      save();
-    }, L2_SAVE_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [rows, pages, hasMore, resolvedOtherIds]);
-
-  useEffect(() => {
-    return () => {
-      const pending = pendingSaveRef.current;
-      pendingSaveRef.current = null;
-      pending?.();
-    };
-  }, []);
-
   const remember = (target: StarredTarget, nextPages: number, nextHasMore: boolean) => {
     rememberQuery({ target, pages: nextPages, hasMore: nextHasMore, emptyPages: [...emptyPagesRef.current] });
   };
 
   const fetchPage = async (target: StarredTarget, page: number, forceRefresh = false) => {
     const res = await tauriApi.listGithubStarred(target.username, page, STARRED_PER_PAGE, forceRefresh);
+    if (res.private_ids && res.private_ids.length > 0) recordSharedPrivateRepos(res.private_ids);
+    if (res.confirmed_other_ids && res.confirmed_other_ids.length > 0) {
+      recordSharedConfirmedOthers(res.confirmed_other_ids);
+      onConfirmPlatformOtherIds?.(res.confirmed_other_ids);
+    }
     // 同一目标沿用屏上旧行做图标粘性合并（同步第 1 页时不闪空图标）。
     const prev = targetRef.current?.key === target.key ? rowsRef.current : [];
     const assembled = assembleOnlineRowsWithIcons(prev, res.rows);
@@ -397,7 +388,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       if (!emptyPagesRef.current.includes(page)) emptyPagesRef.current = [...emptyPagesRef.current, page];
     } else {
       emptyPagesRef.current = emptyPagesRef.current.filter((p) => p !== page);
-      writeSearchListCache(cacheKey(target.key, page), assembled);
+      writeSearchListCache(cacheKey(target.key, page), assembled, { hasMore: res.has_more });
     }
     return { ...res, rows: assembled };
   };
@@ -410,6 +401,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     const res = await fetchPage(target, 1, forceRefresh);
     if (gen !== queryGenRef.current) return;
     markNetworkSynced(target.key);
+    const firstIds = res.rows.map((r) => normalizeId(r.id)).filter(Boolean);
     const current = rowsRef.current;
     const samePrefix =
       pagesRef.current > 1 &&
@@ -418,14 +410,18 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       res.rows.every((r, i) => normalizeId(current[i]?.id) === normalizeId(r.id));
     if (samePrefix) {
       setRows((prev) => [...res.rows, ...prev.slice(res.rows.length)]);
+      setPageIds(1, firstIds);
       remember(target, pagesRef.current, hasMoreRef.current);
+      if (res.is_stale !== true) persistPageIds(target, hasMoreRef.current);
       return;
     }
     emptyPagesRef.current = res.rows.length === 0 ? [1] : [];
+    pageIdsRef.current = [{ page: 1, ids: firstIds }];
     setRows(res.rows);
     setPages(1);
     setHasMore(res.has_more);
     remember(target, 1, res.has_more);
+    if (res.is_stale !== true) persistPageIds(target, res.has_more);
   };
 
   const handleQuery = async () => {
@@ -447,6 +443,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       // 切换目标：先看分页缓存（5min 内直出，零网络）。
       const restored = restoreQuery(target);
       if (restored) {
+        pageIdsRef.current = restored.pageIds;
         showQuery({ ...restored.memory, target }, restored.rows);
         if (restored.isFresh) {
           setLoading(false);
@@ -455,6 +452,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       } else {
         targetRef.current = target;
         emptyPagesRef.current = [];
+        pageIdsRef.current = [];
         setQueryKey(target.key);
         setRows([]);
         setPages(0);
@@ -464,8 +462,9 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
         const hit = await readDbStarredCache(target.key, { allowStale: true });
         if (gen !== queryGenRef.current) return;
         if (hit) {
-          showSnapshot(target, hit);
-          if (hit.isFresh) {
+          const shown = await hydrateSnapshot(target, hit, gen);
+          if (gen !== queryGenRef.current) return;
+          if (shown && hit.isFresh) {
             setLoading(false);
             return;
           }
@@ -499,7 +498,9 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       setRows((prev) => appendUniqueOnlineRows(prev, res.rows));
       setPages(nextPage);
       setHasMore(res.has_more);
+      setPageIds(nextPage, res.rows.map((r) => normalizeId(r.id)).filter(Boolean));
       remember(target, nextPage, res.has_more);
+      if (res.is_stale !== true) persistPageIds(target, res.has_more);
     } catch (err) {
       if (gen !== queryGenRef.current) return;
       setError(String(err));

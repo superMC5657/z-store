@@ -272,61 +272,45 @@ describe('createTrendBoardSession 生命周期与会话隔离', () => {
           'https://cdn.example/beacon.png',
         );
       });
-      expect(enrichSpy).toHaveBeenCalledTimes(2);
-      expect(confirmSpy).toHaveBeenCalledTimes(2);
+      // 首轮在等待批量水合时即被 dispose 取消，不发出 enrich / 确认图标请求；重挂后完整重跑一轮。
+      expect(enrichSpy).toHaveBeenCalledTimes(1);
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
     } finally {
       session.dispose();
     }
   });
 
-  it('多会话并发时 dispose 仅刷新本会话的榜单持久化引用', async () => {
+  it('会话生命周期不重写榜单 L2：dispose、图标与平台变更均不触发 save_trend_board_cache', async () => {
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const savedKeys: string[] = [];
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {
-      if (cmd === CMD.getTrendBoardCache) return null;
       if (cmd === CMD.saveTrendBoardCache) {
         savedKeys.push(String((args as { cacheKey?: unknown })?.cacheKey ?? ''));
       }
+      if (cmd === CMD.getRepoCardsBatch) return [];
       return undefined;
     });
-
     const repoA = makeTrendRepo({ id: 'acme/alpha', stars: 10 });
-    const repoB = makeTrendRepo({ id: 'acme/beta', stars: 20 });
-
-    const sessionA = createTrendBoardSession({
+    const session = createTrendBoardSession({
       initialEnrichedApps: {
-        'acme/alpha': makeEnrichedApp({ id: 'acme/alpha', platforms: ['windows'] }),
+        'acme/alpha': makeEnrichedApp({ id: 'acme/alpha', platforms: [] }),
       },
     });
-    const sessionB = createTrendBoardSession({
-      initialEnrichedApps: {
-        'acme/beta': makeEnrichedApp({ id: 'acme/beta', platforms: ['linux'] }),
-      },
-    });
-
-    sessionA.start();
-    sessionA.syncBoard({
-      trendResult: { status: 'ok', repos: [repoA], stale: false },
+    session.start();
+    const trendResult = { status: 'ok' as const, repos: [repoA], stale: false };
+    session.syncBoard({ trendResult, activeBoard: 'daily', trendFetchOpts: {} });
+    session.syncLiteVerify({
+      trendResult,
+      rawItems: [{ type: 'uncataloged', repo: repoA }],
       activeBoard: 'daily',
-      trendFetchOpts: {},
+      globalConfirmed: new Set<string>(),
+      fetchLite: async (id: string) => ({ id, platforms: ['windows'], is_stale: false }),
     });
-
-    sessionB.start();
-    sessionB.syncBoard({
-      trendResult: { status: 'ok', repos: [repoB], stale: false },
-      activeBoard: 'monthly',
-      trendFetchOpts: {},
-    });
-
-    sessionA.dispose();
     await vi.waitFor(() => {
-      expect(savedKeys.some((k) => k.startsWith('daily'))).toBe(true);
+      expect(session.getSnapshot().enrichedApps['acme/alpha']?.platforms).toEqual(['windows']);
     });
-    expect(savedKeys.some((k) => k.startsWith('monthly'))).toBe(false);
-
-    sessionB.dispose();
-    await vi.waitFor(() => {
-      expect(savedKeys.some((k) => k.startsWith('monthly'))).toBe(true);
-    });
+    session.dispose();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(savedKeys).toEqual([]);
   });
 });

@@ -313,6 +313,34 @@ pub struct StarredPageResult {
     /// 网络或限流失败时回退了本地旧载荷（`Some(true)`）；正常结果省略。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_stale: Option<bool>,
+    /// 本页 `repo_card_cache` 已确认无可安装资产（平台为空）的未收录行规范 id。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub confirmed_other_ids: Vec<String>,
+    /// 本页私有仓库的规范 id。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub private_ids: Vec<String>,
+}
+
+/// 按 id 批量水合的单仓富卡（`get_repo_cards_batch`）：收录项投影目录元数据，
+/// 未收录项来自 `repo_card_cache`（叠加确认图标并盖收录章）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HydratedRepoCard {
+    pub summary: AppSummary,
+    pub confirmed_other: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_private: bool,
+    /// 完整卡片元数据写入时间（秒）；仅详情缓存回退命中时为 0。
+    pub updated_at: i64,
+}
+
+/// 在线搜索列表快照条目（纯透存：`payload_json` 原样往返，新鲜度由前端判定）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchListCacheEntry {
+    pub payload_json: String,
+    pub cached_at: i64,
+    /// 本页含私有仓库：前端由快照回填 L1 时据此保留标记，登出随之清除。
+    #[serde(default)]
+    pub has_private: bool,
 }
 
 /// Star 同步快照条目（纯透存：`payload_json` 原样往返，`cached_at` 为落库秒级时间戳，新鲜度由前端判定）。
