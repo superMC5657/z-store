@@ -19,7 +19,9 @@
    `trend.doforce.dpdns.org`，不经过 ADR-0006 的 `ForgeProvider` 抽象。
    该命令为 SSRF 收紧的专用通道：仅 `https`、三主源 host 白名单
   （`github.com`、`trend.doforce.dpdns.org`、`api.github.com`，见
-   `src-tauri/src/commands/network.rs` 的 `TRENDS_TEXT_HOSTS`），10s 超时，
+   `src-tauri/src/commands/network.rs` 的 `TRENDS_TEXT_HOSTS`）。doforce 直连优先
+  （5s，per-client `no_proxy`，不耗代理流量），超时、传输错误或 5xx 且存在系统代理时
+   经系统代理重试一次（6s）；`github.com` / `api.github.com` 单跳 10s（见 ADR-0025 §2.4）。
    错误串携带可机读标记（`upstream status {code}` / `request timeout` /
    `network error`），完整 URL 永不回显（query 不记日志）。
 2. **一榜一源、无降级链**：`rising` 按 `change` 降序、`healthy` 按 `forks + change`
@@ -33,7 +35,7 @@
 
 - 正面：两榜增量口径真实（`change` 实测值，缺失即 `undefined` 不伪造），远端命中压到最低。
 - 风险：第三方聚合源可用性不受控；doforce 若失效，两榜如实展示错误面板与重试入口，不做静默 fallback。
-- 信任边界：doforce 数据仅用于榜单展示，不进入安装/校验链，无凭据随行。
+- 信任边界：doforce 数据仅用于榜单展示，不进入安装/校验链；直连与系统代理回退两跳均无凭据随行。
 
 ## 未收录行 enrichment 复用搜索链路
 

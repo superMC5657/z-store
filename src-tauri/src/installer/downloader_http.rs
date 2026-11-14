@@ -12,27 +12,37 @@ use std::time::Instant;
 const DOWNLOAD_CLIENT_POOL_CAP: usize = 8;
 static DOWNLOAD_CLIENTS: OnceLock<Mutex<HashMap<String, reqwest::Client>>> = OnceLock::new();
 
-fn build_download_client(dl_extra: &[String]) -> Result<reqwest::Client, String> {
+fn build_download_client(
+    snap: &crate::proxy::ProxySnapshot,
+    dl_extra: &[String],
+) -> Result<reqwest::Client, String> {
     let net_conf = &crate::config::get_project_config().network;
     let dl_builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ZStore/0.1.0")
         .connect_timeout(std::time::Duration::from_secs(net_conf.connect_timeout_seconds))
         .tcp_keepalive(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(net_conf.download_timeout_seconds));
-    crate::proxy::apply_proxy(dl_builder, dl_extra)
+    crate::proxy::apply_proxy_snapshot(dl_builder, snap, dl_extra)
         .build()
         .map_err(|e| e.to_string())
 }
 
+/// 下载池键：含直连豁免 host 的代理签名；系统代理变化即换键重建，上限 8 条超限整体清空。
+fn download_pool_key(snap: &crate::proxy::ProxySnapshot, dl_extra: &[String]) -> String {
+    // 签名已合并 `dl_extra`（`np=` 段），无需另拼。
+    snap.signature(dl_extra)
+}
+
 fn resolve_download_client(dl_extra: &[String]) -> Result<reqwest::Client, String> {
-    let key = dl_extra.join(",");
+    let snap = crate::proxy::current_proxy_snapshot();
+    let key = download_pool_key(&snap, dl_extra);
     let pool = DOWNLOAD_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(guard) = pool.lock() {
         if let Some(existing) = guard.get(&key) {
             return Ok(existing.clone());
         }
     }
-    let client = build_download_client(dl_extra)?;
+    let client = build_download_client(&snap, dl_extra)?;
     if let Ok(mut guard) = pool.lock() {
         if guard.len() >= DOWNLOAD_CLIENT_POOL_CAP && !guard.contains_key(&key) {
             guard.clear();
@@ -50,19 +60,19 @@ fn log_download_fail(meta: DownloadTraceMeta<'_>, reason: &str) {
     ev.error();
 }
 
+/// `bypass_proxy_hosts`：仅实际生效的镜像 host（见 `mirror::ResolvedDownloadUrl`）；
+/// 官方直连传空，`github.com` / `codeberg.org` 等上游资产完整继承系统代理。
 pub async fn download_with_progress(
     app_handle: &tauri::AppHandle,
     task_id: &str,
     download_url: &str,
+    bypass_proxy_hosts: &[String],
     asset_name: &str,
     expected_sha256: Option<&str>,
     custom_download_dir: Option<&Path>,
 ) -> Result<(PathBuf, String), String> {
     let net_conf = &crate::config::get_project_config().network;
-    // 下载器独立 Client：无自定义 no_proxy 时复用全局下载单例池；
-    // 镜像 host 需 per-client no_proxy 直连时按需构造（不写全局 env）。
-    let dl_extra: Vec<String> = crate::proxy::proxy_hosts_for(download_url);
-    let client = resolve_download_client(&dl_extra)?;
+    let client = resolve_download_client(bypass_proxy_hosts)?;
     let chunk_timeout = std::time::Duration::from_secs(net_conf.chunk_timeout_seconds);
 
     let started = Instant::now();
@@ -137,6 +147,10 @@ pub async fn download_with_progress(
     }
 
     let resp_result = client.get(download_url).send().await;
+    if let Err(ref e) = resp_result {
+        // 失败即失效快照：紧随其后的镜像兜底/用户重试立即感知代理变化。
+        crate::proxy::note_transport_error(e);
+    }
     let resp = match resp_result {
         Ok(r) => {
             if !r.status().is_success() {
@@ -368,4 +382,27 @@ pub async fn download_with_progress(
         .dev_url("url", download_url);
     done_ev.info();
     Ok((final_path, actual_hash))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::download_pool_key;
+    use crate::proxy::ProxySnapshot;
+    use crate::test_support::proxied_snapshot;
+
+    #[test]
+    fn download_pool_key_tracks_proxy_signature_and_bypass_hosts() {
+        let direct = ProxySnapshot::direct();
+        let proxied = proxied_snapshot("http://127.0.0.1:7890");
+        let none: Vec<String> = Vec::new();
+        // 自定义镜像 host 才改变豁免集合（`gh-proxy.com` 已在默认豁免中，同池复用）。
+        let mirror = vec!["mirror.example.com".to_string()];
+        let gh_proxy = vec!["gh-proxy.com".to_string()];
+        assert_eq!(download_pool_key(&direct, &none), download_pool_key(&direct, &none));
+        assert_ne!(download_pool_key(&direct, &none), download_pool_key(&proxied, &none));
+        assert_ne!(download_pool_key(&proxied, &none), download_pool_key(&proxied, &mirror));
+        assert_eq!(download_pool_key(&proxied, &none), download_pool_key(&proxied, &gh_proxy));
+        // 官方直连（无豁免）的键不含上游 forge host。
+        assert!(!download_pool_key(&proxied, &none).contains("github.com"));
+    }
 }

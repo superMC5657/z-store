@@ -274,3 +274,140 @@ fn test_catalog_identifiers_and_fallback() {
         );
     }
 }
+
+mod catalog_mirror_fallback {
+    use super::*;
+    use crate::github::catalog_service::CatalogVia;
+    use crate::test_support::{dead_addr, serve, Reply};
+
+    const VALID_ITEM: &str = r#"[{"id":"o/r","name":"R","owner":"o","repo":"r","icon":"","icon_bg":"","description":"d","category":"dev","category_name":"开发工具","aliases":[],"default_version":"latest","license":"MIT","stars":1,"forks":0,"is_verified":true,"platforms":["windows"]}]"#;
+    const BAD_ID_ITEM: &str = r#"[{"id":"<html>","name":"R","owner":"o","repo":"r","icon":"","icon_bg":"","description":"d","category":"dev","category_name":"开发工具","aliases":[],"default_version":"latest","license":"MIT","stars":1,"forks":0,"is_verified":true,"platforms":["windows"]}]"#;
+
+    fn json(body: &'static str) -> Reply {
+        Reply::ok(body).header("Content-Type", "application/json")
+    }
+
+    fn dead_url() -> String {
+        format!("http://{}/catalog.json", dead_addr())
+    }
+
+    #[tokio::test]
+    async fn primary_502_falls_back_to_mirror_and_validates() {
+        let cat = CatalogService::new_empty();
+        let primary = serve(|_| Reply::status("502 Bad Gateway")).await;
+        let mirror = serve(|_| json(VALID_ITEM)).await;
+        let url = format!("{}/catalog.json", primary.base);
+        let f = cat
+            .fetch_http_catalog(&url, None, Some(&mirror.base))
+            .await
+            .expect("mirror fallback should succeed");
+        assert_eq!(f.via, CatalogVia::Mirror);
+        assert_eq!(f.items.unwrap()[0].id, "o/r");
+        // 镜像请求路径为 `{prefix}/{原始 URL}`。
+        let line = mirror.requests()[0].lines().next().unwrap_or("").to_string();
+        assert!(line.starts_with(&format!("GET /{} ", url)), "{line}");
+    }
+
+    #[tokio::test]
+    async fn primary_connection_refused_falls_back_to_mirror() {
+        let cat = CatalogService::new_empty();
+        let mirror = serve(|_| json(VALID_ITEM)).await;
+        let f = cat
+            .fetch_http_catalog(&dead_url(), None, Some(&mirror.base))
+            .await
+            .unwrap();
+        assert_eq!(f.via, CatalogVia::Mirror);
+    }
+
+    #[tokio::test]
+    async fn primary_404_does_not_fall_back() {
+        let cat = CatalogService::new_empty();
+        let primary = serve(|_| Reply::status("404 Not Found")).await;
+        let mirror = serve(|_| json(VALID_ITEM)).await;
+        let err = cat
+            .fetch_http_catalog(&format!("{}/catalog.json", primary.base), None, Some(&mirror.base))
+            .await
+            .unwrap_err();
+        assert!(err.contains("404"), "{err}");
+        assert_eq!(mirror.hits(), 0);
+    }
+
+    #[tokio::test]
+    async fn mirror_never_conditional_and_304_rejected() {
+        let cat = CatalogService::new_empty();
+        // 镜像回 304：未发条件请求却「未修改」，视为异常，不冻结目录。
+        let mirror_304 = serve(|_| Reply::status("304 Not Modified")).await;
+        let err = cat
+            .fetch_http_catalog(&dead_url(), Some("W/\"etag\""), Some(&mirror_304.base))
+            .await
+            .unwrap_err();
+        assert!(err.contains("304"), "{err}");
+
+        // 镜像成功：请求不带 If-None-Match，结果不携带 ETag（不落库镜像校验器）。
+        let mirror = serve(|_| json(VALID_ITEM).header("ETag", "\"mirror\"")).await;
+        let f = cat
+            .fetch_http_catalog(&dead_url(), Some("W/\"etag\""), Some(&mirror.base))
+            .await
+            .unwrap();
+        assert_eq!(f.via, CatalogVia::Mirror);
+        assert!(f.etag.is_none());
+        assert!(!mirror.requests()[0].to_ascii_lowercase().contains("if-none-match"));
+    }
+
+    #[tokio::test]
+    async fn mirror_empty_or_invalid_ids_rejected() {
+        let cat = CatalogService::new_empty();
+        let empty_mirror = serve(|_| json("[]")).await;
+        let err = cat
+            .fetch_http_catalog(&dead_url(), None, Some(&empty_mirror.base))
+            .await
+            .unwrap_err();
+        assert!(err.contains("镜像清单校验失败"), "{err}");
+
+        let bad_mirror = serve(|_| json(BAD_ID_ITEM)).await;
+        let err = cat
+            .fetch_http_catalog(&dead_url(), None, Some(&bad_mirror.base))
+            .await
+            .unwrap_err();
+        assert!(err.contains("非法应用标识"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn custom_source_never_uses_mirror() {
+        // 非官方默认源：即便传入镜像前缀，失败也不改写重试。
+        let cat = CatalogService::new_empty();
+        let mirror = serve(|_| json(VALID_ITEM)).await;
+        let custom = dead_url();
+        assert!(!crate::github::catalog_service::is_default_catalog_source(&custom));
+        let res = cat
+            .fetch_remote_catalog_with_fallback(&custom, None, Some(&mirror.base))
+            .await;
+        assert!(res.is_err());
+        assert_eq!(mirror.hits(), 0);
+    }
+
+    #[tokio::test]
+    async fn primary_success_is_direct() {
+        let cat = CatalogService::new_empty();
+        let primary = serve(|_| json(VALID_ITEM)).await;
+        let f = cat
+            .fetch_http_catalog(&format!("{}/catalog.json", primary.base), None, None)
+            .await
+            .unwrap();
+        assert_eq!(f.via, CatalogVia::Direct);
+    }
+
+    #[test]
+    fn catalog_pool_rebuilds_on_proxy_signature_change_and_reuses_otherwise() {
+        let cat = CatalogService::new_empty();
+        let direct = crate::proxy::ProxySnapshot::direct();
+        let proxied = crate::test_support::proxied_snapshot("http://127.0.0.1:7890");
+        cat.http_client_for(&direct);
+        cat.http_client_for(&direct);
+        assert_eq!(cat.client.build_count(), 1, "identical signature must reuse");
+        cat.http_client_for(&proxied);
+        assert_eq!(cat.client.build_count(), 2, "proxy turned on must rebuild");
+        cat.http_client_for(&direct);
+        assert_eq!(cat.client.build_count(), 3, "proxy turned off must rebuild");
+    }
+}

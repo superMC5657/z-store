@@ -16,11 +16,11 @@
 
 1. **网络代理（系统代理自动继承与本地截获）**：
    - **架构说明**：无应用内出站代理配置项；API 与登录走系统代理透明截获，大文件下载走下载加速代理。
-   - **保留系统代理静默预热**：
-     - `normalize_windows_proxy_server` 解析注册表多协议形态，`https` 命中即取用并跳出，其次取 `http`、其他协议、裸地址。
-     - 启动时经 `init_windows_system_proxy` 预热（依赖 `winreg 0.56.0`），确保 reqwest 自动对齐 Windows 注册表配置的系统代理。
-     - 纯系统级透明接管，无需用户在应用内繁琐维护本地代理地址。
-     - 稳健性声明：IPv6 裸地址补中括号、GNOME socks 缺省 `socks5h://`（远端解析防 DNS 泄漏）、桌面条目 `TryExec` 回退解析与 `Icon` 仅保留绝对路径。
+   - **系统代理运行期动态快照**（`proxy::ProxySnapshot`，详见 ADR-0025 §2.1–§2.2）：
+     - 启动期只读冻结一次终端显式 env 代理；无则实时读取 OS 配置：Windows 注册表 `ProxyEnable` / `ProxyServer` / `ProxyOverride`（`windows::normalize_windows_proxy_server` 多协议 `https` 命中即取用，其次 `http`、其他协议、裸地址；依赖 `winreg 0.56.0`）、Linux GNOME `gsettings`（仅 `manual`）、macOS `scutil --proxy`。
+     - 5 秒采样冷却，连接失败/超时立即重探；API、图标、清单、下载四类连接池按代理签名热重建，开关或切换系统代理无需重启。生产代码不写进程代理 env。
+     - 纯系统级透明接管，无需用户在应用内维护本地代理地址。
+     - 稳健性声明：IPv6 裸地址补中括号、GNOME / macOS socks 缺省 `socks5h://`（远端解析防 DNS 泄漏）、桌面条目 `TryExec` 回退解析与 `Icon` 仅保留绝对路径。
 
 2. **网络代理与下载加速代理辨析（正交解耦）**：
    - 系统网络代理：由 OS / 代理软件接管，全透明转发 API 与登录请求。
@@ -28,7 +28,8 @@
      - `direct` 为官方直连，`https://gh-proxy.com` 为常用加速前缀。
      - 测速结果阈值为 `400ms` 与 `1000ms`：低于 `400ms` 为绿，高于 `400ms` 为黄，高于 `1000ms` 为橙，失败为红（设置页代理行内联指示）。
    - 一句话区分：API与登录走系统代理透明截获；大文件下载慢在设置页切换下载加速代理。
-   - 直连豁免：`gh-proxy.com`（镜像下载前缀）与 `trend.doforce.dpdns.org`（趋势 API）经 per-client `no_proxy` 直连，不走镜像；镜像切换永不写进程全局 `NO_PROXY`/`no_proxy`（仅 per-client 生效，见 `proxy::apply_proxy`）。
+   - 直连豁免只针对实际生效的镜像 host：`gh-proxy.com` 为默认豁免；用户自定义镜像经改写时由下载器 per-client `no_proxy` 豁免；`direct` 档下的 `github.com`、`codeberg.org` 等上游资产 host 永不豁免，完整继承系统代理（见 ADR-0025 §2.3）。镜像切换永不写进程全局 `NO_PROXY`/`no_proxy`（仅 per-client 生效，见 `proxy::apply_proxy_snapshot`）。
+   - 趋势源 `trend.doforce.dpdns.org`：直连优先（5s，per-client `no_proxy`），超时、传输错误或 5xx 且存在系统代理时经系统代理重试一次（6s），不携带认证头（见 ADR-0025 §2.4）。
 
 3. **OAuth 加固（Device Flow）**：
    - Client ID 二级优先级公式为设置覆盖优先：

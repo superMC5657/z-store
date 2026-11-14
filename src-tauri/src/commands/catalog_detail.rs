@@ -207,7 +207,7 @@ async fn platforms_lite_from_github(
     let token = crate::commands::resolve_active_github_token(state);
     let headers = crate::github::http::token_headers(token.as_deref());
     let (outcome, diag) = crate::github::http::get_with_etag_diag(
-        &state.http,
+        &crate::shared_http_client(),
         &release_endpoint,
         None,
         &headers,
@@ -892,7 +892,7 @@ fn persist_github_detail(
     (persisted, start_db.elapsed().as_millis())
 }
 
-/// 通用图片磁盘缓存查询：已缓存返回本地路径，未命中下载后返回本地路径，失败回退原地址。
+/// 通用图片磁盘缓存查询：已缓存或新下载落盘后返回 `data:` URI，非候选/失败回退原地址。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn fetch_or_cache_asset_url(
     url: String,

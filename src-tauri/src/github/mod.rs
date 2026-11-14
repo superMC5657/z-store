@@ -40,7 +40,8 @@ pub struct CatalogService {
     /// 本地收录 overlay（`custom_apps` 中 collected 系/`submitted` 且未归档行），
     /// 由 `sync_collected_from_db` 在启动与 `custom_apps` 变更后同步；远端优先去重。
     pub(crate) collected: RwLock<Vec<CatalogItem>>,
-    pub(crate) client: reqwest::Client,
+    /// 清单专属连接池（无 Token，跟随系统代理快照热重建），经 [`CatalogService::http_client`] 取用。
+    pub(crate) client: crate::proxy::ClientSlot,
 }
 
 impl CatalogService {

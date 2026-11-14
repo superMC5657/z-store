@@ -144,7 +144,7 @@ pub(crate) mod test_support {
         CatalogService {
             items: std::sync::RwLock::new(Vec::new()),
             collected: std::sync::RwLock::new(Vec::new()),
-            client: reqwest::Client::new(),
+            client: crate::proxy::ClientSlot::new(),
         }
     }
 

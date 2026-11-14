@@ -5,6 +5,7 @@ import { marked } from 'marked';
 import { ExternalLink } from 'lucide-react';
 import type { UpdateItem } from '../../types';
 import { sanitizeHtml } from '../../utils/sanitize';
+import { useResolvedMarkdownImages } from '../../services/assetCache';
 
 interface ChangelogDrawerProps {
   update: UpdateItem;
@@ -18,6 +19,8 @@ export const ChangelogDrawer: React.FC<ChangelogDrawerProps> = ({ update, onOpen
     const text = update.changelog?.trim();
     return text ? sanitizeHtml(marked.parse(update.changelog, { async: false }) as string) : null;
   }, [update.changelog]);
+  // 更新日志插图经后端缓存收敛（真实 Tauri 下首屏不挂远端图片）。
+  const resolvedHtml = useResolvedMarkdownImages(html ?? '', update.app_id);
 
   return (
     <div className="manage-changelog-drawer">
@@ -37,7 +40,7 @@ export const ChangelogDrawer: React.FC<ChangelogDrawerProps> = ({ update, onOpen
       </div>
       {html ? (
         <div className="manage-changelog-scroll">
-          <div className="readme-markdown-body" dangerouslySetInnerHTML={{ __html: html }} />
+          <div className="readme-markdown-body" dangerouslySetInnerHTML={{ __html: resolvedHtml }} />
         </div>
       ) : (
         <div className="manage-changelog-empty">

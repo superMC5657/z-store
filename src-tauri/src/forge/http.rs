@@ -1,5 +1,4 @@
-use std::sync::OnceLock;
-
+use crate::proxy::{ClientSlot, ProxySnapshot};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 
 /// forge 内复用的 UA / Accept 常量：避免 9 处 client+header 重复手写。
@@ -47,44 +46,76 @@ impl ApiPreset {
     }
 }
 
-/// 单一 Client 构造点（本文件内唯一构造器）：`redirect_limit` 为 `None` 即 API 语义，
-/// `Some(10)` 即图标/CDN 语义（有限重定向），调用方经 `new_api_client` / `new_icon_client` 分流，语义不混用。
+/// 连接池种类（D5 物理隔离）：决定重定向策略与缺省 UA，同池参数之外语义不混用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PoolKind {
+    /// GitHub/GitLab/Gitea API、OAuth、趋势：reqwest 缺省重定向 + ZStore 缺省 UA（请求级 header 覆盖）。
+    Api,
+    /// 图标/CDN：有限重定向 10 次，无鉴权，UA 由请求级 `icon_headers` 提供。
+    Icon,
+}
+
+/// 单一 Client 构造点（本文件内唯一构造器），经 `new_api_client` / `new_icon_client` 分流。
 fn build_client(
     timeout_secs: u64,
-    redirect_limit: Option<usize>,
+    kind: PoolKind,
+    snap: &ProxySnapshot,
 ) -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_secs))
         .connect_timeout(std::time::Duration::from_secs(5))
         .tcp_keepalive(std::time::Duration::from_secs(60))
         .pool_max_idle_per_host(20)
         .pool_idle_timeout(std::time::Duration::from_secs(90));
-    if let Some(limit) = redirect_limit {
-        builder = builder.redirect(reqwest::redirect::Policy::limited(limit));
-    }
-    let builder = crate::proxy::apply_proxy(builder, &[]);
+    let builder = match kind {
+        PoolKind::Api => builder.user_agent(USER_AGENT_VALUE),
+        PoolKind::Icon => builder.redirect(reqwest::redirect::Policy::limited(10)),
+    };
+    let builder = crate::proxy::apply_proxy_snapshot(builder, snap, &[]);
     builder.build().map_err(|e| e.to_string())
 }
 
-static SHARED_API: OnceLock<reqwest::Client> = OnceLock::new();
-static SHARED_ICON: OnceLock<reqwest::Client> = OnceLock::new();
+/// API 池（GitHub/GitLab/Gitea API、OAuth、趋势；`crate::shared_http_client` 同池）。
+static SHARED_API: ClientSlot = ClientSlot::new();
+/// 图标/CDN 池（无鉴权，与 API 池物理隔离）。
+static SHARED_ICON: ClientSlot = ClientSlot::new();
 
-/// 复用 timeout 取参的 Client 构造：调用方传入 `api_timeout_seconds` 即可。
-/// 单例复用（API 池）：首次 `timeout_secs` 生效，后续复用同一连接池。
+fn pooled_client(
+    slot: &ClientSlot,
+    snap: &ProxySnapshot,
+    timeout_secs: u64,
+    kind: PoolKind,
+) -> Result<reqwest::Client, String> {
+    let key = format!("{}|{}", timeout_secs, snap.signature(&[]));
+    slot.get_or_build(&key, || build_client(timeout_secs, kind, snap))
+}
+
+/// API 池 Client：调用方传入 `api_timeout_seconds`。代理签名与超时不变时复用同一连接池，
+/// 系统代理开启/关闭/切换后下一次调用自动重建。
 pub fn new_api_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
-    Ok(SHARED_API
-        .get_or_init(|| build_client(timeout_secs, None).unwrap_or_else(|_| reqwest::Client::new()))
-        .clone())
+    pooled_client(
+        &SHARED_API,
+        &crate::proxy::current_proxy_snapshot(),
+        timeout_secs,
+        PoolKind::Api,
+    )
 }
 
 /// 图标/CDN 专用 Client：同 timeout 语义 + `redirect limited(10)`，绝不与 API client 混用。
-/// 单例复用（图标池，与 API 池物理隔离）。
 pub fn new_icon_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
-    Ok(SHARED_ICON
-        .get_or_init(|| {
-            build_client(timeout_secs, Some(10)).unwrap_or_else(|_| reqwest::Client::new())
-        })
-        .clone())
+    pooled_client(
+        &SHARED_ICON,
+        &crate::proxy::current_proxy_snapshot(),
+        timeout_secs,
+        PoolKind::Icon,
+    )
+}
+
+/// API 池 Client（不可失败版）：构建失败时退为仍按快照挂代理的兜底 Client。
+pub fn api_client(timeout_secs: u64) -> reqwest::Client {
+    new_api_client(timeout_secs).unwrap_or_else(|_| {
+        crate::proxy::fallback_client(&crate::proxy::current_proxy_snapshot(), &[])
+    })
 }
 
 fn headers_with_ua(ua: &str, accept: &str, token: Option<&str>, scheme: AuthScheme) -> HeaderMap {
@@ -149,19 +180,32 @@ pub(crate) fn retry_after_delay_ms(headers: &HeaderMap) -> u64 {
 }
 
 /// 单次 GET + 429 重发一次：读 `Retry-After` → 封顶 sleep → 原样重发。
-/// 非 429 响应（含 5xx）与传输层错误不重试，交由调用方判定。
+/// 非 429 响应（含 5xx）不重试，交由调用方判定。连接失败/超时立即重探系统代理：签名变化
+/// （用户刚开启/关闭代理）即用重建后的 API 池重发一次，其余传输错误原样返回。
+/// 调用方（GitLab / Gitea Provider）传入的均为 API 池 Client。
 pub(crate) async fn get_with_retry_after_once(
     client: &reqwest::Client,
     url: &str,
     headers: &HeaderMap,
 ) -> Result<reqwest::Response, reqwest::Error> {
-    let resp = client.get(url).headers(headers.clone()).send().await?;
+    let mut active = client.clone();
+    let resp = match active.get(url).headers(headers.clone()).send().await {
+        Ok(r) => r,
+        Err(e) if (e.is_connect() || e.is_timeout()) && crate::proxy::refresh_after_transport_error().await => {
+            active = api_client(crate::config::get_project_config().network.api_timeout_seconds);
+            active.get(url).headers(headers.clone()).send().await?
+        }
+        Err(e) => {
+            crate::proxy::note_transport_error(&e);
+            return Err(e);
+        }
+    };
     if resp.status().as_u16() != 429 {
         return Ok(resp);
     }
     let delay_ms = retry_after_delay_ms(resp.headers());
     tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-    client.get(url).headers(headers.clone()).send().await
+    active.get(url).headers(headers.clone()).send().await
 }
 
 /// 统一 HTTP 限流上报跨度（只负责 `x-ratelimit` 上报，不直接刷屏打日志）。
@@ -180,7 +224,27 @@ impl HttpSpan {
 
 #[cfg(test)]
 mod tests {
-    use super::retry_after_delay_ms;
+    use super::{pooled_client, retry_after_delay_ms, PoolKind};
+    use crate::proxy::{ClientSlot, ProxySnapshot};
+    use crate::test_support::proxied_snapshot;
+
+    #[test]
+    fn pools_rebuild_on_proxy_signature_change_and_reuse_otherwise() {
+        let direct = ProxySnapshot::direct();
+        let proxied = proxied_snapshot("http://127.0.0.1:7890");
+        for kind in [PoolKind::Api, PoolKind::Icon] {
+            let slot = ClientSlot::new();
+            pooled_client(&slot, &direct, 10, kind).unwrap();
+            pooled_client(&slot, &direct, 10, kind).unwrap();
+            assert_eq!(slot.build_count(), 1, "identical signature must reuse");
+            pooled_client(&slot, &proxied, 10, kind).unwrap();
+            assert_eq!(slot.build_count(), 2, "proxy turned on must rebuild");
+            pooled_client(&slot, &proxied, 10, kind).unwrap();
+            assert_eq!(slot.build_count(), 2);
+            pooled_client(&slot, &direct, 10, kind).unwrap();
+            assert_eq!(slot.build_count(), 3, "proxy turned off must rebuild");
+        }
+    }
 
     #[test]
     fn retry_after_delay_ms_clamps_and_defaults() {

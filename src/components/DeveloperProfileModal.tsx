@@ -6,6 +6,7 @@ import { DeveloperProfile } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 import { isInstalled, selectManagedState } from '../app/selectors';
+import { CachedAvatar } from './CachedAvatar';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -129,14 +130,11 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
             </div>
           ) : profile ? (
             <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-              <img
+              <CachedAvatar
                 src={profile.avatar_url}
-                alt={profile.login}
+                login={profile.login}
+                size={76}
                 style={{
-                  width: '76px',
-                  height: '76px',
-                  borderRadius: '50%',
-                  objectFit: 'cover',
                   border: '2px solid var(--border-highlight, rgba(255, 255, 255, 0.15))',
                   boxShadow: 'var(--shadow-rest)',
                 }}

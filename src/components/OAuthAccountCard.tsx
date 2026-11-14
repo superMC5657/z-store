@@ -5,6 +5,7 @@ import { GitHubIcon } from './icons/PlatformIcons';
 import { OAuthUser } from '../types';
 import { tauriApi } from '../services/api';
 import { notifyToast } from '../useToasts';
+import { CachedAvatar } from './CachedAvatar';
 
 interface DeviceSession {
   deviceCode: string;
@@ -197,16 +198,12 @@ export const OAuthAccountCard: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
               {user.avatar_url && (
-                <img
+                <CachedAvatar
                   src={user.avatar_url}
-                  alt={user.login}
-                  style={{
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '50%',
-                    opacity: user.is_expired ? 0.6 : 1,
-                    filter: user.is_expired ? 'grayscale(50%)' : 'none',
-                  }}
+                  login={user.login}
+                  size={28}
+                  dimmed={user.is_expired}
+                  dimmedOpacity={0.6}
                 />
               )}
               {user.is_expired && (

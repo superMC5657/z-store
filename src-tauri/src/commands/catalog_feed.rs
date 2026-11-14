@@ -559,7 +559,7 @@ mod tests {
         let catalog = crate::github::CatalogService {
             items: RwLock::new(vec![feed_item("o/remote", "o", "remote")]),
             collected: RwLock::new(Vec::new()),
-            client: reqwest::Client::new(),
+            client: crate::proxy::ClientSlot::new(),
         };
         // 空收录退化为纯远端。
         let remote_only = catalog.merged_summaries();

@@ -132,13 +132,22 @@ pub async fn sync_catalog(
         });
     }
 
+    // 官方默认源首跳失败时的镜像回退前缀：用户自定义镜像优先，否则公共 gh-proxy。
+    let mirror_prefix = is_default_src.then(|| {
+        state
+            .mirror
+            .lock()
+            .ok()
+            .and_then(|m| m.active_mirror_prefix())
+            .unwrap_or_else(|| crate::mirror::DEFAULT_GH_PROXY.to_string())
+    });
     let res = state
         .catalog
-        .fetch_remote_catalog(&url, cached_etag.as_deref())
+        .fetch_remote_catalog_with_fallback(&url, cached_etag.as_deref(), mirror_prefix.as_deref())
         .await;
 
-    let (new_items, new_etag) = match res {
-        Ok(val) => val,
+    let (new_items, new_etag, via) = match res {
+        Ok(f) => (f.items, f.etag, f.via),
         Err(err) => {
             let (strict_errors, catalog_has_rows) = state
                 .db()
@@ -219,6 +228,7 @@ pub async fn sync_catalog(
         }
         let mut ev = crate::z_log::WideEvent::new("catalog", "sync ok").with_started(start);
         ev.field("source", source_kind)
+            .field("via", via)
             .field("updated", true)
             .field("count", count)
             .dev("force", is_force)
@@ -247,7 +257,8 @@ pub async fn sync_catalog(
         ev.field("source", source_kind)
             .field("updated", false)
             .field("count", count)
-            .dev("via", "304")
+            .field("via", via)
+            .dev("status", 304)
             .dev_url("url", &url);
         if is_default_src {
             ev.info();

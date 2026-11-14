@@ -33,15 +33,16 @@ pub(crate) async fn download_asset_with_fallback(
     asset: &ReleaseAsset,
     custom_download_dir: Option<&std::path::Path>,
 ) -> Result<(std::path::PathBuf, String), String> {
-    let rewritten_url = {
+    let resolved = {
         let mirror = state.mirror.lock().map_err(|e| e.to_string())?;
-        mirror.rewrite_installer_asset_url(&asset.download_url)
+        mirror.rewrite_installer_asset_url_resolved(&asset.download_url)
     };
 
     let download_res = crate::installer::download_with_progress(
         app_handle,
         app_id,
-        &rewritten_url,
+        &resolved.url,
+        &resolved.bypass_hosts(),
         &asset.name,
         asset.sha256.as_deref(),
         custom_download_dir,
@@ -52,9 +53,10 @@ pub(crate) async fn download_asset_with_fallback(
         Ok(ok) => Ok(ok),
         Err(e) => {
             let is_github = crate::mirror::is_github_domain(&asset.download_url);
-            let is_direct = rewritten_url == asset.download_url;
+            let is_direct = resolved.bypass_proxy_host.is_none();
             if is_github && is_direct {
-                let fallback_url = crate::mirror::wrap_gh_proxy(&asset.download_url);
+                let fallback = crate::mirror::wrap_gh_proxy_resolved(&asset.download_url);
+                let fallback_url = fallback.url.clone();
                 let mut ev = crate::z_log::WideEvent::new("download", "mirror fallback");
                 ev.field("id", app_id)
                     .field("file", crate::log_support::file_base(&asset.name))
@@ -74,6 +76,7 @@ pub(crate) async fn download_asset_with_fallback(
                     app_handle,
                     app_id,
                     &fallback_url,
+                    &fallback.bypass_hosts(),
                     &asset.name,
                     asset.sha256.as_deref(),
                     custom_download_dir,

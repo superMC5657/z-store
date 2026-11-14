@@ -99,7 +99,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     let base_headers = crate::github::http::token_headers(token.as_deref());
 
     let outcome = crate::github::http::get_with_etag(
-        &state.http,
+        &crate::shared_http_client(),
         &ep,
         None,
         &base_headers,
@@ -146,7 +146,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             ))
     ) {
         let retry_outcome =
-            crate::github::http::get_with_etag(&state.http, &ep, None, &base_headers, None).await;
+            crate::github::http::get_with_etag(&crate::shared_http_client(), &ep, None, &base_headers, None).await;
         if matches!(retry_outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
             crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
         }

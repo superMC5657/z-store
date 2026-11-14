@@ -1,7 +1,7 @@
 //! 下载加速代理：经用户配置镜像加速（仅安装包通道）。
 //!
-//! - 安装资产下载经 [`MirrorManager::rewrite_installer_asset_url`] 改写 URL，
-//!   失败时经 `wrap_gh_proxy` 公共兜底重试。
+//! - 安装资产下载经 [`MirrorManager::rewrite_installer_asset_url_resolved`] 改写 URL 并给出
+//!   需直连豁免的镜像 host，失败时经 [`wrap_gh_proxy_resolved`] 公共兜底重试。
 
 use std::time::Instant;
 
@@ -84,7 +84,8 @@ pub fn validate_custom_proxy(id_or_url: &str) -> Result<(), String> {
 }
 
 /// 底层前缀原语（唯一）：`base` 去尾斜杠后当前缀拼接；已套前缀返回原值。
-fn prefix_with_base(base: &str, raw_url: &str) -> String {
+/// 安装包镜像与官方默认清单镜像回退共用。
+pub(crate) fn prefix_with_base(base: &str, raw_url: &str) -> String {
     let base = base.trim_end_matches('/');
     if raw_url.starts_with(base) {
         return raw_url.to_string();
@@ -92,11 +93,41 @@ fn prefix_with_base(base: &str, raw_url: &str) -> String {
     format!("{base}/{raw_url}")
 }
 
-pub fn wrap_gh_proxy(raw_url: &str) -> String {
-    if !is_github_domain(raw_url) {
-        return raw_url.to_string();
+/// 下载 URL 解析结果：`bypass_proxy_host` 仅在 URL 经镜像前缀改写时为 `Some(镜像 host)`，
+/// 下载器只把该 host 加入 per-client `no_proxy`；官方直连（`None`）完整继承系统代理。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedDownloadUrl {
+    pub url: String,
+    pub bypass_proxy_host: Option<String>,
+}
+
+impl ResolvedDownloadUrl {
+    fn direct(raw_url: &str) -> Self {
+        Self {
+            url: raw_url.to_string(),
+            bypass_proxy_host: None,
+        }
     }
-    prefix_with_base(DEFAULT_GH_PROXY, raw_url)
+
+    fn mirrored(prefix: &str, raw_url: &str) -> Self {
+        Self {
+            url: prefix_with_base(prefix, raw_url),
+            bypass_proxy_host: crate::proxy::host_of_url(prefix),
+        }
+    }
+
+    /// 下载 Client 的 `extra_hosts`：仅实际生效的镜像 host。
+    pub fn bypass_hosts(&self) -> Vec<String> {
+        self.bypass_proxy_host.iter().cloned().collect()
+    }
+}
+
+/// 公共镜像兜底（`gh-proxy.com`）：非 GitHub 资产原样返回且不豁免任何 host。
+pub fn wrap_gh_proxy_resolved(raw_url: &str) -> ResolvedDownloadUrl {
+    if !is_github_domain(raw_url) {
+        return ResolvedDownloadUrl::direct(raw_url);
+    }
+    ResolvedDownloadUrl::mirrored(DEFAULT_GH_PROXY, raw_url)
 }
 
 pub struct MirrorManager {
@@ -165,21 +196,24 @@ impl MirrorManager {
         true
     }
 
-    /// 安装资产 URL 改写：经用户配置镜像加速（仅安装包通道）。
-    pub fn rewrite_installer_asset_url(&self, raw_url: &str) -> String {
-        let proxy = match &self.custom_proxy {
-            Some(p) if !p.trim().is_empty() && p.trim() != "direct" => p.trim(),
-            _ => return raw_url.to_string(),
-        };
+    /// 当前生效的镜像前缀（`https://...`）；`direct` 返回 `None`。
+    pub fn active_mirror_prefix(&self) -> Option<String> {
+        self.custom_proxy
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty() && *p != "direct")
+            .map(str::to_string)
+    }
 
-        // 仅 GitHub 链接及 Releases 资产走镜像代理，其它平台跳过。
-        let is_github_url = is_github_domain(raw_url);
-
-        if !is_github_url {
-            return raw_url.to_string();
+    /// 安装资产 URL 改写（仅安装包通道），同时给出需直连豁免的镜像 host。
+    /// 仅 GitHub 链接走镜像；官方直连与非 GitHub 资产不豁免任何 host（继承系统代理）。
+    pub fn rewrite_installer_asset_url_resolved(&self, raw_url: &str) -> ResolvedDownloadUrl {
+        match self.active_mirror_prefix() {
+            Some(prefix) if is_github_domain(raw_url) => {
+                ResolvedDownloadUrl::mirrored(&prefix, raw_url)
+            }
+            _ => ResolvedDownloadUrl::direct(raw_url),
         }
-
-        prefix_with_base(proxy, raw_url)
     }
 
     /// 测速专用 HTTP 客户端（短超时 + 浏览器 UA）。
@@ -190,6 +224,16 @@ impl MirrorManager {
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
         let builder = crate::proxy::apply_proxy(builder, extra_hosts);
         builder.build().unwrap_or_default()
+    }
+
+    /// 测速豁免口径：测镜像节点时该镜像 host 直连（与下载器一致）；测「官方直连」时不豁免，
+    /// 真实反映当前系统网络（含系统代理）到达 `github.com` 的延迟。
+    fn latency_test_bypass_hosts(testing_mirror: bool, test_url: &str) -> Vec<String> {
+        if testing_mirror {
+            crate::proxy::proxy_hosts_for(test_url)
+        } else {
+            Vec::new()
+        }
     }
 
     /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延，并附带 HTTP 状态与实际测速 URL。
@@ -214,8 +258,7 @@ impl MirrorManager {
             None => "https://github.com".to_string(),
         };
 
-        // 被测镜像 host 直连豁免：靠 per-client no_proxy 覆盖，不另起 Client。
-        let extra_hosts = crate::proxy::proxy_hosts_for(&test_url);
+        let extra_hosts = Self::latency_test_bypass_hosts(clean_url.is_some(), &test_url);
         let client = Self::ping_client(timeout_ms, &extra_hosts);
 
         let start = Instant::now();
@@ -272,23 +315,74 @@ mod tests {
         let raw = "https://github.com/rustdesk/rustdesk/releases/download/1.2.6/rustdesk.msi";
 
         // 默认状态下是官方直连
-        let direct = mm.rewrite_installer_asset_url(raw);
+        let direct = mm.rewrite_installer_asset_url_resolved(raw).url;
         assert_eq!(direct, raw);
 
         // 设置自定义代理
         mm.set_active_mirror("https://gh-proxy.com");
-        let rewritten = mm.rewrite_installer_asset_url(raw);
+        let rewritten = mm.rewrite_installer_asset_url_resolved(raw).url;
         assert!(rewritten.starts_with("https://gh-proxy.com/https://github.com"));
 
         // 切换回直连
         mm.set_active_mirror("direct");
-        let direct2 = mm.rewrite_installer_asset_url(raw);
+        let direct2 = mm.rewrite_installer_asset_url_resolved(raw).url;
         assert_eq!(direct2, raw);
 
         // 非 GitHub 域名直连验证
         let cb_url = "https://codeberg.org/attachments/a1b2c3d4-installer.exe";
         mm.set_active_mirror("https://gh-proxy.com");
-        assert_eq!(mm.rewrite_installer_asset_url(cb_url), cb_url);
+        assert_eq!(mm.rewrite_installer_asset_url_resolved(cb_url).url, cb_url);
+    }
+
+    #[test]
+    fn direct_mode_never_bypasses_upstream_forge_hosts() {
+        let gh = "https://github.com/o/r/releases/download/v1/a.msi";
+        let cb = "https://codeberg.org/o/r/releases/download/v1/a.AppImage";
+        let mut mm = MirrorManager::new();
+
+        // direct：不改写、不豁免，github.com 不进入 no_proxy（继承系统代理）。
+        let r = mm.rewrite_installer_asset_url_resolved(gh);
+        assert_eq!(r.url, gh);
+        assert_eq!(r.bypass_proxy_host, None);
+        assert!(r.bypass_hosts().is_empty());
+        let snap = crate::test_support::proxied_snapshot("http://127.0.0.1:7890");
+        let merged = crate::proxy::merged_no_proxy_for(&snap, &r.bypass_hosts());
+        assert!(!merged.to_ascii_lowercase().contains("github.com"), "{merged}");
+        assert_eq!(mm.active_mirror_prefix(), None);
+
+        // 非 GitHub 资产：direct / ghproxy 两档均不豁免 codeberg.org。
+        assert_eq!(mm.rewrite_installer_asset_url_resolved(cb).bypass_proxy_host, None);
+        mm.set_active_mirror("ghproxy");
+        let r_cb = mm.rewrite_installer_asset_url_resolved(cb);
+        assert_eq!(r_cb.url, cb);
+        assert_eq!(r_cb.bypass_proxy_host, None);
+        assert_eq!(wrap_gh_proxy_resolved(cb).bypass_proxy_host, None);
+
+        // 镜像改写：仅豁免镜像 host。
+        let r2 = mm.rewrite_installer_asset_url_resolved(gh);
+        assert!(r2.url.starts_with("https://gh-proxy.com/https://github.com/"));
+        assert_eq!(r2.bypass_proxy_host.as_deref(), Some("gh-proxy.com"));
+        assert_eq!(mm.active_mirror_prefix().as_deref(), Some(DEFAULT_GH_PROXY));
+        mm.set_active_mirror("https://mirror.example.com/");
+        assert_eq!(
+            mm.rewrite_installer_asset_url_resolved(gh)
+                .bypass_proxy_host
+                .as_deref(),
+            Some("mirror.example.com")
+        );
+
+        let w = wrap_gh_proxy_resolved(gh);
+        assert_eq!(w.url, format!("{DEFAULT_GH_PROXY}/{gh}"));
+        assert_eq!(w.bypass_proxy_host.as_deref(), Some("gh-proxy.com"));
+    }
+
+    #[test]
+    fn latency_test_only_bypasses_tested_mirror() {
+        assert!(MirrorManager::latency_test_bypass_hosts(false, "https://github.com").is_empty());
+        assert_eq!(
+            MirrorManager::latency_test_bypass_hosts(true, "https://gh-proxy.com"),
+            vec!["gh-proxy.com".to_string()]
+        );
     }
 
     #[test]

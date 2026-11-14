@@ -290,7 +290,7 @@ impl CatalogService {
 
         let api_timeout = crate::github::http::api_timeout();
         let client = crate::forge::http::new_api_client(api_timeout.as_secs())
-            .unwrap_or_else(|_| self.client.clone());
+            .unwrap_or_else(|_| self.http_client());
         let headers = crate::github::http::token_headers(token);
 
         // default_branch 在 TTL 内复用，key 按 repo（大小写收敛）。
@@ -501,7 +501,7 @@ mod tests {
         let svc = crate::github::CatalogService {
             items: std::sync::RwLock::new(Vec::new()),
             collected: std::sync::RwLock::new(Vec::new()),
-            client: reqwest::Client::new(),
+            client: crate::proxy::ClientSlot::new(),
         };
         let variants = svc
             .fetch_readme_variants("o/r", None, Some(&srv.base))
@@ -575,7 +575,7 @@ mod tests {
         let svc = crate::github::CatalogService {
             items: std::sync::RwLock::new(Vec::new()),
             collected: std::sync::RwLock::new(Vec::new()),
-            client: reqwest::Client::new(),
+            client: crate::proxy::ClientSlot::new(),
         };
         let variants = svc
             .fetch_readme_variants("o/r2", None, Some(&srv.base))

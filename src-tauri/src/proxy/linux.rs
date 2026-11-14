@@ -1,12 +1,12 @@
 //! Linux GNOME 系统代理读取（仅 `manual` 静态代理）。
 //!
-//! - 读 `gsettings org.gnome.system.proxy`（`mode` + `http/https/ftp/socks`
-//!   的 `host/port` + `ignore-hosts`），`env HTTP(S)_PROXY/ALL_PROXY` 兜底；
-//! - 归一化复用 Windows `normalize_windows_proxy_server` 思想：补 `http://`、
+//! - 读 `gsettings org.gnome.system.proxy`（`mode` + `http/https/socks`
+//!   的 `host/port` + `ignore-hosts`），每次探测实时读取，不写进程 env；
+//! - 单地址归一委托 `proxy::normalize_single_proxy_addr`：补 `http://`、
 //!   保留 `socks5(h)://`、鉴权保留；
-//! - 只做 `manual` 静态代理，`auto/pac` 记 warn 后跳过（保持直连）。
+//! - 只做 `manual` 静态代理，`auto/pac` 记 warn 后视为直连。
 
-use super::{ensure_no_proxy_env, host_of_url};
+use super::ProxySnapshot;
 
 /// 归一化代理 URL（纯函数，可单元测试）：单地址形态委托共享
 /// [`super::normalize_single_proxy_addr`]，`host:port` 补 `http://`、非法裸词拒绝。
@@ -117,7 +117,7 @@ fn gnome_ignore_hosts() -> Vec<String> {
                 .trim()
                 .to_string()
         })
-        .filter(|s| !s.is_empty())
+        .filter_map(|s| super::normalize_bypass_entry(&s))
         .collect()
 }
 
@@ -162,99 +162,33 @@ fn read_gnome_proxy_with_mode() -> (Option<GnomeProxy>, Option<String>) {
     )
 }
 
-/// 读取 GNOME 静态（`manual`）代理配置。
-pub fn read_gnome_proxy() -> Option<GnomeProxy> {
-    read_gnome_proxy_with_mode().0
-}
+/// 上次告警过的不支持模式（`auto`/`pac`）：同一模式只告警一次，模式变化后再告警。
+static LAST_SKIPPED_MODE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-fn has_any_proxy_env() -> bool {
-    for k in [
-        "HTTP_PROXY",
-        "http_proxy",
-        "HTTPS_PROXY",
-        "https_proxy",
-        "ALL_PROXY",
-        "all_proxy",
-    ] {
-        if let Ok(v) = std::env::var(k) {
-            if !v.trim().is_empty() {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn first_proxy_env_host() -> Option<String> {
-    for k in [
-        "HTTP_PROXY",
-        "http_proxy",
-        "HTTPS_PROXY",
-        "https_proxy",
-        "ALL_PROXY",
-        "all_proxy",
-    ] {
-        if let Ok(v) = std::env::var(k) {
-            let t = v.trim();
-            if !t.is_empty() {
-                if let Some(h) = host_of_url(t) {
-                    return Some(h);
-                }
-                return Some("unknown".to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Linux 启动期代理初始化（对标 Windows：env 为空才写，不覆盖终端 export），返回启动摘要字符串。
-pub fn init_linux_system_proxy() -> String {
-    if has_any_proxy_env() {
-        ensure_no_proxy_env(&[]);
-        let host = first_proxy_env_host().unwrap_or_else(|| "unknown".to_string());
-        return format!("env({})", host);
-    }
+/// 实时读取 GNOME 系统代理为快照（不写进程 env）：`manual` 才有代理，
+/// `none` / `auto` / 无 gsettings 均为直连快照。
+pub fn read_linux_proxy() -> ProxySnapshot {
     let (gnome, skipped_mode) = read_gnome_proxy_with_mode();
-    match gnome {
-        Some(g) => {
-            let mut host_log = "unknown".to_string();
-            if let Some(ref http) = g.http {
-                std::env::set_var("http_proxy", http);
-                std::env::set_var("HTTP_PROXY", http);
-                if let Some(h) = host_of_url(http) {
-                    host_log = h;
-                }
-            }
-            if let Some(ref https) = g.https {
-                std::env::set_var("https_proxy", https);
-                std::env::set_var("HTTPS_PROXY", https);
-                if host_log == "unknown" {
-                    if let Some(h) = host_of_url(https) {
-                        host_log = h;
-                    }
-                }
-            }
-            if let Some(ref all) = g.socks_all {
-                std::env::set_var("all_proxy", all);
-                std::env::set_var("ALL_PROXY", all);
-                if host_log == "unknown" {
-                    if let Some(h) = host_of_url(all) {
-                        host_log = h;
-                    }
-                }
-            }
-            ensure_no_proxy_env(&g.ignore_hosts);
-            format!("gnome({})", host_log)
-        }
-        None => {
-            if let Some(mode) = skipped_mode {
+    if let Ok(mut last) = LAST_SKIPPED_MODE.lock() {
+        if skipped_mode != *last {
+            if let Some(ref mode) = skipped_mode {
                 let mut ev = crate::z_log::WideEvent::new("network", "proxy skipped");
-                ev.field("mode", &mode).field("reason", "unsupported_gnome_mode");
+                ev.field("mode", mode)
+                    .field("reason", "unsupported_gnome_mode");
                 ev.warn();
             }
-            ensure_no_proxy_env(&[]);
-            "none".to_string()
+            *last = skipped_mode;
         }
+    }
+    match gnome {
+        Some(g) => ProxySnapshot {
+            http: g.http,
+            https: g.https,
+            all: g.socks_all,
+            no_proxy_entries: g.ignore_hosts,
+            source: super::ProxySource::Gnome,
+        },
+        None => ProxySnapshot::direct(),
     }
 }
 

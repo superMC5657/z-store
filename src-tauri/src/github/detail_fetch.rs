@@ -498,6 +498,10 @@ fn resolve_effective_descriptions(
     (effective_desc, effective_description_en)
 }
 
+/// 校验清单拉取硬超时：留足跨国系统代理经 `github.com` 302 跳转至
+/// `objects.githubusercontent.com` 的握手时间，避免误判超时触发未校验门禁。
+pub(crate) const CHECKSUM_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+
 impl CatalogService {
     pub async fn fetch_app_detail(
         &self,
@@ -518,7 +522,9 @@ impl CatalogService {
             catalog_item,
         } = resolve_detail_identity(self, id)?;
 
-        let client = &self.client;
+        // 详情为带 Token 的 GitHub API 请求：走 API 池（清单池恒不携带 Token，见 D5），
+        // 传输重试换池时也留在同一 API 池。
+        let client = &crate::forge::http::api_client(crate::github::http::api_timeout().as_secs());
 
         // header/client/log 经 github 内本地 helper。
         let base_headers = crate::github::http::token_headers(token);
@@ -834,7 +840,8 @@ impl CatalogService {
         })
     }
 
-    /// Checksum Manifest〈校验清单〉拉取 adapter：3s 硬超时抓取，失败置空不阻塞；
+    /// Checksum Manifest〈校验清单〉拉取 adapter：严守直连/系统代理（绝不经下载镜像），
+    /// [`CHECKSUM_FETCH_TIMEOUT`] 硬超时（不超过 API 超时），失败置空不阻塞；
     /// 返回 `(map, step_label, skip_or_fail_reason)` 供宽事件汇总。
     async fn extract_checksums_map(
         assets: &[GitHubAssetResponse],
@@ -867,7 +874,7 @@ impl CatalogService {
             return (map, step, Some(reason));
         };
         let effective_url = asset.browser_download_url.clone();
-        let checksum_timeout = std::time::Duration::from_secs(3);
+        let checksum_timeout = CHECKSUM_FETCH_TIMEOUT.min(crate::github::http::api_timeout());
         let send_fut = client.get(&effective_url).headers(headers.clone()).send();
         let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
             Ok(Ok(r)) => r,
@@ -878,7 +885,7 @@ impl CatalogService {
             }
             Err(_) => {
                 let step = format!("chk:timeout({}ms)", start.elapsed().as_millis());
-                return (map, step, Some("timeout_3s".to_string()));
+                return (map, step, Some(format!("timeout_{}s", checksum_timeout.as_secs())));
             }
         };
         let status = res.status().as_u16();
@@ -914,7 +921,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checksum_manifest_fetch_via_unified_interface_degrades_to_empty() {
-        // 校验拉取（3s 硬超时，失败置空）：不可达 hostile 对端时返回空表，
+        // 校验拉取（硬超时，失败置空）：不可达 hostile 对端时返回空表，
         // 不阻塞详情、不 panic。
         // 平台过滤断言见 `detail_assets` 单源覆盖，此处只锁置空行为。
         let assets = vec![crate::github::models::GitHubAssetResponse {
@@ -926,6 +933,33 @@ mod tests {
         let headers = reqwest::header::HeaderMap::new();
         let (map, _, _) = CatalogService::extract_checksums_map(&assets, &client, &headers).await;
         assert!(map.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_checksum_manifest_fetched_from_original_url_never_mirrored() {
+        use crate::test_support::{serve, Reply};
+        assert_eq!(super::CHECKSUM_FETCH_TIMEOUT.as_secs(), 6);
+        let hash = "a".repeat(64);
+        let body = format!("{}  app.msi\n", hash);
+        // 请求路径必须是资产原始路径（无镜像前缀改写）。
+        let server = serve(move |req| {
+            if req.starts_with("GET /o/r/checksums.sha256 ") {
+                Reply::ok(body.clone())
+            } else {
+                Reply::ok("")
+            }
+        })
+        .await;
+        let assets = vec![crate::github::models::GitHubAssetResponse {
+            name: "checksums.sha256".to_string(),
+            size: 100,
+            browser_download_url: format!("{}/o/r/checksums.sha256", server.base),
+        }];
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let headers = reqwest::header::HeaderMap::new();
+        let (map, step, reason) =
+            CatalogService::extract_checksums_map(&assets, &client, &headers).await;
+        assert_eq!(map.get("app.msi").map(String::as_str), Some(hash.as_str()), "{step} {reason:?}");
     }
 
     #[test]

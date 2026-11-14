@@ -6,6 +6,7 @@ import { OAuthUser, VIEW_TYPES, ViewType } from '../types';
 import { tauriApi } from '../services/api';
 import { GitHubIcon, PlatformIcon } from './icons/PlatformIcons';
 import { PLATFORM_IDS, PLATFORM_META, type PlatformId } from '../lib/platformFilter';
+import { CachedAvatar } from './CachedAvatar';
 
 interface SidebarProps {
   currentView: ViewType;
@@ -312,16 +313,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <>
               <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                 {oauthUser.avatar_url ? (
-                  <img
+                  <CachedAvatar
                     src={oauthUser.avatar_url}
-                    alt={oauthUser.login}
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '50%',
-                      opacity: oauthUser.is_expired ? 0.65 : 1,
-                      filter: oauthUser.is_expired ? 'grayscale(50%)' : 'none',
-                    }}
+                    login={oauthUser.login}
+                    size={18}
+                    dimmed={oauthUser.is_expired}
                   />
                 ) : (
                   <span className="status-dot" />

@@ -4,6 +4,7 @@ import type { TFunction } from 'i18next';
 import { marked } from 'marked';
 import { tauriApi, type ReadmeVariant } from '../../services/api';
 import { sanitizeHtml } from '../../utils/sanitize';
+import { useResolvedMarkdownImages } from '../../services/assetCache';
 import { normalizeId } from '../../services/normalizeId';
 
 // GitHub Markdown 块级引用 Alerts 预处理器（支持 [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]）
@@ -219,54 +220,8 @@ export function useDetailReadme(opts: {
     return sanitizeHtml(rawParsed, { rawBaseUrl, repoBaseUrl });
   }, [activeMarkdown, rawBaseUrl, repoBaseUrl, t]);
 
-  // 图片本地缓存替换：逐个解析 img src，命中 asset 本地路径则替换，失败或动态图保留原链
-  const [resolvedReadmeHtml, setResolvedReadmeHtml] = useState(baseReadmeHtml);
-  useEffect(() => {
-    setResolvedReadmeHtml(baseReadmeHtml);
-    if (!baseReadmeHtml || !appId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const doc = new DOMParser().parseFromString(baseReadmeHtml, 'text/html');
-        const imgs = Array.from(doc.querySelectorAll('img[src]'));
-        if (imgs.length === 0) return;
-        await Promise.all(
-          imgs.map(async (img) => {
-            const src = img.getAttribute('src') || '';
-            if (!src || !/^https?:\/\//i.test(src)) return;
-            const lowerSrc = src.toLowerCase();
-            if (lowerSrc.endsWith('.gif') || lowerSrc.includes('.gif?')) return;
-            let cached: string;
-            try {
-              cached = await tauriApi.fetchOrCacheAssetUrl(src, appId);
-            } catch {
-              return;
-            }
-            if (!cached || cached === src) return;
-            const lowerCached = cached.toLowerCase();
-            if (
-              lowerCached.startsWith('asset:') ||
-              lowerCached.startsWith('tauri:') ||
-              lowerCached.includes('asset.localhost')
-            ) {
-              img.setAttribute('src', cached);
-            }
-          }),
-        );
-        if (!cancelled) {
-          const next = doc.body.innerHTML;
-          setResolvedReadmeHtml((prev) => (prev === next ? prev : next));
-        }
-      } catch {
-        if (!cancelled) setResolvedReadmeHtml(baseReadmeHtml);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [baseReadmeHtml, appId]);
-
-  const readmeHtml = resolvedReadmeHtml;
+  // 图片收敛：真实 Tauri 下首屏不挂远端图片，经后端缓存解析为 data: 后回填（动态徽章保持原链）。
+  const readmeHtml = useResolvedMarkdownImages(baseReadmeHtml, appId);
 
   const setReadmeLang = (lang: ReadmeLang) => {
     hasUserSelectedRef.current = true;

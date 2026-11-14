@@ -17,6 +17,8 @@ pub mod repositories;
 pub mod scanner;
 pub mod userdata;
 pub mod z_log;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use error::{AppError, AppResult};
 
@@ -31,7 +33,6 @@ pub struct AppState {
     pub catalog: CatalogService,
     pub mirror: Mutex<MirrorManager>,
     pub github_token: Mutex<Option<String>>,
-    pub http: reqwest::Client,
     /// 清单同步串行互斥锁：防止启动后台增量同步与设置页手动同步并发交叉写库。
     pub sync_lock: tokio::sync::Mutex<()>,
 }
@@ -126,26 +127,10 @@ pub(crate) fn check_auth_expired(status: u16, ctx: &str) -> bool {
     }
 }
 
-static SHARED_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-
-fn build_shared_http_client() -> reqwest::Client {
-    let api_timeout =
-        std::time::Duration::from_secs(config::get_project_config().network.api_timeout_seconds);
-    let builder = reqwest::Client::builder()
-        .timeout(api_timeout)
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .tcp_keepalive(std::time::Duration::from_secs(60))
-        .pool_max_idle_per_host(20)
-        .pool_idle_timeout(std::time::Duration::from_secs(90))
-        .user_agent(crate::forge::http::USER_AGENT_VALUE);
-    let builder = crate::proxy::apply_proxy(builder, &[]);
-    builder.build().unwrap_or_else(|_| reqwest::Client::new())
-}
-
+/// 共享 API 连接池（与 `forge::http::new_api_client` 同一池，跟随当前系统代理快照热重建）。
+/// 命令层每次调用即取当前池，不持有启动期 Client。
 pub fn shared_http_client() -> reqwest::Client {
-    SHARED_HTTP_CLIENT
-        .get_or_init(build_shared_http_client)
-        .clone()
+    crate::forge::http::api_client(config::get_project_config().network.api_timeout_seconds)
 }
 
 pub static GLOBAL_QUOTA_TX: OnceLock<UnboundedSender<models::HostQuotaEvent>> = OnceLock::new();
@@ -322,140 +307,6 @@ pub fn resolve_default_app_data_dir() -> std::path::PathBuf {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn init_windows_system_proxy() -> String {
-    if let Ok(v) = std::env::var("http_proxy").or_else(|_| std::env::var("HTTP_PROXY")) {
-        let host = log_support::host_of(&v);
-        return format!("env({})", host);
-    }
-    use winreg::enums::HKEY_CURRENT_USER;
-    use winreg::RegKey;
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok(settings) =
-        hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
-    {
-        let proxy_enable: u32 = settings.get_value("ProxyEnable").unwrap_or(0);
-        if proxy_enable == 1 {
-            if let Ok(proxy_server) = settings.get_value::<String, _>("ProxyServer") {
-                // 注册表可能是多协议形态（http=..;https=..;socks=..），需解析；
-                // 解析失败返回 None 时不设置，避免污染环境变量导致直连也被拖累。
-                if let Some(full) = normalize_windows_proxy_server(&proxy_server) {
-                    std::env::set_var("http_proxy", &full);
-                    std::env::set_var("https_proxy", &full);
-                    return format!("win({})", log_support::host_of(&full));
-                }
-            }
-        }
-    }
-    "none".to_string()
-}
-
-/// 解析 Windows 注册表 `ProxyServer` 值（纯函数，可单元测试）。
-/// 接受三种形态：`host:port`、`scheme://host:port`、多协议
-/// （`http=..;https=..;socks=..`，优先取 https 条目）。
-/// scheme 必须带 `://`（裸 `socks4` 前缀无 `://` 一律拒绝，与 Linux 同严格口径）；
-/// 返回归一化的代理 URL；无法解析返回 None（调用方不设置环境变量，
-/// 保持直连，避免一条坏代理拖累所有请求）。
-#[cfg(target_os = "windows")]
-fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    let mut https_pick: Option<&str> = None;
-    let mut http_pick: Option<&str> = None;
-    let mut other_pick: Option<&str> = None;
-    let mut plain_pick: Option<&str> = None;
-    for part in raw.split(';') {
-        let part = part.trim();
-        if part.is_empty() {
-            continue;
-        }
-        if let Some((proto, addr)) = part.split_once('=') {
-            let addr = addr.trim();
-            if addr.is_empty() {
-                continue;
-            }
-            match proto.trim().to_ascii_lowercase().as_str() {
-                "https" => {
-                    https_pick = Some(addr);
-                    break;
-                }
-                "http" => {
-                    if http_pick.is_none() {
-                        http_pick = Some(addr);
-                    }
-                }
-                _ => {
-                    if other_pick.is_none() {
-                        other_pick = Some(addr);
-                    }
-                }
-            }
-        } else if plain_pick.is_none() {
-            plain_pick = Some(part);
-        }
-    }
-    let addr = https_pick
-        .or(http_pick)
-        .or(other_pick)
-        .or(plain_pick)?
-        .trim();
-    if addr.is_empty() {
-        return None;
-    }
-    // 单地址归一委托共享落点（`proxy::normalize_single_proxy_addr`，与 Linux 同口径）；
-    // `;` 多协议拆解保留在本函数（https 优先 → http → 其他 → 裸地址）。
-    crate::proxy::normalize_single_proxy_addr(addr)
-}
-
-#[cfg(all(test, target_os = "windows"))]
-mod proxy_tests {
-    use super::normalize_windows_proxy_server;
-
-    #[test]
-    fn test_normalize_proxy_server_forms() {
-        // 裸 host:port
-        assert_eq!(
-            normalize_windows_proxy_server("127.0.0.1:7890"),
-            Some("http://127.0.0.1:7890".to_string())
-        );
-        // 自带 scheme
-        assert_eq!(
-            normalize_windows_proxy_server("http://127.0.0.1:7890"),
-            Some("http://127.0.0.1:7890".to_string())
-        );
-        assert_eq!(
-            normalize_windows_proxy_server("socks5://127.0.0.1:7890"),
-            Some("socks5://127.0.0.1:7890".to_string())
-        );
-        // 多协议形态优先 https
-        assert_eq!(
-            normalize_windows_proxy_server("http=127.0.0.1:7890;https=127.0.0.1:7891"),
-            Some("http://127.0.0.1:7891".to_string())
-        );
-        // 垃圾输入不污染环境
-        assert_eq!(normalize_windows_proxy_server(""), None);
-        assert_eq!(normalize_windows_proxy_server("   "), None);
-        assert_eq!(normalize_windows_proxy_server("notaproxy"), None);
-        assert_eq!(normalize_windows_proxy_server("http=;https="), None);
-        // `socks4` 裸前缀无 `://` 一律拒绝（与 Linux `normalize_proxy_url` 同严格口径）。
-        assert_eq!(normalize_windows_proxy_server("socks4"), None);
-        assert_eq!(normalize_windows_proxy_server("socks4junk"), None);
-        assert_eq!(normalize_windows_proxy_server("socks4proxy"), None);
-        assert_eq!(normalize_windows_proxy_server("  socks4junk  "), None);
-        // 带 `://` 的合法 socks4(a) 仍保留原值。
-        assert_eq!(
-            normalize_windows_proxy_server("socks4://127.0.0.1:7890"),
-            Some("socks4://127.0.0.1:7890".to_string())
-        );
-        assert_eq!(
-            normalize_windows_proxy_server("socks4a://127.0.0.1:7890"),
-            Some("socks4a://127.0.0.1:7890".to_string())
-        );
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     z_log::install_panic_hook();
@@ -474,12 +325,8 @@ pub fn run() {
                 let _ = APP_DATA_DIR.set(data_dir);
             }
 
-            #[cfg(target_os = "windows")]
-            let proxy_summary = init_windows_system_proxy();
-            #[cfg(target_os = "linux")]
-            let proxy_summary = crate::proxy::linux::init_linux_system_proxy();
-            #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-            let proxy_summary = "none".to_string();
+            // 冻结启动期外部 env 代理并取首个快照摘要；此后运行期按快照实时感知系统代理变化。
+            let proxy_summary = crate::proxy::capture_initial_env_proxy();
 
             let db_dir = get_app_data_dir();
             let _ = std::fs::create_dir_all(&db_dir);
@@ -550,13 +397,11 @@ pub fn run() {
             let _ = GLOBAL_AFFINITY_TX.set(affinity_tx);
 
             let db_arc = Arc::new(Mutex::new(db));
-            let http = shared_http_client();
             let state = AppState {
                 db: Arc::clone(&db_arc),
                 catalog,
                 mirror: Mutex::new(mirror),
                 github_token: Mutex::new(saved_token.clone()),
-                http,
                 sync_lock: tokio::sync::Mutex::new(()),
             };
             app.manage(state);

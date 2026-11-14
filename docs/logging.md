@@ -39,13 +39,13 @@
   - `catalog`：清单同步、自定义源审计、License Gate 审计
   - `search`：在线搜索与直查
   - `detail`：应用详情、Multi-Forge、`platforms-lite` 失败降级
-  - `trends`：抓榜失败 / 429 限流 / 截断 / enrich 部分缺席汇总
+  - `trends`：抓榜失败 / 429 限流 / 截断 / enrich 部分缺席汇总；doforce 经系统代理回退的抓取带 `via=proxy`（成功记一行 `fetch ok`）
   - `download`：安装包下载起止、镜像自动兜底、SHA-256 校验失败、本地命中跳过
   - `installer`：安装/卸载起止、MSI 静默降级向导、用户取消、幽灵应用隐藏
   - `updater`：批量更新检查汇总、单项失败
   - `scanner`：本地软件扫描汇总
   - `oauth`：OAuth 登录/登出、401 过期（30s 去重）、403 禁用、轮询/刷新失败
-  - `network`：镜像切换、测速、Host API 限流低水位/耗尽、无效环境变量代理
+  - `network`：镜像切换、测速、Host API 限流低水位/耗尽、无效代理地址、系统代理变更（`proxy changed`，只含 host 摘要）
   - `ui`：前端渲染崩溃（`ErrorBoundary`）、全局异常（`onerror`/`unhandledrejection`）、IPC 参数违规、接口失败告警
 
 ## 4. 宽事件（Wide Event）与 Dev 诊断设计

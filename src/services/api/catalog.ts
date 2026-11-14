@@ -246,7 +246,7 @@ export async function getReadmeVariants(appId: string): Promise<ReadmeVariantsRe
   }
 }
 
-// 图片磁盘缓存查询：返回 asset 本地路径或原 https，失败时回退原链。
+// 图片磁盘缓存查询：返回可直接渲染的 `data:` URI 或原 https，失败时回退原链。
 export async function fetchOrCacheAssetUrl(url: string, appId: string): Promise<string> {
   try {
     const res = await tauriInvoke<string>(CMD.fetchOrCacheAssetUrl, { appId, url });

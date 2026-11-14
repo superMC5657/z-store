@@ -77,8 +77,9 @@ async fn get_with_etag_diag_inner(
     const RETRY_BACKOFF_MS: [u64; 2] = [200, 800];
     let mut attempt: usize = 0;
     let mut rate_summary: Option<String> = None;
+    let mut active = client.clone();
     let res = loop {
-        match client.get(&url).headers(headers.clone()).send().await {
+        match active.get(&url).headers(headers.clone()).send().await {
             Ok(r) => {
                 crate::notify_rate_limit("github.com", r.headers());
                 if let Some(rs) = crate::log_support::rate_limit_summary(r.headers()) {
@@ -101,6 +102,13 @@ async fn get_with_etag_diag_inner(
             Err(e) => {
                 let retryable_err = e.is_timeout() || e.is_connect();
                 if retryable_err && attempt < RETRY_BACKOFF_MS.len() {
+                    // 立即重探系统代理：签名变化（用户刚开启/关闭代理）即改用重建后的 API 池重试
+                    //（本通道调用方均为带 Token 的 GitHub API 请求，传入的即 API 池 Client）。
+                    if crate::proxy::refresh_after_transport_error().await {
+                        if let Ok(fresh) = build_api_client() {
+                            active = fresh;
+                        }
+                    }
                     tokio::time::sleep(std::time::Duration::from_millis(RETRY_BACKOFF_MS[attempt]))
                         .await;
                     attempt += 1;

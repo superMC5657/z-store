@@ -2,12 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   getBufferedIcon,
   getCachedIconDataUri,
+  isIconInPreloadBackoff,
+  isRemoteHttpIconUrl,
   requestIconLocalCache,
   retryIconFromLocalOrBackend,
   subscribeIconDataReady,
   subscribeIconWrites,
 } from '../services/iconStore';
 import { normalizeId } from '../services/normalizeId';
+import { isRealTauriRuntime } from '../services/tauriRuntime';
 
 interface AppIconProps {
   icon: string;
@@ -164,10 +167,30 @@ export const AppIcon: React.FC<AppIconProps> = ({
     setHasError(false);
   }, [activeIcon, displaySrc]);
 
+  // 真实 Tauri 下远端图标后端单飞：未命中 data: 且后端未处于失败退避时不挂远端 <img>
+  // （避免 WebView 与后端双发）；后端失败进入退避后才回退 WebView 直连。
+  const realTauri = isRealTauriRuntime();
+  const inBackoff = realTauri && isIconInPreloadBackoff(activeIcon);
+  // 后端失败对当前 activeIcon 粘滞记忆：退避过期（或被有界淘汰）后不再退回空底板，
+  // 否则已直连成功的 <img> 会被重新隐藏，且无新请求可唤醒。
+  const [backendFailedIcon, setBackendFailedIcon] = useState('');
+  useEffect(() => {
+    if (inBackoff && backendFailedIcon !== activeIcon) setBackendFailedIcon(activeIcon);
+  }, [inBackoff, activeIcon, backendFailedIcon]);
+  const backendFailed = inBackoff || (activeIcon !== '' && backendFailedIcon === activeIcon);
+  const awaitingBackend =
+    realTauri &&
+    iconOverride === undefined &&
+    isRemoteHttpIconUrl(activeIcon) &&
+    !displaySrc.startsWith('data:') &&
+    !backendFailed;
+
   const handleError = () => {
     // 若图片加载失败（网络波动或链接失效），暂降级为首字母徽章，并触发本地磁盘缓存/后端自愈读取
     setHasError(true);
+    // 真实 Tauri 下退避期内的直连回退本就源于后端失败：不再立刻重试后端，直接定格徽章。
     if (
+      !(realTauri && backendFailed) &&
       !displaySrc.startsWith('data:') &&
       isRemoteIcon(activeIcon) &&
       retriedUrlRef.current !== activeIcon
@@ -181,10 +204,11 @@ export const AppIcon: React.FC<AppIconProps> = ({
   // 可渲染判定看 displaySrc 本体：activeIcon 为旧 URL 而 displaySrc 被清空/
   // 解析失败置 '' 时，若仍按 activeIcon 渲染 <img src=""> 即永久裂图（hasError 永不置位）。
   const isDisplaySrcRenderable = displaySrc.trim() !== '' && isRemoteIcon(displaySrc);
-  const showImg = isImageActive && isDisplaySrcRenderable;
+  const showImg = isImageActive && isDisplaySrcRenderable && !awaitingBackend;
   // 非图即徽章：加载失败、图标为空、地址不可渲染，或轮转覆盖为非图（L5 切空意图）。
   const isFallbackBadge =
     !showImg &&
+    !awaitingBackend &&
     ((isUrl && hasError) ||
       !activeIcon ||
       (isUrl && !isDisplaySrcRenderable) ||
@@ -235,6 +259,13 @@ export const AppIcon: React.FC<AppIconProps> = ({
             display: 'block',
             opacity: 1,
           }}
+        />
+      ) : awaitingBackend ? (
+        // 平滑空底板：等待后端读盘/下载（本地已落盘约 1ms 即切入 data: 实图）。
+        <span
+          className="app-icon-pending"
+          aria-hidden="true"
+          style={{ ...fallbackTileStyle, background: 'transparent' }}
         />
       ) : isFallbackBadge ? (
         <span

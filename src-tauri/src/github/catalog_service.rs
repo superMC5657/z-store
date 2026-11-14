@@ -24,6 +24,157 @@ pub(crate) fn is_default_catalog_source(url: &str) -> bool {
     trimmed == default_url
 }
 
+/// 清单实际来源通道（同步宽事件 `via` 字段）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogVia {
+    /// 首跳：清单池（跟随系统代理）。
+    Direct,
+    /// 官方默认源经加速镜像回退。
+    Mirror,
+    /// 本地 `file://` / 路径。
+    Local,
+}
+
+impl std::fmt::Display for CatalogVia {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            CatalogVia::Direct => "direct",
+            CatalogVia::Mirror => "mirror",
+            CatalogVia::Local => "local",
+        })
+    }
+}
+
+/// 远程清单拉取结果：`items == None` 即 304 未变更。
+#[derive(Debug)]
+pub struct RemoteCatalogFetch {
+    pub items: Option<Vec<CatalogItem>>,
+    pub etag: Option<String>,
+    pub via: CatalogVia,
+}
+
+struct CatalogFetchError {
+    message: String,
+    /// 传输失败 / 429 / 5xx：官方默认源可经镜像重试。
+    retryable: bool,
+}
+
+/// 本地清单文件读取：以 mtime 合成弱 ETag，命中缓存 ETag 即视为未变更。
+fn fetch_local_catalog(url: &str, cached_etag: Option<&str>) -> Result<RemoteCatalogFetch, String> {
+    let clean_path = if let Some(stripped) = url.strip_prefix("file://") {
+        let trimmed = stripped.trim_start_matches('/');
+        if trimmed.len() >= 2 && trimmed.chars().nth(1) == Some(':') {
+            trimmed.to_string()
+        } else {
+            stripped.to_string()
+        }
+    } else {
+        url.to_string()
+    };
+
+    let path = std::path::Path::new(&clean_path);
+    if !path.exists() {
+        return Err(format!("本地收录清单文件不存在: {}", clean_path));
+    }
+
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("读取本地收录清单文件元数据失败 ({}): {}", clean_path, e))?;
+    let mtime = metadata
+        .modified()
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        })
+        .unwrap_or(0);
+    let local_etag = format!("W/\"local-{}\"", mtime);
+
+    if cached_etag == Some(local_etag.as_str()) {
+        return Ok(RemoteCatalogFetch {
+            items: None,
+            etag: None,
+            via: CatalogVia::Local,
+        });
+    }
+
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("读取本地清单内容失败 ({}): {}", clean_path, e))?;
+    let items: Vec<CatalogItem> = serde_json::from_str(&text)
+        .map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
+    Ok(RemoteCatalogFetch {
+        items: Some(items),
+        etag: Some(local_etag),
+        via: CatalogVia::Local,
+    })
+}
+
+async fn fetch_catalog_once(
+    client: &reqwest::Client,
+    url: &str,
+    cached_etag: Option<&str>,
+    via: CatalogVia,
+) -> Result<RemoteCatalogFetch, CatalogFetchError> {
+    let fail = |message: String, retryable: bool| CatalogFetchError { message, retryable };
+    let mut req = client
+        .get(url)
+        .header(USER_AGENT, crate::github::http::GH_USER_AGENT);
+    if let Some(etag) = cached_etag {
+        req = req.header(IF_NONE_MATCH, etag);
+    }
+    let resp = req.send().await.map_err(|e| {
+        crate::proxy::note_transport_error(&e);
+        fail(format!("请求收录清单失败: {}", e), true)
+    })?;
+    let status = resp.status();
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(RemoteCatalogFetch {
+            items: None,
+            etag: None,
+            via,
+        });
+    }
+    if !status.is_success() {
+        let retryable = status.as_u16() == 429 || status.is_server_error();
+        return Err(fail(
+            format!("同步收录清单失败，HTTP 状态码: {}", status),
+            retryable,
+        ));
+    }
+    let etag = resp
+        .headers()
+        .get("etag")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| fail(format!("读取清单内容失败: {}", e), true))?;
+    let items: Vec<CatalogItem> = serde_json::from_str(&text)
+        .map_err(|e| fail(format!("解析收录清单 JSON 失败: {}", e), false))?;
+    Ok(RemoteCatalogFetch {
+        items: Some(items),
+        etag,
+        via,
+    })
+}
+
+/// 镜像清单严格校验：拒绝空数组与任一非法 `Canonical App Id`，防止门户页/截断响应覆盖目录。
+fn validate_mirrored_catalog(items: &[CatalogItem]) -> Result<(), String> {
+    if items.is_empty() {
+        return Err("镜像返回空清单".to_string());
+    }
+    if let Some(bad) = items
+        .iter()
+        .find(|i| crate::forge::canonical_app_id(&i.id).is_none())
+    {
+        return Err(format!(
+            "镜像清单含非法应用标识: {}",
+            crate::log_support::short_reason(&bad.id)
+        ));
+    }
+    Ok(())
+}
+
 /// 远端优先去重合并（同一形状唯一实现）：`remote` 原样在前，`local` 按 id 补位
 /// （已存在即跳过）。
 fn merge_remote_first(remote: Vec<CatalogItem>, local: Vec<CatalogItem>) -> Vec<CatalogItem> {
@@ -57,10 +208,19 @@ impl CatalogService {
     }
 
     fn with_items(items: Vec<CatalogItem>) -> Self {
+        Self {
+            items: RwLock::new(items),
+            collected: RwLock::new(Vec::new()),
+            client: crate::proxy::ClientSlot::new(),
+        }
+    }
+
+    /// 清单 Client 构造（无 Token，独立连接池参数）；`extra_hosts` 追加 per-client `no_proxy`。
+    fn build_catalog_client(
+        snap: &crate::proxy::ProxySnapshot,
+        extra_hosts: &[String],
+    ) -> Result<reqwest::Client, String> {
         let cfg = crate::config::get_project_config();
-        // 清单跟随系统代理：per-client no_proxy 不预置默认源 host，
-        // 有代理走代理、无代理直连（与图标通道一致）。
-        let catalog_extra: Vec<String> = Vec::new();
         let builder = reqwest::Client::builder()
             .pool_max_idle_per_host(10)
             .connect_timeout(std::time::Duration::from_secs(5))
@@ -68,14 +228,21 @@ impl CatalogService {
             .timeout(std::time::Duration::from_secs(
                 cfg.network.api_timeout_seconds,
             ));
-        let client = crate::proxy::apply_proxy(builder, &catalog_extra)
+        crate::proxy::apply_proxy_snapshot(builder, snap, extra_hosts)
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        Self {
-            items: RwLock::new(items),
-            collected: RwLock::new(Vec::new()),
-            client,
-        }
+            .map_err(|e| e.to_string())
+    }
+
+    /// 指定快照下的清单池 Client：签名不变复用，变化即重建。
+    pub(crate) fn http_client_for(&self, snap: &crate::proxy::ProxySnapshot) -> reqwest::Client {
+        self.client
+            .get_or_build(&snap.signature(&[]), || Self::build_catalog_client(snap, &[]))
+            .unwrap_or_else(|_| crate::proxy::fallback_client(snap, &[]))
+    }
+
+    /// 当前系统代理快照下的清单池 Client（跟随系统代理：有代理走代理、无代理直连）。
+    pub(crate) fn http_client(&self) -> reqwest::Client {
+        self.http_client_for(&crate::proxy::current_proxy_snapshot())
     }
 
     pub fn get_catalog_count(&self) -> usize {
@@ -359,87 +526,73 @@ impl CatalogService {
         }
     }
 
+    /// 清单拉取（不开启镜像回退）：返回 `(items, etag)`，`items == None` 即未变更。
     pub async fn fetch_remote_catalog(
         &self,
         url: &str,
         cached_etag: Option<&str>,
     ) -> Result<(Option<Vec<CatalogItem>>, Option<String>), String> {
-        let is_local = url.starts_with("file://")
-            || (!url.starts_with("http://") && !url.starts_with("https://"));
-
-        if is_local {
-            let clean_path = if let Some(stripped) = url.strip_prefix("file://") {
-                let trimmed = stripped.trim_start_matches('/');
-                if trimmed.len() >= 2 && trimmed.chars().nth(1) == Some(':') {
-                    trimmed.to_string()
-                } else {
-                    stripped.to_string()
-                }
-            } else {
-                url.to_string()
-            };
-
-            let path = std::path::Path::new(&clean_path);
-            if !path.exists() {
-                return Err(format!("本地收录清单文件不存在: {}", clean_path));
-            }
-
-            let metadata = std::fs::metadata(path)
-                .map_err(|e| format!("读取本地收录清单文件元数据失败 ({}): {}", clean_path, e))?;
-            let mtime = metadata
-                .modified()
-                .map(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                })
-                .unwrap_or(0);
-            let local_etag = format!("W/\"local-{}\"", mtime);
-
-            if let Some(etag) = cached_etag {
-                if etag == local_etag {
-                    return Ok((None, None));
-                }
-            }
-
-            let text = std::fs::read_to_string(path)
-                .map_err(|e| format!("读取本地清单内容失败 ({}): {}", clean_path, e))?;
-            let items: Vec<CatalogItem> = serde_json::from_str(&text)
-                .map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
-            return Ok((Some(items), Some(local_etag)));
-        }
-
-        // 远程 HTTP/HTTPS 请求（日志交由命令层宽事件统一汇总，底层不重复刷屏）。
-        let mut req = self
-            .client
-            .get(url)
-            .header(USER_AGENT, crate::github::http::GH_USER_AGENT);
-        if let Some(etag) = cached_etag {
-            req = req.header(IF_NONE_MATCH, etag);
-        }
-        let resp = req
-            .send()
+        self.fetch_remote_catalog_with_fallback(url, cached_etag, None)
             .await
-            .map_err(|e| format!("请求收录清单失败: {}", e))?;
+            .map(|f| (f.items, f.etag))
+    }
 
-        if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
-            return Ok((None, None));
+    /// 清单拉取唯一分发：本地文件（`file://` 或无 http(s) scheme）读盘；远程经 HTTP，
+    /// 仅官方默认源（[`is_default_catalog_source`]）在首跳传输失败 / 429 / 5xx 时经
+    /// `mirror_prefix` 重试一次，自定义源与本地文件恒不改写。
+    pub async fn fetch_remote_catalog_with_fallback(
+        &self,
+        url: &str,
+        cached_etag: Option<&str>,
+        mirror_prefix: Option<&str>,
+    ) -> Result<RemoteCatalogFetch, String> {
+        let is_remote = url.starts_with("http://") || url.starts_with("https://");
+        if !is_remote {
+            return fetch_local_catalog(url, cached_etag);
         }
-        if !resp.status().is_success() {
-            return Err(format!("同步收录清单失败，HTTP 状态码: {}", resp.status()));
-        }
-        let new_etag = resp
-            .headers()
-            .get("etag")
-            .and_then(|h| h.to_str().ok())
-            .map(|s| s.to_string());
-        let text = resp
-            .text()
+        let mirror = mirror_prefix.filter(|_| is_default_catalog_source(url));
+        self.fetch_http_catalog(url, cached_etag, mirror).await
+    }
+
+    /// HTTP 清单拉取：首跳经清单池（跟随系统代理）；`mirror_prefix` 为 `Some` 且首跳可重试失败时，
+    /// 经镜像前缀重试一次（镜像 host 走 per-client `no_proxy` 直连，绝不携带 Token），
+    /// 镜像响应须通过严格结构校验才采纳。
+    pub(crate) async fn fetch_http_catalog(
+        &self,
+        url: &str,
+        cached_etag: Option<&str>,
+        mirror_prefix: Option<&str>,
+    ) -> Result<RemoteCatalogFetch, String> {
+        let primary =
+            fetch_catalog_once(&self.http_client(), url, cached_etag, CatalogVia::Direct).await;
+        let primary_err = match primary {
+            Ok(f) => return Ok(f),
+            Err(e) if e.retryable => e.message,
+            Err(e) => return Err(e.message),
+        };
+        let Some(prefix) = mirror_prefix else {
+            return Err(primary_err);
+        };
+        let mirrored = crate::mirror::prefix_with_base(prefix, url);
+        let client = Self::build_catalog_client(
+            &crate::proxy::current_proxy_snapshot(),
+            &crate::proxy::proxy_hosts_for(&mirrored),
+        )?;
+        // 镜像不发条件请求：恒取完整正文并严格校验，镜像无法以 304 冻结目录；
+        // 镜像侧 ETag 不落库（下次同步仍以官方源为准）。
+        let fetched = fetch_catalog_once(&client, &mirrored, None, CatalogVia::Mirror)
             .await
-            .map_err(|e| format!("读取清单内容失败: {}", e))?;
-        let items: Vec<CatalogItem> =
-            serde_json::from_str(&text).map_err(|e| format!("解析收录清单 JSON 失败: {}", e))?;
-        Ok((Some(items), new_etag))
+            .map_err(|e| format!("{}；镜像重试失败: {}", primary_err, e.message))?;
+        let Some(items) = fetched.items else {
+            return Err(format!("{}；镜像清单校验失败: 未发条件请求却返回 304", primary_err));
+        };
+        validate_mirrored_catalog(&items)
+            .map_err(|reason| format!("{}；镜像清单校验失败: {}", primary_err, reason))?;
+        Ok(RemoteCatalogFetch {
+            items: Some(items),
+            etag: None,
+            via: CatalogVia::Mirror,
+        })
     }
 
     pub fn search_local_catalog(&self, query: &str) -> Vec<AppSummary> {
@@ -608,7 +761,7 @@ mod tests {
         CatalogService {
             items: RwLock::new(items),
             collected: RwLock::new(Vec::new()),
-            client: reqwest::Client::new(),
+            client: crate::proxy::ClientSlot::new(),
         }
     }
 

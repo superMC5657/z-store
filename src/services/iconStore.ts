@@ -211,7 +211,7 @@ function resolveIconTargets(hit: Pick<IconHit, 'id'>): string[] {
 }
 
 /** 仅 `http(s)` 才算可落盘远端（`data:` 另行内存通道，其余一律丢弃）。 */
-function isRemoteHttpIconUrl(icon: unknown): boolean {
+export function isRemoteHttpIconUrl(icon: unknown): boolean {
   if (typeof icon !== 'string') return false;
   const u = icon.trim().toLowerCase();
   return u.startsWith('http://') || u.startsWith('https://');
@@ -565,6 +565,20 @@ export function isIconPersistedOrQueued(url: unknown): boolean {
   return false;
 }
 
+/** 该远端图标的后端获取是否处于失败退避期（URL 键与归一键双查）。 */
+export function isIconInPreloadBackoff(url: string): boolean {
+  if (!url) return false;
+  const now = Date.now();
+  const direct = iconPreloadBackoffUntil.get(url);
+  if (typeof direct === 'number' && direct > now) return true;
+  const norm = normalizeIconKey(url);
+  if (norm && norm !== url) {
+    const byNorm = iconPreloadBackoffUntil.get(norm);
+    if (typeof byNorm === 'number' && byNorm > now) return true;
+  }
+  return false;
+}
+
 /**
  * `<AppIcon>` 挂载/切换时按需入队读取本地磁盘图标缓存（解除前 30 项限制）：
  * 仅在真实 Tauri IPC 运行时（`__TAURI_INTERNALS__.invoke` 可用）且 `iconDataCache` 未命中时入队。
@@ -694,6 +708,30 @@ function drainIconPreloadQueue(): void {
   }
 }
 
+/**
+ * 结束一次 URL 获取（成功或失败共用）：清在途 Promise 与别名，返回该 URL 的就绪键
+ * （`urlKeys`：原 URL + 归一键；`idKeys`：各别名 id + 其归一 id，去掉与原值相同者）。
+ */
+function settleIconFetch(
+  url: string,
+  fallbackAliases: Set<string>,
+): { urlKeys: string[]; idKeys: string[] } {
+  const aliases = iconPendingAliases.get(url) ?? fallbackAliases;
+  iconPendingPromises.delete(url);
+  iconPendingAliases.delete(url);
+  const urlKeys: string[] = [url];
+  const normUrl = normalizeIconKey(url);
+  if (normUrl && normUrl !== url) urlKeys.push(normUrl);
+  const idKeys: string[] = [];
+  for (const id of aliases) {
+    if (!id) continue;
+    idKeys.push(id);
+    const nid = normalizeId(id);
+    if (nid && nid !== id) idKeys.push(nid);
+  }
+  return { urlKeys, idKeys };
+}
+
 function startIconFetch(url: string, ids: Set<string>): void {
   const aliasSet = new Set<string>(ids);
   iconPendingAliases.set(url, aliasSet);
@@ -708,33 +746,24 @@ function startIconFetch(url: string, ids: Set<string>): void {
   }
   const p = getOrFetchIcon(firstId ?? undefined, url)
     .then((dataUri) => {
-      rememberIconData(url, dataUri);
-      const readyKeys: string[] = [url];
-      const normUrl = normalizeIconKey(url);
-      if (normUrl && normUrl !== url) readyKeys.push(normUrl);
-      const aliases = iconPendingAliases.get(url) ?? aliasSet;
-      for (const id of aliases) {
-        if (!id) continue;
-        rememberIconData(id, dataUri);
-        readyKeys.push(id);
-        const nid = normalizeId(id);
-        if (nid) {
-          rememberIconData(nid, dataUri);
-          if (nid !== id) readyKeys.push(nid);
-        }
+      // 非 data: 结果视同失败：走退避 + 唤醒，避免等待后端的 <AppIcon> 永远停在占位。
+      if (typeof dataUri !== 'string' || !dataUri.startsWith('data:')) {
+        throw new Error('icon fetch returned no data uri');
       }
-      iconPendingPromises.delete(url);
-      iconPendingAliases.delete(url);
+      const keys = settleIconFetch(url, aliasSet);
+      rememberIconData(url, dataUri);
+      for (const id of keys.idKeys) rememberIconData(id, dataUri);
       iconPreloadBackoffUntil.delete(url);
-      notifyIconDataReady(readyKeys);
+      notifyIconDataReady([...keys.urlKeys, ...keys.idKeys]);
       return dataUri;
     })
     .catch(() => {
-      // 预热失败静默吞掉（展示回落 URL 直显，不产生未处理拒绝；退避后可后台重预热）。
-      iconPendingPromises.delete(url);
-      iconPendingAliases.delete(url);
+      // 预热失败静默吞掉（不产生未处理拒绝；退避后可后台重预热）。
+      const keys = settleIconFetch(url, aliasSet);
       iconPreloadBackoffUntil.set(url, Date.now() + ICON_PRELOAD_BACKOFF_MS);
       trimBoundedMap(iconPreloadBackoffUntil);
+      // 唤醒等待后端结果的 <AppIcon>：退避期内它们回退为 WebView 直连 <img>。
+      notifyIconDataReady([...keys.urlKeys, ...keys.idKeys]);
       return '';
     });
   iconPendingPromises.set(url, p);

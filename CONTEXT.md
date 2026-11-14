@@ -20,11 +20,11 @@
 | **构建资产** | `ReleaseAsset` | Release 附带的编译产物二进制包（如 `.msi`、`.exe`、`.zip`、`.tar.gz`/`.tgz`/`.tar.xz`/`.tar`、`.deb`、`.dmg`、`.apk`，其中 `.7z`/`.tar.bz2`为Download-Only），带有平台架构分类。 | 附件、下载包、安装文件 |
 | **托管源提供者** | `ForgeProvider` | 统一源代码托管抽象层，原生支持 GitHub、Codeberg、Gitea、GitLab 等开源代码源。详见 ADR-0006。 | 仓库源、平台接口 |
 | **校验清单** | `Checksum Manifest` | Release 附带的 `checksums.txt` / `SHA256SUMS`，记录官方预期 SHA-256 哈希值。 | 哈希表、签名文件 |
-| **加速镜像节点** | `MirrorNode` | 代理文件下载的反代节点（如 `gh-proxy.com`），支持在设置页手动切换前缀、`test_proxy` 手动测速与透明重写安装包下载 URL。 | 代理源、加速线路、CDN |
+| **加速镜像节点** | `MirrorNode` | 代理文件下载的反代节点（如 `gh-proxy.com`），支持在设置页手动切换前缀、`test_proxy` 手动测速与透明重写安装包下载 URL；镜像节点自身经 per-client `no_proxy` 直连，不消耗系统代理流量。 | 代理源、加速线路、CDN |
 | **已安装应用** | `InstalledApp` | 由 ZStore 管理且持久化存储在本地 SQLite 中的应用实体，包含本地路径与卸载入口。 | 本地应用、已装软件 |
 | **我的应用** | `My Apps` (`installed`) | 侧栏「管理」组下的一级视图，列出全部已安装应用，并就地呈现可用更新（版本差、更新日志、更新 / 全部更新）；深链 `zstore://view/updates` 打开此视图并落在「有更新」筛选签。详见 ADR-0022。 | 已安装页、更新中心、更新页 |
 | **条件请求缓存** | `ETag Cache` | 存储于本地 SQLite 中的 HTTP 304 缓存机制，通过 `If-None-Match` 实现零配额消耗更新检测。 | 本地缓存、HTTP缓存 |
-| **清单同步** | `Manifest Catalog Sync` | 客户端从独立开源收录仓库动态拉取或增量刷新应用元数据清单的机制，详见 ADR-0007 与 ADR-0009。 | 清单下载、列表更新 |
+| **清单同步** | `Manifest Catalog Sync` | 客户端从独立开源收录仓库动态拉取或增量刷新应用元数据清单的机制，跟随系统代理；官方默认源首跳传输失败 / 429 / 5xx 时经加速镜像节点重试一次并严格校验（非空且 id 全部合法），详见 ADR-0007、ADR-0009 与 ADR-0025。 | 清单下载、列表更新 |
 | **缓存生存时效** | `Cache TTL` | 客户端本地持久化详情的有效周期（基线 60 分钟；设置页不暴露；后端对改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），过期后触发带 ETag 的条件重新验证；仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（我的应用、收藏）仅手动触发网络——我的应用中的可用更新为手动快照（仅显式刷新写 `update_results`，其余读库），收藏/关注凭记录自带收录标记就近读卡。 | 缓存过期时间、过期策略 |
 | **应用内仅下载** | `Download-Only` | 宿主不可安装的资产经应用内通道下载落盘、不调用安装器的模式，复用安装通道的镜像改写、SHA-256 校验与下载进度事件，落盘后可一键定位文件。 | 浏览器下载、直链下载 |
 | **便携版应用** | `Portable App` | 免安装 ZIP/二进制tarball，剥顶层解压至AppData、Linux/macOS chmod兜底，仅本平台可装，自动创建桌面快捷方式与提供卸载清理。 | 绿色软件、免安装版 |
@@ -35,7 +35,7 @@
 | **存量应用管理** | `External App Management` | 扫描操作系统已安装软件（Windows 注册表及程序目录），通过倒排索引与启发式打分智能匹配开源清单，一键添加至管理列表并接管更新。 | 软件扫描、外部导入、应用纳管 |
 | **Fluent 2 矢量图标体系** | `Fluent Vector Icon System` | 全站功能操作、导航菜单、设备平台标识及状态指示全面采用轻量线性矢量图标（`lucide-react` 与统一单色 SVG），配合 `currentColor` 主题自适应、CSS 微动效与状态指示原点（整体界面仍遵循 D4 Linear 去彩单色规范）。 | 功能Emoji、彩色贴图、图标库 |
 | **主机配额指示器** | `Host Quota Indicator` | 各托管平台 API 调用配额的监听机制：后端解析限流头并经 `zstore://quota-updated` 广播；界面暂未消费该事件，账号卡片只展示需要登录的配额说明文案。 | 配额胶囊、限流状态 |
-| **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变下载 URL 前缀，API 与登录直接走系统网络通道。 | 出站代理、镜像节点 |
+| **下载加速代理** | `Mirror Download Proxy` | 仅用于大文件下载提速的加速镜像节点重写（如 `gh-proxy.com`）；仅改变 GitHub 资产下载 URL 前缀并豁免该镜像 host，`direct` 档与非 GitHub 资产完整继承系统代理；API 与登录直接走系统网络通道。官方默认收录清单是唯一非安装包例外（见 ADR-0025）。 | 出站代理、镜像节点 |
 | **GitHub登录胶囊** | `Account Capsule` | 侧栏底部常驻账号入口：未登录显示 GitHub 快捷登录入口，已登录显示用户头像与用户名；点击直达设置中心账号卡片（`#settings-account`）。 | 侧边栏按钮、用户面板 |
 | **设置中心分组** | `Settings Groups` | `SettingsView` 规范 6 组结构：外观 / 更新与规则 / 存储与安装 / 网络（GitHub 账号卡片位于该组，锚点 `#settings-account`）/ 用户画像（本地隐私数据看板位于该组，锚点 `#settings-affinity`）/ 数据与备份（导出与备份统一操作行）。 | 设置页、选项卡 |
 | **OAuth Device Flow** | `OAuth Device Flow` | GitHub 登录设备码流程，Client ID 取自统一配置中枢 `config.toml`（支持设置项覆盖）；轮询连续失败 10 次熔断，请求超时随 `network.api_timeout_seconds`（默认 12s），轮询间隔下限 1s；`Expired` / `Denied` 独立状态机展示。 | 网页登录、PAT 登录 |
@@ -79,7 +79,7 @@
    - 应用深度详情与构建资产通过 `ForgeProvider` 抽象层按需直连各代码源官方 REST API 获取，不设中心化聚合后端；
    - 后端统一目录模块 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）结合仓储层（`src-tauri/src/repositories/`）持有远端精选目录（`catalog_apps` 表持久化，首次启动由 `catalog.json` 播种，启动后台按北京时间 14:00 / 06:00 UTC 切日每日增量同步并支持手动强制覆盖，详情刷新同步回写最新统计、版本、平台、协议、主页与图标）+ 本地收录 overlay（`custom_apps` 表）；收录检索、坐标解析、搜索、首页/分类、详情投影统一经该模块，并在 `AppSummary` / `AppDetail` 上盖章 `source`（`remote`/`local`）与 `is_cataloged`；
    - 本地 SQLite (`z_store.db`) 维护 TTL 缓存（基线 60 分钟）配合 HTTP ETag 304 条件请求；分面策略与挡位归一化详见 ADR-0007。
-   - 网络层自动继承操作系统代理；Release 大文件下载走下载加速代理（正交可叠加，详见 ADR-0002）。
+   - 网络层运行期动态继承操作系统代理（`proxy::ProxySnapshot`：启动 env → Windows 注册表 / GNOME / macOS 实时读取，5 秒采样、传输失败即重探，开关代理无需重启）；Release 大文件下载走下载加速代理（正交可叠加，详见 ADR-0002 与 ADR-0025）。官方默认收录清单首跳失败可经镜像回退，校验清单 `checksums.txt` 恒直连或走系统代理、绝不经镜像。
    - 所有已安装记录、用户设置、主机速率快照与只读令牌记录（`host_tokens`）、更新规则、关注应用、仓库特征信号（`user_repo_signals`）与本地足迹均保存在客户端本地嵌入式 SQLite 中；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，榜缓存与图标分流语义见 ADR-0014/ADR-0015，文档不记具体数字（令牌威胁模型与风险接受见 ADR-0020）。
    - 后端 commands 注册表以 `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` 为准（含 zlog 命令）；前端唯一出口为 CMD 表 + `tauriInvoke` 派发，视图层禁直调 `invoke`，请求键命名规则以 AGENTS.md 为准；前端用 `useState` 视图机（`ViewType` 见 `src/types/index.ts`）。
 3. **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
@@ -89,7 +89,7 @@
    - 采用统一的线性矢量图标体系（统一由 `lucide-react` 14px/stroke 1.5 及单色矢量 SVG 驱动并适配 `currentColor`），状态反馈采用标准 CSS 微动效（如旋转 `.icon-spin`）与高亮状态指示原点（`.status-dot`），消除视觉割裂；基底保持单色，星级收藏（金 `#eab308`）、榜单排名（金/银/铜）、本地收录徽标（橘黄 `verified-badge-local`：浅色 `#F59E0B`/深色 `#D97706`，仅未验证时叠加）与告警/错误等状态色为例外点缀，图标本体仍为单色 `currentColor`。
    - 侧栏底部账号入口胶囊与设置中心分组见词汇表；网络/认证与分组规范见 ADR-0008。
 5. **D5 双池复用 (Dual-Pool Client Reuse)**:
-   - API 与图标下载使用物理隔离的复用单例 Client，均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。清单同步另设独立第三 Client（CatalogService 自建：拉取公开静态内容、token 恒不携带，connect 5s / pool 10，超时走 `api_timeout_seconds`），与图标池同构的 token 卫生边界（见 ADR-0012）；安装包下载器（`installer::downloader_http`）按 `no_proxy` 豁免主机键维护有界复用池（`DOWNLOAD_CLIENTS`，上限 8），避免连续下载重建连接池。
+   - API 与图标下载使用物理隔离的复用 Client（`forge::http` 的 `SHARED_API` / `SHARED_ICON` 槽位，`shared_http_client` 与 API 池同池），均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。清单同步另设独立第三 Client（`CatalogService::http_client`：拉取公开静态内容、token 恒不携带，connect 5s / pool 10，超时走 `api_timeout_seconds`），与图标池同构的 token 卫生边界（见 ADR-0012）；安装包下载器（`installer::downloader_http`）按「代理签名 + 镜像豁免 host」键维护有界复用池（`DOWNLOAD_CLIENTS`，上限 8），避免连续下载重建连接池。上述四类池与趋势 doforce 直连池（`commands::network::trend_direct_client`，整体超时 5s、无 Token）均以系统代理签名为键（`proxy::ClientSlot`）：签名不变复用连接池，代理开关或切换后自动重建（见 ADR-0025）。
 6. **D6 有限并发 (Bounded Concurrency)**:
    - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（`commands/updates_check.rs` 主路径与关注通知两处），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)`（见 `icons/probe.rs`）。
     - 统一图标补探 `IconFetch` 有界池 `pool=5` 无序并发（`buffer_unordered(pool)`，见 `icons/fetch.rs`；配置见 `config.rs` 的 `IconFetchConfig`）：搜索与趋势后台均经该核心逐张 `emit` 流式补齐；趋势 enrich 批量直查侧 `buffered(5)` 保序等齐（见 `commands/catalog_search.rs`，详见 ADR-0015）。
@@ -98,10 +98,10 @@
 8. **D8 首包验图与跳过 (First-Bytes Verify & Skip)**:
    - 图标先 HEAD 判类型长度（404/410 确定性不存在状态码立即短路，不进入后续请求），再 Range 取前 32KB 验 magic，失败回退全量 GET，并以 300B 最小阈值卡掉 LFS 指针文件；下载前 SHA-256 命中即零网络跳过，ETag 收敛至统一 helper，force 模式跳过 DB 读取。
 9. **D9 趋势与首页 (Trending & Home)**:
-   - 趋势复用共享 Client（`shared_http_client`，见 `src-tauri/src/lib.rs`），经 tokio 10s 超时并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts::trendDbTtlMs`；有效 TTL 扣抖动，见同文件 `trendL2EffectiveTtlMs`）；内存 200 有界（`TRENDS_CACHE_MAX_ENTRIES`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（`TREND_DB_PAYLOAD_MAX_BYTES`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs` 的 `TREND_BOARD_CACHE_MAX_BYTES`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts` 的 `DOFORCE_RETRY_MAX_WAIT_MS` / `DOFORCE_RETRY_DEFAULT_WAIT_MS`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs`），`useTrendEnrichment` 按 `(trendResult, activeBoard)` 周期去重已尝试坐标，单仓 enrich 缺席不重入递增 `BOARD_GEN`；enrich 批量直查侧 `buffered(5)` 保序等齐（同上）。精选页展示后端一次组装的推荐货架（`get_featured_page`，画像状态分档与推荐理由见 ADR-0023）及下方的「继续查看」最近浏览富卡区块，全库浏览由分类与搜索承接；后端 `get_home_feed` 仍保留固定 `balanced` 排序与日期种子（见 ADR-0013）。
+   - 趋势复用共享 Client（`shared_http_client`，见 `src-tauri/src/lib.rs`），`github.com` / `api.github.com` 经 tokio 10s 超时、doforce 直连 5s 失败且有系统代理时经代理重试 6s（见 ADR-0025），并截断 2MB 防爆内存；榜缓存一级内存分档（榜 L1，daily 1h/weekly-monthly-new 12h/其余 5min）+ 榜缓存二级落盘双档（榜 L2，daily 1h/其余 12h，见 `src/services/trends/cache.ts::trendDbTtlMs`；有效 TTL 扣抖动，见同文件 `trendL2EffectiveTtlMs`）；内存 200 有界（`TRENDS_CACHE_MAX_ENTRIES`）、切榜 sweep 无 timer；写盘 FE 256KB 预检、超限逐级裁剪（`TREND_DB_PAYLOAD_MAX_BYTES`）、BE 512KiB 硬拒绝（见 `src-tauri/src/db/cache.rs` 的 `TREND_BOARD_CACHE_MAX_BYTES`）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错，缺席留占位，避免第二片顶掉第一片慢尾）；429 透传 `retry_after_ms` 单次重试（上限 60s 缺省 5s，见 `src/services/trends/cache.ts` 的 `DOFORCE_RETRY_MAX_WAIT_MS` / `DOFORCE_RETRY_DEFAULT_WAIT_MS`；详见 ADR-0014）；趋势 enrich 后台流式补探（首屏快返 + `fetch_icons_stream(Trend)` 逐张 emit，见 `src-tauri/src/commands/catalog_search.rs`），`useTrendEnrichment` 按 `(trendResult, activeBoard)` 周期去重已尝试坐标，单仓 enrich 缺席不重入递增 `BOARD_GEN`；enrich 批量直查侧 `buffered(5)` 保序等齐（同上）。精选页展示后端一次组装的推荐货架（`get_featured_page`，画像状态分档与推荐理由见 ADR-0023）及下方的「继续查看」最近浏览富卡区块，全库浏览由分类与搜索承接；后端 `get_home_feed` 仍保留固定 `balanced` 排序与日期种子（见 ADR-0013）。
 10. **D10 统一图标获取 (Unified Icon Fetch)**:
     - 后端统一核心为 `src-tauri/src/icons/fetch.rs` 的 `fetch_icons_stream`，搜索、趋势与收藏页 Star 列表后台均接入该核心逐张补齐；三者各用独立世代计数器（`SEARCH_GEN` / `BOARD_GEN` / `STARRED_GEN`），互不作废对方的在途补图。
-    - 前端图标写入口唯一收口于 `src/services/iconStore.ts` 的 `admitIconHit`；`get_or_fetch_icon` 落盘读回 `data:` 后经 `subscribeIconDataReady` 通知挂载的 `AppIcon` 即时切换为本地 `data:`（远端 `<img>` 因网络波动报错后亦自动自愈恢复）；`enrichTrendReposCore` 与 `putTrendEnrichMemory` 收到确认 `data:` 图标时同步经 `admitIconHit({ via: 'm2' })` 写入 M1 内存缓冲，并将 `icon` 剥空为 `''` 后把完整富卡写入 `trendEnrichCache` 与 L2 `trend_board_cache`（绝不因 `data:` 丢弃富卡）。
+    - 前端图标写入口唯一收口于 `src/services/iconStore.ts` 的 `admitIconHit`；`get_or_fetch_icon` 落盘读回 `data:` 后经 `subscribeIconDataReady` 通知挂载的 `AppIcon` 即时切换为本地 `data:`。真实 Tauri 运行时下未命中 `data:` 的远端图标不挂远端 `<img>`，由后端单飞获取；后端失败进入退避并唤醒组件后才回退 WebView 直连，再失败定格首字母徽章（非 Tauri 单测与官网 Demo 直出远端 `<img>`，报错后经后端自愈）。README / 更新日志插图（`useResolvedMarkdownImages`）与 GitHub 头像（`CachedAvatar`）经 `fetch_or_cache_asset_url` 返回 `data:` 渲染，同一图片不前后端双发（见 ADR-0025）；`enrichTrendReposCore` 与 `putTrendEnrichMemory` 收到确认 `data:` 图标时同步经 `admitIconHit({ via: 'm2' })` 写入 M1 内存缓冲，并将 `icon` 剥空为 `''` 后把完整富卡写入 `trendEnrichCache` 与 L2 `trend_board_cache`（绝不因 `data:` 丢弃富卡）。
     - 搜缓存为 `src/services/search/searchListCache.ts` 纯前端内存缓存（key=`命名空间|归一query|page|perPage`，命名空间缺省 `search`，收藏页 Star 列表用 `starred`；读写入口 `readSearchListCache` / `writeSearchListCache`，详情更新经 `patchSearchListCacheRows` 全字段写透；TTL 30min、上限 50 条 FIFO 以 `searchListCache.ts` 常量为准），不碰榜缓存二级落盘与趋势榜缓存。
     - 图标就绪事件：只发 `zstore://icon-ready`（见 `src-tauri/src/icons/fetch.rs` 的 `emit_icon_ready`），前后端同一事件，载荷 `{id,icon,level,via,context}`（`id` 即小写 `owner/repo`，与 DB 主键同源）。
     - 详情走全层级探测（`pick_detail_icon_with_level` 显式保留 L1 官方 / L2 SimpleIcons / L3 Git Trees / L4 README 真实来源级别，L2/L3 与 L4 同时命中时顺手通过 `fill_probe_slot` 补齐 `l4_url` 备选槽；L3 分支解析 `resolve_probe_branches` 与详情均在 `default_branch` 失败时回退 `"HEAD"`），不受统一流式核心熔断约束。
