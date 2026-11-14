@@ -683,11 +683,13 @@ async fn fetch_detail_from_forge(
         .filter(|l| !l.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| "OpenSource".to_string());
-    let homepage = repo_info
-        .homepage
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| catalog_item.as_ref().and_then(|i| i.homepage.clone()));
+    let homepage = crate::github::detail_fetch::resolve_homepage(
+        repo_info.homepage.as_deref(),
+        catalog_item.as_ref().and_then(|i| i.homepage.as_deref()),
+        &coord.host,
+        &coord.owner,
+        &coord.repo,
+    );
     let mut detail = AppDetail {
         core: AppCore {
             id: clean_id.clone(),

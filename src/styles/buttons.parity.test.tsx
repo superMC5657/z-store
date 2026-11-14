@@ -146,6 +146,23 @@ describe('CSS button scale & inverted optical parity', () => {
     expect(modalCss).toContain('.modal-header-btn:focus-visible');
   });
 
+  it('defines monochrome .modal-meta-link states in components-modal.css', () => {
+    const rule = (selector: string): string => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const m = modalCss.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`));
+      expect(m, `${selector} must be defined`).toBeTruthy();
+      return m![1];
+    };
+    expect(rule('.modal-meta-link')).toContain('var(--text-secondary)');
+    const hover = rule('.modal-meta-link:hover');
+    expect(hover).toContain('var(--text-primary)');
+    expect(hover).toContain('var(--bg-acrylic-hover)');
+    expect(rule('.modal-meta-link:focus-visible')).toContain('var(--border-highlight)');
+    const metaBlocks = modalCss.match(/\.modal-meta-link[^{]*\{[^}]*\}/g) ?? [];
+    expect(metaBlocks.length).toBeGreaterThanOrEqual(4);
+    for (const block of metaBlocks) expect(block).not.toContain('--brand-primary');
+  });
+
   it('does not override .btn-icon-only padding in modal install-action-buttons', () => {
     expect(modalCss).not.toMatch(/\.install-action-buttons\s+\.btn-fluent\s*\{/);
     expect(modalCss).toMatch(/\.modal-header-btn\.modal-close-btn\s*\{[^}]*position:\s*relative;/s);
@@ -418,5 +435,38 @@ describe('Component sibling button parity', () => {
     expect(cancelBtn).toBeTruthy();
     expect(cancelBtn.style.width).toBe('');
     expect(cancelBtn.style.padding).toBe('');
+  });
+
+  it('AppDetailModal repo meta links and developer button carry no inline brand color', () => {
+    const { container } = render(
+      <AppDetailModal
+        app={{
+          ...SAMPLE_APP,
+          homepage: 'https://acme.example.com',
+          changelog: '',
+          readme_markdown: '',
+          releases: [],
+          isLoading: false,
+        }}
+        isInstalled={false}
+        platformLoading={false}
+        onClose={() => {}}
+        onInstall={async () => {}}
+        onLaunch={() => {}}
+        onOpenDeveloperProfile={() => {}}
+      />,
+    );
+    const repoBar = container.querySelector('.modal-app-repo') as HTMLElement;
+    expect(repoBar).toBeTruthy();
+    expect(repoBar.getAttribute('style')).toBeNull();
+    const links = repoBar.querySelectorAll('a');
+    expect(links.length).toBe(3);
+    for (const a of links) {
+      expect(a.classList.contains('modal-meta-link')).toBe(true);
+      expect(a.getAttribute('style') ?? '').not.toContain('--brand-primary');
+    }
+    const devBtn = repoBar.querySelector('button') as HTMLElement;
+    expect(devBtn).toBeTruthy();
+    expect(devBtn.getAttribute('style') ?? '').not.toContain('--brand-primary');
   });
 });

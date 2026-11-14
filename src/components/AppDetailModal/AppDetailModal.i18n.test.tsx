@@ -177,6 +177,38 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     expect(screen.getByTitle(/Next level: L2Brand Asset \(2\/5\)/)).toBeTruthy();
   });
 
+  it('switches the official homepage entry between Chinese and English', async () => {
+    const url = 'https://demo.example.org/docs?ref=zstore';
+    const renderWith = (app: AppDetailViewModel) =>
+      render(
+        <Header
+          app={app}
+          displayName="Demo App"
+          displayDesc="A test demo app"
+          displayCategory="开发工具"
+          platformLoading={false}
+          onClose={() => {}}
+        />,
+      );
+
+    await i18n.changeLanguage('zh-CN');
+    let view = renderWith({ ...FIXTURE_APP, homepage: url });
+    expect(screen.getByText('官方主页')).toBeTruthy();
+    expect(screen.getByTitle(`访问官方主页: ${url}`)).toBeTruthy();
+    view.unmount();
+    view = renderWith(FIXTURE_APP);
+    expect(screen.queryByTestId('detail-homepage-link')).toBeNull();
+    view.unmount();
+
+    await i18n.changeLanguage('en-US');
+    view = renderWith({ ...FIXTURE_APP, homepage: url });
+    expect(screen.getByText('Homepage')).toBeTruthy();
+    expect(screen.getByTitle(`Open official homepage: ${url}`)).toBeTruthy();
+    view.unmount();
+    renderWith(FIXTURE_APP);
+    expect(screen.queryByTestId('detail-homepage-link')).toBeNull();
+  });
+
   it('switches the icon-cycle success toast between Chinese and English', async () => {
     const toastTexts: string[] = [];
     const listener = (e: Event): void => {

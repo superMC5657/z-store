@@ -158,6 +158,25 @@ impl CatalogItem {
         if self.added_at.is_some() {
             core.added_at = self.added_at.clone();
         }
+        // 精校主页合法时，缓存主页缺失/空白或仅为仓库自链即回填；其余缓存值原样保留
+        if let Some(curated) = self
+            .homepage
+            .as_deref()
+            .and_then(crate::github::detail_fetch::normalize_http_homepage)
+        {
+            let needs_backfill = match core.homepage.as_deref().map(str::trim) {
+                None | Some("") => true,
+                Some(cached) => crate::github::detail_fetch::is_same_repo_homepage(
+                    cached,
+                    core.forge_host.as_deref().unwrap_or(""),
+                    &core.owner,
+                    &core.repo,
+                ),
+            };
+            if needs_backfill {
+                core.homepage = Some(curated);
+            }
+        }
     }
 
     /// 判定版本号是否为非空且非 `"latest"` 占位的真实版本号。
@@ -215,7 +234,23 @@ impl CatalogItem {
         }
         if let Some(ref hp) = detail.core.homepage {
             let trimmed = hp.trim();
-            if !trimmed.is_empty() && self.homepage.as_deref() != Some(trimmed) {
+            let forge_host = detail.core.forge_host.as_deref().unwrap_or("");
+            let is_self = |u: &str| {
+                crate::github::detail_fetch::is_same_repo_homepage(
+                    u,
+                    forge_host,
+                    &detail.core.owner,
+                    &detail.core.repo,
+                )
+            };
+            // 详情仅带仓库自链时不冲掉目录已精校的独立官网
+            let keeps_curated = is_self(trimmed)
+                && self
+                    .homepage
+                    .as_deref()
+                    .and_then(crate::github::detail_fetch::normalize_http_homepage)
+                    .is_some_and(|c| !is_self(&c));
+            if !trimmed.is_empty() && !keeps_curated && self.homepage.as_deref() != Some(trimmed) {
                 self.homepage = Some(trimmed.to_string());
                 changed = true;
             }
@@ -395,5 +430,93 @@ mod tests {
         assert_eq!(core.category, "tools");
         assert_eq!(core.category_name, "开发工具");
         assert_eq!(core.added_at.as_deref(), Some("2026-11-10"));
+        assert_eq!(core.homepage, None);
+    }
+
+    fn homepage_core(homepage: Option<&str>) -> AppCore {
+        AppCore {
+            id: "OpenMW/openmw".to_string(),
+            name: "OpenMW".to_string(),
+            owner: "OpenMW".to_string(),
+            repo: "openmw".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            stars: 10,
+            forks: 0,
+            license: "GPL-3.0".to_string(),
+            latest_version: "v1.0.0".to_string(),
+            category: "game".to_string(),
+            category_name: "游戏".to_string(),
+            is_verified: false,
+            forge: Some("github".to_string()),
+            forge_host: Some("github.com".to_string()),
+            homepage: homepage.map(str::to_string),
+            platforms: vec![],
+            added_at: None,
+            is_cataloged: None,
+            source: None,
+            status: None,
+        }
+    }
+
+    fn curated_openmw() -> CatalogItem {
+        let mut item = dummy_item(vec![]);
+        item.id = "OpenMW/openmw".to_string();
+        item.owner = "OpenMW".to_string();
+        item.repo = "openmw".to_string();
+        item.homepage = Some("https://gitlab.com/OpenMW/openmw".to_string());
+        item
+    }
+
+    #[test]
+    fn test_overlay_detail_core_heals_missing_or_self_link_homepage() {
+        let item = curated_openmw();
+        let curated = Some("https://gitlab.com/OpenMW/openmw".to_string());
+
+        let mut core = homepage_core(None);
+        item.overlay_detail_core(&mut core);
+        assert_eq!(core.homepage, curated);
+
+        let mut core = homepage_core(Some("   "));
+        item.overlay_detail_core(&mut core);
+        assert_eq!(core.homepage, curated);
+
+        let mut core = homepage_core(Some("https://github.com/openmw/openmw/"));
+        item.overlay_detail_core(&mut core);
+        assert_eq!(core.homepage, curated);
+
+        // 缓存已有独立官网时保留
+        let mut core = homepage_core(Some("https://openmw.org"));
+        item.overlay_detail_core(&mut core);
+        assert_eq!(core.homepage.as_deref(), Some("https://openmw.org"));
+    }
+
+    #[test]
+    fn test_merge_from_detail_keeps_curated_homepage_against_repo_self_link() {
+        let detail_with = |hp: &str| crate::models::AppDetail {
+            core: homepage_core(Some(hp)),
+            changelog: String::new(),
+            readme_markdown: String::new(),
+            readme_variants: None,
+            releases: vec![],
+            cached_at: None,
+            is_stale: None,
+        };
+
+        let mut item = curated_openmw();
+        item.merge_from_detail(&detail_with("https://github.com/OpenMW/openmw"));
+        assert_eq!(item.homepage.as_deref(), Some("https://gitlab.com/OpenMW/openmw"));
+
+        // 目录无主页时自链照常写入；独立官网照常覆盖
+        let mut bare = curated_openmw();
+        bare.homepage = None;
+        assert!(bare.merge_from_detail(&detail_with("https://github.com/OpenMW/openmw")));
+        assert_eq!(bare.homepage.as_deref(), Some("https://github.com/OpenMW/openmw"));
+
+        let mut item = curated_openmw();
+        assert!(item.merge_from_detail(&detail_with("https://openmw.org")));
+        assert_eq!(item.homepage.as_deref(), Some("https://openmw.org"));
     }
 }

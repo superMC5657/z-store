@@ -195,10 +195,65 @@
 }
 
 .modal-app-repo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
   font-size: var(--font-sm);
   color: var(--text-tertiary);
   margin-bottom: 6px;
   letter-spacing: -0.011em;
+}
+
+.modal-meta-sep {
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+/* 详情顶栏单色外链入口（仓库 / 官方主页 / 问题反馈统一 D4 去彩单色交互） */
+.modal-meta-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 510;
+  line-height: 1.3;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.12s var(--ease-smooth),
+              background 0.12s var(--ease-smooth),
+              border-color 0.12s var(--ease-smooth),
+              transform 0.12s var(--ease-smooth);
+}
+
+.modal-meta-link svg {
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.modal-meta-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-acrylic-hover);
+  border-color: var(--border-subtle);
+}
+
+.modal-meta-link:active {
+  transform: scale(0.97);
+}
+
+.modal-meta-link:focus-visible {
+  outline: 2px solid var(--border-highlight);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-meta-link {
+    transition: none;
+  }
 }
 
 .modal-tags {

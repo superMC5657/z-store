@@ -646,3 +646,74 @@ describe('useDetailCacheSync：图标三态', () => {
     clearSearchListCache();
   });
 });
+
+describe('useDetailCacheSync：官方主页同步', () => {
+  it('后台静默探查发现主页变化：selectedApp.homepage 随之更新', async () => {
+    const { result, params } = renderSync();
+    result.current.appDetailMemoryCache.current.set('acme/atlas', makeDetail({ homepage: null }));
+    mocks.getAppDetails.mockResolvedValue(makeDetail({ homepage: 'https://atlas.dev' }));
+
+    await act(async () => {
+      await result.current.handleOpenDetail('acme/atlas');
+    });
+    await flushMicrotasks();
+
+    const prev: AppDetailViewModel = { ...makeDetail({ homepage: null }), isLoading: false };
+    const next = resolveSetter<AppDetailViewModel | null>(params.setSelectedApp, prev);
+    expect(next).not.toBe(prev);
+    expect(next?.homepage).toBe('https://atlas.dev');
+  });
+
+  it('内存快照主页为空：用目录命中的主页治愈首帧', async () => {
+    const { result, params } = renderSync({
+      appsRef: { current: [makeApp({ id: 'acme/atlas', homepage: 'https://atlas.dev' })] },
+    });
+    result.current.appDetailMemoryCache.current.set('acme/atlas', makeDetail({ homepage: '' }));
+    mocks.getAppDetails.mockReturnValue(new Promise(() => {}));
+
+    await act(async () => {
+      await result.current.handleOpenDetail('acme/atlas');
+    });
+
+    expect(params.setSelectedApp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'acme/atlas', homepage: 'https://atlas.dev', isLoading: false }),
+    );
+  });
+
+  it('详情返回无主页：保留首帧已治愈的主页，不闪现后消失', async () => {
+    const { result, params } = renderSync({
+      appsRef: { current: [makeApp({ id: 'acme/atlas', homepage: 'https://atlas.dev' })] },
+    });
+    result.current.appDetailMemoryCache.current.set('acme/atlas', makeDetail({ homepage: '' }));
+    mocks.getAppDetails.mockResolvedValue(makeDetail({ homepage: null }));
+
+    await act(async () => {
+      await result.current.handleOpenDetail('acme/atlas');
+    });
+    await flushMicrotasks();
+
+    const prev: AppDetailViewModel = { ...makeDetail({ homepage: 'https://atlas.dev' }), isLoading: false };
+    const next = resolveSetter<AppDetailViewModel | null>(params.setSelectedApp, prev);
+    expect(next?.homepage).toBe('https://atlas.dev');
+
+    // 列表行同样保留主页，下次内存命中仍可治愈
+    const patched = applyListSetter(params.setApps, [makeApp({ id: 'acme/atlas', homepage: 'https://atlas.dev' })]);
+    expect(patched[0]?.homepage).toBe('https://atlas.dev');
+  });
+
+  it('未收录趋势仓：富卡已带主页时首帧同步展示（不等 getAppDetails）', async () => {
+    putTrendEnrichMemory({
+      'acme/atlas': makeApp({ id: 'acme/atlas', homepage: 'https://atlas.dev', platforms: ['windows'] }),
+    });
+    const { result, params } = renderSync();
+    mocks.getAppDetails.mockReturnValue(new Promise(() => {}));
+
+    await act(async () => {
+      void result.current.handleOpenDetail('acme/atlas');
+    });
+
+    expect(params.setSelectedApp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'acme/atlas', homepage: 'https://atlas.dev', isLoading: true }),
+    );
+  });
+});

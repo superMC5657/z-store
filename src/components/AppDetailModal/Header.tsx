@@ -6,6 +6,8 @@ import {
   Clock,
   AlertTriangle,
   X,
+  Globe,
+  ExternalLink,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
@@ -14,12 +16,18 @@ import { AppIconFrame } from '../AppIconFrame';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../useToasts';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
-import { formatBytes, isCatalogedFailClosed } from '../../utils/appHelper';
+import {
+  buildAppRepoUrl,
+  formatBytes,
+  isCatalogedFailClosed,
+  resolveExternalHomepageUrl,
+} from '../../utils/appHelper';
 import { PlatformIcon, ForgeIcon, WatchEyeIcon } from '../icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
 import { resolveRemoteIconUrl } from '../../services/custom';
+import { zlogWarn } from '../../lib/z-log';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -27,7 +35,10 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 export function handleOpenExternal(e: React.MouseEvent, url: string): void {
   e.preventDefault();
   e.stopPropagation();
-  tauriApi.openUrl(url);
+  // 失败不冒泡为 unhandledrejection（会被全局处理器重复落盘），改为单行 [ui] 告警
+  void tauriApi.openUrl(url).catch((err: unknown) => {
+    zlogWarn(`open external url failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
 }
 
 interface HeaderProps {
@@ -267,11 +278,18 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const repoUrl = useMemo(
+    () => buildAppRepoUrl({ forge_host: app.forge_host, owner: app.owner, repo: app.repo }),
+    [app.forge_host, app.owner, app.repo],
+  );
+  // 主页与仓库自身地址等价（或非合法 http(s)）时不展示，避免与仓库外链重复
+  const homepageUrl = useMemo(
+    () => resolveExternalHomepageUrl(app.homepage, repoUrl),
+    [app.homepage, repoUrl],
+  );
+
   // 问题反馈 → 预填标题与正文直达仓库 Issues 新建页（复用 openUrl 外链通道）
   const handleOpenIssueFeedback = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const host = app.forge_host || 'github.com';
     const title = encodeURIComponent(
       t('detail.issue_feedback_title', { name: displayName, version: app.latest_version }),
     );
@@ -281,7 +299,7 @@ export const Header: React.FC<HeaderProps> = ({
         platform: navigator.platform,
       }),
     );
-    tauriApi.openUrl(`https://${host}/${app.owner}/${app.repo}/issues/new?title=${title}&body=${body}`);
+    handleOpenExternal(e, `${repoUrl}/issues/new?title=${title}&body=${body}`);
   };
 
   return (
@@ -399,16 +417,13 @@ export const Header: React.FC<HeaderProps> = ({
             return null;
           })()}
         </div>
-        <div className="modal-app-repo" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+        <div className="modal-app-repo">
           {onOpenDeveloperProfile ? (
             <button
               type="button"
               onClick={() => onOpenDeveloperProfile(app.owner)}
               className="btn-fluent btn-secondary btn-sm"
-              style={{
-                borderRadius: 'var(--radius-xs)',
-                color: 'var(--brand-primary)',
-              }}
+              style={{ borderRadius: 'var(--radius-xs)' }}
               title={t('detail.owner_profile_title', { owner: app.owner })}
             >
               <User size={12} strokeWidth={1.5} />
@@ -417,38 +432,54 @@ export const Header: React.FC<HeaderProps> = ({
           ) : (
             <span>{app.owner}</span>
           )}
-          <span>/</span>
+          <span className="modal-meta-sep" aria-hidden="true">/</span>
           <a
-            href={app.forge_host ? `https://${app.forge_host}/${app.owner}/${app.repo}` : `https://github.com/${app.owner}/${app.repo}`}
-            onClick={(e) =>
-              handleOpenExternal(
-                e,
-                app.forge_host
-                  ? `https://${app.forge_host}/${app.owner}/${app.repo}`
-                  : `https://github.com/${app.owner}/${app.repo}`,
-              )
-            }
+            href={repoUrl}
+            onClick={(e) => handleOpenExternal(e, repoUrl)}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ fontWeight: 510, color: 'inherit', textDecoration: 'none' }}
+            className="modal-meta-link"
             title={t('detail.repo_open_title')}
           >
             {app.repo} ↗
           </a>
-          <span>·</span>
+          <span className="modal-meta-sep" aria-hidden="true">·</span>
           <span>{t('detail.latest_release', { version: app.latest_version })}</span>
-          <span>·</span>
-          <a
-            href={`https://${app.forge_host || 'github.com'}/${app.owner}/${app.repo}/issues/new`}
-            onClick={handleOpenIssueFeedback}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontWeight: 510, color: 'var(--brand-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-            title={t('detail.issue_link_title')}
-          >
-            <Bug size={12} strokeWidth={1.5} />
-            <span>{t('detail.issue_link')}</span>
-          </a>
+          {homepageUrl && (
+            <>
+              <span className="modal-meta-sep" aria-hidden="true">·</span>
+              <a
+                href={homepageUrl}
+                onClick={(e) => handleOpenExternal(e, homepageUrl)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="modal-meta-link modal-homepage-link"
+                data-testid="detail-homepage-link"
+                title={t('detail.homepage_open_title', { url: homepageUrl })}
+              >
+                <Globe size={12} strokeWidth={1.5} aria-hidden="true" />
+                <span>{t('detail.homepage_link')}</span>
+                <ExternalLink size={11} strokeWidth={1.5} aria-hidden="true" />
+              </a>
+            </>
+          )}
+          {/* owner/repo 缺失时 repoUrl 为空，反馈地址会退化为相对路径，故不渲染 */}
+          {repoUrl && (
+            <>
+              <span className="modal-meta-sep" aria-hidden="true">·</span>
+              <a
+                href={`${repoUrl}/issues/new`}
+                onClick={handleOpenIssueFeedback}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="modal-meta-link"
+                title={t('detail.issue_link_title')}
+              >
+                <Bug size={12} strokeWidth={1.5} aria-hidden="true" />
+                <span>{t('detail.issue_link')}</span>
+              </a>
+            </>
+          )}
           <IconLevelBadge
             isCataloged={isCataloged}
             isCyclingIcon={isCyclingIcon}

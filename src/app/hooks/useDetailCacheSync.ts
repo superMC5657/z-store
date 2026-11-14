@@ -52,6 +52,10 @@ function pickRealDescription(v: unknown): string | undefined {
   return v;
 }
 
+function nonBlankString(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
 export function useDetailCacheSync({
   selectedApp,
   appsRef,
@@ -202,16 +206,27 @@ export function useDetailCacheSync({
         if (detailDescEnIsPlaceholder) {
           nextDescEn = enrichDescEn ?? pickRealDescription(prev?.description_en) ?? '';
         }
-        if (!prev) return { ...detail, description: nextDesc, description_en: nextDescEn, isLoading: false, isRefreshing: false };
+        // 详情无主页时保留首帧已展示的主页（来自列表行/富卡，后端未必可见），避免入口闪现后消失
+        const nextHomepage = nonBlankString(detail.homepage) ?? nonBlankString(prev?.homepage) ?? detail.homepage ?? null;
+        const healed = {
+          ...detail,
+          description: nextDesc,
+          description_en: nextDescEn,
+          homepage: nextHomepage,
+          isLoading: false,
+          isRefreshing: false,
+        };
+        if (!prev) return healed;
         if (
           !isBackgroundSilent ||
           prev.latest_version !== detail.latest_version ||
           prev.releases.length !== detail.releases.length ||
           prev.stars !== detail.stars ||
+          (prev.homepage ?? null) !== nextHomepage ||
           detailDescIsPlaceholder ||
           detailDescEnIsPlaceholder
         ) {
-          return { ...detail, description: nextDesc, description_en: nextDescEn, isLoading: false, isRefreshing: false };
+          return healed;
         }
         return prev;
       });
@@ -248,7 +263,8 @@ export function useDetailCacheSync({
         typeof nextDescriptionEnRaw === 'string' && isPlaceholderDescription(nextDescriptionEnRaw)
           ? (enrichDescEn ?? app.description_en)
           : nextDescriptionEnRaw;
-      const nextHomepage = detail.homepage;
+      // 详情无主页时保留列表行已有主页，供下次内存命中治愈首帧
+      const nextHomepage = nonBlankString(detail.homepage) ?? app.homepage;
       // 详情显式收录位同步：未收录（false）恒写透（dev 猜分类行经此得显式 false，
       // Header/卡片按显式位判定收录）；已收录（true）仅纠正已有显式位，
       // 目录行保持无标记（category 兜底仍为已收录，避免全量 churn）。
@@ -530,6 +546,10 @@ export function useDetailCacheSync({
         ) {
           cachedForShow = { ...cachedForShow, description: catalogHit.description };
         }
+        const catalogHomepage = nonBlankString(catalogHit?.homepage);
+        if (!nonBlankString(cachedForShow.homepage) && catalogHomepage) {
+          cachedForShow = { ...cachedForShow, homepage: catalogHomepage };
+        }
         if (catalogHit?.icon && catalogHit.icon.trim() !== '' && cachedForShow.icon !== catalogHit.icon) {
           cachedForShow = { ...cachedForShow, icon: catalogHit.icon };
         }
@@ -590,6 +610,7 @@ export function useDetailCacheSync({
     // 富卡为空/占位时保持现有逻辑（loading 文案或空简介渲染），不引入新占位文案。
     let enrichInitialDesc: string | undefined;
     let enrichInitialDescEn: string | undefined;
+    let enrichInitialHomepage: string | undefined;
     try {
       const snap = snapshotTrendEnrichCache();
       const enrichKeys: string[] = [idClean];
@@ -612,7 +633,14 @@ export function useDetailCacheSync({
           const candEn = pickRealDescription(hit.description_en);
           if (candEn !== undefined) enrichInitialDescEn = candEn;
         }
-        if (enrichInitialDesc !== undefined && enrichInitialDescEn !== undefined) break;
+        if (enrichInitialHomepage === undefined) enrichInitialHomepage = nonBlankString(hit.homepage);
+        if (
+          enrichInitialDesc !== undefined &&
+          enrichInitialDescEn !== undefined &&
+          enrichInitialHomepage !== undefined
+        ) {
+          break;
+        }
       }
     } catch {
       // 快照失败即无富卡兜底，保持原有初始逻辑
@@ -643,7 +671,7 @@ export function useDetailCacheSync({
           category_name: existing.category_name,
           forge: existing.forge,
           forge_host: existing.forge_host,
-          homepage: existing.homepage,
+          homepage: nonBlankString(existing.homepage) ?? enrichInitialHomepage ?? null,
           platforms: existing.platforms,
           isLoading: true,
           isRefreshing: forceRefresh,
@@ -669,7 +697,7 @@ export function useDetailCacheSync({
           category_name: '应用',
           forge: 'github',
           forge_host: 'github.com',
-          homepage: null,
+          homepage: enrichInitialHomepage ?? null,
           platforms: [],
           isLoading: true,
           isRefreshing: forceRefresh,

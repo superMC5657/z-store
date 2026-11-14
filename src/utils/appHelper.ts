@@ -327,5 +327,88 @@ export function detectHostArch(userAgent?: string): HostArch {
   return 'x86_64';
 }
 
+/**
+ * 当前代码仓库网页地址：`https://{forge_host || 'github.com'}/{owner}/{repo}`。
+ * `forge_host` 误带的协议头与尾斜杠会被剥除；owner/repo 任一为空返回 `''`。
+ */
+export function buildAppRepoUrl(app: {
+  forge_host?: string | null;
+  owner?: string | null;
+  repo?: string | null;
+}): string {
+  const host =
+    (app.forge_host ?? '')
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/+$/, '') || 'github.com';
+  const owner = (app.owner ?? '').trim().replace(/^\/+|\/+$/g, '');
+  const repo = (app.repo ?? '').trim().replace(/^\/+|\/+$/g, '');
+  if (!owner || !repo) return '';
+  return `https://${host}/${owner}/${repo}`;
+}
 
+function comparableHost(u: URL): string {
+  const host = u.hostname.replace(/\.+$/, '').toLowerCase().replace(/^www\./, '');
+  return u.port ? `${host}:${u.port}` : host;
+}
 
+function comparableRepoPath(pathname: string): string {
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    // 非法 % 序列按原文比较
+  }
+  return decoded
+    .replace(/\/+/g, '/')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/i, '')
+    .toLowerCase();
+}
+
+/**
+ * 详情顶栏「官方主页」外链决议（渲染期守卫，覆盖未经后端 `resolve_homepage` 清洗的列表行/富卡主页）：
+ * - 仅接受无内部空白、无内嵌凭据、主机合法（含 `.`、`localhost` 或 IPv6）的绝对 `http(s)` 网址；
+ *   与后端 `normalize_http_homepage` 不同，裸域名（如 `zed.dev`）不补 `https://`，直接拒绝；
+ * - 与 `repoUrl` 主机（小写、去 `www.`、保留非默认端口）及仓库路径（整段解码、折叠 `/`、去尾 `/` 与 `.git`、小写）
+ *   都相等时视为仓库自身页面，返回 `null`，避免与仓库外链重复（后端 `is_same_repo_homepage` 为逐段解码，
+ *   仅在路径段内含 `%2F` 时结论可能不同）；
+ * - 其余返回原文，仅把协议头归一为小写。
+ */
+export function resolveExternalHomepageUrl(homepage: unknown, repoUrl: string): string | null {
+  if (typeof homepage !== 'string') return null;
+  const trimmed = homepage.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  if (parsed.username || parsed.password) return null;
+  const cleanHost = parsed.hostname.replace(/\.+$/, '').toLowerCase();
+  if (!cleanHost || cleanHost.startsWith('.')) return null;
+  if (
+    !cleanHost.includes('.') &&
+    cleanHost !== 'localhost' &&
+    !(cleanHost.startsWith('[') && cleanHost.endsWith(']'))
+  ) {
+    return null;
+  }
+  const repoTrimmed = repoUrl.trim();
+  if (repoTrimmed) {
+    try {
+      const repoParsed = new URL(repoTrimmed);
+      if (
+        comparableHost(parsed) === comparableHost(repoParsed) &&
+        comparableRepoPath(parsed.pathname) === comparableRepoPath(repoParsed.pathname)
+      ) {
+        return null;
+      }
+    } catch {
+      // repoUrl 不可解析时不做判重
+    }
+  }
+  return trimmed.replace(/^https?:/i, (scheme) => scheme.toLowerCase());
+}

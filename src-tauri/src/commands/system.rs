@@ -27,12 +27,30 @@ pub fn get_cli_deep_link() -> Option<String> {
     None
 }
 
+/// 外链安全校验：协议头大小写不敏感（与前端 `openUrl` 的 `/^https?:\/\//i` 对齐），
+/// 归一为小写 `http://` / `https://`；拒绝空串、内部空白、非网页协议、内嵌凭据与空主机。
+pub(crate) fn validate_external_http_url(url: &str) -> Result<String, String> {
+    const REJECT: &str = "仅支持打开 http/https 协议的安全链接";
+    let trimmed = url.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_whitespace) {
+        return Err(REJECT.to_string());
+    }
+    let clean = crate::github::detail_fetch::lowercase_http_scheme(trimmed)
+        .ok_or_else(|| REJECT.to_string())?;
+    let parsed = reqwest::Url::parse(&clean).map_err(|_| REJECT.to_string())?;
+    if !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.host_str().is_none_or(str::is_empty)
+    {
+        return Err(REJECT.to_string());
+    }
+    Ok(clean)
+}
+
 /// 拉起外部默认浏览器打开安全链接（http/https）。
 pub fn open_external_url(url: &str) -> Result<bool, String> {
-    let clean = url.trim();
-    if !clean.starts_with("http://") && !clean.starts_with("https://") {
-        return Err("仅支持打开 http/https 协议的安全链接".to_string());
-    }
+    let clean = validate_external_http_url(url)?;
+    let clean = clean.as_str();
 
     #[cfg(target_os = "windows")]
     {
@@ -144,4 +162,35 @@ pub fn open_desktop_path(path: &std::path::Path, select_file: bool) -> Result<bo
 #[tauri::command]
 pub fn open_url(url: String) -> crate::AppResult<bool> {
     Ok(open_external_url(&url)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_external_http_url as validate;
+
+    #[test]
+    fn test_validate_external_http_url_accepts_case_variant_http_schemes() {
+        assert_eq!(
+            validate("HTTPS://example.com/path").as_deref(),
+            Ok("https://example.com/path")
+        );
+        assert_eq!(validate("  http://example.com ").as_deref(), Ok("http://example.com"));
+    }
+
+    #[test]
+    fn test_validate_external_http_url_rejects_non_web_inputs() {
+        for bad in [
+            "",
+            "   ",
+            "ftp://files.example.com",
+            "javascript:alert(1)",
+            "file:///C:/test",
+            "zstore://app/o/r",
+            "https://user:pass@example.com",
+            "https://example.com/a b",
+            "https://",
+        ] {
+            assert!(validate(bad).is_err(), "{bad:?} must be rejected");
+        }
+    }
 }

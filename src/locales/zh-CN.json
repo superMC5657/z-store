@@ -722,6 +722,8 @@
     "close_aria": "关闭详情弹窗",
     "owner_profile_title": "查看开发者 {{owner}}",
     "repo_open_title": "在浏览器中查看开源仓库",
+    "homepage_link": "官方主页",
+    "homepage_open_title": "访问官方主页: {{url}}",
     "latest_release": "最新发布 {{version}}",
     "issue_link_title": "提交反馈",
     "issue_link": "问题反馈",

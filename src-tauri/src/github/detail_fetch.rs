@@ -399,7 +399,155 @@ fn unioned_detail_platforms(
     )
 }
 
-/// 统计回写 seam：repo 真值优先，缺失回退收录库（stars/forks/license/homepage；homepage 空与无协议头归一）。
+/// 显式 `http(s)://` 前缀（ASCII 大小写不敏感）归一为小写协议头，其余原样保留；
+/// 非 `http(s)://` 开头返回 `None`。
+pub(crate) fn lowercase_http_scheme(trimmed: &str) -> Option<String> {
+    for scheme in ["https://", "http://"] {
+        if let Some(prefix) = trimmed.get(..scheme.len()) {
+            if prefix.eq_ignore_ascii_case(scheme) {
+                return Some(format!("{}{}", scheme, &trimmed[scheme.len()..]));
+            }
+        }
+    }
+    None
+}
+
+/// 合法网络主机：剥尾点后非空、不以 `.` 开头，且为含 `.` 的域名/IPv4、`localhost` 或 `[...]` IPv6。
+/// 拒绝 `https://none` 这类单段占位主机。
+fn is_network_host(host: &str) -> bool {
+    let h = host.trim_end_matches('.');
+    !h.is_empty()
+        && !h.starts_with('.')
+        && (h.contains('.') || h.eq_ignore_ascii_case("localhost") || h.starts_with('['))
+}
+
+/// 主页清洗：仅产出无内嵌凭据、主机合法的 `http(s)` 网址。
+/// - 大写协议头归一为小写（`HTTPS://x` → `https://x`），其余原文保留；
+/// - 无协议的裸域名（`zed.dev`、`www.7-zip.org/download.html`）补 `https://`；
+/// - 占位词（`None`/`N/A`/`TBD`）、非网页协议（`javascript:`/`mailto:`/`ftp://`/`data:`）、
+///   内部空白与 `user:pass@` 形态一律 `None`，让调用方回退收录库主页。
+pub(crate) fn normalize_http_homepage(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let candidate = match lowercase_http_scheme(trimmed) {
+        Some(c) => c,
+        None => {
+            let host_end = trimmed.find(['/', '?', '#']).unwrap_or(trimmed.len());
+            let host = &trimmed[..host_end];
+            // `scheme:`（javascript:/mailto:/ftp:///data:）与 `git@host:` 在首个 `/` 前必含 `:` 或 `@`
+            if host.contains(':') || host.contains('@') {
+                return None;
+            }
+            if !host.contains('.') || host.starts_with('.') || host.ends_with('.') {
+                return None;
+            }
+            format!("https://{}", trimmed)
+        }
+    };
+    let parsed = reqwest::Url::parse(&candidate).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || !parsed.host_str().is_some_and(is_network_host)
+    {
+        return None;
+    }
+    Some(candidate)
+}
+
+/// 可比较主机：小写、去尾点、剥单一前导 `www.`，非默认端口拼 `:port`
+///（`Url` 已把 `http:80` / `https:443` 抹平为 `None`）。
+fn comparable_host(u: &reqwest::Url) -> Option<String> {
+    let host = u.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    Some(match u.port() {
+        Some(port) => format!("{}:{}", host, port),
+        None => host,
+    })
+}
+
+/// 可比较仓库路径段：百分号解码、丢空段（折叠 `//` 与尾 `/`）、末段剥 `.git`、小写。
+fn comparable_repo_segments<'a>(segments: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = segments
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            urlencoding::decode(s)
+                .map(|d| d.into_owned())
+                .unwrap_or_else(|_| s.to_string())
+                .to_lowercase()
+        })
+        .collect();
+    if let Some(last) = out.last_mut() {
+        if let Some(stripped) = last.strip_suffix(".git") {
+            *last = stripped.to_string();
+        }
+    }
+    out
+}
+
+/// 主页是否就是当前代码仓库自身页面（判重规则同前端 `resolveExternalHomepageUrl`，
+/// 区别仅在路径逐段解码，前端整段解码）：
+/// 主机与路径归一后相等即命中，协议、`www.`、大小写、尾斜杠、`.git`、`#readme`
+/// 与 `?tab=readme-ov-file` 均不影响。同主机不同路径（`github.com/apps/desktop`）不命中。
+pub(crate) fn is_same_repo_homepage(
+    homepage_url: &str,
+    forge_host: &str,
+    owner: &str,
+    repo: &str,
+) -> bool {
+    let Ok(hp) = reqwest::Url::parse(homepage_url.trim()) else {
+        return false;
+    };
+    let forge = forge_host.trim();
+    let forge = lowercase_http_scheme(forge)
+        .map(|s| s.split_once("://").map(|(_, rest)| rest.to_string()).unwrap_or(s))
+        .unwrap_or_else(|| forge.to_string());
+    let forge = forge.trim_end_matches('/');
+    let forge = if forge.is_empty() { "github.com" } else { forge };
+    let Ok(repo_url) = reqwest::Url::parse(&format!("https://{}/", forge)) else {
+        return false;
+    };
+    let (Some(hp_host), Some(repo_host)) = (comparable_host(&hp), comparable_host(&repo_url))
+    else {
+        return false;
+    };
+    if hp_host != repo_host {
+        return false;
+    }
+    let repo_path = format!("{}/{}", owner.trim(), repo.trim());
+    let want = comparable_repo_segments(repo_path.split('/'));
+    if want.len() < 2 {
+        return false;
+    }
+    let got = comparable_repo_segments(hp.path_segments().into_iter().flatten());
+    got == want
+}
+
+/// 主页决议：远端与精校主页各自清洗；远端仅填了仓库自链而精校有独立官网时取精校，
+/// 否则远端优先、缺失回退精校。
+pub(crate) fn resolve_homepage(
+    remote: Option<&str>,
+    curated: Option<&str>,
+    forge_host: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let remote = remote.and_then(normalize_http_homepage);
+    let curated = curated.and_then(normalize_http_homepage);
+    match (remote, curated) {
+        (Some(r), Some(c))
+            if is_same_repo_homepage(&r, forge_host, owner, repo)
+                && !is_same_repo_homepage(&c, forge_host, owner, repo) =>
+        {
+            Some(c)
+        }
+        (r, c) => r.or(c),
+    }
+}
+
+/// 统计回写 seam：repo 真值优先，缺失回退收录库（stars/forks/license/homepage；homepage 经 `resolve_homepage` 清洗）。
 struct DetailStats {
     stars: u64,
     forks: u64,
@@ -410,6 +558,8 @@ struct DetailStats {
 fn resolve_detail_stats(
     repo_info: Option<&GitHubRepoResponse>,
     catalog_item: Option<&CatalogItem>,
+    owner: &str,
+    repo: &str,
 ) -> DetailStats {
     let stars = repo_info
         .and_then(|r| r.stargazers_count)
@@ -445,19 +595,13 @@ fn resolve_detail_stats(
         //（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
         .filter(|l| !l.trim().is_empty())
         .unwrap_or_else(|| "unknown".to_string());
-    let homepage = repo_info
-        .and_then(|r| r.homepage.clone())
-        .filter(|h| !h.trim().is_empty())
-        .or_else(|| catalog_item.and_then(|i| i.homepage.clone()))
-        .filter(|h| !h.trim().is_empty())
-        .map(|h| {
-            let trimmed = h.trim();
-            if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-                trimmed.to_string()
-            } else {
-                format!("https://{}", trimmed)
-            }
-        });
+    let homepage = resolve_homepage(
+        repo_info.and_then(|r| r.homepage.as_deref()),
+        catalog_item.and_then(|i| i.homepage.as_deref()),
+        "github.com",
+        owner,
+        repo,
+    );
     DetailStats {
         stars,
         forks,
@@ -587,7 +731,7 @@ impl CatalogService {
                         forks,
                         license,
                         homepage,
-                    } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref());
+                    } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref(), &owner, &repo);
                     if stars > 0 {
                         detail.core.stars = stars;
                     }
@@ -757,7 +901,7 @@ impl CatalogService {
             forks: latest_forks,
             license: latest_license,
             homepage: latest_homepage,
-        } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref());
+        } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref(), &owner, &repo);
 
         let (extracted_logo, cleaned_readme) =
             Self::extract_and_strip_logo_from_readme(&raw_readme, &owner, &repo);
@@ -976,7 +1120,7 @@ mod tests {
     fn test_resolve_detail_stats_license_unknown_sentinel() {
         // repo 无 license 且无收录兜底时显式 `unknown`（诚实未知，不伪装
         // 已验证开源）；repo spdx 优先，缺失回退收录库。
-        let stats = super::resolve_detail_stats(None, None);
+        let stats = super::resolve_detail_stats(None, None, "o", "r");
         assert_eq!(stats.license, "unknown");
 
         let repo_no_license = super::GitHubRepoResponse {
@@ -997,7 +1141,7 @@ mod tests {
             pushed_at: None,
             updated_at: None,
         };
-        let stats = super::resolve_detail_stats(Some(&repo_no_license), None);
+        let stats = super::resolve_detail_stats(Some(&repo_no_license), None, "o", "r");
         assert_eq!(stats.license, "unknown");
 
         let bare_item = crate::github::models::CatalogItem {
@@ -1025,12 +1169,12 @@ mod tests {
             platforms: vec![],
             identifiers: std::collections::HashMap::new(),
         };
-        let stats = super::resolve_detail_stats(Some(&repo_no_license), Some(&bare_item));
+        let stats = super::resolve_detail_stats(Some(&repo_no_license), Some(&bare_item), "o", "r");
         assert_eq!(stats.license, "unknown");
 
         let mut licensed = bare_item.clone();
         licensed.license = "MIT".to_string();
-        let stats = super::resolve_detail_stats(Some(&repo_no_license), Some(&licensed));
+        let stats = super::resolve_detail_stats(Some(&repo_no_license), Some(&licensed), "o", "r");
         assert_eq!(stats.license, "MIT");
 
         let repo_mit = super::GitHubRepoResponse {
@@ -1040,7 +1184,7 @@ mod tests {
             }),
             ..repo_no_license.clone()
         };
-        let stats = super::resolve_detail_stats(Some(&repo_mit), None);
+        let stats = super::resolve_detail_stats(Some(&repo_mit), None, "o", "r");
         assert_eq!(stats.license, "MIT");
 
         // NOASSERTION 时回退到合法 key（如 "mit" -> "MIT"）
@@ -1051,8 +1195,138 @@ mod tests {
             }),
             ..repo_no_license
         };
-        let stats = super::resolve_detail_stats(Some(&repo_key_fallback), None);
+        let stats = super::resolve_detail_stats(Some(&repo_key_fallback), None, "o", "r");
         assert_eq!(stats.license, "MIT");
+    }
+
+    #[test]
+    fn test_normalize_http_homepage_keeps_web_urls_and_rejects_junk() {
+        use super::normalize_http_homepage as n;
+        assert_eq!(n("https://zed.dev").as_deref(), Some("https://zed.dev"));
+        assert_eq!(n("http://gitup.co").as_deref(), Some("http://gitup.co"));
+        assert_eq!(
+            n("  HTTPS://Example.com/docs?x=1#top  ").as_deref(),
+            Some("https://Example.com/docs?x=1#top")
+        );
+        assert_eq!(n("zed.dev").as_deref(), Some("https://zed.dev"));
+        assert_eq!(
+            n("www.7-zip.org/download.html").as_deref(),
+            Some("https://www.7-zip.org/download.html")
+        );
+        for junk in [
+            "",
+            "   ",
+            "None",
+            "N/A",
+            "TBD",
+            "javascript:alert(1)",
+            "mailto:a@b.com",
+            "ftp://files.example.com",
+            "data:text/html,hi",
+            "https://user:pass@example.com",
+            "https://example.com with space",
+            "https://none",
+            "git@github.com:o/r.git",
+        ] {
+            assert_eq!(n(junk), None, "{junk:?} must be rejected");
+        }
+    }
+
+    #[test]
+    fn test_is_same_repo_homepage_matches_repo_page_variants_only() {
+        use super::is_same_repo_homepage as same;
+        for hp in [
+            "https://github.com/BurntSushi/ripgrep",
+            "https://github.com/burntsushi/ripgrep/",
+            "http://www.github.com/BurntSushi/ripgrep.git",
+            "https://github.com/BurntSushi/ripgrep#readme",
+            "https://github.com/BurntSushi/ripgrep?tab=readme-ov-file",
+            "https://github.com:443/BurntSushi//ripgrep///",
+        ] {
+            assert!(same(hp, "github.com", "BurntSushi", "ripgrep"), "{hp}");
+        }
+        assert!(same("https://github.com/o/r", "", "o", "r"));
+        assert!(!same("https://github.com/apps/desktop", "github.com", "desktop", "desktop"));
+        assert!(!same("https://github.com/o/r/wiki", "github.com", "o", "r"));
+        assert!(!same("https://gitlab.com/OpenMW/openmw", "github.com", "OpenMW", "openmw"));
+        assert!(!same("https://o.github.io/r", "github.com", "o", "r"));
+        assert!(same(
+            "https://git.example.com:8443/Org/App",
+            "git.example.com:8443",
+            "org",
+            "app"
+        ));
+        assert!(!same(
+            "https://git.example.com:9443/org/app",
+            "git.example.com:8443",
+            "org",
+            "app"
+        ));
+        assert!(same("https://codeberg.org/FreeTubeApp/FreeTube/", "https://codeberg.org/", "FreeTubeApp", "FreeTube"));
+    }
+
+    #[test]
+    fn test_resolve_detail_stats_homepage_sanitizes_and_keeps_curated_external() {
+        let repo_base = super::GitHubRepoResponse {
+            name: None,
+            full_name: None,
+            html_url: None,
+            description: None,
+            stargazers_count: None,
+            forks_count: None,
+            language: None,
+            license: None,
+            homepage: None,
+            default_branch: None,
+            fork: None,
+            pushed_at: None,
+            updated_at: None,
+        };
+        let item = crate::github::models::CatalogItem {
+            id: "OpenMW/openmw".to_string(),
+            name: "OpenMW".to_string(),
+            owner: "OpenMW".to_string(),
+            repo: "openmw".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            category: "game".to_string(),
+            category_name: "游戏".to_string(),
+            aliases: vec![],
+            default_version: "v0.1.0".to_string(),
+            added_at: None,
+            license: "GPL-3.0".to_string(),
+            stars: 0,
+            forks: 0,
+            is_verified: false,
+            homepage: Some("https://gitlab.com/OpenMW/openmw".to_string()),
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec![],
+            identifiers: std::collections::HashMap::new(),
+        };
+        let stats_for = |hp: &str| {
+            let repo = super::GitHubRepoResponse {
+                homepage: Some(hp.to_string()),
+                ..repo_base.clone()
+            };
+            super::resolve_detail_stats(Some(&repo), Some(&item), "OpenMW", "openmw").homepage
+        };
+        let curated = Some("https://gitlab.com/OpenMW/openmw".to_string());
+        assert_eq!(stats_for("N/A"), curated);
+        assert_eq!(stats_for("ftp://files.example.com"), curated);
+        assert_eq!(stats_for("https://github.com/OpenMW/openmw"), curated);
+        assert_eq!(stats_for("HTTPS://openmw.org"), Some("https://openmw.org".to_string()));
+
+        // 无精校主页时仓库自链照常透出（前端判重负责隐藏）
+        let repo_self = super::GitHubRepoResponse {
+            homepage: Some("https://github.com/OpenMW/openmw".to_string()),
+            ..repo_base
+        };
+        let stats = super::resolve_detail_stats(Some(&repo_self), None, "OpenMW", "openmw");
+        assert_eq!(stats.homepage.as_deref(), Some("https://github.com/OpenMW/openmw"));
     }
 
     #[test]
