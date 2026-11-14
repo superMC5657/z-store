@@ -960,6 +960,8 @@ mod tests {
             homepage: None,
             default_branch: None,
             fork: None,
+            pushed_at: None,
+            updated_at: None,
         };
         let stats = super::resolve_detail_stats(Some(&repo_no_license), None);
         assert_eq!(stats.license, "unknown");

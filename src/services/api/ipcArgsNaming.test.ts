@@ -135,6 +135,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.recordSearchQuery('q'));
     await swallow(catalog.removeSearchQuery('q'));
     await swallow(catalog.recordAppView('o/r'));
+    await swallow(catalog.dismissFeatured('dev', 'category', 'o/r'));
     await swallow(catalog.syncCatalog(true));
     await swallow(catalog.getOrFetchIcon('o/r', 'https://example.com/x.png'));
     await swallow(catalog.cycleAppIcon('o/r'));

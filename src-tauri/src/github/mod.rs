@@ -1,4 +1,7 @@
 pub mod affinity;
+pub mod affinity_text;
+#[cfg(test)]
+mod affinity_eval_tests;
 pub mod asset_fetch;
 pub mod catalog_feed_score;
 pub mod catalog_service;

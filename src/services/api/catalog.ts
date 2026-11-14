@@ -105,8 +105,9 @@ export async function getInterestSeeds(): Promise<string[]> {
   return Array.isArray(raw) ? raw : [];
 }
 
-export async function dismissFeatured(target: string, scope: FeedbackScope): Promise<void> {
-  await tauriInvoke<void>(CMD.dismissFeatured, { target, scope });
+/** `scope === 'category'` 时可带上发起操作的卡片 `appId`，后端连带屏蔽该卡片。 */
+export async function dismissFeatured(target: string, scope: FeedbackScope, appId?: string): Promise<void> {
+  await tauriInvoke<void>(CMD.dismissFeatured, appId ? { target, scope, appId } : { target, scope });
 }
 
 export async function clearFeedFeedback(): Promise<number> {

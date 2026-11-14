@@ -166,6 +166,8 @@ pub(crate) mod test_support {
         pub(crate) base: String,
         pub(crate) seen_inm: Arc<Mutex<HashMap<String, Option<String>>>>,
         pub(crate) request_counts: Arc<Mutex<HashMap<String, usize>>>,
+        /// 每个路径最近一次请求的 `Accept` 头。
+        pub(crate) seen_accept: Arc<Mutex<HashMap<String, Option<String>>>>,
     }
 
     pub(crate) async fn spawn_mock(routes: HashMap<String, MockResp>) -> MockServer {
@@ -184,8 +186,11 @@ pub(crate) mod test_support {
             Arc::new(Mutex::new(HashMap::new()));
         let request_counts: Arc<Mutex<HashMap<String, usize>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let seen_accept: Arc<Mutex<HashMap<String, Option<String>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let seen_c = seen_inm.clone();
         let counts_c = request_counts.clone();
+        let accept_c = seen_accept.clone();
         tokio::spawn(async move {
             loop {
                 let Ok((mut sock, _)) = listener.accept().await else {
@@ -194,6 +199,7 @@ pub(crate) mod test_support {
                 let routes = routes.clone();
                 let seen = seen_c.clone();
                 let counts = counts_c.clone();
+                let accepts = accept_c.clone();
                 tokio::spawn(async move {
                     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
                     let mut reader = tokio::io::BufReader::new(&mut sock);
@@ -207,6 +213,7 @@ pub(crate) mod test_support {
                         .unwrap_or("/")
                         .to_string();
                     let mut inm: Option<String> = None;
+                    let mut accept: Option<String> = None;
                     loop {
                         let mut line = String::new();
                         if reader.read_line(&mut line).await.is_err() {
@@ -219,9 +226,14 @@ pub(crate) mod test_support {
                             inm = Some(v.trim().to_string());
                         } else if let Some(v) = line.strip_prefix("If-None-Match:") {
                             inm = Some(v.trim().to_string());
+                        } else if let Some((name, v)) = line.split_once(':') {
+                            if name.trim().eq_ignore_ascii_case("accept") {
+                                accept = Some(v.trim().to_string());
+                            }
                         }
                     }
                     seen.lock().unwrap().insert(path.clone(), inm.clone());
+                    accepts.lock().unwrap().insert(path.clone(), accept);
                     *counts.lock().unwrap().entry(path.clone()).or_insert(0) += 1;
                     let (status, reason, etag, link, body) = match routes.get(&path) {
                         Some(route) => {
@@ -272,6 +284,7 @@ pub(crate) mod test_support {
             base: format!("http://127.0.0.1:{}", port),
             seen_inm,
             request_counts,
+            seen_accept,
         }
     }
 

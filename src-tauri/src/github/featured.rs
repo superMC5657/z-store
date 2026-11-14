@@ -1,6 +1,6 @@
-//! 精选页货架组装（ADR-0023）：纯函数，输入合并目录与本地画像，输出整页结构。
+//! 精选页货架组装（ADR-0023、ADR-0024）：纯函数，输入合并目录与本地画像，输出整页结构。
 
-use super::affinity::{seed_similarity, Reason, SeedRelation, UserAffinityProfile, MAX_REASONS};
+use super::affinity::{Reason, SeedRelation, UserAffinityProfile, MAX_REASONS};
 use super::catalog_feed_score::{feed_jitter01, feed_stars_forks_base, FEED_JITTER_HALF};
 use crate::models::AppSummary;
 use serde::Serialize;
@@ -13,15 +13,21 @@ pub const SHELF_SIZE: usize = 4;
 /// 货架最少条目数：不足则整排不出。
 pub const SHELF_MIN: usize = 3;
 /// `because_you` 候选与种子的最低相似度。
-pub const SEED_SIMILARITY_MIN: f64 = 0.35;
+pub const SEED_SIMILARITY_MIN: f64 = 0.28;
 /// hero 附带种子理由的最低相似度。
-const HERO_SEED_REASON_MIN: f64 = 0.5;
+const HERO_SEED_REASON_MIN: f64 = 0.45;
 /// 画像分类权重低于此值视为「较少接触」，进入探索候选。
 pub const EXPLORE_WEIGHT_MAX: f64 = 0.15;
 /// 「本月新入库」窗口（天）。
 pub const FRESH_WINDOW_DAYS: i64 = 30;
 /// 画像信号数达到此值进入 `rich`。
 pub const RICH_SIGNAL_MIN: usize = 5;
+/// 精选货架日期采样的抖动半幅（全幅 2.30，约等于 10 倍星数的竞争窗口），让头部按天轮换。
+pub const SHELF_JITTER_HALF: f64 = 1.15;
+/// 星数低于此值的长尾应用只用窄幅抖动，避免靠极端随机数登上 hero。
+pub const SHELF_WIDE_JITTER_MIN_STARS: u64 = 500;
+/// 探索货架在每个分类内的精品池大小（按纯质量分取前 N，再按日期种子挑 1 款）。
+pub const EXPLORE_PER_CAT_POOL: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -94,7 +100,7 @@ pub struct FeaturedInput<'a> {
     pub allowed_ids: Option<&'a HashSet<String>>,
     /// 隐藏规则命中的 id（小写）。
     pub hidden_ids: &'a HashSet<String>,
-    /// 本地画像（关闭个性化时也传入，用于排除已安装与「不感兴趣」）。
+    /// 本地画像（关闭个性化时也传入，用于排除已知应用与负反馈）。
     pub profile: Option<&'a UserAffinityProfile>,
     pub enabled: bool,
     pub day_seed: u64,
@@ -115,14 +121,55 @@ pub fn resolve_profile_state(enabled: bool, profile: Option<&UserAffinityProfile
 struct Scored {
     app: AppSummary,
     score: f64,
-    quality: f64,
+    /// 纯星数 + Fork 质量分（无抖动）。
+    base: f64,
+}
+
+/// 货架采样质量。
+struct ShelfQuality {
+    /// 纯星数 + Fork 质量基线。
+    base: f64,
+    /// 基线 + 按日期种子的确定性抖动（长尾应用只用窄幅抖动）。
+    sampled: f64,
+}
+
+fn shelf_quality(app: &AppSummary, id: &str, day_seed: u64) -> ShelfQuality {
+    let base = feed_stars_forks_base(app.core.stars, app.core.forks);
+    let half = if app.core.stars >= SHELF_WIDE_JITTER_MIN_STARS {
+        SHELF_JITTER_HALF
+    } else {
+        FEED_JITTER_HALF
+    };
+    let jitter = (feed_jitter01(id, day_seed) - 0.5) * half * 2.0;
+    ShelfQuality {
+        base,
+        sampled: base + jitter,
+    }
+}
+
+/// 分类顺序中把「少推这类」挪走：其余分类足够 `want` 个时直接丢弃，否则排在队尾兜底。
+fn demote_dismissed(order: Vec<String>, dismissed: &HashSet<String>, want: usize) -> Vec<String> {
+    let (kept, demoted): (Vec<String>, Vec<String>) =
+        order.into_iter().partition(|c| !dismissed.contains(c));
+    if kept.len() >= want {
+        kept
+    } else {
+        kept.into_iter().chain(demoted).collect()
+    }
 }
 
 pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
     let state = resolve_profile_state(input.enabled, input.profile);
     let personalized = state.personalized();
     let profile = input.profile;
-    let seed = input.day_seed;
+    // 个性化状态下参与打分与解释的画像；关闭个性化或冷启动时为 None
+    let personal = profile.filter(|_| personalized);
+    let day_seed = input.day_seed;
+    let empty: HashSet<String> = HashSet::new();
+    let dismissed_cats = profile.map(|p| &p.dismissed_categories).unwrap_or(&empty);
+    let is_dismissed_category = |cat: &str| dismissed_cats.contains(cat);
+    let in_dismissed_category =
+        |app: &AppSummary| is_dismissed_category(&app.core.category.trim().to_lowercase());
 
     let mut by_id: HashMap<String, AppSummary> = HashMap::with_capacity(input.all.len());
     for app in &input.all {
@@ -131,8 +178,16 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             .or_insert_with(|| app.clone());
     }
 
-    let installed = profile.map(|p| &p.installed_ids);
-    let dismissed = profile.map(|p| &p.dismissed_app_ids);
+    // 已安装 / 已收藏 / 已关注与「不感兴趣」的应用都不进推荐货架（仍可作为种子被查找）
+    let excluded = |id: &str| -> bool {
+        profile
+            .map(|p| {
+                p.installed_ids.contains(id)
+                    || p.explicit_local_ids.contains(id)
+                    || p.dismissed_app_ids.contains(id)
+            })
+            .unwrap_or(false)
+    };
     let mut seen: HashSet<String> = HashSet::new();
     let mut ranked: Vec<Scored> = Vec::new();
     for app in input.all {
@@ -140,21 +195,15 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         if !seen.insert(id.clone())
             || input.hidden_ids.contains(&id)
             || input.allowed_ids.map(|s| !s.contains(&id)).unwrap_or(false)
-            || installed.map(|s| s.contains(&id)).unwrap_or(false)
-            || dismissed.map(|s| s.contains(&id)).unwrap_or(false)
+            || excluded(&id)
         {
             continue;
         }
-        let jitter = (feed_jitter01(&id, seed) - 0.5) * FEED_JITTER_HALF * 2.0;
-        let quality = feed_stars_forks_base(app.core.stars, app.core.forks) + jitter;
-        let boost = if personalized {
-            profile.map(|p| p.affinity_boost(&app)).unwrap_or(0.0)
-        } else {
-            0.0
-        };
+        let quality = shelf_quality(&app, &id, day_seed);
+        let boost = personal.map(|p| p.affinity_boost(&app)).unwrap_or(0.0);
         ranked.push(Scored {
-            score: quality + boost,
-            quality,
+            score: quality.sampled + boost,
+            base: quality.base,
             app,
         });
     }
@@ -167,48 +216,48 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
 
     let mut used: HashSet<String> = HashSet::new();
     let explain = |app: &AppSummary| -> Vec<Reason> {
-        match (personalized, profile) {
-            (true, Some(p)) => p.affinity_explain(app),
-            _ => Vec::new(),
-        }
+        personal.map(|p| p.affinity_explain(app)).unwrap_or_default()
     };
 
-    // ---- hero：分类互斥取头部 ----
+    // ---- hero：分类互斥取头部，「少推这类」分类只在其余分类凑不满时补位 ----
     let mut hero: Vec<FeaturedPick> = Vec::new();
     let mut hero_cats: HashSet<String> = HashSet::new();
     let seeds = profile.map(|p| p.seeds.as_slice()).unwrap_or(&[]);
-    for s in &ranked {
-        if hero.len() >= HERO_SIZE {
-            break;
-        }
-        let cat = s.app.core.category.trim().to_lowercase();
-        if !hero_cats.insert(cat) {
-            continue;
-        }
-        let mut reasons = Vec::new();
-        if personalized {
-            if let Some((seed_ref, _)) = seeds
-                .iter()
-                .filter_map(|sr| {
-                    let seed_app = by_id.get(&sr.id)?;
-                    let sim = seed_similarity(seed_app, &s.app);
-                    (sim >= HERO_SEED_REASON_MIN).then_some((sr, sim))
-                })
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            {
-                reasons.push(Reason::Seed {
-                    seed_id: seed_ref.id.clone(),
-                    relation: seed_ref.relation,
-                });
+    for allow_dismissed in [false, true] {
+        for s in &ranked {
+            if hero.len() >= HERO_SIZE {
+                break;
             }
+            let cat = s.app.core.category.trim().to_lowercase();
+            if (!allow_dismissed && is_dismissed_category(&cat)) || hero_cats.contains(&cat) {
+                continue;
+            }
+            hero_cats.insert(cat);
+            let mut reasons = Vec::new();
+            if let Some(p) = personal {
+                if let Some((seed_ref, _)) = seeds
+                    .iter()
+                    .filter_map(|sr| {
+                        let seed_app = by_id.get(&sr.id)?;
+                        let sim = p.seed_similarity(seed_app, &s.app);
+                        (sim >= HERO_SEED_REASON_MIN).then_some((sr, sim))
+                    })
+                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                {
+                    reasons.push(Reason::Seed {
+                        seed_id: seed_ref.id.clone(),
+                        relation: seed_ref.relation,
+                    });
+                }
+            }
+            reasons.extend(explain(&s.app));
+            reasons.truncate(MAX_REASONS);
+            used.insert(s.app.core.id.to_lowercase());
+            hero.push(FeaturedPick {
+                app: s.app.clone(),
+                reasons,
+            });
         }
-        reasons.extend(explain(&s.app));
-        reasons.truncate(MAX_REASONS);
-        used.insert(s.app.core.id.to_lowercase());
-        hero.push(FeaturedPick {
-            app: s.app.clone(),
-            reasons,
-        });
     }
 
     let mut shelves: Vec<FeaturedShelf> = Vec::new();
@@ -220,11 +269,18 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
 
     // ---- because_you ----
     let mut seed_cats: HashSet<String> = HashSet::new();
-    if personalized {
+    let mut because_count = 0usize;
+    if let Some(p) = personal {
         let want = if state == ProfileState::Rich { 2 } else { 1 };
-        let p = profile.expect("personalized implies profile");
-        for seed_ref in p.top_seeds(want + 2) {
-            if shelves.len() >= want {
+        // 被「少推这类」的分类不作为种子分类，也不出现在 because_you 候选里
+        let live_seeds: Vec<_> = p
+            .top_seeds(usize::MAX)
+            .into_iter()
+            .filter(|s| !is_dismissed_category(&s.category))
+            .take(want + 2)
+            .collect();
+        for seed_ref in live_seeds {
+            if because_count >= want {
                 break;
             }
             let Some(seed_app) = by_id.get(&seed_ref.id) else {
@@ -232,11 +288,13 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             };
             let mut cands: Vec<(f64, &Scored)> = ranked
                 .iter()
+                .filter(|s| !in_dismissed_category(&s.app))
                 .filter(|s| !used.contains(&s.app.core.id.to_lowercase()))
                 .filter(|s| !s.app.core.id.eq_ignore_ascii_case(&seed_ref.id))
                 .filter_map(|s| {
-                    let sim = seed_similarity(seed_app, &s.app);
-                    (sim >= SEED_SIMILARITY_MIN).then(|| (0.6 * sim + 0.4 * s.score / max_score, s))
+                    let sim = p.seed_similarity(seed_app, &s.app);
+                    (sim >= SEED_SIMILARITY_MIN)
+                        .then(|| (0.6 * sim + 0.4 * s.score / max_score, s))
                 })
                 .collect();
             cands.sort_by(|a, b| {
@@ -250,25 +308,16 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             let items: Vec<FeaturedPick> = cands
                 .into_iter()
                 .take(SHELF_SIZE)
-                .map(|(_, s)| {
-                    let mut reasons = explain(&s.app);
-                    reasons.retain(|r| !matches!(r, Reason::Category { .. }));
-                    if reasons.is_empty() {
-                        reasons.push(Reason::Category {
-                            category: s.app.core.category.trim().to_lowercase(),
-                        });
-                    }
-                    reasons.truncate(1);
-                    FeaturedPick {
-                        app: s.app.clone(),
-                        reasons,
-                    }
+                .map(|(_, s)| FeaturedPick {
+                    app: s.app.clone(),
+                    reasons: vec![p.seed_shelf_reason(seed_app, &s.app)],
                 })
                 .collect();
             for it in &items {
                 used.insert(it.app.core.id.to_lowercase());
             }
             seed_cats.insert(seed_ref.category.clone());
+            because_count += 1;
             shelves.push(FeaturedShelf {
                 kind: ShelfKind::BecauseYou,
                 seed_id: Some(seed_ref.id.clone()),
@@ -279,11 +328,12 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         }
     }
 
-    // ---- fresh（非 rich）----
-    if state != ProfileState::Rich {
+    // ---- fresh（非 rich，或 rich 但 because_you 不足 2 排时补位）----
+    if state != ProfileState::Rich || because_count < 2 {
         let cutoff = date_string_days_ago(input.now_secs, FRESH_WINDOW_DAYS);
         let mut fresh: Vec<&Scored> = ranked
             .iter()
+            .filter(|s| !in_dismissed_category(&s.app))
             .filter(|s| !used.contains(&s.app.core.id.to_lowercase()))
             .filter(|s| {
                 s.app
@@ -326,6 +376,10 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
     }
 
     // ---- category_pick ----
+    let want_cats = match state {
+        ProfileState::Warm => 1,
+        _ => 2,
+    };
     let category_order: Vec<String> = if personalized {
         profile
             .map(|p| {
@@ -337,11 +391,16 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             })
             .unwrap_or_default()
     } else {
-        rotated_categories(&ranked, seed)
+        rotated_categories(&ranked, day_seed)
     };
-    let want_cats = match state {
-        ProfileState::Warm => 1,
-        _ => 2,
+    // 个性化分类只来自画像，被抑制分类直接剔除；无画像轮换池在其余分类不足时才用它兜底
+    let category_order = if personalized {
+        category_order
+            .into_iter()
+            .filter(|c| !is_dismissed_category(c))
+            .collect()
+    } else {
+        demote_dismissed(category_order, dismissed_cats, want_cats)
     };
     let mut picked_cats = 0;
     for cat in &category_order {
@@ -379,41 +438,52 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         });
     }
 
-    // ---- explore（仅 rich）----
+    // ---- explore（仅 rich）：每个少接触分类取质量前 N 的精品池，按日期种子挑当日代表作 ----
     if state == ProfileState::Rich {
         let p = profile.expect("rich implies profile");
-        let mut best_per_cat: HashMap<String, &Scored> = HashMap::new();
+        let mut pools: HashMap<String, Vec<&Scored>> = HashMap::new();
         for s in &ranked {
             let cat = s.app.core.category.trim().to_lowercase();
-            if cat.is_empty() || used.contains(&s.app.core.id.to_lowercase()) {
+            if cat.is_empty()
+                || is_dismissed_category(&cat)
+                || used.contains(&s.app.core.id.to_lowercase())
+                || p.category_weights.get(&cat).copied().unwrap_or(0.0) >= EXPLORE_WEIGHT_MAX
+            {
                 continue;
             }
-            if p.category_weights.get(&cat).copied().unwrap_or(0.0) >= EXPLORE_WEIGHT_MAX {
-                continue;
-            }
-            let replace = best_per_cat
-                .get(&cat)
-                .map(|cur| s.quality > cur.quality)
-                .unwrap_or(true);
-            if replace {
-                best_per_cat.insert(cat, s);
-            }
+            pools.entry(cat).or_default().push(s);
         }
-        let mut cats: Vec<(&String, &&Scored)> = best_per_cat.iter().collect();
-        cats.sort_by(|a, b| {
-            feed_jitter01(a.0, seed)
-                .partial_cmp(&feed_jitter01(b.0, seed))
+        let mut picks: Vec<(String, &Scored)> = pools
+            .into_iter()
+            .filter_map(|(cat, mut pool)| {
+                pool.sort_by(|a, b| {
+                    b.base
+                        .partial_cmp(&a.base)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.app.core.id.cmp(&b.app.core.id))
+                });
+                pool.truncate(EXPLORE_PER_CAT_POOL);
+                let pick = pool.into_iter().max_by(|a, b| {
+                    feed_jitter01(&a.app.core.id, day_seed)
+                        .partial_cmp(&feed_jitter01(&b.app.core.id, day_seed))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| b.app.core.id.cmp(&a.app.core.id))
+                })?;
+                Some((cat, pick))
+            })
+            .collect();
+        picks.sort_by(|a, b| {
+            feed_jitter01(&a.0, day_seed)
+                .partial_cmp(&feed_jitter01(&b.0, day_seed))
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(b.0))
+                .then_with(|| a.0.cmp(&b.0))
         });
-        let items: Vec<FeaturedPick> = cats
+        let items: Vec<FeaturedPick> = picks
             .into_iter()
             .take(SHELF_SIZE)
             .map(|(cat, s)| FeaturedPick {
                 app: s.app.clone(),
-                reasons: vec![Reason::Explore {
-                    category: cat.clone(),
-                }],
+                reasons: vec![Reason::Explore { category: cat }],
             })
             .collect();
         if items.len() >= SHELF_MIN {
@@ -455,7 +525,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
 }
 
 /// 无画像时的分类轮换：候选中出现的分类按日期种子抖动排序。
-fn rotated_categories(ranked: &[Scored], seed: u64) -> Vec<String> {
+fn rotated_categories(ranked: &[Scored], day_seed: u64) -> Vec<String> {
     let mut cats: Vec<String> = ranked
         .iter()
         .map(|s| s.app.core.category.trim().to_lowercase())
@@ -464,8 +534,8 @@ fn rotated_categories(ranked: &[Scored], seed: u64) -> Vec<String> {
         .into_iter()
         .collect();
     cats.sort_by(|a, b| {
-        feed_jitter01(a, seed)
-            .partial_cmp(&feed_jitter01(b, seed))
+        feed_jitter01(a, day_seed)
+            .partial_cmp(&feed_jitter01(b, day_seed))
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.cmp(b))
     });
@@ -538,7 +608,7 @@ mod tests {
         ];
         let mut out = Vec::new();
         for (ci, (cat, desc)) in cats.iter().enumerate() {
-            for i in 0..6 {
+            for i in 0..8 {
                 let added = if i == 0 {
                     Some("2027-01-10")
                 } else {
@@ -789,5 +859,175 @@ mod tests {
     #[test]
     fn fresh_cutoff_date() {
         assert_eq!(date_string_days_ago(NOW, 30), "2026-12-16");
+    }
+
+    #[test]
+    fn favorites_and_watched_are_excluded_but_still_seed_because_you() {
+        let raw = rich_raw();
+        let p = page(&raw, true, 1, None);
+        let ids = all_ids(&p);
+        let explicit: Vec<String> = raw
+            .favorites
+            .iter()
+            .chain(&raw.watched)
+            .chain(&raw.installed)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &explicit {
+            assert!(!ids.contains(id), "{id} 不应出现在推荐货架");
+        }
+        let seeds: Vec<&str> = p
+            .shelves
+            .iter()
+            .filter(|s| s.kind == ShelfKind::BecauseYou)
+            .filter_map(|s| s.seed_id.as_deref())
+            .collect();
+        assert!(!seeds.is_empty());
+        assert!(seeds.iter().all(|s| explicit.iter().any(|e| e == s)));
+    }
+
+    fn with_category_feedback(mut raw: RawAffinitySignals, cat: &str) -> RawAffinitySignals {
+        raw.feedback.push(FeedFeedback {
+            target: cat.to_string(),
+            scope: FeedbackScope::Category,
+            created_at: NOW,
+        });
+        raw
+    }
+
+    fn shelf_categories(p: &FeaturedPage) -> Vec<String> {
+        p.shelves
+            .iter()
+            .filter(|s| matches!(s.kind, ShelfKind::Explore | ShelfKind::CategoryPick))
+            .flat_map(|s| {
+                s.category
+                    .iter()
+                    .cloned()
+                    .chain(s.items.iter().filter_map(|i| match i.reasons.first() {
+                        Some(Reason::Explore { category }) => Some(category.clone()),
+                        _ => None,
+                    }))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dismissed_category_leaves_explore_and_category_pick_in_every_state() {
+        // rich：media 权重为 0，原本会进探索
+        let rich = page(&with_category_feedback(rich_raw(), "media"), true, 3, None);
+        assert_eq!(rich.profile_state, ProfileState::Rich);
+        assert!(!shelf_categories(&rich).contains(&"media".to_string()));
+
+        // rich 轻度偏好：浏览一次 games 得到较低权重，被抑制后不得掉进探索
+        let mut light = rich_raw();
+        light.views = vec![("games-owner0/app3".to_string(), NOW)];
+        let light = page(&with_category_feedback(light, "games"), true, 3, None);
+        assert!(!shelf_categories(&light).contains(&"games".to_string()));
+
+        // warm：画像第二分类被抑制后不再作为分类精选
+        let warm = page(&with_category_feedback(warm_raw(), "office"), true, 3, None);
+        assert_eq!(warm.profile_state, ProfileState::Warm);
+        assert!(!shelf_categories(&warm).contains(&"office".to_string()));
+
+        // off / cold：轮换分类跳过被抑制分类
+        for (enabled, raw) in [(false, rich_raw()), (true, RawAffinitySignals::default())] {
+            for day in 1..10u64 {
+                let before = page(&raw, enabled, day, None);
+                let target = before
+                    .shelves
+                    .iter()
+                    .find(|s| s.kind == ShelfKind::CategoryPick)
+                    .and_then(|s| s.category.clone())
+                    .unwrap();
+                let after = page(&with_category_feedback(raw.clone(), &target), enabled, day, None);
+                assert!(
+                    !shelf_categories(&after).contains(&target),
+                    "day {day}: {target} still picked"
+                );
+                assert!(after
+                    .hero
+                    .iter()
+                    .all(|h| !h.app.core.category.eq_ignore_ascii_case(&target)));
+            }
+        }
+    }
+
+    #[test]
+    fn rich_without_because_you_falls_back_to_fresh() {
+        let raw = RawAffinitySignals {
+            repo_signals: (0..5)
+                .map(|i| crate::db::UserRepoSignal {
+                    full_name: format!("outside{i}/thing{i}"),
+                    relation: "starred".to_string(),
+                    language: "C".to_string(),
+                    description: "video player".to_string(),
+                    stars: 100,
+                    forks: 1,
+                    updated_at: NOW,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let p = page(&raw, true, 1, None);
+        assert_eq!(p.profile_state, ProfileState::Rich);
+        assert!(!kinds(&p).contains(&ShelfKind::BecauseYou));
+        assert!(kinds(&p).contains(&ShelfKind::Fresh));
+
+        let full = page(&rich_raw(), true, 1, None);
+        assert_eq!(
+            kinds(&full)
+                .iter()
+                .filter(|k| **k == ShelfKind::BecauseYou)
+                .count(),
+            2
+        );
+        assert!(!kinds(&full).contains(&ShelfKind::Fresh));
+    }
+
+    #[test]
+    fn explore_rotates_representative_within_category() {
+        let mut picks: HashMap<String, HashSet<String>> = HashMap::new();
+        for day in 20261101..20261131u64 {
+            let p = page(&rich_raw(), true, day, None);
+            for shelf in p.shelves.iter().filter(|s| s.kind == ShelfKind::Explore) {
+                for it in &shelf.items {
+                    picks
+                        .entry(it.app.core.category.clone())
+                        .or_default()
+                        .insert(it.app.core.id.clone());
+                }
+            }
+        }
+        assert!(!picks.is_empty());
+        for (cat, ids) in picks {
+            assert!(ids.len() > 1, "{cat} explore pick never rotated: {ids:?}");
+        }
+    }
+
+    fn page_categories(p: &FeaturedPage) -> HashSet<String> {
+        p.hero
+            .iter()
+            .chain(p.shelves.iter().flat_map(|s| s.items.iter()))
+            .map(|i| i.app.core.category.clone())
+            .collect()
+    }
+
+    #[test]
+    fn dismissed_category_leaves_because_you_and_fresh() {
+        // rich：dev 是最强种子分类，被少推后不再作为种子，也不出现在任何货架
+        let p = page(&with_category_feedback(rich_raw(), "dev"), true, 1, None);
+        assert!(p
+            .shelves
+            .iter()
+            .filter_map(|s| s.seed_id.as_deref())
+            .all(|id| !id.starts_with("dev-")));
+        assert!(!page_categories(&p).contains("dev"), "{:?}", page_categories(&p));
+
+        // off：每个分类都有一款新入库（未过滤时 media 的那款会补进本月新入库）
+        for day in 1..10u64 {
+            let p = page(&with_category_feedback(rich_raw(), "media"), false, day, None);
+            assert!(!page_categories(&p).contains("media"), "day {day}");
+        }
     }
 }

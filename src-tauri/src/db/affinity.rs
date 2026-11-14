@@ -1,6 +1,7 @@
 use super::{clean, now_secs, Database};
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 /// 用户与 GitHub 仓库的显式关联类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -86,6 +87,20 @@ pub struct FeedFeedback {
 pub const FEED_FEEDBACK_TTL_SECS: i64 = 90 * 86400;
 /// 画像读取的最近搜索词条数上限。
 pub const AFFINITY_SEARCH_LIMIT: usize = 20;
+/// 未收录应用概要单条查询 `IN` 子句的 id 数上限（超出按批读取）。
+pub const UNCATALOGED_BRIEF_CHUNK: usize = 200;
+
+/// 本地信号指向的应用在 `app_details` 中的轻量概要：画像在目录未命中时回退使用。
+/// 占位简介已置空。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UncatalogedSignalBrief {
+    pub name: String,
+    pub owner: String,
+    pub repo: String,
+    pub description: String,
+    pub description_en: Option<String>,
+    pub category: String,
+}
 
 /// 本地亲和度画像的原始信号快照（零网络一次性从 SQLite 读取）。
 /// 汇总 GitHub Star/Fork/Owned 仓库特征、应用内 Star/收藏/关注、已安装、浏览与搜索历史、
@@ -101,6 +116,8 @@ pub struct RawAffinitySignals {
     pub searches: Vec<(String, i64)>,
     pub interest_seeds: Vec<String>,
     pub feedback: Vec<FeedFeedback>,
+    /// 收藏 / 关注 / 已安装 / 浏览涉及应用的 `app_details` 概要，键为小写 `app_id`。
+    pub uncataloged_briefs: HashMap<String, UncatalogedSignalBrief>,
 }
 
 impl Database {
@@ -252,6 +269,35 @@ impl Database {
         Ok(())
     }
 
+    /// 「少推这类」：在同一事务中写入分类反馈，`app_id` 非空时连带屏蔽发起操作的那张卡片。
+    pub fn upsert_category_and_app_feedback(
+        &self,
+        category: &str,
+        app_id: Option<&str>,
+        now: i64,
+    ) -> Result<()> {
+        let cat = clean(category).to_lowercase();
+        if cat.is_empty() {
+            return Ok(());
+        }
+        let app = app_id
+            .map(|id| clean(id).to_lowercase())
+            .filter(|id| !id.is_empty());
+        let sql = r#"
+            INSERT INTO user_feed_feedback (target, scope, created_at) VALUES (?1, ?2, ?3)
+            ON CONFLICT(target, scope) DO UPDATE SET created_at = excluded.created_at
+            "#;
+        self.with_immediate_transaction(|| {
+            self.exec_write(sql, params![cat, FeedbackScope::Category.as_str(), now])?;
+            if let Some(app) = &app {
+                self.exec_write(sql, params![app, FeedbackScope::App.as_str(), now])?;
+            }
+            Ok(())
+        })?;
+        crate::notify_affinity_updated();
+        Ok(())
+    }
+
     /// 读取有效期内（`now - created_at < 90 天`）的推荐负反馈。
     pub fn get_active_feed_feedback(&self, now: i64) -> Result<Vec<FeedFeedback>> {
         let rows: Vec<(String, String, i64)> = self.query_vec(
@@ -326,6 +372,50 @@ impl Database {
         )
     }
 
+    /// 批量读取指定应用的 `app_details` 轻量列（不读 README / Release 大字段）。
+    pub fn load_signal_briefs(
+        &self,
+        app_ids: &[String],
+    ) -> Result<HashMap<String, UncatalogedSignalBrief>> {
+        let mut out = HashMap::new();
+        let mut rows: Vec<(String, UncatalogedSignalBrief)> = Vec::new();
+        for chunk in app_ids.chunks(UNCATALOGED_BRIEF_CHUNK) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            // `app_details.app_id` 写入时不统一大小写，按小写比对
+            let sql = format!(
+                "SELECT LOWER(app_id), name, owner, repo, description, description_en, category \
+                 FROM app_details WHERE LOWER(app_id) IN ({placeholders})"
+            );
+            rows.extend(self.query_vec(
+                &sql,
+                rusqlite::params_from_iter(chunk.iter()),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        UncatalogedSignalBrief {
+                            name: row.get(1)?,
+                            owner: row.get(2)?,
+                            repo: row.get(3)?,
+                            description: row.get(4)?,
+                            description_en: row.get(5)?,
+                            category: row.get(6)?,
+                        },
+                    ))
+                },
+            )?);
+        }
+        for (id, mut brief) in rows {
+            if crate::github::detail_fetch::is_placeholder_description(&brief.description) {
+                brief.description.clear();
+            }
+            brief.description_en = brief.description_en.filter(|en| {
+                !crate::github::detail_fetch::is_placeholder_description(en)
+            });
+            out.insert(id, brief);
+        }
+        Ok(out)
+    }
+
     /// 一次性加载画像所需的全部本地信号。
     pub fn load_raw_affinity_signals(&self) -> Result<RawAffinitySignals> {
         let repo_signals = self.get_user_repo_signals()?;
@@ -396,6 +486,18 @@ impl Database {
         let interest_seeds = self.get_interest_seeds()?;
         let feedback = self.get_active_feed_feedback(now_secs())?;
 
+        let mut seen_ids: HashSet<&str> = HashSet::new();
+        let brief_ids: Vec<String> = favorites
+            .iter()
+            .chain(&watched)
+            .chain(&installed)
+            .chain(&views)
+            .map(|(id, _)| id.as_str())
+            .filter(|id| !id.is_empty() && seen_ids.insert(id))
+            .map(str::to_string)
+            .collect();
+        let uncataloged_briefs = self.load_signal_briefs(&brief_ids)?;
+
         Ok(RawAffinitySignals {
             repo_signals,
             user_stars,
@@ -406,6 +508,7 @@ impl Database {
             searches,
             interest_seeds,
             feedback,
+            uncataloged_briefs,
         })
     }
 }
@@ -560,6 +663,28 @@ mod tests {
     }
 
     #[test]
+    fn load_raw_affinity_signals_reads_uncataloged_briefs_and_drops_placeholders() {
+        let db = Database::open_in_memory().unwrap();
+        db.exec_write(
+            "INSERT INTO app_details (app_id, name, owner, repo, description, description_en, category)              VALUES ('Acme/Player', 'Player', 'acme', 'player', '暂无简介', 'A tiny video player', 'external'),                     ('acme/unrelated', 'Other', 'acme', 'unrelated', 'x', NULL, 'dev'),                     ('acme/viewed', 'Viewed', 'acme', 'viewed', '远程桌面工具', NULL, 'system')",
+            [],
+        )
+        .unwrap();
+        db.add_favorite("acme/player", true).unwrap();
+        db.record_app_view_at("acme/viewed", 1_700_000_000).unwrap();
+
+        let raw = db.load_raw_affinity_signals().unwrap();
+        assert_eq!(raw.uncataloged_briefs.len(), 2);
+        let player = &raw.uncataloged_briefs["acme/player"];
+        assert_eq!(player.name, "Player");
+        assert_eq!(player.description, "", "占位简介应置空");
+        assert_eq!(player.description_en.as_deref(), Some("A tiny video player"));
+        assert_eq!(player.category, "external");
+        assert_eq!(raw.uncataloged_briefs["acme/viewed"].category, "system");
+        assert!(!raw.uncataloged_briefs.contains_key("acme/unrelated"));
+    }
+
+    #[test]
     fn interest_seeds_replace_and_read() {
         let db = Database::open_in_memory().unwrap();
         db.replace_interest_seeds(&["Dev".to_string(), "media".to_string(), "dev".to_string()])
@@ -571,6 +696,28 @@ mod tests {
             db.load_raw_affinity_signals().unwrap().interest_seeds,
             vec!["games"]
         );
+    }
+
+    #[test]
+    fn category_feedback_with_app_writes_both_rows() {
+        let db = Database::open_in_memory().unwrap();
+        let now = 1_800_000_000i64;
+        db.upsert_category_and_app_feedback("Media", Some("Acme/Player"), now)
+            .unwrap();
+        let mut active = db.get_active_feed_feedback(now).unwrap();
+        active.sort_by(|a, b| a.target.cmp(&b.target));
+        assert_eq!(active.len(), 2);
+        assert_eq!(active[0].target, "acme/player");
+        assert_eq!(active[0].scope, FeedbackScope::App);
+        assert_eq!(active[1].target, "media");
+        assert_eq!(active[1].scope, FeedbackScope::Category);
+
+        db.clear_feed_feedback().unwrap();
+        db.upsert_category_and_app_feedback("games", None, now)
+            .unwrap();
+        let only = db.get_active_feed_feedback(now).unwrap();
+        assert_eq!(only.len(), 1);
+        assert_eq!(only[0].scope, FeedbackScope::Category);
     }
 
     #[test]

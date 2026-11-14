@@ -259,6 +259,10 @@ pub(crate) struct GitHubRepoResponse {
     pub default_branch: Option<String>,
     #[serde(default)]
     pub fork: Option<bool>,
+    #[serde(default)]
+    pub pushed_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

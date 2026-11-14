@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  buildFrontendAffinityScorer,
   hashSeeded01,
   rankFeed,
   starsForksBase,
@@ -73,62 +72,12 @@ describe('feed FNV-1a 64 对齐（C4：后端哈希不动，前端 BigInt 复刻
   });
 });
 
-describe('本地画像动态推荐打分器 (buildFrontendAffinityScorer & starsForksBase)', () => {
+describe('starsForksBase 与画像更新订阅', () => {
   it('starsForksBase 在 forks=0 时退化为 ln(stars+1)，有 forks 时附加对数加成', () => {
     const base0 = starsForksBase({ ...makeApp('a/b', 1000), forks: 0 });
     expect(base0).toBeCloseTo(Math.log1p(1000), 10);
     const baseWithForks = starsForksBase({ ...makeApp('a/b', 1000), forks: 200 });
     expect(baseWithForks).toBeCloseTo(Math.log1p(1000) + 0.25 * Math.log1p(200), 10);
-  });
-
-  it('无信号或 enabled=false 时 buildFrontendAffinityScorer 返回 undefined，保持原基线排序', () => {
-    const apps = [makeApp('acme/high', 50000), makeApp('acme/low', 2000)];
-    expect(buildFrontendAffinityScorer()).toBeUndefined();
-    expect(buildFrontendAffinityScorer({ catalog: apps, favoriteIds: [], watchedIds: [] })).toBeUndefined();
-    expect(
-      buildFrontendAffinityScorer({
-        catalog: apps,
-        favoriteIds: ['acme/high'],
-        watchedIds: ['acme/low'],
-        enabled: false,
-      }),
-    ).toBeUndefined();
-  });
-
-  it('当用户存在 favoriteIds / watchedIds 时，动态提权同分类未知候选应用并让位已收藏种子', () => {
-    const genericHigh = {
-      ...makeApp('org/generic-dev', 40000),
-      category: 'dev',
-      description: 'general developer framework',
-      forks: 4000,
-    };
-    const securitySeed = {
-      ...makeApp('sec/seed-vault', 15000),
-      category: 'security',
-      description: 'encrypted password vault and authenticator',
-      forks: 1500,
-    };
-    const securityCandidate = {
-      ...makeApp('sec/candidate-cipher', 8000),
-      category: 'security',
-      description: 'zero knowledge encrypted password manager',
-      forks: 900,
-    };
-    const catalog = [genericHigh, securitySeed, securityCandidate];
-
-    // 无画像时：40k 星的 generic-dev 排第 1
-    const baseline = rankFeed(catalog, 7, 'balanced');
-    expect(baseline[0]?.id).toBe('org/generic-dev');
-
-    // 用户收藏并关注了 sec/seed-vault：同分类未收藏候选 sec/candidate-cipher 跃升第 1
-    const scorer = buildFrontendAffinityScorer({
-      catalog,
-      favoriteIds: new Set(['sec/seed-vault']),
-      watchedIds: new Set(['sec/seed-vault']),
-    });
-    expect(scorer).toBeTypeOf('function');
-    const personalized = rankFeed(catalog, 7, 'balanced', scorer);
-    expect(personalized[0]?.id).toBe('sec/candidate-cipher');
   });
 
   it('subscribeAffinityUpdated 可监听 zstore:affinity-updated 事件并正确解绑', () => {

@@ -141,25 +141,52 @@ pub fn get_interest_seeds(state: State<'_, AppState>) -> crate::AppResult<Vec<St
 }
 
 /// 精选页「不感兴趣」（`scope = "app"`，`target` 为应用标识）或「少推这类」（`scope = "category"`，`target` 为分类 key）。
-#[tauri::command]
+/// 「少推这类」从某张卡片发起时附带 `appId`，该卡片同时记一条应用级反馈。
+#[tauri::command(rename_all = "camelCase")]
 pub fn dismiss_featured(
     state: State<'_, AppState>,
     target: String,
     scope: String,
+    app_id: Option<String>,
 ) -> crate::AppResult<()> {
-    let parsed = crate::db::FeedbackScope::parse(&scope)
+    let db = state.db()?;
+    record_featured_dismissal(
+        &db,
+        &target,
+        &scope,
+        app_id.as_deref(),
+        crate::now_secs(),
+    )
+}
+
+fn record_featured_dismissal(
+    db: &crate::db::Database,
+    target: &str,
+    scope: &str,
+    app_id: Option<&str>,
+    now: i64,
+) -> crate::AppResult<()> {
+    let parsed = crate::db::FeedbackScope::parse(scope)
         .ok_or_else(|| format!("未知的反馈范围：{scope}"))?;
-    let key = match parsed {
-        crate::db::FeedbackScope::App => crate::forge::canonical_app_id(&target)
-            .ok_or_else(|| format!("无效的应用标识：{target}"))?,
-        crate::db::FeedbackScope::Category => {
-            let mut v = normalize_interest_categories(&[target])?;
-            v.pop().ok_or_else(|| "分类不能为空".to_string())?
+    match parsed {
+        crate::db::FeedbackScope::App => {
+            let key = crate::forge::canonical_app_id(target)
+                .ok_or_else(|| format!("无效的应用标识：{target}"))?;
+            db.upsert_feed_feedback(&key, parsed, now)?;
         }
-    };
-    state
-        .db()?
-        .upsert_feed_feedback(&key, parsed, crate::now_secs())?;
+        crate::db::FeedbackScope::Category => {
+            let mut v = normalize_interest_categories(&[target.to_string()])?;
+            let cat = v.pop().ok_or_else(|| "分类不能为空".to_string())?;
+            let app = match app_id.map(str::trim).filter(|s| !s.is_empty()) {
+                Some(raw) => Some(
+                    crate::forge::canonical_app_id(raw)
+                        .ok_or_else(|| format!("无效的应用标识：{raw}"))?,
+                ),
+                None => None,
+            };
+            db.upsert_category_and_app_feedback(&cat, app.as_deref(), now)?;
+        }
+    }
     Ok(())
 }
 
@@ -422,6 +449,24 @@ fn category_page_window(
 mod tests {
     use super::*;
     use crate::github::models::CatalogItem;
+
+    #[test]
+    fn category_dismissal_with_app_id_records_category_and_card() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let now = 1_800_000_000i64;
+        record_featured_dismissal(&db, "media", "category", Some("Acme/Player"), now).unwrap();
+        let fb = db.get_active_feed_feedback(now).unwrap();
+        assert!(fb.iter().any(|f| f.target == "media"
+            && f.scope == crate::db::FeedbackScope::Category));
+        assert!(fb.iter().any(|f| f.target == "acme/player"
+            && f.scope == crate::db::FeedbackScope::App));
+
+        db.clear_feed_feedback().unwrap();
+        record_featured_dismissal(&db, "games", "category", Some("  "), now).unwrap();
+        let fb = db.get_active_feed_feedback(now).unwrap();
+        assert_eq!(fb.len(), 1);
+        assert!(record_featured_dismissal(&db, "games", "category", Some("bad"), now).is_err());
+    }
 
     fn windowed(
         total: usize,

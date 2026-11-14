@@ -1,8 +1,12 @@
 use super::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE};
 use super::developer_profile::EtagGetOutcome;
+use super::affinity_text::{self, CatalogIdf};
 use super::models::{CatalogItem, GitHubRepoResponse};
 use super::CatalogService;
-use crate::db::{Database, FeedbackScope, RawAffinitySignals, RepoRelation, UserRepoSignal};
+use crate::db::{
+    Database, FeedbackScope, RawAffinitySignals, RepoRelation, UncatalogedSignalBrief,
+    UserRepoSignal,
+};
 use crate::models::AppSummary;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -16,6 +20,9 @@ pub const AFFINITY_SYNC_MAX_PAGES: u32 = 50;
 
 /// 设置项键：最近一次完成 GitHub 画像信号同步的 Unix 秒级时间戳。
 pub const SETTING_AFFINITY_GITHUB_SYNCED_AT: &str = "affinity_github_synced_at";
+
+/// 设置项键：Star 列表已以 `star+json` 完整同步过一次（之后不再因旧格式缓存跳过 ETag）。
+pub const SETTING_AFFINITY_STARRED_FORMAT_UPGRADED: &str = "affinity_starred_format_upgraded";
 
 /// 设置项键：推荐画像是否使用本地应用信息（收藏、版本关注、已安装、浏览、搜索；默认 `"true"`）。
 pub const SETTING_ENABLE_LOCAL_AFFINITY: &str = "enable_local_affinity";
@@ -157,24 +164,34 @@ impl CatalogService {
 
         let client = crate::shared_http_client();
         let headers = super::http::bearer_headers(Some(clean_token));
+        let mut starred_headers = headers.clone();
+        starred_headers.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static(STARRED_ACCEPT),
+        );
         let now = crate::now_secs();
+        let starred_ctx = PageFetchCtx {
+            db_mutex,
+            client: &client,
+            headers: &starred_headers,
+            api_base,
+            now,
+            time_source: SignalTimeSource::StarredAt,
+        };
+        let repos_ctx = PageFetchCtx {
+            headers: &headers,
+            time_source: SignalTimeSource::RepoActivity,
+            ..starred_ctx
+        };
 
         let (starred_res, repos_res) = tokio::join!(
             fetch_paginated_repo_signals(
-                db_mutex,
-                &client,
-                &headers,
-                api_base,
-                now,
+                &starred_ctx,
                 Self::affinity_starred_page_endpoint,
                 |_| RepoRelation::Starred,
             ),
             fetch_paginated_repo_signals(
-                db_mutex,
-                &client,
-                &headers,
-                api_base,
-                now,
+                &repos_ctx,
                 Self::affinity_owner_repos_page_endpoint,
                 |r| {
                     if r.fork.unwrap_or(false) {
@@ -207,6 +224,9 @@ impl CatalogService {
             return Err("GitHub 画像信号同步失败：无法获取 Star 或个人仓库列表".to_string());
         }
 
+        if starred_ok {
+            let _ = db.set_setting(SETTING_AFFINITY_STARRED_FORMAT_UPGRADED, "true");
+        }
         if starred_ok && repos_ok {
             let _ = db.set_setting(SETTING_AFFINITY_GITHUB_SYNCED_AT, &now.to_string());
         }
@@ -240,21 +260,71 @@ struct ParsedSignalPage {
     raw_count: usize,
 }
 
+/// `/user/starred` 的媒体类型：响应元素包装为 `{ starred_at, repo }`，带真实标星时间。
+pub const STARRED_ACCEPT: &str = "application/vnd.github.star+json";
+
+/// 仓库信号的时间来源。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SignalTimeSource {
+    /// 用户标星时间 `starred_at`。
+    StarredAt,
+    /// 仓库最近推送 `pushed_at`，其次 `updated_at`。
+    RepoActivity,
+}
+
+/// Star 列表元素：`star+json` 包装格式或裸仓库（服务端忽略媒体类型或旧缓存载荷）。
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StarredPageItem {
+    Wrapped {
+        #[serde(default)]
+        starred_at: Option<String>,
+        repo: GitHubRepoResponse,
+    },
+    Bare(GitHubRepoResponse),
+}
+
+fn parse_rfc3339_secs(raw: Option<&str>) -> Option<i64> {
+    let s = raw?.trim();
+    if s.is_empty() {
+        return None;
+    }
+    time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
+        .ok()
+        .map(|dt| dt.unix_timestamp())
+}
+
+/// 解析一页仓库信号。缺少可用时间时按分页全局序号回退 `now - idx * 3600`，
+/// 保持列表原有先后（GitHub 按最近标星 / 最近更新降序返回）。
 fn parse_repo_signals_page<F>(
     json_text: &str,
-    ts: i64,
+    now: i64,
+    idx_offset: usize,
+    time_source: SignalTimeSource,
     classify: &F,
 ) -> Option<ParsedSignalPage>
 where
     F: Fn(&GitHubRepoResponse) -> RepoRelation,
 {
-    let repos: Vec<GitHubRepoResponse> = serde_json::from_str(json_text).ok()?;
-    let raw_count = repos.len();
-    let signals = repos
+    let items: Vec<StarredPageItem> = serde_json::from_str(json_text).ok()?;
+    let raw_count = items.len();
+    let signals = items
         .into_iter()
-        .filter_map(|r| {
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let (starred_at, r) = match item {
+                StarredPageItem::Wrapped { starred_at, repo } => (starred_at, repo),
+                StarredPageItem::Bare(repo) => (None, repo),
+            };
             let full_name = crate::forge::canonical_app_id(r.full_name.as_deref()?)?;
             let relation = classify(&r).as_str().to_string();
+            let real_ts = match time_source {
+                SignalTimeSource::StarredAt => parse_rfc3339_secs(starred_at.as_deref()),
+                SignalTimeSource::RepoActivity => parse_rfc3339_secs(r.pushed_at.as_deref())
+                    .or_else(|| parse_rfc3339_secs(r.updated_at.as_deref())),
+            };
+            let global_idx = (idx_offset + i) as i64;
+            let updated_at = real_ts.unwrap_or_else(|| now.saturating_sub(global_idx * 3600));
             Some(UserRepoSignal {
                 full_name,
                 relation,
@@ -262,19 +332,32 @@ where
                 description: r.description.unwrap_or_default(),
                 stars: r.stargazers_count.unwrap_or(0),
                 forks: r.forks_count.unwrap_or(0),
-                updated_at: ts,
+                updated_at,
             })
         })
         .collect();
     Some(ParsedSignalPage { signals, raw_count })
 }
 
-async fn fetch_paginated_repo_signals<E, F>(
-    db_mutex: &Mutex<Database>,
-    client: &reqwest::Client,
-    headers: &reqwest::header::HeaderMap,
-    api_base: Option<&str>,
+/// Star 页缓存载荷有条目却不含 `starred_at` 时是旧格式。尚未以 `star+json` 完整同步过时
+/// 跳过 ETag 重新拉取；同步过一次后即使服务端仍返回旧格式也照常发条件请求。
+fn is_legacy_starred_payload(payload: &str) -> bool {
+    payload.contains('{') && !payload.contains("\"starred_at\"")
+}
+
+/// 单个分页端点拉取的共享上下文。
+#[derive(Clone, Copy)]
+struct PageFetchCtx<'a> {
+    db_mutex: &'a Mutex<Database>,
+    client: &'a reqwest::Client,
+    headers: &'a reqwest::header::HeaderMap,
+    api_base: Option<&'a str>,
     now: i64,
+    time_source: SignalTimeSource,
+}
+
+async fn fetch_paginated_repo_signals<E, F>(
+    ctx: &PageFetchCtx<'_>,
     endpoint_for_page: E,
     classify: F,
 ) -> Result<PaginatedSignalsResult, PaginatedFetchErr>
@@ -282,19 +365,28 @@ where
     E: Fn(u32) -> String,
     F: Fn(&GitHubRepoResponse) -> RepoRelation,
 {
+    let now = ctx.now;
     let mut all_signals: Vec<UserRepoSignal> = Vec::new();
     let mut seen_keys: HashSet<(String, String)> = HashSet::new();
     let mut fresh_pages: Vec<CachedPageWrite> = Vec::new();
     let mut touched_pages: Vec<String> = Vec::new();
     let mut any_fresh = false;
     let mut last_page = 0u32;
+    let mut idx_offset = 0usize;
 
     for page in 1..=AFFINITY_SYNC_MAX_PAGES {
         let ep = endpoint_for_page(page);
         let (cached_etag, cached_payload) = {
-            let db = db_mutex.lock().map_err(|_| PaginatedFetchErr::Failed)?;
+            let db = ctx.db_mutex.lock().map_err(|_| PaginatedFetchErr::Failed)?;
             let payload = db.get_cached_payload(&ep).ok().flatten();
-            let etag = if payload.is_some() {
+            let legacy = ctx.time_source == SignalTimeSource::StarredAt
+                && db
+                    .get_setting(SETTING_AFFINITY_STARRED_FORMAT_UPGRADED)
+                    .ok()
+                    .flatten()
+                    .is_none()
+                && payload.as_deref().map(is_legacy_starred_payload).unwrap_or(false);
+            let etag = if payload.is_some() && !legacy {
                 db.get_etag(&ep)
                     .ok()
                     .flatten()
@@ -306,10 +398,10 @@ where
         };
 
         let (outcome, has_next) = super::http::get_with_etag_with_link(
-            client,
+            ctx.client,
             &ep,
-            api_base,
-            headers,
+            ctx.api_base,
+            ctx.headers,
             cached_etag.as_deref(),
         )
         .await;
@@ -323,9 +415,12 @@ where
                 return Err(PaginatedFetchErr::Failed);
             }
             EtagGetOutcome::Fresh { text, etag } => {
-                let Some(parsed) = parse_repo_signals_page(&text, now, &classify) else {
+                let Some(parsed) =
+                    parse_repo_signals_page(&text, now, idx_offset, ctx.time_source, &classify)
+                else {
                     return Err(PaginatedFetchErr::Failed);
                 };
+                idx_offset += parsed.raw_count;
                 any_fresh = true;
                 last_page = page;
                 for sig in parsed.signals {
@@ -346,9 +441,12 @@ where
                 let Some(payload) = cached_payload else {
                     return Err(PaginatedFetchErr::Failed);
                 };
-                let Some(parsed) = parse_repo_signals_page(&payload, now, &classify) else {
+                let Some(parsed) =
+                    parse_repo_signals_page(&payload, now, idx_offset, ctx.time_source, &classify)
+                else {
                     return Err(PaginatedFetchErr::Failed);
                 };
+                idx_offset += parsed.raw_count;
                 last_page = page;
                 touched_pages.push(ep);
                 for sig in parsed.signals {
@@ -464,17 +562,24 @@ pub struct UserAffinityProfile {
     pub category_weights: HashMap<String, f64>,
     pub owner_weights: HashMap<String, f64>,
     pub token_weights: HashMap<String, f64>,
-    pub avg_fork_ratio: f64,
     /// 已收藏 / 关注 / Star / 已安装的应用：推荐时让位推新。
     pub known_ids: HashSet<String>,
     /// 参与聚合的信号条数（画像状态分档与隐私看板使用）。
     pub signal_count: usize,
     /// 已安装应用：不进精选页推荐区块。
     pub installed_ids: HashSet<String>,
+    /// 应用内显式关系（收藏 ∪ 关注 ∪ 已安装），不受信号源开关影响：精选货架硬排除。
+    pub explicit_local_ids: HashSet<String>,
     /// 有效期内被标记「不感兴趣」的应用。
     pub dismissed_app_ids: HashSet<String>,
+    /// 有效期内被标记「少推这类」的分类 key。
+    pub dismissed_categories: HashSet<String>,
     /// 推荐种子，按 `strength` 降序、同 id 只保留最强关系。
     pub seeds: Vec<SeedRef>,
+    /// 构建画像时目录的逆文档频率。
+    pub idf: CatalogIdf,
+    /// 目录条目别名（小写 id → aliases），供种子相似度使用。
+    pub aliases: HashMap<String, Vec<String>>,
 }
 
 /// 各信号的时间衰减半衰期（天）。
@@ -484,6 +589,22 @@ const SHORT_DECAY_HALF_LIFE_DAYS: f64 = 7.0;
 const VIEW_BASE_WEIGHT: f64 = 0.6;
 const VIEW_BURST_DEBOUNCE_SECS: i64 = 300;
 const VIEW_LOG_CAP: f64 = 3.5;
+
+/// 本地通道与 GitHub 通道都有信号时的融合系数。
+const LOCAL_CHANNEL_SHARE: f64 = 0.65;
+const GITHUB_CHANNEL_SHARE: f64 = 0.35;
+/// 软饱和归一化的置信尺度。
+const CAT_TAU: f64 = 2.2;
+const OWNER_TAU: f64 = 2.5;
+const TOKEN_TAU: f64 = 2.0;
+/// 兴趣种子分类的最低权重。
+const INTEREST_SEED_FLOOR: f64 = 0.75;
+/// 「少推这类」分类在打分时的抑制量。
+const DISMISSED_CATEGORY_PENALTY: f64 = 1.5;
+/// 已知应用（收藏 / 关注 / Star / 已装）在主信息流中的让位量。
+const KNOWN_PENALTY: f64 = 1.2;
+/// 关键词前 3 名的单调加权系数。
+const TOKEN_RANK_COEFFS: [f64; 3] = [0.60, 0.25, 0.15];
 
 /// 计算同一应用多次浏览的衰减对数权重：`0.6 * min(log2(1 + c_eff), 3.5)`。
 /// 5 分钟窗口内的连续浏览只计一次；其余每次按 7 天半衰期衰减后求和得到 `c_eff`。
@@ -533,9 +654,9 @@ struct AffinityBreakdown {
     cat: f64,
     owner: f64,
     tok: f64,
-    /// 命中的关键词（按权重降序，至多 3 个）。
+    /// 命中的关键词（按 `用户词权重 × IDF` 降序，至多 3 个）。
     matched_tokens: Vec<String>,
-    fork_resonance: f64,
+    cat_penalty: f64,
     known_penalty: f64,
 }
 
@@ -544,10 +665,10 @@ const REASON_MIN_CONTRIBUTION: f64 = 0.25;
 /// 单个推荐条目最多展示的理由数。
 pub const MAX_REASONS: usize = 2;
 
-/// 信号源仓库 Stars & Forks 规模调制系数：
-/// `1.0 + 0.04 * ln(stars + 1) + 0.08 * ln(forks + 1)`
-fn repo_scale_factor(stars: u64, forks: u64) -> f64 {
-    1.0 + 0.04 * ((stars as f64) + 1.0).ln() + 0.08 * ((forks as f64) + 1.0).ln()
+/// 目录外 GitHub 仓库的可信度系数：`0.7 + 0.3 * (1 - exp(-stars / 50))`。
+/// 压低零星空壳仓库，不放大高星头部。
+fn uncataloged_repo_credibility(stars: u64) -> f64 {
+    0.7 + 0.3 * (1.0 - (-(stars as f64) / 50.0).exp())
 }
 
 /// 软饱和归一化：`W(k) = (v_k / max_v) * (1 - exp(-v_k / tau))`
@@ -569,365 +690,180 @@ fn normalize_soft_saturated(raw: HashMap<String, f64>, tau: f64) -> HashMap<Stri
         .collect()
 }
 
-/// 停用词过滤表（避免常见虚词污染词袋亲和度）。
-fn is_stop_token(tok: &str) -> bool {
-    matches!(
-        tok,
-        "the"
-            | "and"
-            | "for"
-            | "with"
-            | "from"
-            | "that"
-            | "this"
-            | "app"
-            | "application"
-            | "software"
-            | "tool"
-            | "tools"
-            | "open"
-            | "source"
-            | "free"
-            | "cross"
-            | "platform"
-            | "windows"
-            | "linux"
-            | "macos"
-            | "android"
-            | "ios"
-            | "client"
-            | "based"
-            | "written"
-            | "fast"
-            | "modern"
-            | "simple"
-            | "lightweight"
-            | "using"
-            | "built"
-            | "support"
-    )
-}
-
-/// 从文本中提取小写英文词元（长度 >= 3）与关键双字词根。
-pub fn extract_affinity_tokens(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    for raw_part in text
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '+')
-        .map(|s| s.trim_matches('-').to_ascii_lowercase())
-    {
-        if raw_part.len() >= 3 && !is_stop_token(&raw_part) && seen.insert(raw_part.clone()) {
-            out.push(raw_part);
-        }
+/// 按维度融合两个通道：两侧都有值时 `0.65 * local + 0.35 * github`，否则取有值的一侧。
+fn fuse_channels(
+    local: HashMap<String, f64>,
+    github: HashMap<String, f64>,
+) -> HashMap<String, f64> {
+    if local.is_empty() {
+        return github;
+    }
+    if github.is_empty() {
+        return local;
+    }
+    let mut out: HashMap<String, f64> = HashMap::with_capacity(local.len() + github.len());
+    for (k, v) in &local {
+        *out.entry(k.clone()).or_insert(0.0) += LOCAL_CHANNEL_SHARE * v;
+    }
+    for (k, v) in &github {
+        *out.entry(k.clone()).or_insert(0.0) += GITHUB_CHANNEL_SHARE * v;
     }
     out
 }
 
-/// 将目录外 GitHub Star/Fork 仓库根据 `language`、`description` 与 `full_name`
-/// 映射到 ZStore 的 10 大标准分类（返回 `(category_id, confidence)` 列表）。
+/// 从文本中提取画像词元（中英双语，见 `affinity_text::extract_tokens`）。
+pub fn extract_affinity_tokens(text: &str) -> Vec<String> {
+    affinity_text::extract_tokens(text)
+}
+
+/// 将目录外仓库按 `language`、`description` 与 `full_name` 映射到标准分类
+/// （词边界匹配，见 `affinity_text::infer_categories`）。
 pub fn infer_categories_from_repo(
     language: &str,
     description: &str,
     full_name: &str,
 ) -> Vec<(&'static str, f64)> {
-    let lang = language.trim().to_ascii_lowercase();
-    let text = format!("{} {} {}", full_name, description, language).to_lowercase();
+    affinity_text::infer_categories(language, description, full_name)
+}
 
-    let rules: [(&str, &[&str]); 10] = [
-        (
-            "media",
-            &[
-                "video", "audio", "music", "player", "media", "ffmpeg", "mpv", "vlc", "stream",
-                "podcast", "codec", "subtitle", "danmaku", "iptv", "spotify", "lyric", "recorder",
-                "音视频", "播放器", "音乐", "视频", "直播", "字幕", "录音",
-            ],
-        ),
-        (
-            "security",
-            &[
-                "security",
-                "password",
-                "crypto",
-                "encrypt",
-                "cipher",
-                "vault",
-                "2fa",
-                "totp",
-                "otp",
-                "auth",
-                "privacy",
-                "firewall",
-                "keepass",
-                "bitwarden",
-                "gpg",
-                "pgp",
-                "audit",
-                "密码",
-                "加密",
-                "隐私",
-                "安全",
-                "验证器",
-            ],
-        ),
-        (
-            "network",
-            &[
-                "network",
-                "proxy",
-                "vpn",
-                "tunnel",
-                "dns",
-                "clash",
-                "sing-box",
-                "v2ray",
-                "xray",
-                "trojan",
-                "wireguard",
-                "torrent",
-                "bittorrent",
-                "aria2",
-                "download",
-                "transfer",
-                "localsend",
-                "http",
-                "packet",
-                "代理",
-                "下载",
-                "传输",
-                "网络",
-                "磁力",
-                "内网穿透",
-            ],
-        ),
-        (
-            "ops",
-            &[
-                "docker",
-                "kubernetes",
-                "k8s",
-                "container",
-                "devops",
-                "server",
-                "monitor",
-                "prometheus",
-                "grafana",
-                "ansible",
-                "terraform",
-                "nginx",
-                "redis",
-                "postgres",
-                "database",
-                "ssh",
-                "sftp",
-                "cluster",
-                "infra",
-                "homelab",
-                "运维",
-                "容器",
-                "服务器",
-                "监控",
-                "数据库",
-            ],
-        ),
-        (
-            "graphics",
-            &[
-                "image",
-                "photo",
-                "graphics",
-                "draw",
-                "paint",
-                "canvas",
-                "blender",
-                "3d",
-                "svg",
-                "vector",
-                "design",
-                "shader",
-                "gimp",
-                "krita",
-                "inkscape",
-                "screenshot",
-                "ocr",
-                "color",
-                "图像",
-                "画图",
-                "设计",
-                "截图",
-                "修图",
-                "建模",
-            ],
-        ),
-        (
-            "office",
-            &[
-                "note",
-                "markdown",
-                "knowledge",
-                "obsidian",
-                "logseq",
-                "notion",
-                "pdf",
-                "document",
-                "office",
-                "spreadsheet",
-                "todo",
-                "task",
-                "calendar",
-                "pomodoro",
-                "clipboard",
-                "latex",
-                "typst",
-                "笔记",
-                "文档",
-                "办公",
-                "待办",
-                "思维导图",
-                "日历",
-            ],
-        ),
-        (
-            "reading",
-            &[
-                "ebook",
-                "epub",
-                "reader",
-                "rss",
-                "feed",
-                "book",
-                "calibre",
-                "novel",
-                "manga",
-                "comic",
-                "dictionary",
-                "translate",
-                "translator",
-                "anki",
-                "flashcard",
-                "阅读",
-                "电子书",
-                "漫画",
-                "翻译",
-                "词典",
-                "订阅",
-            ],
-        ),
-        (
-            "games",
-            &[
-                "game",
-                "gaming",
-                "emulator",
-                "retro",
-                "arcade",
-                "minecraft",
-                "steam",
-                "godot",
-                "unity",
-                "unreal",
-                "voxel",
-                "puzzle",
-                "chess",
-                "游戏",
-                "模拟器",
-                "联机",
-            ],
-        ),
-        (
-            "system",
-            &[
-                "desktop",
-                "remote",
-                "rustdesk",
-                "window",
-                "launcher",
-                "explorer",
-                "file-manager",
-                "file manager",
-                "cleaner",
-                "uninstaller",
-                "disk",
-                "partition",
-                "archive",
-                "zip",
-                "7zip",
-                "driver",
-                "hotkey",
-                "autohotkey",
-                "powertoys",
-                "远程桌面",
-                "桌面",
-                "系统",
-                "清理",
-                "压缩",
-                "启动器",
-                "文件管理",
-            ],
-        ),
-        (
-            "dev",
-            &[
-                "editor",
-                "ide",
-                "terminal",
-                "shell",
-                "git",
-                "compiler",
-                "debugger",
-                "sdk",
-                "framework",
-                "library",
-                "cli",
-                "neovim",
-                "vim",
-                "vscode",
-                "zed",
-                "api",
-                "json",
-                "regex",
-                "開發",
-                "开发",
-                "终端",
-                "编辑器",
-                "代码",
-            ],
-        ),
-    ];
+/// 单个信号通道（本地应用信息或 GitHub 用户信息）的原始累加器。
+#[derive(Default)]
+struct ChannelAcc {
+    raw_cat: HashMap<String, f64>,
+    raw_owner: HashMap<String, f64>,
+    raw_tokens: HashMap<String, f64>,
+}
 
-    let mut matched: Vec<(&'static str, f64)> = Vec::new();
-    for (cat, kw_list) in rules {
-        let mut hits = 0usize;
-        for kw in kw_list {
-            if text.contains(kw) {
-                hits += 1;
+impl ChannelAcc {
+    fn add_category(&mut self, cat: &str, w: f64) {
+        let key = cat.trim().to_lowercase();
+        if !key.is_empty() && w > 0.0 {
+            *self.raw_cat.entry(key).or_insert(0.0) += w;
+        }
+    }
+
+    fn add_owner(&mut self, owner: &str, w: f64) {
+        let key = owner.trim().to_lowercase();
+        if !key.is_empty() && w > 0.0 {
+            *self.raw_owner.entry(key).or_insert(0.0) += w;
+        }
+    }
+
+    /// 词元权重乘以目录 IDF，泛化词贡献被压低。
+    fn add_tokens(&mut self, text: &str, w: f64, idf: &CatalogIdf) {
+        for tok in extract_affinity_tokens(text) {
+            let tw = w * idf.weight(&tok);
+            *self.raw_tokens.entry(tok).or_insert(0.0) += tw;
+        }
+    }
+
+    fn add_catalog_item(&mut self, item: &CatalogItem, w: f64, idf: &CatalogIdf) {
+        self.add_category(&item.category, w);
+        self.add_owner(&item.owner, w);
+        self.add_tokens(&affinity_text::catalog_item_text(item), w, idf);
+    }
+
+    /// 未命中目录的本地应用：优先用 `app_details` 概要，否则只凭 `owner/repo`。
+    fn add_uncataloged_app(
+        &mut self,
+        id_lower: &str,
+        brief: Option<&UncatalogedSignalBrief>,
+        w: f64,
+        idf: &CatalogIdf,
+    ) {
+        let (owner_part, repo_part) = id_lower.split_once('/').unwrap_or(("", id_lower));
+        match brief {
+            Some(b) => {
+                let text = affinity_text::app_text(
+                    &b.name,
+                    &b.repo,
+                    &b.description,
+                    b.description_en.as_deref(),
+                    &[],
+                );
+                let cat = b.category.trim().to_lowercase();
+                if affinity_text::is_standard_category(&cat) {
+                    self.add_category(&cat, w);
+                } else {
+                    for (c, conf) in infer_categories_from_repo("", &text, id_lower) {
+                        self.add_category(c, w * conf);
+                    }
+                }
+                let owner = if b.owner.trim().is_empty() {
+                    owner_part
+                } else {
+                    b.owner.as_str()
+                };
+                self.add_owner(owner, w);
+                self.add_tokens(&text, w, idf);
+            }
+            None => {
+                for (c, conf) in infer_categories_from_repo("", "", id_lower) {
+                    self.add_category(c, w * conf);
+                }
+                self.add_owner(owner_part, w);
+                self.add_tokens(repo_part, w, idf);
             }
         }
-        if hits > 0 {
-            let weight = (0.55 + (hits.saturating_sub(1) as f64) * 0.2).min(1.0);
-            matched.push((cat, weight));
+    }
+
+    fn normalize(self) -> ChannelWeights {
+        ChannelWeights {
+            category: normalize_soft_saturated(self.raw_cat, CAT_TAU),
+            owner: normalize_soft_saturated(self.raw_owner, OWNER_TAU),
+            token: normalize_soft_saturated(self.raw_tokens, TOKEN_TAU),
         }
     }
+}
 
-    // 语言辅助启发式加成
-    let lang_hint: Option<(&'static str, f64)> = match lang.as_str() {
-        "hcl" | "dockerfile" | "nix" | "shell" | "bash" | "powershell" => Some(("ops", 0.5)),
-        "shaderlab" | "glsl" | "hlsl" | "wgsl" => Some(("graphics", 0.6)),
-        "gdscript" => Some(("games", 0.85)),
-        "tex" | "typst" => Some(("office", 0.65)),
-        _ => None,
-    };
-    if let Some((cat, w)) = lang_hint {
-        if !matched.iter().any(|(c, _)| *c == cat) {
-            matched.push((cat, w));
+/// 一个通道归一化后的分类、作者、词元权重（均在 `[0, 1]`）。
+struct ChannelWeights {
+    category: HashMap<String, f64>,
+    owner: HashMap<String, f64>,
+    token: HashMap<String, f64>,
+}
+
+impl ChannelWeights {
+    /// 按维度融合本地与 GitHub 两个通道（见 `fuse_channels`）。
+    fn fuse(local: Self, github: Self) -> Self {
+        Self {
+            category: fuse_channels(local.category, github.category),
+            owner: fuse_channels(local.owner, github.owner),
+            token: fuse_channels(local.token, github.token),
         }
     }
+}
 
-    if matched.is_empty() && !lang.is_empty() {
-        matched.push(("dev", 0.45));
+/// 跨通道共享的画像状态：已知集合、信号计数与推荐种子。
+#[derive(Default)]
+struct ProfileAcc {
+    local: ChannelAcc,
+    github: ChannelAcc,
+    known_ids: HashSet<String>,
+    signal_count: usize,
+    seeds: HashMap<String, SeedRef>,
+}
+
+impl ProfileAcc {
+    fn add_seed(&mut self, item: &CatalogItem, relation: SeedRelation, strength: f64) {
+        let id = item.id.to_lowercase();
+        let replace = self
+            .seeds
+            .get(&id)
+            .map(|s| strength > s.strength)
+            .unwrap_or(true);
+        if replace {
+            self.seeds.insert(
+                id.clone(),
+                SeedRef {
+                    id,
+                    relation,
+                    strength,
+                    category: item.category.trim().to_lowercase(),
+                },
+            );
+        }
     }
-
-    matched.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    matched
 }
 
 impl UserAffinityProfile {
@@ -941,8 +877,9 @@ impl UserAffinityProfile {
     }
 
     /// 只聚合 `sources` 开启的信号源：本地应用信息（收藏、关注、已安装、浏览、搜索）
-    /// 与 GitHub 用户信息（仓库信号、应用内 Star）。不受开关影响的有：
-    /// - 已安装集合与「不感兴趣」反馈：精选页始终靠它们排除已装与已屏蔽应用；
+    /// 与 GitHub 用户信息（仓库信号、应用内 Star）。两个通道各自软饱和归一化后再融合，
+    /// 海量 GitHub 仓库不会稀释应用内的显式行为。不受开关影响的有：
+    /// - 已安装 / 显式关系集合与负反馈：精选页始终靠它们排除已知与已屏蔽应用；
     /// - 兴趣方向：用户在冷启动选择卡里显式填写，任一信号源开启时都要能让画像脱离冷启动。
     pub fn from_signals_with_sources(
         raw: &RawAffinitySignals,
@@ -952,150 +889,125 @@ impl UserAffinityProfile {
     ) -> Self {
         let empty_pairs: Vec<(String, i64)> = Vec::new();
         let empty_repo: Vec<UserRepoSignal> = Vec::new();
-        let (favorites, watched, views, searches) = if sources.local {
-            (&raw.favorites, &raw.watched, &raw.views, &raw.searches)
+        let (favorites, watched, installed, views, searches) = if sources.local {
+            (
+                &raw.favorites,
+                &raw.watched,
+                &raw.installed,
+                &raw.views,
+                &raw.searches,
+            )
         } else {
-            (&empty_pairs, &empty_pairs, &empty_pairs, &empty_pairs)
+            (
+                &empty_pairs,
+                &empty_pairs,
+                &empty_pairs,
+                &empty_pairs,
+                &empty_pairs,
+            )
         };
-        let interest_seeds = &raw.interest_seeds;
         let (repo_signals, user_stars) = if sources.github {
             (&raw.repo_signals, &raw.user_stars)
         } else {
             (&empty_repo, &empty_pairs)
         };
 
+        let idf = CatalogIdf::from_catalog(catalog);
         let mut by_id: HashMap<String, &CatalogItem> = HashMap::with_capacity(catalog.len());
         let mut by_repo_name: HashMap<String, Vec<&CatalogItem>> = HashMap::new();
+        let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
         for item in catalog {
-            by_id.insert(item.id.to_lowercase(), item);
+            let id = item.id.to_lowercase();
+            if !item.aliases.is_empty() {
+                aliases.insert(id.clone(), item.aliases.clone());
+            }
+            by_id.insert(id, item);
             by_repo_name
                 .entry(item.repo.to_lowercase())
                 .or_default()
                 .push(item);
         }
 
-        #[derive(Default)]
-        struct AffinityAcc {
-            raw_cat: HashMap<String, f64>,
-            raw_owner: HashMap<String, f64>,
-            raw_tokens: HashMap<String, f64>,
-            known_ids: HashSet<String>,
-            fork_ratio_sum: f64,
-            fork_ratio_weight: f64,
-            signal_count: usize,
-            seeds: HashMap<String, SeedRef>,
-        }
+        let lower_ids = |pairs: &[(String, i64)]| -> Vec<String> {
+            pairs
+                .iter()
+                .map(|(id, _)| id.trim().to_lowercase())
+                .filter(|id| !id.is_empty())
+                .collect()
+        };
+        let installed_ids: HashSet<String> = lower_ids(&raw.installed).into_iter().collect();
+        let explicit_local_ids: HashSet<String> = lower_ids(&raw.favorites)
+            .into_iter()
+            .chain(lower_ids(&raw.watched))
+            .chain(installed_ids.iter().cloned())
+            .collect();
 
-        impl AffinityAcc {
-            fn add_seed(&mut self, item: &CatalogItem, relation: SeedRelation, strength: f64) {
-                let id = item.id.to_lowercase();
-                let replace = self
-                    .seeds
-                    .get(&id)
-                    .map(|s| strength > s.strength)
-                    .unwrap_or(true);
-                if replace {
-                    self.seeds.insert(
-                        id.clone(),
-                        SeedRef {
-                            id,
-                            relation,
-                            strength,
-                            category: item.category.trim().to_lowercase(),
-                        },
-                    );
-                }
-            }
+        let mut acc = ProfileAcc::default();
 
-            fn add_catalog_item(&mut self, item: &CatalogItem, weight: f64, mark_known: bool) {
-                self.signal_count += 1;
-                let cat_key = item.category.trim().to_lowercase();
-                if !cat_key.is_empty() {
-                    *self.raw_cat.entry(cat_key).or_insert(0.0) += weight;
+        // 1. 本地显式关系：收藏 4.0、关注 3.5、已安装 3.2，30 天半衰期
+        let explicit = [
+            (favorites, 4.0, SeedRelation::Favorite),
+            (watched, 3.5, SeedRelation::Watched),
+            (installed, 3.2, SeedRelation::Installed),
+        ];
+        for (pairs, base_w, relation) in explicit {
+            for (app_id, ts) in pairs {
+                let id_lower = app_id.trim().to_lowercase();
+                if id_lower.is_empty() {
+                    continue;
                 }
-                let owner_key = item.owner.trim().to_lowercase();
-                if !owner_key.is_empty() {
-                    *self.raw_owner.entry(owner_key).or_insert(0.0) += weight;
-                }
-                let combined_text = format!(
-                    "{} {} {} {} {}",
-                    item.name,
-                    item.repo,
-                    item.description,
-                    item.description_en.as_deref().unwrap_or(""),
-                    item.aliases.join(" ")
-                );
-                for tok in extract_affinity_tokens(&combined_text) {
-                    *self.raw_tokens.entry(tok).or_insert(0.0) += weight;
-                }
-                if item.stars > 0 {
-                    let ratio = ((item.forks as f64) / (item.stars as f64)).min(1.0);
-                    self.fork_ratio_sum += ratio * weight;
-                    self.fork_ratio_weight += weight;
-                }
-                if mark_known {
-                    self.known_ids.insert(item.id.to_lowercase());
+                let decay = time_decay(*ts, now_secs);
+                let w = base_w * decay;
+                acc.known_ids.insert(id_lower.clone());
+                acc.signal_count += 1;
+                if let Some(item) = by_id.get(&id_lower) {
+                    acc.local.add_catalog_item(item, w, &idf);
+                    acc.add_seed(item, relation, w);
+                } else {
+                    let brief = raw.uncataloged_briefs.get(&id_lower);
+                    acc.local.add_uncataloged_app(&id_lower, brief, w, &idf);
                 }
             }
         }
 
-        let mut acc = AffinityAcc::default();
-
-        // 1. 应用内收藏 (user_favorites): 基准权重 4.0
-        for (app_id, ts) in favorites {
+        // 2. 浏览历史：同应用去抖合并后按时间衰减求有效次数，再做 log2(1 + c_eff)
+        // 加权并封顶（<= 2.1）；不计入已知，按去重应用数计入 signal_count。
+        let mut views_by_app: HashMap<String, Vec<i64>> = HashMap::new();
+        for (app_id, ts) in views {
             let id_lower = app_id.trim().to_lowercase();
-            if id_lower.is_empty() {
+            if !id_lower.is_empty() {
+                views_by_app.entry(id_lower).or_default().push(*ts);
+            }
+        }
+        let mut view_ids: Vec<&String> = views_by_app.keys().collect();
+        view_ids.sort();
+        for id_lower in view_ids {
+            let w = compute_effective_view_weight(&views_by_app[id_lower], now_secs);
+            if w <= 1e-9 {
                 continue;
             }
-            let decay = time_decay(*ts, now_secs);
-            acc.known_ids.insert(id_lower.clone());
-            if let Some(item) = by_id.get(&id_lower) {
-                let scale = repo_scale_factor(item.stars, item.forks);
-                acc.add_catalog_item(item, 4.0 * decay * scale, true);
-                acc.add_seed(item, SeedRelation::Favorite, 4.0 * decay);
+            acc.signal_count += 1;
+            match by_id.get(id_lower) {
+                Some(item) => acc.local.add_catalog_item(item, w, &idf),
+                None => {
+                    let brief = raw.uncataloged_briefs.get(id_lower);
+                    acc.local.add_uncataloged_app(id_lower, brief, w, &idf);
+                }
             }
         }
 
-        // 2. 应用内版本关注 (watched_apps): 基准权重 3.5
-        for (app_id, ts) in watched {
-            let id_lower = app_id.trim().to_lowercase();
-            if id_lower.is_empty() {
+        // 3. 搜索词：基准权重 0.4，7 天半衰期，只进关键词词袋
+        for (query, ts) in searches {
+            if extract_affinity_tokens(query).is_empty() {
                 continue;
             }
-            let decay = time_decay(*ts, now_secs);
-            acc.known_ids.insert(id_lower.clone());
-            if let Some(item) = by_id.get(&id_lower) {
-                let scale = repo_scale_factor(item.stars, item.forks);
-                acc.add_catalog_item(item, 3.5 * decay * scale, true);
-                acc.add_seed(item, SeedRelation::Watched, 3.5 * decay);
-            }
+            acc.signal_count += 1;
+            let w = 0.4 * time_decay_with(*ts, now_secs, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
+            acc.local.add_tokens(query, w, &idf);
         }
 
-        // 2b. 已安装 (installed_apps): 基准权重 3.2，30 天半衰期；已装应用不再推荐
-        // （已安装集合始终收集，权重只在本地应用信息开启时计入）
-        let mut installed_ids: HashSet<String> = HashSet::new();
-        for (app_id, ts) in &raw.installed {
-            let id_lower = app_id.trim().to_lowercase();
-            if id_lower.is_empty() {
-                continue;
-            }
-            installed_ids.insert(id_lower.clone());
-            if !sources.local {
-                continue;
-            }
-            acc.known_ids.insert(id_lower.clone());
-            let decay = time_decay(*ts, now_secs);
-            if let Some(item) = by_id.get(&id_lower) {
-                let scale = repo_scale_factor(item.stars, item.forks);
-                acc.add_catalog_item(item, 3.2 * decay * scale, true);
-                acc.add_seed(item, SeedRelation::Installed, 3.2 * decay);
-            }
-        }
-
-        // 记录已在 repo_signals 中处理过的 starred 仓库，避免与 user_stars 重复累加
+        // 4. GitHub 仓库信号：forked 3.8、starred 3.0、owned 2.4
         let mut starred_in_repo_signals: HashSet<String> = HashSet::new();
-
-        // 3. GitHub 仓库信号 (user_repo_signals: 'forked'=3.8, 'starred'=3.0, 'owned'=2.4)
         for sig in repo_signals {
             let full_lower = sig.full_name.trim().to_lowercase();
             if full_lower.is_empty() {
@@ -1112,10 +1024,9 @@ impl UserAffinityProfile {
                 None => 2.0,
             };
             let decay = time_decay(sig.updated_at, now_secs);
-            let scale = repo_scale_factor(sig.stars, sig.forks);
-            let w = base_w * decay * scale;
+            acc.signal_count += 1;
 
-            // 尝试精确匹配 CatalogItem；若为 forked 仓库 (<user>/<repo>)，额外按 <repo> 反查上游条目
+            // 精确匹配目录；Fork 仓库 (<user>/<repo>) 额外按 <repo> 反查上游条目
             let matched_cat_item: Option<&CatalogItem> =
                 by_id.get(&full_lower).copied().or_else(|| {
                     if rel_kind == Some(RepoRelation::Forked) {
@@ -1129,10 +1040,9 @@ impl UserAffinityProfile {
                 });
 
             if let Some(item) = matched_cat_item {
-                let eff_stars = sig.stars.max(item.stars);
-                let eff_forks = sig.forks.max(item.forks);
-                let eff_w = base_w * decay * repo_scale_factor(eff_stars, eff_forks);
-                acc.add_catalog_item(item, eff_w, true);
+                let w = base_w * decay;
+                acc.known_ids.insert(item.id.to_lowercase());
+                acc.github.add_catalog_item(item, w, &idf);
                 let relation = match rel_kind {
                     Some(RepoRelation::Forked) => Some(SeedRelation::Forked),
                     Some(RepoRelation::Starred) => Some(SeedRelation::Starred),
@@ -1140,98 +1050,56 @@ impl UserAffinityProfile {
                     None => None,
                 };
                 if let Some(relation) = relation {
-                    acc.add_seed(item, relation, base_w * decay);
+                    acc.add_seed(item, relation, w);
                 }
             } else {
-                acc.signal_count += 1;
-                let inferred =
-                    infer_categories_from_repo(&sig.language, &sig.description, &full_lower);
-                for (cat, conf) in inferred {
-                    *acc.raw_cat.entry(cat.to_string()).or_insert(0.0) += w * conf;
+                let w = base_w * decay * uncataloged_repo_credibility(sig.stars);
+                for (cat, conf) in
+                    infer_categories_from_repo(&sig.language, &sig.description, &full_lower)
+                {
+                    acc.github.add_category(cat, w * conf);
                 }
+                let (owner, repo_part) = full_lower.split_once('/').unwrap_or(("", &full_lower));
                 if rel_kind == Some(RepoRelation::Starred) {
-                    if let Some((owner, _)) = full_lower.split_once('/') {
-                        if !owner.is_empty() {
-                            *acc.raw_owner.entry(owner.to_string()).or_insert(0.0) += w * 0.6;
-                        }
-                    }
+                    acc.github.add_owner(owner, w * 0.6);
                 }
-                let text = format!("{} {} {}", full_lower, sig.language, sig.description);
-                for tok in extract_affinity_tokens(&text) {
-                    *acc.raw_tokens.entry(tok).or_insert(0.0) += w * 0.85;
-                }
-                if sig.stars > 0 {
-                    let ratio = ((sig.forks as f64) / (sig.stars as f64)).min(1.0);
-                    acc.fork_ratio_sum += ratio * w;
-                    acc.fork_ratio_weight += w;
-                }
+                acc.github.add_tokens(
+                    &format!("{} {}", repo_part, sig.description),
+                    w * 0.85,
+                    &idf,
+                );
             }
         }
 
-        // 4. 应用内 Star 表 (user_stars): 补充未在 repo_signals 出现的星标记录，基准权重 3.0
+        // 5. 应用内 Star 表：补充未在 repo_signals 出现的星标记录，基准权重 3.0
         for (full_name, ts) in user_stars {
             let full_lower = full_name.trim().to_lowercase();
             if full_lower.is_empty() || starred_in_repo_signals.contains(&full_lower) {
                 continue;
             }
-            let decay = time_decay(*ts, now_secs);
+            let w = 3.0 * time_decay(*ts, now_secs);
             acc.known_ids.insert(full_lower.clone());
             if let Some(item) = by_id.get(&full_lower) {
-                let scale = repo_scale_factor(item.stars, item.forks);
-                acc.add_catalog_item(item, 3.0 * decay * scale, true);
-                acc.add_seed(item, SeedRelation::Starred, 3.0 * decay);
+                acc.signal_count += 1;
+                acc.github.add_catalog_item(item, w, &idf);
+                acc.add_seed(item, SeedRelation::Starred, w);
             } else if let Some((owner, repo)) = full_lower.split_once('/') {
                 acc.signal_count += 1;
-                let w = 3.0 * decay;
-                *acc.raw_owner.entry(owner.to_string()).or_insert(0.0) += w * 0.6;
-                for tok in extract_affinity_tokens(repo) {
-                    *acc.raw_tokens.entry(tok).or_insert(0.0) += w * 0.7;
-                }
+                acc.github.add_owner(owner, w * 0.6);
+                acc.github.add_tokens(repo, w * 0.7, &idf);
             }
         }
 
-        // 5. 浏览历史 (view_history): 同应用去抖合并后按时间衰减求有效次数，再做 log2(1 + c_eff)
-        // 加权并封顶（0.6 * min(log2(1 + c_eff), 3.5) <= 2.1），仅命中目录的条目；不计入已知，
-        // 且按去重应用数计入 signal_count。
-        let mut views_by_app: HashMap<String, Vec<i64>> = HashMap::new();
-        for (app_id, ts) in views {
-            let id_lower = app_id.trim().to_lowercase();
-            if id_lower.is_empty() || !by_id.contains_key(&id_lower) {
-                continue;
-            }
-            views_by_app.entry(id_lower).or_default().push(*ts);
-        }
-        for (id_lower, ts_list) in views_by_app {
-            if let Some(item) = by_id.get(&id_lower) {
-                let weight = compute_effective_view_weight(&ts_list, now_secs);
-                if weight > 1e-9 {
-                    acc.add_catalog_item(item, weight, false);
-                }
-            }
-        }
-
-        // 6. 搜索词 (search_history): 基准权重 0.4，7 天半衰期，只进关键词词袋
-        for (query, ts) in searches {
-            let toks = extract_affinity_tokens(query);
-            if toks.is_empty() {
-                continue;
-            }
-            acc.signal_count += 1;
-            let w = 0.4 * time_decay_with(*ts, now_secs, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
-            for tok in toks {
-                *acc.raw_tokens.entry(tok).or_insert(0.0) += w;
-            }
-        }
-
-        // 7. 兴趣种子 (user_interest_seeds): 基准权重 2.0，不衰减，只进分类权重
-        for cat in interest_seeds {
-            let key = cat.trim().to_lowercase();
-            if key.is_empty() {
-                continue;
-            }
-            acc.signal_count += 1;
-            *acc.raw_cat.entry(key).or_insert(0.0) += 2.0;
-        }
+        // 6. 兴趣种子：显式分类先验，不衰减
+        let interest_cats: Vec<String> = raw
+            .interest_seeds
+            .iter()
+            .map(|c| c.trim().to_lowercase())
+            .filter(|c| !c.is_empty())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        acc.signal_count += interest_cats.len();
 
         let mut dismissed_app_ids: HashSet<String> = HashSet::new();
         let mut dismissed_categories: HashSet<String> = HashSet::new();
@@ -1246,50 +1114,61 @@ impl UserAffinityProfile {
         if acc.signal_count == 0 {
             return Self {
                 installed_ids,
+                explicit_local_ids,
                 dismissed_app_ids,
+                dismissed_categories,
                 known_ids: acc.known_ids,
+                idf,
+                aliases,
                 ..Self::default()
             };
         }
 
-        let mut category_weights = normalize_soft_saturated(acc.raw_cat, 2.2);
+        let ChannelWeights {
+            category: mut category_weights,
+            owner: owner_weights,
+            token: token_weights,
+        } = ChannelWeights::fuse(acc.local.normalize(), acc.github.normalize());
+
+        for cat in interest_cats {
+            let w = category_weights.entry(cat).or_insert(0.0);
+            *w = w
+                .max(INTEREST_SEED_FLOOR)
+                .max(1.0 - (1.0 - *w) * 0.4)
+                .min(1.0);
+        }
         for cat in &dismissed_categories {
             if let Some(w) = category_weights.get_mut(cat) {
                 *w *= 0.5;
             }
         }
-        let owner_weights = normalize_soft_saturated(acc.raw_owner, 2.5);
-        let token_weights = normalize_soft_saturated(acc.raw_tokens, 2.5);
-        let avg_fork_ratio = if acc.fork_ratio_weight > 0.0 {
-            (acc.fork_ratio_sum / acc.fork_ratio_weight).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
 
         let has_signals = !category_weights.is_empty()
             || !owner_weights.is_empty()
             || !token_weights.is_empty();
+
+        let mut seeds: Vec<SeedRef> = acc.seeds.into_values().collect();
+        seeds.sort_by(|a, b| {
+            b.strength
+                .partial_cmp(&a.strength)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.id.cmp(&b.id))
+        });
 
         Self {
             has_signals,
             category_weights,
             owner_weights,
             token_weights,
-            avg_fork_ratio,
             known_ids: acc.known_ids,
             signal_count: acc.signal_count,
             installed_ids,
+            explicit_local_ids,
             dismissed_app_ids,
-            seeds: {
-                let mut seeds: Vec<SeedRef> = acc.seeds.into_values().collect();
-                seeds.sort_by(|a, b| {
-                    b.strength
-                        .partial_cmp(&a.strength)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.id.cmp(&b.id))
-                });
-                seeds
-            },
+            dismissed_categories,
+            seeds,
+            idf,
+            aliases,
         }
     }
 
@@ -1310,13 +1189,13 @@ impl UserAffinityProfile {
     }
 
     /// 计算候选应用相对于当前用户画像的动态亲和度增益：
-    /// `3.2 * P_cat + 1.8 * P_owner + 1.8 * P_tok + ForkResonance - 1.2 * I(AlreadyKnown)`
+    /// `3.2 * P_cat + 1.8 * P_owner + 1.8 * P_tok - 1.5 * I(少推这类) - 1.2 * I(已知)`
     pub fn affinity_boost(&self, app: &AppSummary) -> f64 {
         if !self.has_signals {
             return 0.0;
         }
         let b = self.breakdown(app);
-        3.2 * b.cat + 1.8 * b.owner + 1.8 * b.tok + b.fork_resonance - b.known_penalty
+        3.2 * b.cat + 1.8 * b.owner + 1.8 * b.tok - b.cat_penalty - b.known_penalty
     }
 
     /// 推荐理由：取 `affinity_boost` 中贡献最大的分类 / 作者 / 关键词分项（贡献低于 0.25 的不出），
@@ -1343,7 +1222,12 @@ impl UserAffinityProfile {
                 },
             ));
         }
-        if 1.8 * b.tok >= REASON_MIN_CONTRIBUTION && !b.matched_tokens.is_empty() {
+        // 画像只有词袋信号（如仅有搜索历史）时，命中的关键词是唯一可解释来源，不受贡献门槛限制
+        let tok_is_sole_source =
+            self.category_weights.is_empty() && self.owner_weights.is_empty() && b.tok > 0.0;
+        if (1.8 * b.tok >= REASON_MIN_CONTRIBUTION || tok_is_sole_source)
+            && !b.matched_tokens.is_empty()
+        {
             parts.push((
                 1.8 * b.tok,
                 Reason::Keywords {
@@ -1374,52 +1258,46 @@ impl UserAffinityProfile {
             self.owner_weights.get(&owner_key).copied().unwrap_or(0.0)
         };
 
-        let app_text = format!(
-            "{} {}",
-            app.core.description,
-            app.core.description_en.as_deref().unwrap_or("")
-        );
-        let tokens = extract_affinity_tokens(&app_text);
-        let mut matched: Vec<(String, f64)> = tokens
+        // 候选文本不含别名（spec §3.3：name + repo + 中英简介）
+        let app_text = affinity_text::summary_text(app, &[]);
+        let mut matched: Vec<(String, f64)> = extract_affinity_tokens(&app_text)
             .into_iter()
             .filter_map(|t| {
-                let w = self.token_weights.get(&t).copied()?;
-                Some((t, w))
+                let w = self.token_weights.get(&t).copied()? * self.idf.weight(&t);
+                (w > 1e-9).then_some((t, w))
             })
             .collect();
-        matched.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        let take_n = matched.len().min(3);
-        let raw_tok_score = if take_n == 0 {
-            0.0
-        } else {
-            let sum: f64 = matched.iter().take(take_n).map(|(_, w)| *w).sum();
-            (sum / (take_n as f64)).clamp(0.0, 1.0)
-        };
-        let matched_tokens: Vec<String> = matched.into_iter().take(take_n).map(|(t, _)| t).collect();
+        matched.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        matched.truncate(TOKEN_RANK_COEFFS.len());
+        // 固定系数加权：多命中一个偏好词只会加分，分数随命中集合单调不减
+        let raw_tok_score = matched
+            .iter()
+            .zip(TOKEN_RANK_COEFFS)
+            .map(|((_, s), c)| s * c)
+            .sum::<f64>()
+            .clamp(0.0, 1.0);
+        let matched_tokens: Vec<String> = matched.into_iter().map(|(t, _)| t).collect();
         let tok_score = if is_known {
             raw_tok_score * 0.4
         } else {
             raw_tok_score
         };
 
-        let fork_resonance = if app.core.stars > 0 && app.core.forks > 0 && self.avg_fork_ratio > 0.0
-        {
-            let app_ratio = ((app.core.forks as f64) / (app.core.stars as f64)).min(1.0);
-            let diff = (app_ratio - self.avg_fork_ratio).abs();
-            (1.0 - (diff / 0.25).min(1.0)) * 0.35
-        } else {
-            0.0
-        };
-
-        let known_penalty = if is_known { 1.2 } else { 0.0 };
-
         AffinityBreakdown {
             cat: cat_score,
             owner: owner_score,
             tok: tok_score,
             matched_tokens,
-            fork_resonance,
-            known_penalty,
+            cat_penalty: if self.dismissed_categories.contains(&cat_key) {
+                DISMISSED_CATEGORY_PENALTY
+            } else {
+                0.0
+            },
+            known_penalty: if is_known { KNOWN_PENALTY } else { 0.0 },
         }
     }
 
@@ -1438,31 +1316,89 @@ impl UserAffinityProfile {
         list.truncate(limit);
         list
     }
+
+    /// 以画像构建时的目录 IDF 与别名计算种子相似度。
+    pub fn seed_similarity(&self, seed: &AppSummary, candidate: &AppSummary) -> f64 {
+        seed_similarity_with_idf(seed, candidate, Some(&self.idf), Some(&self.aliases))
+    }
+
+    /// `because_you` 条目的单条理由：优先画像给出的作者 / 关键词理由，其次种子与候选
+    /// 共同的高 IDF 词元，都没有时回退到分类。
+    pub fn seed_shelf_reason(&self, seed: &AppSummary, candidate: &AppSummary) -> Reason {
+        if let Some(r) = self
+            .affinity_explain(candidate)
+            .into_iter()
+            .find(|r| matches!(r, Reason::Owner { .. } | Reason::Keywords { .. }))
+        {
+            return r;
+        }
+        let tokens = |a: &AppSummary| extract_affinity_tokens(&affinity_text::summary_text(a, &[]));
+        let seed_toks: HashSet<String> = tokens(seed).into_iter().collect();
+        let mut shared: Vec<(String, f64)> = tokens(candidate)
+            .into_iter()
+            .filter(|t| seed_toks.contains(t))
+            .map(|t| {
+                let w = self.idf.weight(&t);
+                (t, w)
+            })
+            .filter(|(_, w)| *w >= SHARED_TOKEN_MIN_IDF)
+            .collect();
+        shared.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        if !shared.is_empty() {
+            return Reason::Keywords {
+                tokens: shared.into_iter().take(3).map(|(t, _)| t).collect(),
+            };
+        }
+        Reason::Category {
+            category: candidate.core.category.trim().to_lowercase(),
+        }
+    }
 }
 
-/// 候选应用与推荐种子的相似度：同分类 0.5 + 同作者 0.3 + 描述关键词 Jaccard × 0.2。
-pub fn seed_similarity(seed: &AppSummary, candidate: &AppSummary) -> f64 {
+/// `seed_shelf_reason` 里种子与候选共同词元的最低 IDF。
+const SHARED_TOKEN_MIN_IDF: f64 = 0.5;
+
+/// 种子相似度使用的词元：名称、仓库、别名与中英简介。
+fn similarity_tokens(
+    app: &AppSummary,
+    aliases_map: Option<&HashMap<String, Vec<String>>>,
+) -> Vec<String> {
+    let aliases = aliases_map
+        .and_then(|m| m.get(&app.core.id.to_lowercase()))
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    extract_affinity_tokens(&affinity_text::summary_text(app, aliases))
+}
+
+/// 候选应用与推荐种子的相似度：
+/// `0.25 * I(同分类) + 0.25 * I(同作者) + 0.50 * IDF 加权词元余弦`。
+/// 不传 `idf` 时所有词等权。
+pub fn seed_similarity_with_idf(
+    seed: &AppSummary,
+    candidate: &AppSummary,
+    idf: Option<&CatalogIdf>,
+    aliases_map: Option<&HashMap<String, Vec<String>>>,
+) -> f64 {
     let same_cat = !seed.core.category.trim().is_empty()
         && seed.core.category.trim().eq_ignore_ascii_case(candidate.core.category.trim());
     let same_owner = !seed.core.owner.trim().is_empty()
         && seed.core.owner.trim().eq_ignore_ascii_case(candidate.core.owner.trim());
-    let toks = |a: &AppSummary| -> HashSet<String> {
-        extract_affinity_tokens(&format!(
-            "{} {}",
-            a.core.description,
-            a.core.description_en.as_deref().unwrap_or("")
-        ))
-        .into_iter()
-        .collect()
-    };
-    let (ta, tb) = (toks(seed), toks(candidate));
-    let union = ta.union(&tb).count();
-    let jaccard = if union == 0 {
-        0.0
-    } else {
-        ta.intersection(&tb).count() as f64 / union as f64
-    };
-    (if same_cat { 0.5 } else { 0.0 }) + (if same_owner { 0.3 } else { 0.0 }) + 0.2 * jaccard
+    let default_idf = CatalogIdf::default();
+    let idf = idf.unwrap_or(&default_idf);
+    let sim_tok = idf.cosine_similarity(
+        &similarity_tokens(seed, aliases_map),
+        &similarity_tokens(candidate, aliases_map),
+    );
+    (if same_cat { 0.25 } else { 0.0 }) + (if same_owner { 0.25 } else { 0.0 }) + 0.5 * sim_tok
+}
+
+/// 等权词元版本的种子相似度（无目录上下文时使用）。
+pub fn seed_similarity(seed: &AppSummary, candidate: &AppSummary) -> f64 {
+    seed_similarity_with_idf(seed, candidate, None, None)
 }
 
 /// 统计信号仓库中最常出现的 Top N 编程语言（用于设置页隐私数据看板展示）。
@@ -1596,13 +1532,16 @@ mod tests {
     async fn sync_github_affinity_signals_sends_etag_and_persists_relations() {
         let starred_json = serde_json::json!([
             {
-                "name": "mpv",
-                "full_name": "mpv-player/mpv",
-                "description": "Command line video player",
-                "stargazers_count": 28000u64,
-                "forks_count": 2900u64,
-                "language": "C",
-                "fork": false
+                "starred_at": "2024-05-01T08:00:00Z",
+                "repo": {
+                    "name": "mpv",
+                    "full_name": "mpv-player/mpv",
+                    "description": "Command line video player",
+                    "stargazers_count": 28000u64,
+                    "forks_count": 2900u64,
+                    "language": "C",
+                    "fork": false
+                }
             }
         ])
         .to_string();
@@ -1726,6 +1665,24 @@ mod tests {
         serde_json::Value::Array(arr).to_string()
     }
 
+    /// `star+json` 包装格式的 Star 页（`starred_at` 按序号递减）。
+    fn mk_starred_json(items: Vec<(String, bool, &str)>) -> String {
+        let bare: Vec<serde_json::Value> = serde_json::from_str(&mk_repo_json(items)).unwrap();
+        let arr: Vec<serde_json::Value> = bare
+            .into_iter()
+            .enumerate()
+            .map(|(i, repo)| {
+                let ts = 1_700_000_000i64 - (i as i64) * 60;
+                let starred_at = time::OffsetDateTime::from_unix_timestamp(ts)
+                    .unwrap()
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .unwrap();
+                serde_json::json!({ "starred_at": starred_at, "repo": repo })
+            })
+            .collect();
+        serde_json::Value::Array(arr).to_string()
+    }
+
     #[tokio::test]
     async fn sync_github_affinity_signals_paginates_all_pages_and_recovers_on_304() {
         let starred_p1: Vec<(String, bool, &str)> = (0..100)
@@ -1749,7 +1706,7 @@ mod tests {
                     status: 200,
                     reason: "OK",
                     etag: Some("\"s-etag-1\"".to_string()),
-                    body: mk_repo_json(starred_p1),
+                    body: mk_starred_json(starred_p1),
                     honor_inm: Some("\"s-etag-1\"".to_string()),
                 },
                 link: Some(
@@ -1765,7 +1722,7 @@ mod tests {
                     status: 200,
                     reason: "OK",
                     etag: Some("\"s-etag-2\"".to_string()),
-                    body: mk_repo_json(starred_p2),
+                    body: mk_starred_json(starred_p2),
                     honor_inm: Some("\"s-etag-2\"".to_string()),
                 },
                 link: None,
@@ -1873,7 +1830,7 @@ mod tests {
                     status: 200,
                     reason: "OK",
                     etag: Some("\"s-etag-1\"".to_string()),
-                    body: mk_repo_json(starred_p1),
+                    body: mk_starred_json(starred_p1),
                     honor_inm: None,
                 },
                 link: Some(
@@ -1958,7 +1915,7 @@ mod tests {
                     status: 200,
                     reason: "OK",
                     etag: Some("\"s-only-p1\"".to_string()),
-                    body: mk_repo_json(vec![("org/one".to_string(), false, "Rust")]),
+                    body: mk_starred_json(vec![("org/one".to_string(), false, "Rust")]),
                     honor_inm: Some("\"s-only-p1\"".to_string()),
                 },
                 link: None,
@@ -2027,7 +1984,7 @@ mod tests {
                     status: 200,
                     reason: "OK",
                     etag: Some("\"s-etag-1\"".to_string()),
-                    body: mk_repo_json(starred_p1),
+                    body: mk_starred_json(starred_p1),
                     honor_inm: Some("\"s-etag-1\"".to_string()),
                 },
                 link: Some(
@@ -2043,7 +2000,7 @@ mod tests {
                     status: 200,
                     reason: "OK",
                     etag: Some("\"s-etag-2\"".to_string()),
-                    body: mk_repo_json(starred_p2),
+                    body: mk_starred_json(starred_p2),
                     honor_inm: Some("\"s-etag-2\"".to_string()),
                 },
                 link: None,
@@ -2114,6 +2071,162 @@ mod tests {
                 .unwrap()
                 .is_none());
         }
+    }
+
+    fn single_page_routes(starred_body: String, repos_body: String) -> HashMap<String, MockRoute> {
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/user/starred?per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"s-new\"".to_string()),
+                    body: starred_body,
+                    honor_inm: Some("\"s-new\"".to_string()),
+                },
+                link: None,
+            },
+        );
+        routes.insert(
+            "/user/repos?type=owner&sort=updated&per_page=100&page=1".to_string(),
+            MockRoute {
+                resp: MockResp {
+                    status: 200,
+                    reason: "OK",
+                    etag: Some("\"r-new\"".to_string()),
+                    body: repos_body,
+                    honor_inm: Some("\"r-new\"".to_string()),
+                },
+                link: None,
+            },
+        );
+        routes
+    }
+
+    #[tokio::test]
+    async fn starred_sync_uses_star_json_and_real_timestamps() {
+        let starred = serde_json::json!([
+            { "starred_at": "2024-05-01T08:00:00Z",
+              "repo": { "full_name": "org/new-star", "language": "Rust" } },
+            { "starred_at": "2019-01-02T03:04:05Z",
+              "repo": { "full_name": "org/old-star", "language": "C" } }
+        ])
+        .to_string();
+        let repos = serde_json::json!([
+            { "full_name": "me/pushed", "fork": false,
+              "pushed_at": "2023-03-04T05:06:07Z", "updated_at": "2020-01-01T00:00:00Z" },
+            { "full_name": "me/updated-only", "fork": true,
+              "updated_at": "2021-06-07T08:09:10Z" }
+        ])
+        .to_string();
+        let srv = spawn_mock_routes(single_page_routes(starred, repos)).await;
+        let db_mutex = Mutex::new(Database::open_in_memory().unwrap());
+        CatalogService::sync_github_affinity_signals_bg(&db_mutex, "t", Some(&srv.base))
+            .await
+            .unwrap();
+
+        let ts = |s: &str| parse_rfc3339_secs(Some(s)).unwrap();
+        let db = db_mutex.lock().unwrap();
+        let sigs = db.get_user_repo_signals().unwrap();
+        let at = |name: &str| sigs.iter().find(|s| s.full_name == name).unwrap().updated_at;
+        assert_eq!(at("org/new-star"), ts("2024-05-01T08:00:00Z"));
+        assert_eq!(at("org/old-star"), ts("2019-01-02T03:04:05Z"));
+        assert_eq!(at("me/pushed"), ts("2023-03-04T05:06:07Z"));
+        assert_eq!(at("me/updated-only"), ts("2021-06-07T08:09:10Z"));
+
+        let accepts = srv.seen_accept.lock().unwrap();
+        assert_eq!(
+            accepts
+                .get("/user/starred?per_page=100&page=1")
+                .cloned()
+                .flatten()
+                .as_deref(),
+            Some(STARRED_ACCEPT)
+        );
+    }
+
+    #[test]
+    fn bare_starred_page_falls_back_to_decreasing_index_timestamps() {
+        let now = 1_700_000_000i64;
+        let body = mk_repo_json(vec![
+            ("org/first".to_string(), false, "Rust"),
+            ("org/second".to_string(), false, "Rust"),
+        ]);
+        let page = parse_repo_signals_page(&body, now, 100, SignalTimeSource::StarredAt, &|_| {
+            RepoRelation::Starred
+        })
+        .unwrap();
+        assert_eq!(page.raw_count, 2);
+        let sig = &page.signals;
+        assert!(sig[0].updated_at > sig[1].updated_at);
+        assert_eq!(sig[0].updated_at, now - 100 * 3600);
+        assert_eq!(sig[1].updated_at, now - 101 * 3600);
+    }
+
+    #[tokio::test]
+    async fn legacy_starred_cache_skips_if_none_match_and_upgrades() {
+        let db_mutex = Mutex::new(Database::open_in_memory().unwrap());
+        let ep = CatalogService::affinity_starred_page_endpoint(1);
+        db_mutex
+            .lock()
+            .unwrap()
+            .save_etag(
+                &ep,
+                "\"s-new\"",
+                &mk_repo_json(vec![("org/old".to_string(), false, "Rust")]),
+                1_700_000_000,
+            )
+            .unwrap();
+
+        let srv = spawn_mock_routes(single_page_routes(
+            mk_starred_json(vec![("org/old".to_string(), false, "Rust")]),
+            mk_repo_json(vec![]),
+        ))
+        .await;
+        CatalogService::sync_github_affinity_signals_bg(&db_mutex, "t", Some(&srv.base))
+            .await
+            .unwrap();
+
+        let seen = srv.seen_inm.lock().unwrap();
+        assert_eq!(
+            seen.get("/user/starred?per_page=100&page=1").cloned().flatten(),
+            None,
+            "旧格式缓存不得携带 If-None-Match"
+        );
+        let db = db_mutex.lock().unwrap();
+        let payload = db.get_cached_payload(&ep).unwrap().unwrap();
+        assert!(payload.contains("\"starred_at\""));
+        let sigs = db.get_user_repo_signals().unwrap();
+        assert_eq!(sigs[0].updated_at, 1_700_000_000);
+    }
+
+    #[tokio::test]
+    async fn legacy_upgrade_happens_once_even_if_server_keeps_bare_format() {
+        let db_mutex = Mutex::new(Database::open_in_memory().unwrap());
+        let ep = CatalogService::affinity_starred_page_endpoint(1);
+        let bare = mk_repo_json(vec![("org/old".to_string(), false, "Rust")]);
+        db_mutex
+            .lock()
+            .unwrap()
+            .save_etag(&ep, "\"s-new\"", &bare, 1_700_000_000)
+            .unwrap();
+        let srv = spawn_mock_routes(single_page_routes(bare, mk_repo_json(vec![]))).await;
+        let path = "/user/starred?per_page=100&page=1";
+
+        CatalogService::sync_github_affinity_signals_bg(&db_mutex, "t", Some(&srv.base))
+            .await
+            .unwrap();
+        assert_eq!(srv.seen_inm.lock().unwrap().get(path).cloned().flatten(), None);
+
+        CatalogService::sync_github_affinity_signals_bg(&db_mutex, "t", Some(&srv.base))
+            .await
+            .unwrap();
+        assert_eq!(
+            srv.seen_inm.lock().unwrap().get(path).cloned().flatten().as_deref(),
+            Some("\"s-new\""),
+            "升级过一次后应恢复条件请求"
+        );
     }
 
     #[test]
@@ -2301,7 +2414,7 @@ mod tests {
         let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
         assert!(profile.category_weights.is_empty());
         assert!(profile.token_weights.contains_key("remote"));
-        assert!(profile.token_weights.contains_key("desktop"));
+        assert!(!profile.token_weights.contains_key("desktop"), "desktop 是停用词");
     }
 
     #[test]
@@ -2393,8 +2506,236 @@ mod tests {
         let mpv = catalog[0].to_summary();
         let jellyfin = catalog[1].to_summary();
         let rustdesk = catalog[2].to_summary();
-        assert!(seed_similarity(&mpv, &jellyfin) >= 0.5);
-        assert!(seed_similarity(&mpv, &rustdesk) < 0.35);
+        assert!(seed_similarity(&mpv, &jellyfin) >= 0.28);
+        assert!(seed_similarity(&mpv, &rustdesk) < 0.28);
+    }
+
+    fn cat_item(id: &str, category: &str, desc: &str, aliases: &[&str]) -> CatalogItem {
+        let (owner, repo) = id.split_once('/').unwrap();
+        CatalogItem {
+            id: id.to_string(),
+            name: repo.to_string(),
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: desc.to_string(),
+            description_en: None,
+            category: category.to_string(),
+            category_name: category.to_string(),
+            aliases: aliases.iter().map(|a| a.to_string()).collect(),
+            default_version: "v1".to_string(),
+            added_at: None,
+            license: "MIT".to_string(),
+            stars: 1000,
+            forks: 100,
+            is_verified: true,
+            homepage: None,
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec!["windows".to_string()],
+            identifiers: HashMap::new(),
+        }
+    }
+
+    /// 目录填充：让 IDF 接近真实目录量级。
+    fn filler(n: usize) -> Vec<CatalogItem> {
+        (0..n)
+            .map(|i| cat_item(&format!("filler{i}/thing{i}"), "dev", "generic helper", &[]))
+            .collect()
+    }
+
+    #[test]
+    fn keyword_score_is_monotonic_in_matched_set() {
+        let mut catalog = filler(20);
+        catalog.push(cat_item("seed/fav", "media", "ffmpeg video player", &[]));
+        catalog.push(cat_item("studio/a", "media", "video", &[]));
+        catalog.push(cat_item("studio/b", "media", "video player ffmpeg", &[]));
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            favorites: vec![("seed/fav".to_string(), now)],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        let a = catalog[21].to_summary();
+        let b = catalog[22].to_summary();
+        assert!(
+            profile.affinity_boost(&b) > profile.affinity_boost(&a),
+            "命中更多偏好词的候选得分必须更高"
+        );
+    }
+
+    #[test]
+    fn local_favorites_survive_flood_of_github_repos() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let descs = [
+            "A library for parsing data",
+            "Command line helper for developers",
+            "Async runtime and framework",
+            "Personal dotfiles",
+        ];
+        let repo_signals: Vec<UserRepoSignal> = (0..300)
+            .map(|i| UserRepoSignal {
+                full_name: format!("org{i}/repo{i}"),
+                relation: "starred".to_string(),
+                language: if i % 2 == 0 { "Rust" } else { "Python" }.to_string(),
+                description: descs[i % descs.len()].to_string(),
+                stars: 5000,
+                forks: 300,
+                updated_at: now - (i as i64) * 3600,
+            })
+            .collect();
+        let raw = RawAffinitySignals {
+            repo_signals,
+            favorites: vec![
+                ("mpv-player/mpv".to_string(), now),
+                ("jellyfin/jellyfin-media-player".to_string(), now),
+            ],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert!(
+            profile.category_weights["media"] >= 0.45,
+            "{:?}",
+            profile.category_weights
+        );
+        let top: Vec<String> = profile
+            .top_categories(2)
+            .into_iter()
+            .map(|(c, _)| c)
+            .collect();
+        assert!(top.contains(&"media".to_string()), "{top:?}");
+    }
+
+    #[test]
+    fn chinese_search_history_yields_keyword_boost_and_reason() {
+        let mut catalog = sample_catalog();
+        catalog.extend(filler(20));
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            searches: vec![("远程桌面".to_string(), now)],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert!(profile.has_signals);
+        let rustdesk = catalog[2].to_summary();
+        assert!(profile.affinity_boost(&rustdesk) > 0.0);
+        assert!(profile
+            .affinity_explain(&rustdesk)
+            .iter()
+            .any(|r| matches!(r, Reason::Keywords { .. })));
+        assert_eq!(profile.affinity_boost(&catalog[0].to_summary()), 0.0);
+    }
+
+    #[test]
+    fn uncataloged_local_signals_use_briefs_or_repo_name() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let mut briefs = HashMap::new();
+        briefs.insert(
+            "acme/player".to_string(),
+            crate::db::UncatalogedSignalBrief {
+                name: "Player".to_string(),
+                owner: "acme".to_string(),
+                repo: "player".to_string(),
+                description: String::new(),
+                description_en: Some("A tiny video player".to_string()),
+                category: "external".to_string(),
+            },
+        );
+        let raw = RawAffinitySignals {
+            favorites: vec![("acme/player".to_string(), now)],
+            views: vec![("other/markdown-notes".to_string(), now)],
+            uncataloged_briefs: briefs,
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        assert!(profile.has_signals);
+        assert_eq!(profile.signal_count, 2);
+        assert!(profile.category_weights.contains_key("media"));
+        assert!(profile.category_weights.contains_key("office"));
+        assert!(profile.owner_weights.contains_key("acme"));
+        assert!(profile.explicit_local_ids.contains("acme/player"));
+    }
+
+    #[test]
+    fn explicit_local_ids_ignore_local_source_switch() {
+        let catalog = sample_catalog();
+        let raw = RawAffinitySignals {
+            favorites: vec![("mpv-player/mpv".to_string(), 1)],
+            watched: vec![("rustdesk/rustdesk".to_string(), 1)],
+            installed: vec![("jellyfin/jellyfin-media-player".to_string(), 1)],
+            feedback: vec![crate::db::FeedFeedback {
+                target: "Games".to_string(),
+                scope: FeedbackScope::Category,
+                created_at: 1,
+            }],
+            ..Default::default()
+        };
+        let p = UserAffinityProfile::from_signals_with_sources(
+            &raw,
+            &catalog,
+            10,
+            AffinitySources {
+                local: false,
+                github: true,
+            },
+        );
+        assert!(!p.has_signals);
+        assert_eq!(p.explicit_local_ids.len(), 3);
+        assert!(p.dismissed_categories.contains("games"));
+    }
+
+    #[test]
+    fn dismissed_category_is_penalized_in_boost() {
+        let catalog = sample_catalog();
+        let now = 1_700_000_000i64;
+        let mut raw = RawAffinitySignals {
+            favorites: vec![("rustdesk/rustdesk".to_string(), now)],
+            ..Default::default()
+        };
+        let jellyfin = catalog[1].to_summary();
+        let before =
+            UserAffinityProfile::from_signals(&raw, &catalog, now).affinity_boost(&jellyfin);
+        raw.feedback = vec![crate::db::FeedFeedback {
+            target: "media".to_string(),
+            scope: FeedbackScope::Category,
+            created_at: now,
+        }];
+        let after =
+            UserAffinityProfile::from_signals(&raw, &catalog, now).affinity_boost(&jellyfin);
+        assert!((before - after - 1.5).abs() < 1e-9, "{before} {after}");
+    }
+
+    #[test]
+    fn seed_similarity_crosses_categories_on_shared_domain_terms() {
+        let mut catalog = filler(30);
+        catalog.push(cat_item(
+            "rustdesk/rustdesk",
+            "system",
+            "远程控制与局域网传输，Remote control and LAN file transfer",
+            &["远程控制", "局域网传输"],
+        ));
+        catalog.push(cat_item(
+            "landrop/landrop",
+            "network",
+            "局域网传输与远程控制工具，LAN file transfer with remote control",
+            &["局域网传输"],
+        ));
+        let now = 1_700_000_000i64;
+        let raw = RawAffinitySignals {
+            favorites: vec![("rustdesk/rustdesk".to_string(), now)],
+            ..Default::default()
+        };
+        let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
+        let a = catalog[30].to_summary();
+        let b = catalog[31].to_summary();
+        let sim = profile.seed_similarity(&a, &b);
+        assert!(sim >= 0.28, "sim = {sim}");
+        let unrelated = catalog[0].to_summary();
+        assert!(profile.seed_similarity(&a, &unrelated) < 0.28);
     }
 
     #[test]

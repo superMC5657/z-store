@@ -67,7 +67,8 @@ export function useFeaturedPage(allowedIds: readonly string[], daySeed: number) 
       const key = appId.toLowerCase();
       setDismissedIds((prev) => new Set(prev).add(key));
       try {
-        await tauriApi.dismissFeatured(scope === 'app' ? appId : category, scope);
+        if (scope === 'app') await tauriApi.dismissFeatured(appId, 'app');
+        else await tauriApi.dismissFeatured(category, 'category', appId);
         return true;
       } catch {
         setDismissedIds((prev) => {

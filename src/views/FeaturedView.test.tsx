@@ -183,7 +183,7 @@ describe('FeaturedView: dismiss feedback', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId(`dismiss-category-${APPS[8].id}`));
     });
-    expect(dismiss).toHaveBeenCalledWith(APPS[8].category, 'category');
+    expect(dismiss).toHaveBeenCalledWith(APPS[8].category, 'category', APPS[8].id);
   });
 
   it('dismissing the main hero leaves the side cards in place without promoting one', async () => {

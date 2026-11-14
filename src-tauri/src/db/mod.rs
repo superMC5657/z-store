@@ -13,7 +13,10 @@ pub mod settings;
 pub mod update_results;
 pub mod watch;
 
-pub use affinity::{FeedFeedback, FeedbackScope, RawAffinitySignals, RepoRelation, UserRepoSignal};
+pub use affinity::{
+    FeedFeedback, FeedbackScope, RawAffinitySignals, RepoRelation, UncatalogedSignalBrief,
+    UserRepoSignal,
+};
 pub use cache::AssetCacheRecord;
 pub use custom_apps::CustomAppEntry;
 pub use details::APP_DETAILS_CACHE_MAX_ROWS;

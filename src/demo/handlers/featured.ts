@@ -4,6 +4,12 @@ import { argNum, argStr, warnUnknownArgs, type InvokeArgs } from './common';
 
 // 演示站内存态：刷新页面即重置。
 const dismissed = new Set<string>();
+const dismissedCategories = new Set<string>();
+
+/** 分类未被「少推这类」。 */
+function isLiveCategory(category: string): boolean {
+  return !dismissedCategories.has(category.toLowerCase());
+}
 let interestSeeds: string[] = [];
 
 /** 演示站可经 `?featured=cold|off|warm` 切换画像状态，缺省 `rich`。 */
@@ -55,20 +61,27 @@ export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
 
   const heroCats = new Set<string>();
   const hero: FeaturedPick[] = [];
-  for (const s of rotated) {
-    if (hero.length >= 3) break;
-    if (heroCats.has(s.category)) continue;
-    heroCats.add(s.category);
-    used.add(s.id.toLowerCase());
-    hero.push({ app: s, reasons: personalized ? [{ kind: 'category', category: s.category }] : [] });
+  // 与后端一致：先在未被「少推这类」的分类里互斥取满，凑不满才用被少推的分类补位。
+  for (const allowDismissed of [false, true]) {
+    for (const s of rotated) {
+      if (hero.length >= 3) break;
+      if (heroCats.has(s.category)) continue;
+      if (!allowDismissed && !isLiveCategory(s.category)) continue;
+      heroCats.add(s.category);
+      used.add(s.id.toLowerCase());
+      hero.push({ app: s, reasons: personalized ? [{ kind: 'category', category: s.category }] : [] });
+    }
   }
 
   const shelves: FeaturedShelf[] = [];
   const byCat = (cat: string) => rotated.filter((s) => s.category === cat);
   const cats = Array.from(new Set(rotated.map((s) => s.category)));
+  const liveCats = cats.filter(isLiveCategory);
 
   if (personalized) {
-    const seedApp = rotated.find((s) => !used.has(s.id.toLowerCase()));
+    const seedApp = rotated.find(
+      (s) => !used.has(s.id.toLowerCase()) && isLiveCategory(s.category),
+    );
     if (seedApp) {
       used.add(seedApp.id.toLowerCase());
       const items = take(byCat(seedApp.category), 4);
@@ -82,7 +95,10 @@ export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
       }
     }
   } else {
-    const fresh = take(rotated.filter((s) => s.added_at), 4);
+    const fresh = take(
+      rotated.filter((s) => s.added_at && isLiveCategory(s.category)),
+      4,
+    );
     if (fresh.length >= 3) {
       shelves.push({
         kind: 'fresh',
@@ -91,7 +107,7 @@ export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
     }
   }
 
-  const pickCats = personalized && interestSeeds.length > 0 ? interestSeeds : cats;
+  const pickCats = (personalized && interestSeeds.length > 0 ? interestSeeds : cats).filter(isLiveCategory);
   let picked = 0;
   for (const cat of pickCats) {
     if (picked >= (state === 'warm' ? 1 : 2)) break;
@@ -103,7 +119,7 @@ export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
 
   if (state === 'rich') {
     const explore: FeaturedPick[] = [];
-    for (const cat of [...cats].reverse()) {
+    for (const cat of [...liveCats].reverse()) {
       if (explore.length >= 4) break;
       const [app] = take(byCat(cat), 1);
       if (app) explore.push({ app, reasons: [{ kind: 'explore', category: cat }] });
@@ -140,13 +156,21 @@ export function handleGetInterestSeeds(): string[] {
 }
 
 export function handleDismissFeatured(a: InvokeArgs): null {
-  warnUnknownArgs(['target', 'scope'], a, 'handleDismissFeatured');
-  if (argStr(a, 'scope') === 'app') dismissed.add(argStr(a, 'target').toLowerCase());
+  warnUnknownArgs(['target', 'scope', 'appId'], a, 'handleDismissFeatured');
+  const target = argStr(a, 'target').toLowerCase();
+  const scope = argStr(a, 'scope');
+  if (scope === 'app') dismissed.add(target);
+  if (scope === 'category') {
+    dismissedCategories.add(target);
+    const appId = argStr(a, 'appId').toLowerCase();
+    if (appId) dismissed.add(appId);
+  }
   return null;
 }
 
 export function handleClearFeedFeedback(): number {
-  const n = dismissed.size;
+  const n = dismissed.size + dismissedCategories.size;
   dismissed.clear();
+  dismissedCategories.clear();
   return n;
 }
