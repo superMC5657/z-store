@@ -2,10 +2,13 @@
 /* 应用主体区域（反 L 竖梁及内容区） */
 .app-body {
   flex: 1;
+  min-height: 0;
   display: flex;
   overflow: hidden;
   position: relative;
   z-index: 10;
+  container-type: size;
+  container-name: app-body;
 }
 
 /* 侧边导航栏 - 展开态 184px / 折叠态 60px 极简 Icon 栏（Panel #0F1011 / #FFFFFF） */
@@ -37,16 +40,17 @@
   text-transform: none;
   letter-spacing: -0.011em;
   color: var(--text-tertiary);
-  padding: 6px 8px 3px 8px;
+  padding: 4px 8px 2px 8px;
   font-weight: 510;
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
-  max-height: 26px;
+  max-height: 24px;
   box-sizing: border-box;
   opacity: 1;
   transform: translateY(0);
   transition: opacity 0.1s var(--ease-smooth);
+  flex-shrink: 0;
 }
 
 .sidebar.collapsed .nav-group-title {
@@ -57,7 +61,7 @@
 .sidebar-divider {
   height: 1px;
   background: var(--border-color);
-  margin: 6px 6px;
+  margin: 4px 6px;
   width: calc(100% - 12px);
   border: none;
   flex-shrink: 0;
@@ -94,6 +98,7 @@
   position: relative;
   box-sizing: border-box;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .nav-item:hover {
@@ -216,6 +221,7 @@
   gap: 4px;
   width: 100%;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .network-pill {
@@ -297,6 +303,7 @@
   align-items: center;
   gap: 6px;
   padding-right: 8px;
+  flex-shrink: 0;
 }
 
 .platform-head .nav-group-title {
@@ -340,19 +347,20 @@
 .platform-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  padding: 2px 8px 4px;
+  gap: 4px;
+  padding: 2px 8px 2px;
+  flex-shrink: 0;
 }
 
 .platform-chip {
   width: 100%;
   min-width: 0;
-  height: 44px;
+  height: 34px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   padding: 0;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
@@ -426,14 +434,8 @@
   color: var(--text-primary);
 }
 
-/* 折叠态：标题与计数隐藏，5 格收成 2 列迷你矩阵 */
+/* 折叠态：平台分组头整体隐藏，5+1 格收成 2 列迷你矩阵 */
 .sidebar.collapsed .platform-head {
-  justify-content: center;
-  padding-right: 0;
-}
-
-.sidebar.collapsed .platform-summary,
-.sidebar.collapsed .platform-reset {
   display: none !important;
 }
 
@@ -452,4 +454,98 @@
 
 .sidebar.collapsed .platform-chip-count {
   display: none !important;
+}
+
+/* 矮视口紧凑档：基于 .app-body 实际高度触发（兼顾 520px 演示视口与 --app-zoom 缩放），确保不滚动也不裁切底部账号入口 */
+@container app-body (max-height: 530px) {
+  .sidebar {
+    padding: 6px 6px;
+    gap: 1px;
+  }
+
+  .sidebar.collapsed {
+    padding: 6px 0;
+  }
+
+  .nav-group-title {
+    padding: 2px 8px 1px 8px;
+    line-height: 1.2;
+    max-height: 20px;
+  }
+
+  .sidebar-divider {
+    margin: 3px 6px;
+  }
+
+  .sidebar.collapsed .sidebar-divider {
+    margin: 4px auto;
+  }
+
+  .nav-item {
+    height: 28px;
+    min-height: 28px;
+  }
+
+  .sidebar.collapsed .nav-item {
+    height: 29px;
+    min-height: 29px;
+  }
+
+  .platform-grid {
+    gap: 3px;
+    padding: 1px 8px 1px;
+  }
+
+  .platform-chip {
+    height: 31px;
+  }
+
+  .sidebar.collapsed .platform-grid {
+    gap: 3px;
+    padding: 1px 0 2px;
+  }
+
+  .sidebar.collapsed .platform-chip {
+    height: 26px;
+  }
+
+  .sidebar-footer {
+    padding-top: 4px;
+  }
+
+  .network-pill {
+    height: 28px;
+    min-height: 28px;
+  }
+
+  .sidebar.collapsed .network-pill {
+    height: 29px;
+    min-height: 29px;
+  }
+}
+
+/* 极矮视口（如 720px 窗口开启 150% UI 缩放，有效侧栏高度 440px） */
+@container app-body (max-height: 460px) {
+  .sidebar {
+    padding: 4px 6px;
+    gap: 0;
+  }
+
+  .sidebar.collapsed {
+    padding: 4px 0;
+  }
+
+  .sidebar-divider {
+    margin: 2px 6px;
+  }
+
+  .nav-item {
+    height: 26px;
+    min-height: 26px;
+  }
+
+  .nav-item.active::before {
+    top: 6px;
+    bottom: 6px;
+  }
 }
