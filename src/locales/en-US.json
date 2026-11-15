@@ -736,7 +736,7 @@
     "close_aria": "Close detail dialog",
     "owner_profile_title": "View developer {{owner}}",
     "repo_open_title": "View the open-source repo in your browser",
-    "homepage_link": "Homepage",
+    "homepage_aria": "Homepage {{domain}}",
     "homepage_open_title": "Open official homepage: {{url}}",
     "latest_release": "Latest release {{version}}",
     "issue_link_title": "Report Issue",

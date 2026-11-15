@@ -460,11 +460,15 @@ describe('Component sibling button parity', () => {
     expect(repoBar).toBeTruthy();
     expect(repoBar.getAttribute('style')).toBeNull();
     const links = repoBar.querySelectorAll('a');
-    expect(links.length).toBe(3);
+    // 仓库 + 问题反馈；官方主页在标签栏
+    expect(links.length).toBe(2);
     for (const a of links) {
       expect(a.classList.contains('modal-meta-link')).toBe(true);
       expect(a.getAttribute('style') ?? '').not.toContain('--brand-primary');
     }
+    const homepageTag = container.querySelector('.modal-tags .modal-homepage-tag') as HTMLElement;
+    expect(homepageTag).toBeTruthy();
+    expect(homepageTag.getAttribute('style') ?? '').not.toContain('--brand-primary');
     const devBtn = repoBar.querySelector('button') as HTMLElement;
     expect(devBtn).toBeTruthy();
     expect(devBtn.getAttribute('style') ?? '').not.toContain('--brand-primary');

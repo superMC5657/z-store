@@ -46,6 +46,7 @@ describe('baseline: single-select matchPlatform (selectors.matchPlatform)', () =
  */
 import {
   PLATFORM_IDS,
+  formatPlatformLabels,
   matchPlatformSet,
   normalizePlatform,
   parseSelectedPlatformArray,
@@ -157,5 +158,13 @@ describe('platformFilter: multi-select set semantics', () => {
     expect(unknownOnly.size).toBe(0);
     expect(matchPlatformSet({ platforms: ['windows'] }, unknownOnly)).toBe(false);
     expect(matchPlatformSet({}, unknownOnly)).toBe(false);
+  });
+});
+
+describe('formatPlatformLabels', () => {
+  it('按传入顺序输出展示名，大小写不敏感，未知平台原样保留', () => {
+    expect(formatPlatformLabels(['windows', 'MacOS', 'linux'])).toBe('Windows, macOS, Linux');
+    expect(formatPlatformLabels(['harmony', 'ios'])).toBe('harmony, iOS');
+    expect(formatPlatformLabels([])).toBe('');
   });
 });

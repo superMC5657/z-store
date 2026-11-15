@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   X,
   Globe,
-  ExternalLink,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
@@ -18,11 +17,12 @@ import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
 import {
   buildAppRepoUrl,
   formatBytes,
+  formatHomepageDisplay,
   isCatalogedFailClosed,
   resolveExternalHomepageUrl,
 } from '../../utils/appHelper';
 import { PlatformIcon, ForgeIcon, WatchEyeIcon } from '../icons/PlatformIcons';
-import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
+import { formatPlatformLabels } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
 import { resolveRemoteIconUrl } from '../../services/custom';
@@ -286,6 +286,8 @@ export const Header: React.FC<HeaderProps> = ({
     () => resolveExternalHomepageUrl(app.homepage, repoUrl),
     [app.homepage, repoUrl],
   );
+  // 标签栏只展示裁剪后的域名，完整网址留在悬停提示
+  const homepageDisplay = useMemo(() => formatHomepageDisplay(homepageUrl), [homepageUrl]);
 
   // 问题反馈 → 预填标题与正文直达仓库 Issues 新建页（复用 openUrl 外链通道）
   const handleOpenIssueFeedback = (e: React.MouseEvent) => {
@@ -444,24 +446,6 @@ export const Header: React.FC<HeaderProps> = ({
           </a>
           <span className="modal-meta-sep" aria-hidden="true">·</span>
           <span>{t('detail.latest_release', { version: app.latest_version })}</span>
-          {homepageUrl && (
-            <>
-              <span className="modal-meta-sep" aria-hidden="true">·</span>
-              <a
-                href={homepageUrl}
-                onClick={(e) => handleOpenExternal(e, homepageUrl)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="modal-meta-link modal-homepage-link"
-                data-testid="detail-homepage-link"
-                title={t('detail.homepage_open_title', { url: homepageUrl })}
-              >
-                <Globe size={12} strokeWidth={1.5} aria-hidden="true" />
-                <span>{t('detail.homepage_link')}</span>
-                <ExternalLink size={11} strokeWidth={1.5} aria-hidden="true" />
-              </a>
-            </>
-          )}
           {/* owner/repo 缺失时 repoUrl 为空，反馈地址会退化为相对路径，故不渲染 */}
           {repoUrl && (
             <>
@@ -512,12 +496,14 @@ export const Header: React.FC<HeaderProps> = ({
             // 与卡片平台角标同形：只显示平台图标（平台名在 title），三态共用同一外框，加载完成时宽度不跳。
             const platformTagBox: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '4px', minWidth: '52px', justifyContent: 'center' };
             if (hasModalPlatforms) {
-              const platformsLabel = `${t('app.supported_devices')}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`;
+              const platformsLabel = `${t('app.supported_devices')}: ${formatPlatformLabels(app.platforms!)}`;
               return (
                 <span
                   className="modal-tag"
                   style={platformTagBox}
                   title={platformsLabel}
+                  role="img"
+                  aria-label={platformsLabel}
                 >
                   {app.platforms!.map((p) => (
                     <PlatformIcon key={p} platform={p} size={12} />
@@ -570,6 +556,21 @@ export const Header: React.FC<HeaderProps> = ({
           )}
           {primaryAsset && (
             <span className="modal-tag">{t('detail.size_label', { size: formatBytes(primaryAsset.size_bytes) })}</span>
+          )}
+          {homepageUrl && homepageDisplay && (
+            <a
+              href={homepageUrl}
+              onClick={(e) => handleOpenExternal(e, homepageUrl)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="modal-tag modal-homepage-tag"
+              data-testid="detail-homepage-link"
+              title={t('detail.homepage_open_title', { url: homepageUrl })}
+              aria-label={t('detail.homepage_aria', { domain: homepageDisplay })}
+            >
+              <Globe size={11} strokeWidth={1.5} aria-hidden="true" />
+              <span className="modal-homepage-tag-text">{homepageDisplay}</span>
+            </a>
           )}
           {app.is_stale && (
             <span

@@ -193,7 +193,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
 
     await i18n.changeLanguage('zh-CN');
     let view = renderWith({ ...FIXTURE_APP, homepage: url });
-    expect(screen.getByText('官方主页')).toBeTruthy();
+    expect(screen.getByLabelText('官方主页 demo.example.org/docs')).toBeTruthy();
     expect(screen.getByTitle(`访问官方主页: ${url}`)).toBeTruthy();
     view.unmount();
     view = renderWith(FIXTURE_APP);
@@ -202,7 +202,7 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
 
     await i18n.changeLanguage('en-US');
     view = renderWith({ ...FIXTURE_APP, homepage: url });
-    expect(screen.getByText('Homepage')).toBeTruthy();
+    expect(screen.getByLabelText('Homepage demo.example.org/docs')).toBeTruthy();
     expect(screen.getByTitle(`Open official homepage: ${url}`)).toBeTruthy();
     view.unmount();
     renderWith(FIXTURE_APP);

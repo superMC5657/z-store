@@ -94,26 +94,29 @@ function renderHeader(app: AppDetailViewModel) {
 }
 
 describe('Header 官方主页入口：展示', () => {
-  it.each(['https://zed.dev', 'http://gitup.co'])('独立官网 %s 渲染于顶栏元数据条内', (hp) => {
+  it.each([
+    ['https://zed.dev', 'zed.dev'],
+    ['http://gitup.co', 'gitup.co'],
+  ])('独立官网 %s 以「地球图标 + 域名」标签渲染于标签栏', (hp, display) => {
     const { container } = renderHeader(fixture({ homepage: hp }));
     const link = screen.getByTestId('detail-homepage-link') as HTMLAnchorElement;
-    expect(container.querySelector('.modal-header-info .modal-app-repo')?.contains(link)).toBe(true);
-    expect(link.textContent).toContain('官方主页');
+    expect(container.querySelector('.modal-header-info .modal-tags')?.contains(link)).toBe(true);
+    expect(link.textContent).toBe(display);
+    expect(link.getAttribute('aria-label')).toBe(`官方主页 ${display}`);
     expect(link.getAttribute('href')).toBe(hp);
     expect(link.getAttribute('title')).toBe(`访问官方主页: ${hp}`);
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });
 
-  it('位于「最新发布」与「问题反馈」之间', () => {
+  it('不出现在仓库元数据条，问题反馈紧随最新发布', () => {
     const { container } = renderHeader(fixture({ homepage: 'https://zed.dev' }));
-    const text = container.querySelector('.modal-app-repo')?.textContent ?? '';
-    const release = text.indexOf('最新发布 1.2.0');
-    const homepage = text.indexOf('官方主页');
-    const issue = text.indexOf('问题反馈');
-    expect(release).toBeGreaterThanOrEqual(0);
-    expect(homepage).toBeGreaterThan(release);
-    expect(issue).toBeGreaterThan(homepage);
+    const repoRow = container.querySelector('.modal-app-repo');
+    expect(repoRow?.contains(screen.getByTestId('detail-homepage-link'))).toBe(false);
+    const text = repoRow?.textContent ?? '';
+    expect(text).not.toContain('zed.dev');
+    expect(text.indexOf('最新发布 1.2.0')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('问题反馈')).toBeGreaterThan(text.indexOf('最新发布 1.2.0'));
   });
 
   it('同主机不同路径与跨托管主页照常展示', () => {
@@ -205,14 +208,15 @@ describe('Header 官方主页入口：统一外链通道', () => {
   });
 });
 
-describe('Header 官方主页入口：D4 单色样式', () => {
-  it('挂载 modal-meta-link，无内联颜色，图标为 1.5 线宽 currentColor', () => {
+describe('Header 官方主页入口：单色标签样式', () => {
+  it('挂载 modal-tag，无内联颜色，仅一枚 1.5 线宽 currentColor 地球图标', () => {
     renderHeader(fixture({ homepage: 'https://zed.dev' }));
     const link = screen.getByTestId('detail-homepage-link') as HTMLAnchorElement;
-    expect(link.classList.contains('modal-meta-link')).toBe(true);
+    expect(link.classList.contains('modal-tag')).toBe(true);
+    expect(link.classList.contains('modal-homepage-tag')).toBe(true);
     expect(link.style.color).toBe('');
     const svgs = link.querySelectorAll('svg');
-    expect(svgs.length).toBe(2);
+    expect(svgs.length).toBe(1);
     for (const svg of svgs) {
       expect(svg.getAttribute('stroke-width')).toBe('1.5');
       expect(svg.getAttribute('stroke')).toBe('currentColor');

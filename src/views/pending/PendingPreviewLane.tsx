@@ -7,7 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp, Eye, Globe, ShieldCheck, Tag } from 'lucide-react';
 import { AppIconFrame } from '../../components/AppIconFrame';
 import { PlatformIcon } from '../../components/icons/PlatformIcons';
-import { PLATFORM_META, type PlatformId } from '../../lib/platformFilter';
+import { formatPlatformLabels } from '../../lib/platformFilter';
+import { formatHomepageDisplay } from '../../utils/appHelper';
 import { resolvePendingDraftDescription, type PendingDraftItem } from './draftModel';
 
 interface PendingPreviewLaneProps {
@@ -29,6 +30,9 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const resolvedId = form.id.trim() || expectedId;
+  const platformsLabel = t('pending.preview.platform_title', {
+    platform: formatPlatformLabels(previewPlatforms),
+  });
 
   return (
     <div className="pending-preview-lane">
@@ -126,26 +130,28 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
               <span>{form.category_name.trim() || form.category.trim() || t('pending.preview.empty_category')}</span>
             </span>
 
-            {/* 平台标签列表 */}
-            {previewPlatforms.length > 0 ? (
-              previewPlatforms.map((p) => {
-                const meta = PLATFORM_META[p as PlatformId];
-                return (
-                  <span key={p} className="pending-preview-tag" title={t('pending.preview.platform_title', { platform: meta?.label || p })}>
-                    <PlatformIcon platform={p} size={11} />
-                    <span>{meta?.label || p}</span>
-                  </span>
-                );
-              })
-            ) : (
-              <span className="pending-preview-tag pending-preview-empty">{t('pending.preview.empty_platforms')}</span>
-            )}
-
             {/* 开源协议标签 */}
             <span className={`pending-preview-tag ${!form.license.trim() ? 'pending-preview-empty' : ''}`} title={t('pending.preview.license_title')}>
               <ShieldCheck size={11} strokeWidth={1.5} aria-hidden="true" />
               <span>{form.license.trim() || t('pending.preview.empty_license')}</span>
             </span>
+
+            {/* 平台标签：与详情页同形，全部平台图标合并为一枚，平台名在悬停提示 */}
+            {previewPlatforms.length > 0 ? (
+              <span
+                className="pending-preview-tag"
+                data-testid="pending-preview-platforms"
+                title={platformsLabel}
+                role="img"
+                aria-label={platformsLabel}
+              >
+                {previewPlatforms.map((p) => (
+                  <PlatformIcon key={p} platform={p} size={11} />
+                ))}
+              </span>
+            ) : (
+              <span className="pending-preview-tag pending-preview-empty">{t('pending.preview.empty_platforms')}</span>
+            )}
 
             {/* 官网/主页标签 */}
             {form.homepage.trim() ? (
@@ -158,7 +164,7 @@ export const PendingPreviewLane: React.FC<PendingPreviewLaneProps> = ({
                   onClick={(e) => e.stopPropagation()}
                   style={{ color: 'inherit', textDecoration: 'none' }}
                 >
-                  {form.homepage.trim().replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  {formatHomepageDisplay(form.homepage)}
                 </a>
               </span>
             ) : (

@@ -2,7 +2,29 @@
  * 详情顶栏「官方主页」外链决议：仓库地址构造、http(s) 安全校验与仓库自链判重。
  */
 import { describe, expect, it } from 'vitest';
-import { buildAppRepoUrl, resolveExternalHomepageUrl } from './appHelper';
+import { buildAppRepoUrl, formatHomepageDisplay, resolveExternalHomepageUrl } from './appHelper';
+
+describe('formatHomepageDisplay', () => {
+  it.each([
+    ['https://zed.dev', 'zed.dev'],
+    ['  https://www.dshtui.com/  ', 'dshtui.com'],
+    ['HTTPS://WWW.Example.com', 'Example.com'],
+    ['https://demo.example.org/docs?ref=zstore#top', 'demo.example.org/docs'],
+    ['https://github.com/apps/desktop//', 'github.com/apps/desktop'],
+    ['http://localhost:8080/app', 'localhost:8080/app'],
+    ['https://例子.测试/路径', '例子.测试/路径'],
+  ])('%j → %j', (url, expected) => {
+    expect(formatHomepageDisplay(url)).toBe(expected);
+  });
+
+  it('草稿中尚无协议头的输入照常裁剪展示', () => {
+    expect(formatHomepageDisplay('example.com/no-scheme/')).toBe('example.com/no-scheme');
+  });
+
+  it.each([null, undefined, '', '   '])('空值 %j 返回空串', (url) => {
+    expect(formatHomepageDisplay(url)).toBe('');
+  });
+});
 
 describe('buildAppRepoUrl', () => {
   it('forge_host 为空或缺失时回退 github.com', () => {
