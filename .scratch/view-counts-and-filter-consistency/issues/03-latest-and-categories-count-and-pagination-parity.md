@@ -1,6 +1,6 @@
 # Issue 03: 最新入库子页与分类子页的数量角标、平台预过滤分页及侧栏平台分布对齐
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01, 02
 
 ## Summary

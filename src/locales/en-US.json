@@ -242,6 +242,7 @@
     "added_at_badge": "Added {{date}}",
     "list_loading": "Loading…",
     "list_error": "Failed to load. Please retry.",
+    "load_more": "Load more",
     "retry": "Retry"
   },
   "categories": {
@@ -255,6 +256,7 @@
     "category_empty_for_platform": "No apps match current platform.",
     "list_loading": "Loading…",
     "list_error": "Failed to load category apps. Please retry later.",
+    "load_more": "Load more",
     "retry": "Retry",
     "cat_dev_name": "Development",
     "cat_dev_desc": "IDEs, editors, terminals, and version control",

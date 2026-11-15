@@ -242,6 +242,7 @@
     "added_at_badge": "收录于 {{date}}",
     "list_loading": "正在加载…",
     "list_error": "加载失败，请重试",
+    "load_more": "加载更多",
     "retry": "重试"
   },
   "categories": {
@@ -255,6 +256,7 @@
     "category_empty_for_platform": "当前平台下暂无应用。",
     "list_loading": "正在加载…",
     "list_error": "分类列表加载失败，稍后重试。",
+    "load_more": "加载更多",
     "retry": "重试",
     "cat_dev_name": "开发工具",
     "cat_dev_desc": "IDE, 编辑器, 调试台, 版本控制",
