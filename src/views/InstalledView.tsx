@@ -27,7 +27,9 @@ import {
   UpdateRule,
 } from '../types';
 import { EmptyState } from '../components/EmptyState';
-import { ViewShell } from './ViewShell';
+import { FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
+import type { PlatformId } from '../lib/platformFilter';
+import { selectPlatformCounts, type InstalledPlatformRow } from '../app/selectors';
 import {
   copyTextToClipboard,
   formatAppDate,
@@ -50,9 +52,12 @@ import {
   selectUpdatableInstalled,
   filterAndSortInstalledApps,
   formatInstallMethodLabel,
+  matchesInstalledSearch,
   type InstalledFilterTabId,
   type InstalledSortOrder,
 } from './manage/manageModel';
+
+const EMPTY_RESOLVED_IDS: ReadonlySet<string> = new Set<string>();
 
 interface InstalledViewProps {
   /** 一次性落点请求：为 true 时切到「有更新」签并清空搜索，随后调用 onFocusConsumed。 */
@@ -85,6 +90,15 @@ interface InstalledViewProps {
   /** 初始加载错误（非空且列表为空时呈现错误卡，与空态区分）；重试经 onRetryLoad。 */
   loadError?: string | null;
   onRetryLoad?: () => void;
+  /** 平台筛选前的已装总数：大于 0 而 `installedApps` 为空即「被平台筛空」，与真正未安装区分。 */
+  totalInstalledCount?: number;
+  /** 全部已装应用（未过平台筛选）的平台行，供侧栏平台分布上报。 */
+  installedPlatformRows?: readonly InstalledPlatformRow[];
+  /** 已确认 Other 的 id 集：目录空平台行据此区分 Other 与加载中（加载中暂不计数）。 */
+  platformResolvedOtherIds?: ReadonlySet<string>;
+  onResetPlatformFilter?: () => void;
+  /** 上报侧栏平台分布：「已隐藏」签为隐藏的已装应用，其余签为未隐藏的已装应用；卸载时上报 null。 */
+  onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
 export const InstalledView: React.FC<InstalledViewProps> = ({
@@ -112,6 +126,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   onOpenRules,
   loadError = null,
   onRetryLoad,
+  totalInstalledCount,
+  installedPlatformRows,
+  platformResolvedOtherIds = EMPTY_RESOLVED_IDS,
+  onResetPlatformFilter,
+  onDisplayPlatformCounts,
 }) => {
   const { t, i18n } = useTranslation();
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
@@ -147,10 +166,16 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
 
   const rulesByAppId = useMemo(() => buildRulesMap(updateRules), [updateRules]);
   const updatesById = useMemo(() => buildUpdatesMap(updates), [updates]);
-  const stats = useMemo(
-    () => computeInstalledStats(installedApps, rulesByAppId, updatesById),
-    [installedApps, rulesByAppId, updatesById],
+  // 筛选签计数按页内搜索词同步收窄，任一签上的数字恒等于切到该签时的可见行数。
+  const searchMatchedApps = useMemo(
+    () => installedApps.filter((a) => matchesInstalledSearch(a, apps, searchQuery)),
+    [installedApps, apps, searchQuery],
   );
+  const stats = useMemo(
+    () => computeInstalledStats(searchMatchedApps, rulesByAppId, updatesById),
+    [searchMatchedApps, rulesByAppId, updatesById],
+  );
+  // 「全部更新」目标不受页内搜索词裁剪。
   const updatableItems = useMemo(
     () => selectUpdatableInstalled(installedApps, rulesByAppId, updatesById),
     [installedApps, rulesByAppId, updatesById],
@@ -170,6 +195,25 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
       ),
     [installedApps, apps, rulesByAppId, activeTab, searchQuery, sortOrder, updatesById],
   );
+
+  const showHiddenSpread = activeTab === 'hidden';
+  const displayPlatformCounts = useMemo(() => {
+    if (!installedPlatformRows) return null;
+    const rows = installedPlatformRows.filter(
+      (row) => Boolean(rulesByAppId.get(row.id.toLowerCase())?.is_hidden) === showHiddenSpread,
+    );
+    return selectPlatformCounts(rows, platformResolvedOtherIds);
+  }, [installedPlatformRows, rulesByAppId, showHiddenSpread, platformResolvedOtherIds]);
+
+  useEffect(() => {
+    if (displayPlatformCounts) onDisplayPlatformCounts?.(displayPlatformCounts);
+  }, [displayPlatformCounts, onDisplayPlatformCounts]);
+
+  useEffect(() => {
+    return () => onDisplayPlatformCounts?.(null);
+  }, [onDisplayPlatformCounts]);
+
+  const isPlatformFilteredEmpty = installedApps.length === 0 && (totalInstalledCount ?? 0) > 0;
 
   const handleApplyUpdate = async (id: string) => {
     if (!onApplyUpdate) return;
@@ -232,8 +276,8 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
   };
 
   const filterTabs: ManageFilterTab<InstalledFilterTabId>[] = [
-    { id: 'all', label: t('installed.filter_all'), count: installedApps.length - stats.hiddenCount },
-    { id: 'updatable', label: t('installed.filter_updatable'), count: updatableItems.length },
+    { id: 'all', label: t('installed.filter_all'), count: stats.allCount },
+    { id: 'updatable', label: t('installed.filter_updatable'), count: stats.updatableCount },
     { id: 'frozen', label: t('installed.filter_frozen'), count: stats.frozenCount },
     { id: 'hidden', label: t('installed.filter_hidden'), count: stats.hiddenCount },
   ];
@@ -349,6 +393,14 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
               </button>
             )
           }
+        />
+      ) : isPlatformFilteredEmpty ? (
+        <FilterEmptyState
+          icon={<Package size={40} strokeWidth={1.5} />}
+          title={t('installed.filter_empty_title')}
+          description={t('installed.filter_empty_desc')}
+          resetLabel={t('installed.reset_device_filter')}
+          onReset={resolvePlatformReset(onResetPlatformFilter)}
         />
       ) : installedApps.length === 0 ? (
         <EmptyState

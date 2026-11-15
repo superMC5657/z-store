@@ -361,12 +361,16 @@ export const App: React.FC = () => {
     searchPlatformFilteredApps,
     platformFilteredOnlineApps,
     platformFilteredRecentApps,
+    allFavoritesPoolApps,
     favoritesViewApps,
     platformFilteredFavoriteCount,
     pendingFilteredCount,
     filteredInstalledApps,
     filteredUpdates,
+    installedPlatformRows,
+    countVisibleUpdatable,
     handleResetPlatformFilter,
+    handleInstalledPlatformCounts,
     handleTrendsPlatformCounts,
     handleStarredPlatformCounts,
     sidebarPlatformCounts,
@@ -429,6 +433,7 @@ export const App: React.FC = () => {
     searchQuery,
     showToast,
     t,
+    countVisibleUpdatable,
   });
 
   // 「我的应用」检查更新：联网检查的同时重读本地已装列表（零网络），页面只保留这一个刷新入口。
@@ -822,6 +827,7 @@ export const App: React.FC = () => {
           {currentView === 'favorites' && (
             <FavoritesView
               apps={favoritesViewApps}
+              allApps={allFavoritesPoolApps}
               selectedPlatforms={selectedPlatforms}
               platformResolvedOtherIds={platformResolvedOtherIds}
               onConfirmPlatformOtherIds={confirmPlatformOtherIds}
@@ -872,6 +878,11 @@ export const App: React.FC = () => {
               onOpenRules={() => setIsRulesModalOpen(true)}
               loadError={installLoadError}
               onRetryLoad={loadInstalledApps}
+              totalInstalledCount={installedApps.length}
+              installedPlatformRows={installedPlatformRows}
+              platformResolvedOtherIds={platformResolvedOtherIds}
+              onResetPlatformFilter={handleResetPlatformFilter}
+              onDisplayPlatformCounts={handleInstalledPlatformCounts}
             />
           )}
 

@@ -16,6 +16,8 @@ interface UseUpdateActionsParams {
   searchQuery: string;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
+  /** 检查更新完成后的提示计数：与「我的应用」「有更新」签同一口径（平台过滤 + 跳过隐藏/锁定）；缺席时仅排除隐藏。 */
+  countVisibleUpdatable?: (updates: UpdateItem[], rules: UpdateRule[]) => number;
 }
 
 /**
@@ -34,6 +36,7 @@ export function useUpdateActions({
   searchQuery,
   showToast,
   t,
+  countVisibleUpdatable,
 }: UseUpdateActionsParams) {
   // 应用单项更新
   const handleApplyUpdate = async (id: string) => {
@@ -139,15 +142,20 @@ export function useUpdateActions({
       }
       setUpdates(displayed);
       // 隐藏应用的更新只供「已隐藏」签与规则管理跳过版本，不计入提示
-      let hiddenIds = new Set<string>();
+      let rules: UpdateRule[] = [];
       try {
-        const rules = await tauriApi.getUpdateRules();
+        rules = await tauriApi.getUpdateRules();
         setUpdateRules(rules);
-        hiddenIds = normalizeIdLowerSet(rules.filter((r) => r.is_hidden).map((r) => r.app_id));
       } catch {
-        // 规则读取失败时按全部计数
+        // 规则读取失败时按无规则计数
       }
-      const visibleCount = displayed.filter((u) => !hiddenIds.has(normalizeId(u.app_id))).length;
+      let visibleCount: number;
+      if (countVisibleUpdatable) {
+        visibleCount = countVisibleUpdatable(displayed, rules);
+      } else {
+        const hiddenIds = normalizeIdLowerSet(rules.filter((r) => r.is_hidden).map((r) => r.app_id));
+        visibleCount = displayed.filter((u) => !hiddenIds.has(normalizeId(u.app_id))).length;
+      }
       if (visibleCount === 0) {
         showToast(t('toast.all_latest'), 'success');
       } else {

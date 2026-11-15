@@ -4,8 +4,17 @@ import type {
   AppSummary,
   InstalledApp,
   UpdateItem,
+  UpdateRule,
   ViewType,
 } from '../types';
+import { hydrateCardsByIds } from '../services/repoEnrichCache';
+import { detectHostOs } from '../utils/appHelper';
+import {
+  buildRulesMap,
+  buildUpdatesMap,
+  inferInstalledFallbackPlatforms,
+  selectUpdatableInstalled,
+} from '../views/manage/manageModel';
 import {
   PLATFORM_IDS,
   isPlatformLoading,
@@ -79,6 +88,69 @@ export function selectPendingFilteredCount(
   return n;
 }
 
+/** 已装应用的平台行：`id` 保持已装行原值，平台按「目录 → 水合卡片 → 安装方式兜底」解析。 */
+export interface InstalledPlatformRow {
+  id: string;
+  platforms: string[];
+}
+
+/**
+ * 为每条已装应用解析平台：目录行（含加载中/已确认 Other 的空平台）优先；
+ * 不在目录内（被隐藏的收录应用、未收录已装）取水合卡片的非空平台；仍无则按安装方式推导。
+ */
+export function resolveInstalledPlatformRows(
+  installedApps: readonly InstalledApp[],
+  appsById: ReadonlyMap<string, AppSummary>,
+  hydratedById: ReadonlyMap<string, AppSummary>,
+  hostPlatform: PlatformId,
+): InstalledPlatformRow[] {
+  return installedApps.map((inst) => {
+    const key = normalizeId(inst.app_id);
+    const catalogEntry = appsById.get(key);
+    if (catalogEntry) return { id: inst.app_id, platforms: catalogEntry.platforms ?? [] };
+    const card = hydratedById.get(key);
+    if (card?.platforms && card.platforms.length > 0) return { id: inst.app_id, platforms: card.platforms };
+    return { id: inst.app_id, platforms: inferInstalledFallbackPlatforms(inst.install_method, hostPlatform) };
+  });
+}
+
+function buildInstalledRowLookup(rows: readonly InstalledPlatformRow[]): Map<string, InstalledPlatformRow> {
+  const map = new Map<string, InstalledPlatformRow>();
+  for (const r of rows) {
+    const k = normalizeId(r.id);
+    if (k && !map.has(k)) map.set(k, r);
+  }
+  return map;
+}
+
+/** 已装列表按平台行过滤（加载中行恒可见，落定后走 matchPlatformSet）。 */
+export function selectPlatformFilteredInstalled(
+  installedApps: readonly InstalledApp[],
+  rows: readonly InstalledPlatformRow[],
+  selectedPlatforms: ReadonlySet<string>,
+  platformResolvedOtherIds: ReadonlySet<string>,
+): InstalledApp[] {
+  const byId = buildInstalledRowLookup(rows);
+  return installedApps.filter((inst) => {
+    const row = byId.get(normalizeId(inst.app_id));
+    return !row || matchPlatformSetWithLoading(row, selectedPlatforms, platformResolvedOtherIds);
+  });
+}
+
+/** 更新快照按对应已装应用的平台行过滤；无已装行的更新项不属于「我的应用」，一并排除。 */
+export function selectPlatformFilteredUpdates(
+  updates: readonly UpdateItem[],
+  rows: readonly InstalledPlatformRow[],
+  selectedPlatforms: ReadonlySet<string>,
+  platformResolvedOtherIds: ReadonlySet<string>,
+): UpdateItem[] {
+  const byId = buildInstalledRowLookup(rows);
+  return updates.filter((u) => {
+    const row = byId.get(normalizeId(u.app_id));
+    return Boolean(row) && matchPlatformSetWithLoading(row!, selectedPlatforms, platformResolvedOtherIds);
+  });
+}
+
 /** 目录与补充行按 `normalizeId` 去重合并（目录行优先），不过平台过滤。 */
 function mergeUniqueById(base: AppSummary[], extras: readonly AppSummary[]): AppSummary[] {
   if (extras.length === 0) return base;
@@ -118,7 +190,7 @@ function selectPlatformFilteredApps(
 }
 
 export function selectPlatformCounts(
-  apps: readonly AppSummary[],
+  apps: readonly Pick<AppSummary, 'id' | 'platforms'>[],
   platformResolvedOtherIds: ReadonlySet<string>,
 ): Record<PlatformId, number> {
   const counts = {} as Record<PlatformId, number>;
@@ -987,19 +1059,69 @@ export function useAppSelectors({
   // 目录 id（小写）→ AppSummary 索引，供已安装/更新列表 O(1) 查表，避免每行 apps.find 全扫
   const appsById = useMemo(() => buildAppsById(fullMergedCatalogApps), [fullMergedCatalogApps]);
 
-  const filteredInstalledApps = useMemo(() => {
-    return installedApps.filter((inst) => {
-      const catalogEntry = appsById.get(normalizeId(inst.app_id));
-      return !catalogEntry || matchPlatformSetWithLoading(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
-    });
-  }, [installedApps, appsById, selectedPlatforms, platformResolvedOtherIds]);
+  // 不在全量目录内的已装应用（被隐藏的收录应用、未收录已装）经零网络批量水合补齐卡片平台。
+  const [installedHydratedById, setInstalledHydratedById] = useState<ReadonlyMap<string, AppSummary>>(
+    () => new Map(),
+  );
+  const uncatalogedInstalledKey = useMemo(() => {
+    const ids: string[] = [];
+    for (const inst of installedApps) {
+      const k = normalizeId(inst.app_id);
+      if (k && !appsById.has(k)) ids.push(k);
+    }
+    return ids.sort().join('\n');
+  }, [installedApps, appsById]);
+  useEffect(() => {
+    if (!uncatalogedInstalledKey) return;
+    let cancelled = false;
+    hydrateCardsByIds(uncatalogedInstalledKey.split('\n'), { uncatalogedOnly: true })
+      .then((res) => {
+        if (!cancelled) setInstalledHydratedById(res.byId);
+      })
+      .catch(() => {
+        // 水合失败时按安装方式兜底
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [uncatalogedInstalledKey]);
 
-  const filteredUpdates = useMemo(() => {
-    return updates.filter((u) => {
-      const catalogEntry = appsById.get(normalizeId(u.app_id));
-      return !catalogEntry || matchPlatformSetWithLoading(catalogEntry, selectedPlatforms, platformResolvedOtherIds);
-    });
-  }, [updates, appsById, selectedPlatforms, platformResolvedOtherIds]);
+  const installedPlatformRows = useMemo(
+    () => resolveInstalledPlatformRows(installedApps, appsById, installedHydratedById, detectHostOs()),
+    [installedApps, appsById, installedHydratedById],
+  );
+
+  const filteredInstalledApps = useMemo(
+    () =>
+      selectPlatformFilteredInstalled(installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds),
+    [installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds],
+  );
+
+  const filteredUpdates = useMemo(
+    () => selectPlatformFilteredUpdates(updates, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds),
+    [updates, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds],
+  );
+
+  // 检查更新 Toast 口径：与「有更新」签同一可更新集（平台过滤 + 跳过隐藏/锁定）。
+  // 经 ref 读取最新已装平台行，联网检查期间已装列表刷新也按最新口径计数。
+  const updatableCountInputsRef = useRef({ installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds });
+  updatableCountInputsRef.current = { installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds };
+  const countVisibleUpdatable = useCallback((freshUpdates: UpdateItem[], rules: UpdateRule[]) => {
+    const cur = updatableCountInputsRef.current;
+    const platformUpdates = selectPlatformFilteredUpdates(
+      freshUpdates,
+      cur.installedPlatformRows,
+      cur.selectedPlatforms,
+      cur.platformResolvedOtherIds,
+    );
+    const platformInstalled = selectPlatformFilteredInstalled(
+      cur.installedApps,
+      cur.installedPlatformRows,
+      cur.selectedPlatforms,
+      cur.platformResolvedOtherIds,
+    );
+    return selectUpdatableInstalled(platformInstalled, buildRulesMap(rules), buildUpdatesMap(platformUpdates)).length;
+  }, []);
 
   const handleResetPlatformFilter = useCallback(() => {
     setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
@@ -1122,6 +1244,8 @@ export function useAppSelectors({
     showCustom,
     filteredInstalledApps,
     filteredUpdates,
+    installedPlatformRows,
+    countVisibleUpdatable,
     handleResetPlatformFilter,
     setViewPlatformCounts,
     handleLatestPlatformCounts,
