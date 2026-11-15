@@ -331,18 +331,16 @@ export const PendingView: React.FC<PendingViewProps> = ({
     if (target && target !== activeGroup) setActiveGroupState(target);
   }, [entries.length, counts, rawCounts, activeGroup, isCreating]);
 
-  // 侧栏平台芯片：已归档 Tab 统计已归档条目，其余 Tab 统计未归档条目。
-  const scopeArchived = activeGroup === 'archived';
+  // 侧栏平台芯片：只统计当前 Tab 的条目（各 Tab 独立分布，不随平台勾选变化）。
   const displayPlatformCounts = useMemo<Record<PlatformId, number>>(() => {
     const out = {} as Record<PlatformId, number>;
+    const groupEntries = entries.filter((e) => entryGroup(e) === activeGroup);
     for (const id of PLATFORM_IDS) {
       const singleton = new Set<string>([id]);
-      out[id] = entries.filter(
-        (e) => Boolean(e.archived) === scopeArchived && entryMatchesPlatforms(e, singleton),
-      ).length;
+      out[id] = groupEntries.filter((e) => entryMatchesPlatforms(e, singleton)).length;
     }
     return out;
-  }, [entries, scopeArchived]);
+  }, [entries, activeGroup]);
 
   useEffect(() => {
     onDisplayPlatformCounts?.(displayPlatformCounts);

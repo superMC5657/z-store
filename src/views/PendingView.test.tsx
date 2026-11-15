@@ -1517,7 +1517,7 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
     expect(screen.getByTestId('pending-platform-reset')).toBeTruthy();
   });
 
-  it('reports the platform distribution of unarchived entries, or archived ones on the archived tab', async () => {
+  it('reports the platform distribution of the active tab only, independent of the platform selection', async () => {
     await i18n.changeLanguage('zh-CN');
     const onDisplayPlatformCounts = vi.fn();
     const entries = [
@@ -1533,8 +1533,17 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
         onDisplayPlatformCounts={onDisplayPlatformCounts}
       />,
     );
+    fireEvent.click(screen.getByTestId('pending-tab-draft'));
     expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
-      windows: 2, macos: 1, linux: 0, ios: 0, android: 0, other: 1,
+      windows: 1, macos: 0, linux: 0, ios: 0, android: 0, other: 0,
+    });
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
+    expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
+      windows: 1, macos: 1, linux: 0, ios: 0, android: 0, other: 0,
+    });
+    fireEvent.click(screen.getByTestId('pending-tab-submitted'));
+    expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
+      windows: 0, macos: 0, linux: 0, ios: 0, android: 0, other: 1,
     });
     fireEvent.click(screen.getByTestId('pending-tab-archived'));
     expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
