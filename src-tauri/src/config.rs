@@ -505,6 +505,11 @@ impl Default for LicenseGateConfig {
     }
 }
 
+/// 编译期内置收录清单 JSON（供配置回退与 DB 迁移离线校正共用）。
+pub(crate) fn embedded_catalog_json() -> &'static str {
+    include_str!("../../catalog.json")
+}
+
 impl CatalogConfig {
     /// 解析 catalog.json 的真实有效路径：依据 `config.toml [catalog] local_path`。
     /// 路径存在即返回；不存在即返回 None，由调用方回退编译期内置清单。
@@ -536,7 +541,7 @@ impl CatalogConfig {
                 }
             }
         }
-        include_str!("../../catalog.json").to_string()
+        embedded_catalog_json().to_string()
     }
 
     /// 读取并反序列化本地收录清单应用列表（使用配置的 local_path）

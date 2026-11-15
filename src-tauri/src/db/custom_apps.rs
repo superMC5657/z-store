@@ -566,6 +566,64 @@ impl Database {
     pub fn retire_custom_apps_on_sync(&self, remote_ids: &[String]) -> Result<Vec<String>> {
         self.with_immediate_transaction(|| self.retire_custom_apps_in_tx(remote_ids))
     }
+
+    fn mutate_active_local_library_item(
+        &self,
+        id: &str,
+        mutate: impl FnOnce(&mut CatalogItem) -> bool,
+    ) -> Result<bool> {
+        let Some(key) = crate::forge::canonical_app_id(id) else {
+            return Ok(false);
+        };
+        let Some(mut entry) = self.get_custom_app(&key)? else {
+            return Ok(false);
+        };
+        if entry.archived || !is_local_library_status(&entry.status) {
+            return Ok(false);
+        }
+        if !mutate(&mut entry.item) {
+            return Ok(false);
+        }
+        entry.item.added_at = None;
+        let payload = serde_json::to_string(&entry.item).map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            )))
+        })?;
+        let rows = self.exec_write(
+            "UPDATE custom_apps SET payload_json = ?1 WHERE id = ?2",
+            params![payload, key],
+        )?;
+        Ok(rows > 0)
+    }
+
+    /// 从应用详情回写更新本地库 `custom_apps`（与 `catalog_apps` 语义对齐：stale 跳过，
+    /// 仅更新未归档的库内成员 `collected`/`local_collected`/`submitted`，不动 `draft`/`archived`；
+    /// 保持 `added_at` 磁盘剥离与原 `updated_at` 排序稳定）。
+    pub fn update_custom_app_from_detail(&self, detail: &crate::models::AppDetail) -> Result<bool> {
+        if detail.is_stale == Some(true) {
+            return Ok(false);
+        }
+        self.mutate_active_local_library_item(&detail.core.id, |item| {
+            item.merge_from_detail(detail)
+        })
+    }
+
+    /// 平台懒回填持久化（与 `update_catalog_app_platforms` 对齐）：
+    /// 仅当未归档的库内成员原有 `platforms` 为空且推导出非空平台时补写 `payload_json`。
+    pub fn update_custom_app_platforms(&self, id: &str, platforms: &[String]) -> Result<bool> {
+        if platforms.is_empty() {
+            return Ok(false);
+        }
+        self.mutate_active_local_library_item(id, |item| {
+            if !item.platforms.is_empty() {
+                return false;
+            }
+            item.platforms = platforms.to_vec();
+            true
+        })
+    }
 }
 
 /// `mark_custom_app_submitted` 错误：校验失败与 DB 失败分层（命令层分别转中文串）。
@@ -1470,6 +1528,99 @@ mod tests {
             )
             .unwrap();
         assert!(!raw.contains("added_at"));
+    }
+
+    #[test]
+    fn update_custom_app_from_detail_and_platforms_mirror_catalog_apps_rules() {
+        let db = Database::open_in_memory().unwrap();
+        // 1. draft 与 archived 不受详情回写影响
+        let mut draft = draft_item("o/draft", "o", "draft");
+        draft.stars = 1;
+        draft.platforms = vec![];
+        db.upsert_custom_app_payload(&draft).unwrap();
+
+        let mut collected = draft_item("o/col", "o", "col");
+        collected.stars = 10;
+        collected.forks = 2;
+        collected.default_version = "v1.0.0".to_string();
+        collected.platforms = vec![];
+        collected.license = "GPL-3.0".to_string();
+        collected.homepage = Some("https://github.com/o/col".to_string());
+        collected.icon = String::new();
+        db.upsert_custom_app_payload(&collected).unwrap();
+        db.mark_custom_app_collected("o/col").unwrap();
+        let before_updated_at = db.get_custom_app("o/col").unwrap().unwrap().updated_at;
+
+        let make_detail = |id: &str| crate::models::AppDetail {
+            core: crate::models::AppCore {
+                id: id.to_string(),
+                name: "Detail Name".to_string(),
+                description_en: None,
+                owner: "o".to_string(),
+                repo: "col".to_string(),
+                icon: "https://example.com/icon.png".to_string(),
+                icon_bg: String::new(),
+                description: "desc".to_string(),
+                stars: 555,
+                forks: 44,
+                license: "MIT".to_string(),
+                latest_version: "v2.0.0".to_string(),
+                is_verified: true,
+                category: "dev".to_string(),
+                category_name: "开发工具".to_string(),
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: Some("https://col.dev".to_string()),
+                platforms: vec!["macos".to_string()],
+                is_cataloged: None,
+                source: None,
+                status: None,
+                added_at: None,
+            },
+            changelog: String::new(),
+            readme_markdown: String::new(),
+            readme_variants: None,
+            releases: vec![],
+            cached_at: None,
+            is_stale: None,
+        };
+
+        assert!(!db
+            .update_custom_app_from_detail(&make_detail("o/draft"))
+            .unwrap());
+        assert!(db
+            .update_custom_app_from_detail(&make_detail("o/col"))
+            .unwrap());
+
+        let got = db.get_custom_app("o/col").unwrap().unwrap();
+        assert_eq!(got.item.stars, 555);
+        assert_eq!(got.item.forks, 44);
+        assert_eq!(got.item.default_version, "v2.0.0");
+        assert_eq!(got.item.platforms, vec!["macos"]);
+        assert_eq!(got.item.license, "GPL-3.0");
+        assert_eq!(got.item.homepage.as_deref(), Some("https://col.dev"));
+        assert_eq!(got.item.icon, "https://example.com/icon.png");
+        // 不扰动 updated_at，磁盘 payload 不含 added_at
+        assert_eq!(got.updated_at, before_updated_at);
+        let raw: String = db
+            .conn
+            .query_row(
+                "SELECT payload_json FROM custom_apps WHERE id = 'o/col'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!raw.contains("added_at"));
+
+        // 已有非空平台时，update_custom_app_platforms 与 update_custom_app_from_detail 均不覆盖
+        assert!(!db
+            .update_custom_app_platforms("o/col", &["windows".to_string()])
+            .unwrap());
+        let mut stale = make_detail("o/col");
+        stale.core.stars = 9999;
+        stale.is_stale = Some(true);
+        assert!(!db.update_custom_app_from_detail(&stale).unwrap());
+        assert_eq!(db.get_custom_app("o/col").unwrap().unwrap().item.stars, 555);
     }
 
     /// 草稿校验契约（parity）：与前端 `PendingView.validationParity.test.ts` 共用

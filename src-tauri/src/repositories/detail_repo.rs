@@ -17,7 +17,7 @@ pub struct EtagWrite {
 pub struct DetailRepository;
 
 impl DetailRepository {
-    /// 单事务原子落库：`app_details` + 回写 `catalog_apps` + 可选 `app_icon_cycles` + `api_etag_cache`，
+    /// 单事务原子落库：`app_details` + 回写 `catalog_apps` 与活跃本地库 `custom_apps` + 可选 `app_icon_cycles` + `api_etag_cache`，
     /// 未收录应用同事务更新 `repo_card_cache`（平台为空即确认 Other；私有标记取本次或缓存的仓库 JSON）。
     pub fn persist_detail_bundle(
         db: &Database,
@@ -29,6 +29,7 @@ impl DetailRepository {
         db.with_immediate_transaction(|| {
             db.save_app_detail(app_id, detail)?;
             let _ = db.update_catalog_app_from_detail(detail)?;
+            let _ = db.update_custom_app_from_detail(detail)?;
             if let Some(c) = cycle {
                 db.upsert_icon_cycle(c)?;
             }
@@ -332,5 +333,29 @@ mod tests {
         assert_eq!(projected.releases.len(), 1);
         assert_eq!(projected.releases[0].os, "macos");
         assert_eq!(projected.releases[0].kind, "portable_zip");
+    }
+
+    #[test]
+    fn persist_detail_bundle_also_updates_active_local_custom_app() {
+        let db = Database::open_in_memory().unwrap();
+        let mut local_item = catalog_item("o/local");
+        local_item.repo = "local".to_string();
+        local_item.homepage = Some("https://local.example.com".to_string());
+        local_item.stars = 5;
+        local_item.forks = 1;
+        local_item.default_version = "v0.1.0".to_string();
+        local_item.platforms = Vec::new();
+        db.upsert_custom_app_payload(&local_item).unwrap();
+        db.mark_custom_app_collected("o/local").unwrap();
+
+        let mut detail = detail_payload("o/local");
+        detail.core.repo = "local".to_string();
+        DetailRepository::persist_detail_bundle(&db, "o/local", &detail, None, &[]).unwrap();
+
+        let stored = db.get_custom_app("o/local").unwrap().unwrap();
+        assert_eq!(stored.item.stars, 888);
+        assert_eq!(stored.item.forks, 99);
+        assert_eq!(stored.item.default_version, "v2.5.0");
+        assert_eq!(stored.item.platforms, vec!["windows", "linux"]);
     }
 }

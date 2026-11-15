@@ -3,7 +3,55 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 6;
+const CURRENT_USER_VERSION: i64 = 7;
+
+/// 判定历史 `["windows"]` 记录是否属于 macOS 包体错判（`app_details` 缓存含 `.app.zip`/`.app.tar.*` 等 macOS 资产，
+/// 或 `identifiers` 明确配置了 `macos` 标识且无 `windows` 标识），命中则就地纠正 `platforms`。
+fn heal_poisoned_mac_platforms(
+    conn: &rusqlite::Connection,
+    id: &str,
+    platforms: &mut Vec<String>,
+    identifiers: &std::collections::HashMap<String, Vec<String>>,
+) -> bool {
+    if !(platforms.len() == 1 && platforms[0].eq_ignore_ascii_case("windows")) {
+        return false;
+    }
+
+    let releases_json: Option<String> = conn
+        .query_row(
+            "SELECT releases_json FROM app_details WHERE LOWER(app_id) = LOWER(?1) LIMIT 1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        )
+        .ok();
+    if let Some(raw_releases) = releases_json {
+        if let Ok(mut releases) =
+            serde_json::from_str::<Vec<crate::models::ReleaseAsset>>(&raw_releases)
+        {
+            if !releases.is_empty() {
+                releases.retain(|r| {
+                    crate::github::detail_assets::is_valid_installer_asset(&r.name, r.size_bytes)
+                });
+                crate::github::detail_assets::refresh_release_assets_classification(&mut releases);
+                let deduced = crate::github::detail_assets::platforms_from_assets(&releases);
+                let has_mac = deduced.iter().any(|p| p.eq_ignore_ascii_case("macos"));
+                let has_win = deduced.iter().any(|p| p.eq_ignore_ascii_case("windows"));
+                if has_mac && !has_win {
+                    *platforms = deduced;
+                    return true;
+                }
+            }
+        }
+    }
+
+    let has_mac_id = identifiers.get("macos").is_some_and(|v| !v.is_empty());
+    let has_win_id = identifiers.get("windows").is_some_and(|v| !v.is_empty());
+    if has_mac_id && !has_win_id {
+        *platforms = vec!["macos".to_string()];
+        return true;
+    }
+    false
+}
 
 impl Database {
     pub(crate) fn init_schema(&self) -> Result<()> {
@@ -396,6 +444,7 @@ impl Database {
                 3 => self.migrate_v3_to_v4()?,
                 4 => self.migrate_v4_to_v5()?,
                 5 => self.migrate_v5_to_v6()?,
+                6 => self.migrate_v6_to_v7()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -474,6 +523,136 @@ impl Database {
             "DELETE FROM trend_board_cache;
              DELETE FROM starred_feed_cache;",
         )
+    }
+
+    /// v6 → v7：校正老版本误回写的 `catalog_apps` 与 `custom_apps` 平台历史错账（如 `Maccy` 被写成 `["windows"]`），
+    /// 并清除清单同步 ETag/周期缓存以便下次联网全量重对齐远端清单。
+    fn migrate_v6_to_v7(&self) -> Result<()> {
+        let has_catalog: bool = self
+            .query_scalar_opt("SELECT 1 FROM catalog_apps LIMIT 1", [])?
+            .unwrap_or(false);
+        let has_custom: bool = self
+            .query_scalar_opt("SELECT 1 FROM custom_apps LIMIT 1", [])?
+            .unwrap_or(false);
+        if !has_catalog && !has_custom {
+            return Ok(());
+        }
+
+        self.with_immediate_transaction(|| {
+            if has_catalog {
+                let seed_items: Vec<crate::github::models::CatalogItem> =
+                    serde_json::from_str(crate::config::embedded_catalog_json())
+                        .unwrap_or_default();
+                let seed_platforms: std::collections::HashMap<String, Vec<String>> = seed_items
+                    .into_iter()
+                    .filter(|item| !item.platforms.is_empty())
+                    .map(|item| (item.id.to_lowercase(), item.platforms))
+                    .collect();
+
+                let mut stmt = self.conn.prepare(
+                    "SELECT id, platforms_json, identifiers_json FROM catalog_apps",
+                )?;
+                let rows: Vec<(String, String, String)> = stmt
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                    .collect::<Result<Vec<_>>>()?;
+                drop(stmt);
+
+                for (id, platforms_json, identifiers_json) in rows {
+                    if let Some(seed_plats) = seed_platforms.get(&id.to_lowercase()) {
+                        let seed_json =
+                            serde_json::to_string(seed_plats).unwrap_or_else(|_| "[]".into());
+                        if platforms_json != seed_json {
+                            self.conn.execute(
+                                "UPDATE catalog_apps SET platforms_json = ?1 WHERE id = ?2",
+                                rusqlite::params![seed_json, id],
+                            )?;
+                        }
+                        continue;
+                    }
+                    let mut platforms: Vec<String> =
+                        serde_json::from_str(&platforms_json).unwrap_or_default();
+                    let identifiers: std::collections::HashMap<String, Vec<String>> =
+                        serde_json::from_str(&identifiers_json).unwrap_or_default();
+                    if heal_poisoned_mac_platforms(
+                        &self.conn,
+                        &id,
+                        &mut platforms,
+                        &identifiers,
+                    ) {
+                        let healed_json =
+                            serde_json::to_string(&platforms).unwrap_or_else(|_| "[]".into());
+                        self.conn.execute(
+                            "UPDATE catalog_apps SET platforms_json = ?1 WHERE id = ?2",
+                            rusqlite::params![healed_json, id],
+                        )?;
+                    }
+                }
+
+                // 重置清单同步周期与 catalog.json ETag，避免升级后一直命中 304 无法拉取远端最新精校字段
+                let mut urls_to_clear: Vec<String> = vec![
+                    crate::config::CatalogConfig::default().default_source_url,
+                ];
+                for key in ["catalog_last_synced_url", "catalog_source_url"] {
+                    if let Some(u) = self
+                        .query_scalar_opt::<String, _>(
+                            "SELECT value FROM user_settings WHERE key = ?1",
+                            rusqlite::params![key],
+                        )?
+                        .filter(|s| !s.trim().is_empty())
+                    {
+                        urls_to_clear.push(u);
+                    }
+                }
+                for u in urls_to_clear {
+                    self.conn.execute(
+                        "DELETE FROM api_etag_cache WHERE endpoint_url = ?1",
+                        rusqlite::params![u],
+                    )?;
+                }
+                self.conn.execute(
+                    "DELETE FROM api_etag_cache WHERE endpoint_url LIKE '%/catalog.json'",
+                    [],
+                )?;
+                self.conn.execute(
+                    "DELETE FROM user_settings WHERE key IN ('catalog_last_synced_day', 'catalog_last_synced_url')",
+                    [],
+                )?;
+            }
+
+            if has_custom {
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT id, payload_json FROM custom_apps")?;
+                let rows: Vec<(String, String)> = stmt
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect::<Result<Vec<_>>>()?;
+                drop(stmt);
+
+                for (id, payload_json) in rows {
+                    let Ok(mut item) =
+                        serde_json::from_str::<crate::github::models::CatalogItem>(&payload_json)
+                    else {
+                        continue;
+                    };
+                    if heal_poisoned_mac_platforms(
+                        &self.conn,
+                        &id,
+                        &mut item.platforms,
+                        &item.identifiers,
+                    ) {
+                        item.added_at = None;
+                        if let Ok(healed_payload) = serde_json::to_string(&item) {
+                            self.conn.execute(
+                                "UPDATE custom_apps SET payload_json = ?1 WHERE id = ?2",
+                                rusqlite::params![healed_payload, id],
+                            )?;
+                        }
+                    }
+                }
+            }
+
+            Ok(())
+        })
     }
 
     /// 读 `PRAGMA user_version`（迁移链与 schema 迁移测试共用读口）。
@@ -694,5 +873,156 @@ mod schema_migration_tests {
         assert_eq!(rows, 3);
         let ids = db.get_recently_viewed_app_ids().unwrap();
         assert_eq!(ids, vec!["acme/alpha", "acme/beta"]);
+    }
+
+    #[test]
+    fn v6_db_heals_poisoned_catalog_and_custom_apps_maccy_platforms() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE catalog_apps (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                icon TEXT NOT NULL DEFAULT '',
+                icon_bg TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                description_en TEXT,
+                category TEXT NOT NULL,
+                category_name TEXT NOT NULL,
+                aliases_json TEXT NOT NULL DEFAULT '[]',
+                default_version TEXT NOT NULL DEFAULT '',
+                added_at TEXT,
+                license TEXT NOT NULL DEFAULT '',
+                stars INTEGER NOT NULL DEFAULT 0,
+                forks INTEGER NOT NULL DEFAULT 0,
+                is_verified INTEGER NOT NULL DEFAULT 0,
+                homepage TEXT,
+                platforms_json TEXT NOT NULL DEFAULT '[]',
+                identifiers_json TEXT NOT NULL DEFAULT '{}',
+                install_dirs_json TEXT NOT NULL DEFAULT '[]',
+                search_subdirs_json TEXT NOT NULL DEFAULT '[]',
+                publishers_json TEXT NOT NULL DEFAULT '[]',
+                forge TEXT NOT NULL DEFAULT 'github',
+                forge_host TEXT NOT NULL DEFAULT 'github.com',
+                manifest_synced_at INTEGER NOT NULL DEFAULT 0,
+                detail_synced_at INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE custom_apps (
+                id TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                pr_url TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                archived INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE app_details (
+                app_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                repo TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                description_en TEXT,
+                icon TEXT NOT NULL DEFAULT '',
+                icon_bg TEXT NOT NULL DEFAULT '',
+                stars INTEGER NOT NULL DEFAULT 0,
+                forks INTEGER NOT NULL DEFAULT 0,
+                license TEXT NOT NULL DEFAULT '',
+                latest_version TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'external',
+                category_name TEXT NOT NULL DEFAULT '跨平台开源',
+                forge TEXT NOT NULL DEFAULT 'github',
+                forge_host TEXT NOT NULL DEFAULT 'github.com',
+                homepage TEXT,
+                platforms_json TEXT NOT NULL DEFAULT '[]',
+                changelog TEXT NOT NULL DEFAULT '',
+                readme_markdown TEXT NOT NULL DEFAULT '',
+                readme_variants_json TEXT,
+                releases_json TEXT NOT NULL DEFAULT '[]',
+                cached_at INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE api_etag_cache (
+                endpoint_url TEXT PRIMARY KEY,
+                etag TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                last_checked_at INTEGER NOT NULL
+            );
+            CREATE TABLE user_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            -- 1. catalog_apps 内置 Maccy 被老版误写入 ["windows"]
+            INSERT INTO catalog_apps (id, name, owner, repo, category, category_name, platforms_json, identifiers_json)
+            VALUES ('p0deje/maccy', 'Maccy', 'p0deje', 'Maccy', 'system', '系统实用', '["windows"]', '{"macos":["Maccy.app"],"windows":[]}');
+
+            -- 2. catalog_apps 非内置条目但有 app_details .app.zip 证据
+            INSERT INTO catalog_apps (id, name, owner, repo, category, category_name, platforms_json, identifiers_json)
+            VALUES ('acme/mac-only', 'MacOnly', 'acme', 'mac-only', 'tools', '效率工具', '["windows"]', '{}');
+            INSERT INTO app_details (app_id, name, owner, repo, releases_json)
+            VALUES ('acme/mac-only', 'MacOnly', 'acme', 'mac-only', '[{"name":"MacOnly.app.zip","download_url":"https://example.com/MacOnly.app.zip","size_bytes":5000000,"sha256":null,"os":"windows","arch":"universal","kind":"portable_zip"}]');
+
+            -- 3. custom_apps：一个与截图同构（platforms=["windows"] 且 identifiers.macos=["Maccy.app"]），另一个是真 Windows 应用
+            INSERT INTO custom_apps (id, payload_json, status, created_at, updated_at, archived)
+            VALUES (
+                'custom/maccy-like',
+                '{"id":"custom/maccy-like","name":"Maccy","owner":"custom","repo":"maccy-like","icon":"","icon_bg":"","description":"desc","category":"system","category_name":"系统实用","aliases":[],"default_version":"1.0","license":"MIT","stars":1,"forks":0,"is_verified":false,"platforms":["windows"],"identifiers":{"macos":["Maccy.app"],"windows":[]}}',
+                'collected',
+                100,
+                200,
+                0
+            );
+            INSERT INTO custom_apps (id, payload_json, status, created_at, updated_at, archived)
+            VALUES (
+                'custom/win-app',
+                '{"id":"custom/win-app","name":"WinApp","owner":"custom","repo":"win-app","icon":"","icon_bg":"","description":"desc","category":"system","category_name":"系统实用","aliases":[],"default_version":"1.0","license":"MIT","stars":1,"forks":0,"is_verified":false,"platforms":["windows"],"identifiers":{"windows":["winapp.exe"],"macos":[]}}',
+                'collected',
+                100,
+                200,
+                0
+            );
+
+            -- 4. 清单 ETag 与同步周期记录应被清掉，其它 ETag 保留
+            INSERT INTO api_etag_cache VALUES ('https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json', 'W/"cat"', '[]', 100);
+            INSERT INTO api_etag_cache VALUES ('https://api.github.com/repos/o/r', 'W/"repo"', '{}', 100);
+            INSERT INTO user_settings VALUES ('catalog_last_synced_day', '2026-11-15');
+            INSERT INTO user_settings VALUES ('catalog_last_synced_url', 'https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json');
+
+            PRAGMA user_version = 6;
+            "#,
+        )
+        .unwrap();
+
+        let db = Database { conn };
+        db.init_schema().unwrap();
+        assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
+
+        let maccy = db.get_catalog_app("p0deje/maccy").unwrap().unwrap();
+        assert_eq!(maccy.platforms, vec!["macos"]);
+
+        let mac_only = db.get_catalog_app("acme/mac-only").unwrap().unwrap();
+        assert_eq!(mac_only.platforms, vec!["macos"]);
+
+        let custom_mac = db.get_custom_app("custom/maccy-like").unwrap().unwrap();
+        assert_eq!(custom_mac.item.platforms, vec!["macos"]);
+        assert_eq!(custom_mac.updated_at, 200);
+
+        let custom_win = db.get_custom_app("custom/win-app").unwrap().unwrap();
+        assert_eq!(custom_win.item.platforms, vec!["windows"]);
+
+        assert!(db
+            .get_etag(
+                "https://raw.githubusercontent.com/superMC5657/z-store-catalog/main/catalog.json"
+            )
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_etag("https://api.github.com/repos/o/r")
+            .unwrap()
+            .is_some());
+        assert!(db.get_setting("catalog_last_synced_day").unwrap().is_none());
     }
 }

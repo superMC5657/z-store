@@ -354,12 +354,8 @@ async fn platforms_lite_from_github(
                     rel.cache_to_save,
                     crate::now_secs(),
                 );
-                if rel.stale != Some(true) && !platforms.is_empty() {
-                    if let Ok(true) = db.update_catalog_app_platforms(&clean_id, &platforms) {
-                        state
-                            .catalog
-                            .update_catalog_item_platforms(&clean_id, &platforms);
-                    }
+                if rel.stale != Some(true) {
+                    backfill_catalog_platforms(state, &db, &clean_id, &platforms);
                 }
             }
             if rel.stale != Some(true) {
@@ -684,6 +680,29 @@ pub async fn get_app_details_impl(
     fetch_detail_from_github(state, &clean_id, is_force, start).await
 }
 
+/// 将非空平台补写进目录库（精选库与活跃本地库），任一落库成功即同步刷新内存目录。
+fn backfill_catalog_platforms(
+    state: &AppState,
+    db: &crate::db::Database,
+    clean_id: &str,
+    platforms: &[String],
+) {
+    if platforms.is_empty() {
+        return;
+    }
+    let cat_updated = db
+        .update_catalog_app_platforms(clean_id, platforms)
+        .unwrap_or(false);
+    let custom_updated = db
+        .update_custom_app_platforms(clean_id, platforms)
+        .unwrap_or(false);
+    if cat_updated || custom_updated {
+        state
+            .catalog
+            .update_catalog_item_platforms(clean_id, platforms);
+    }
+}
+
 /// 「读 app_details → 叠加目录精校 → 盖章 → 返回」共享投影。
 fn project_from_cache(state: &AppState, clean_id: &str, ttl_gated: bool) -> Option<AppDetail> {
     let db = state.db().ok()?;
@@ -699,17 +718,8 @@ fn project_from_cache(state: &AppState, clean_id: &str, ttl_gated: bool) -> Opti
         ttl_seconds,
         !ttl_gated,
     )?;
-    if ttl_gated && detail.is_stale != Some(true) && !detail.core.platforms.is_empty() {
-        if let Some(cat_item) = state.catalog.get_catalog_item(clean_id) {
-            if cat_item.platforms != detail.core.platforms {
-                if let Ok(true) = db.update_catalog_app_platforms(clean_id, &detail.core.platforms)
-                {
-                    state
-                        .catalog
-                        .update_catalog_item_platforms(clean_id, &detail.core.platforms);
-                }
-            }
-        }
+    if ttl_gated && detail.is_stale != Some(true) {
+        backfill_catalog_platforms(state, &db, clean_id, &detail.core.platforms);
     }
     Some(detail)
 }
