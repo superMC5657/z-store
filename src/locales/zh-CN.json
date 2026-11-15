@@ -743,7 +743,6 @@
     "issue_link": "问题反馈",
     "issue_feedback_title": "【反馈】{{name}} {{version}}",
     "issue_feedback_body": "## 环境\n- ZStore 客户端版本：桌面端\n- 应用版本：{{version}}\n- 系统：{{platform}}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n",
-    "supported_ends": "支持端:",
     "forge_codeberg": "Codeberg 源",
     "forge_gitea": "Gitea 源",
     "size_label": "大小 {{size}}",

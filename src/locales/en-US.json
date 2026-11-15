@@ -743,7 +743,6 @@
     "issue_link": "Report an Issue",
     "issue_feedback_title": "[Feedback] {{name}} {{version}}",
     "issue_feedback_body": "## Environment\n- ZStore client version: Desktop\n- App version: {{version}}\n- OS: {{platform}}\n\n## Problem description\n\n## Reproduction steps\n1. \n2. \n",
-    "supported_ends": "Supported on:",
     "forge_codeberg": "Codeberg source",
     "forge_gitea": "Gitea source",
     "size_label": "Size {{size}}",

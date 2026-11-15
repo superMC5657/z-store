@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   User,
   Bug,
-  Monitor,
   Clock,
   AlertTriangle,
   X,
@@ -510,20 +509,18 @@ export const Header: React.FC<HeaderProps> = ({
             // loading-empty 骨架占位，已确认-empty 才 Other。
             const isModalLoading = Boolean(platformLoading);
             const showModalLoadingPlaceholder = !hasModalPlatforms && isModalLoading;
+            // 与卡片平台角标同形：只显示平台图标（平台名在 title），三态共用同一外框，加载完成时宽度不跳。
+            const platformTagBox: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '4px', minWidth: '52px', justifyContent: 'center' };
             if (hasModalPlatforms) {
+              const platformsLabel = `${t('app.supported_devices')}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`;
               return (
                 <span
                   className="modal-tag"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  title={`${t('app.supported_devices')}: ${app.platforms!.map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p).join(', ')}`}
+                  style={platformTagBox}
+                  title={platformsLabel}
                 >
-                  <Monitor size={12} />
-                  <span>{t('detail.supported_ends')}</span>
                   {app.platforms!.map((p) => (
-                    <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                      <PlatformIcon platform={p} size={11} />
-                      <span>{PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p}</span>
-                    </span>
+                    <PlatformIcon key={p} platform={p} size={12} />
                   ))}
                 </span>
               );
@@ -532,12 +529,10 @@ export const Header: React.FC<HeaderProps> = ({
               return (
                 <span
                   className="modal-tag"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', opacity: 0.6 }}
+                  style={{ ...platformTagBox, opacity: 0.55 }}
                   title={t('app.supported_devices')}
                   aria-label={t('app.supported_devices')}
                 >
-                  <Monitor size={12} />
-                  <span>{t('detail.supported_ends')}</span>
                   <span
                     aria-hidden="true"
                     style={{ width: '34px', height: '10px', borderRadius: '3px', background: 'var(--border-subtle)', display: 'inline-block' }}
@@ -548,15 +543,11 @@ export const Header: React.FC<HeaderProps> = ({
             return (
               <span
                 className="modal-tag"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                style={platformTagBox}
                 title={`${t('app.supported_devices')}: ${t('nav.platforms_other')}`}
               >
-                <Monitor size={12} />
-                <span>{t('detail.supported_ends')}</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                  <PlatformIcon platform="other" size={11} />
-                  <span>{t('nav.platforms_other')}</span>
-                </span>
+                <PlatformIcon platform="other" size={12} />
+                <span>{t('nav.platforms_other')}</span>
               </span>
             );
           })()}
