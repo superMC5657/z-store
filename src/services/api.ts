@@ -16,12 +16,15 @@ export interface HomeFeedResult {
   items: AppSummary[];
   total: number;
   has_more: boolean;
+  /** 分类页/最新入库页：平台预过滤前的全部非隐藏 ID（其余 feed 不带）。 */
+  matched_ids?: string[];
 }
 
 export type HomeFeedRaw = {
   items?: AppSummary[];
   total?: number;
   has_more?: boolean;
+  matched_ids?: string[];
 } | null | undefined;
 
 export interface ReadmeVariant {

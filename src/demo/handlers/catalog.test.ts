@@ -65,7 +65,7 @@ describe('handleGetCategoryApps pagination', () => {
     expect(over.items).toEqual([]);
     expect(over.has_more).toBe(false);
     const unknown = handleGetCategoryApps({ category: '__no_such_cat__' });
-    expect(unknown).toEqual({ items: [], total: 0, has_more: false });
+    expect(unknown).toEqual({ items: [], total: 0, has_more: false, matched_ids: [] });
   });
 
   it('perPage 钳制 1-50', () => {
@@ -184,5 +184,42 @@ describe('handleGetLatestCatalogApps (demo mock)', () => {
     const res = handleGetLatestCatalogApps({ sinceDays: 7 });
     expect(res.total).toBeGreaterThan(0);
     expect(res.items.length).toBeGreaterThan(0);
+  });
+});
+
+describe('allowedIds 平台预过滤（分类/最新入库 mock）', () => {
+  it('分类：allowedIds 先过滤再分页，matched_ids 保留全量', () => {
+    const { category, total } = biggestCategory();
+    const all = handleGetCategoryApps({ category, perPage: 50 });
+    expect(all.matched_ids?.length).toBe(total);
+    // 取散落在第 1、2 页的几条，大写传入验证小写比较。
+    const picked = [all.items[1].id, all.items[18].id, all.items[21].id].map((id) => id.toUpperCase());
+    const res = handleGetCategoryApps({ category, allowedIds: picked });
+    expect(res.items.map((i) => i.id)).toEqual([all.items[1].id, all.items[18].id, all.items[21].id]);
+    expect(res.total).toBe(3);
+    expect(res.has_more).toBe(false);
+    expect(res.matched_ids?.length).toBe(total);
+  });
+
+  it('分类：allowedIds 空数组得空页，matched_ids 仍非空', () => {
+    const { category, total } = biggestCategory();
+    const res = handleGetCategoryApps({ category, allowedIds: [] });
+    expect(res.items).toEqual([]);
+    expect(res.total).toBe(0);
+    expect(res.has_more).toBe(false);
+    expect(res.matched_ids?.length).toBe(total);
+  });
+
+  it('最新入库：allowedIds 空数组得空页、snake 键被忽略', () => {
+    const base = handleGetLatestCatalogApps({});
+    const empty = handleGetLatestCatalogApps({ allowedIds: [] });
+    expect(empty.items).toEqual([]);
+    expect(empty.total).toBe(0);
+    expect(empty.matched_ids?.length).toBe(base.total);
+    const snake = handleGetLatestCatalogApps({ allowed_ids: [] });
+    expect(snake.total).toBe(base.total);
+    const one = handleGetLatestCatalogApps({ allowedIds: [base.items[0].id] });
+    expect(one.items.map((i) => i.id)).toEqual([base.items[0].id]);
+    expect(one.total).toBe(1);
   });
 });

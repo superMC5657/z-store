@@ -12,6 +12,9 @@ pub struct FeedPage {
     pub items: Vec<CatalogItemSummary>,
     pub total: usize,
     pub has_more: bool,
+    /// 平台预过滤前该分类/时间窗的全部非隐藏规范 ID（仅分类页与最新入库页回传）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_ids: Option<Vec<String>>,
 }
 
 /// 本地亲和度画像分类权重项（供设置页「本地推荐与隐私数据看板」只读展示）。
@@ -300,19 +303,22 @@ pub fn get_home_feed(
         items,
         total,
         has_more,
+        matched_ids: None,
     })
 }
 
 /// 类别页分页（与发现页 `FeedPage` 同形 `{items,total,has_more}`，含本地收录合并视图）：
 /// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页 `HOME_FEED_PAGE`、在线搜索对齐）；
 /// - `per_page` 复用搜索钳制 1-50（`clamp_online_search_per_page`），`page` 下限 1；
-/// - 过滤语义不变（`category`/`category_name` 大小写不敏感 + 隐藏规则）。
+/// - 过滤语义不变（`category`/`category_name` 大小写不敏感 + 隐藏规则）；
+/// - `allowed_ids` 见 `paginate_with_allowed_ids`。
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_category_apps(
     state: State<'_, AppState>,
     category: String,
     page: Option<u32>,
     per_page: Option<u32>,
+    allowed_ids: Option<Vec<String>>,
 ) -> crate::AppResult<FeedPage> {
     let cat_clean = category.trim().to_lowercase();
     let hidden_ids: std::collections::HashSet<String> =
@@ -330,13 +336,12 @@ pub fn get_category_apps(
 
     let (offset, limit) =
         category_page_window(&crate::config::get_project_config().limits, page, per_page);
-    let (items, total, has_more) =
-        crate::github::catalog_feed_score::paginate_feed(&filtered, limit, offset);
-    Ok(FeedPage {
-        items,
-        total,
-        has_more,
-    })
+    Ok(paginate_with_allowed_ids(
+        filtered,
+        allowed_ids.as_deref(),
+        limit,
+        offset,
+    ))
 }
 
 /// 最新入库应用分页（与发现页/类别页 `FeedPage` 同形 `{items,total,has_more}`，含本地收录合并视图）：
@@ -344,6 +349,7 @@ pub fn get_category_apps(
 /// - `min_days` / `max_days`: 相对天数区间（如 0~7, 7~30, 30~90），支持分段排他防头部霸榜；
 /// - 排序规则：`added_at DESC`（无日期垫底）→ `stars DESC`（并列保质）→ `id ASC`（确定性破平）；
 /// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页、分类页对齐）；
+/// - `allowed_ids` 见 `paginate_with_allowed_ids`；
 /// - 纯内存执行，零网络秒开。
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_latest_catalog_apps(
@@ -353,6 +359,7 @@ pub fn get_latest_catalog_apps(
     max_days: Option<u32>,
     page: Option<u32>,
     per_page: Option<u32>,
+    allowed_ids: Option<Vec<String>>,
 ) -> crate::AppResult<FeedPage> {
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state);
@@ -369,13 +376,54 @@ pub fn get_latest_catalog_apps(
     let ranked = rank_and_filter_latest_apps(visible, min_days, effective_max);
     let (offset, limit) =
         category_page_window(&crate::config::get_project_config().limits, page, per_page);
+    Ok(paginate_with_allowed_ids(
+        ranked,
+        allowed_ids.as_deref(),
+        limit,
+        offset,
+    ))
+}
+
+/// 按平台允许集预过滤后分页（分类页/最新入库页共用）：
+/// - `matched` 为分类/时间窗内全部非隐藏项（已排好序），其 ID 原样作为 `matched_ids` 回传，
+///   供前端计算全平台分布并区分「本身为空」与「平台筛选为空」；
+/// - `allowed_ids=None` 不过滤；`Some(ids)` 仅保留 ID（小写 trim 比较）在集合内的项，
+///   空集合表示平台全不选，结果为空页；`total`/`has_more` 按过滤后计算。
+pub fn paginate_with_allowed_ids(
+    matched: Vec<AppSummary>,
+    allowed_ids: Option<&[String]>,
+    limit: usize,
+    offset: usize,
+) -> FeedPage {
+    let matched_ids: Vec<String> = matched.iter().map(|a| a.core.id.clone()).collect();
+    let filtered = filter_by_allowed_ids(matched, allowed_ids);
     let (items, total, has_more) =
-        crate::github::catalog_feed_score::paginate_feed(&ranked, limit, offset);
-    Ok(FeedPage {
+        crate::github::catalog_feed_score::paginate_feed(&filtered, limit, offset);
+    FeedPage {
         items,
         total,
         has_more,
-    })
+        matched_ids: Some(matched_ids),
+    }
+}
+
+/// `None` 原样返回；`Some(ids)` 保留 ID 在允许集（小写 trim、跳过空串）内的项并保持原序。
+fn filter_by_allowed_ids(
+    items: Vec<AppSummary>,
+    allowed_ids: Option<&[String]>,
+) -> Vec<AppSummary> {
+    let Some(ids) = allowed_ids else {
+        return items;
+    };
+    let allowed: std::collections::HashSet<String> = ids
+        .iter()
+        .map(|id| id.trim().to_lowercase())
+        .filter(|id| !id.is_empty())
+        .collect();
+    items
+        .into_iter()
+        .filter(|a| allowed.contains(&a.core.id.to_lowercase()))
+        .collect()
 }
 
 /// 纯函数：最新入库应用的筛选与倒排逻辑（便于单元测试与确定性回归）：
@@ -636,6 +684,50 @@ mod tests {
         // 单入参窗口 `since_days` (None, Some(30))：包含全部 3 款
         let filtered_compat = rank_and_filter_latest_apps(list, None, Some(30));
         assert_eq!(filtered_compat.len(), 3);
+    }
+
+    fn thirty_matched() -> Vec<AppSummary> {
+        (0..30)
+            .map(|i| {
+                let id = format!("o/app{i:02}");
+                feed_item(&id, "o", &format!("app{i:02}")).to_summary()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn allowed_ids_none_keeps_full_platform_paging() {
+        let page = paginate_with_allowed_ids(thirty_matched(), None, 20, 0);
+        assert_eq!(page.items.len(), 20);
+        assert_eq!(page.total, 30);
+        assert!(page.has_more);
+        assert_eq!(page.matched_ids.as_ref().map(Vec::len), Some(page.total));
+    }
+
+    #[test]
+    fn allowed_ids_prefilter_fills_first_page_and_keeps_matched_ids() {
+        // 5 条命中散落在原第 1~2 页（含大小写与空白差异）。
+        let allowed: Vec<String> = ["o/app01", "O/APP07", " o/app19 ", "o/app22", "o/app29", ""]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let page = paginate_with_allowed_ids(thirty_matched(), Some(&allowed), 20, 0);
+        let ids: Vec<&str> = page.items.iter().map(|a| a.core.id.as_str()).collect();
+        assert_eq!(ids, ["o/app01", "o/app07", "o/app19", "o/app22", "o/app29"]);
+        assert_eq!(page.total, 5);
+        assert!(!page.has_more);
+        let matched = page.matched_ids.expect("matched_ids");
+        assert_eq!(matched.len(), 30);
+        assert_eq!(matched[0], "o/app00");
+    }
+
+    #[test]
+    fn allowed_ids_empty_selection_yields_empty_page() {
+        let page = paginate_with_allowed_ids(thirty_matched(), Some(&[]), 20, 0);
+        assert!(page.items.is_empty());
+        assert_eq!(page.total, 0);
+        assert!(!page.has_more);
+        assert_eq!(page.matched_ids.map(|m| m.len()), Some(30));
     }
 
     #[test]

@@ -253,16 +253,31 @@ export function handleGetOrFetchIcon(a: InvokeArgs): string {
   return findSummary(appId)?.icon ?? '';
 }
 
-export function handleGetCategoryApps(a: InvokeArgs): {
+type FilteredFeedPage = {
   items: AppSummary[];
   total: number;
   has_more: boolean;
-} {
-  // Mock 分页与 Rust `get_category_apps` 同形 `{ items, total, has_more }`；
-  // 过滤语义不变（仅 `category` 相等），默认第 1 页 20 条、钳制 1-50。
-  const category = argStr(a, 'category').toLowerCase();
-  if (!category) return { items: [], total: 0, has_more: false };
-  const matched = summaries.filter((s) => s.category.toLowerCase() === category);
+  matched_ids: string[];
+};
+
+/**
+ * 与 Rust `paginate_with_allowed_ids` 同语义：`matched_ids` 为过滤前全部 ID；
+ * `allowedIds` 为数组时（含空数组）按小写 trim 集合过滤后再分页，非数组即不过滤。
+ * 默认第 1 页 20 条、`perPage` 钳制 1-50。
+ */
+function paginateWithAllowedIds(matched: AppSummary[], a: InvokeArgs): FilteredFeedPage {
+  const matched_ids = matched.map((s) => s.id);
+  const rawAllowed = a['allowedIds'];
+  let filtered = matched;
+  if (Array.isArray(rawAllowed)) {
+    const allowed = new Set(
+      rawAllowed
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim().toLowerCase())
+        .filter((id) => id !== ''),
+    );
+    filtered = matched.filter((s) => allowed.has(s.id.toLowerCase()));
+  }
   const rawPer = argNum(a, 'perPage');
   const rawPage = argNum(a, 'page');
   const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
@@ -271,15 +286,30 @@ export function handleGetCategoryApps(a: InvokeArgs): {
       ? 1
       : Math.floor(rawPage);
   const start = (page - 1) * perPage;
-  const items = matched.slice(start, start + perPage);
-  return { items, total: matched.length, has_more: start + items.length < matched.length };
+  const items = filtered.slice(start, start + perPage);
+  return {
+    items,
+    total: filtered.length,
+    has_more: start + items.length < filtered.length,
+    matched_ids,
+  };
 }
 
-export function handleGetLatestCatalogApps(a: InvokeArgs): {
-  items: AppSummary[];
-  total: number;
-  has_more: boolean;
-} {
+export function handleGetCategoryApps(a: InvokeArgs): FilteredFeedPage {
+  // Mock 与 Rust `get_category_apps` 同形；分类过滤仅 `category` 相等。
+  warnUnknownArgs(['category', 'page', 'perPage', 'allowedIds'], a, 'handleGetCategoryApps');
+  const category = argStr(a, 'category').toLowerCase();
+  if (!category) return { items: [], total: 0, has_more: false, matched_ids: [] };
+  const matched = summaries.filter((s) => s.category.toLowerCase() === category);
+  return paginateWithAllowedIds(matched, a);
+}
+
+export function handleGetLatestCatalogApps(a: InvokeArgs): FilteredFeedPage {
+  warnUnknownArgs(
+    ['sinceDays', 'minDays', 'maxDays', 'page', 'perPage', 'allowedIds'],
+    a,
+    'handleGetLatestCatalogApps',
+  );
   const rawMin = argNum(a, 'minDays');
   const rawMax = argNum(a, 'maxDays');
   const rawSince = argNum(a, 'sinceDays');
@@ -341,16 +371,7 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
     return x.id.localeCompare(y.id);
   });
 
-  const rawPer = argNum(a, 'perPage');
-  const rawPage = argNum(a, 'page');
-  const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
-  const page =
-    rawPage === undefined || !Number.isFinite(rawPage) || Math.floor(rawPage) < 1
-      ? 1
-      : Math.floor(rawPage);
-  const start = (page - 1) * perPage;
-  const items = matched.slice(start, start + perPage);
-  return { items, total: matched.length, has_more: start + items.length < matched.length };
+  return paginateWithAllowedIds(matched, a);
 }
 
 export function handleScanAndMatchLocalApps(): AppMatchResult[] {

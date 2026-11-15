@@ -486,6 +486,7 @@ fn repo_known_to_exist(state: &AppState, clean_id: &str) -> bool {
 /// - 命中行读 `get_cached_app_detail(None)`（无 TTL 门控，过期行同样复用；无行即 `None`，永不穿透网络/ETag/forge）；
 /// - 确认图标经 `resolve_confirmed_icon_from_db` 覆盖（`Some` 才覆盖，`None` 保持 `detail.icon`）；
 /// - platforms 随详情行自带，无需二次 join（空即未知，前端视为待 backfill，不 stamp `["other"]`/`["windows"]`）；
+/// - 无缓存行的收录项（精选或本地库，含被隐藏规则隐藏者）回退目录元数据，见 `resolve_cached_or_catalog_summary`；
 /// - 全程只读：不 `touch` 保鲜期、不落库、不 spawn 后台任务；返回与入参一一对齐（含 `None` 占位）。
 /// `get_app_details` 的 force 语义不受影响（本命令永不走其网络分支）。
 #[tauri::command]
@@ -494,17 +495,35 @@ pub fn get_cached_app_details_batch(
     ids: Vec<String>,
 ) -> crate::AppResult<Vec<Option<AppSummary>>> {
     let db = state.db()?;
+    let icons_dir = crate::get_app_data_dir().join("icons");
     Ok(ids
         .iter()
-        .map(|raw| {
-            let mut summary = cached_detail_summary(&db, raw)?;
-            if let Some(cat_item) = state.catalog.get_catalog_item(&summary.core.id) {
-                cat_item.overlay_detail_core(&mut summary.core);
-            }
-            state.catalog.stamp_summary(&mut summary);
-            Some(summary)
-        })
+        .map(|raw| resolve_cached_or_catalog_summary(&db, &state.catalog, &icons_dir, raw))
         .collect())
+}
+
+/// 单 id 富卡摘要：缓存行优先（叠加目录元数据并盖章）；无缓存行时回退收录目录项
+/// 并叠加确认图标；两者皆无或 id 不可解析即 `None`。
+fn resolve_cached_or_catalog_summary(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    icons_dir: &std::path::Path,
+    raw: &str,
+) -> Option<AppSummary> {
+    if let Some(mut summary) = cached_detail_summary(db, raw) {
+        if let Some(cat_item) = catalog.get_catalog_item(&summary.core.id) {
+            cat_item.overlay_detail_core(&mut summary.core);
+        }
+        catalog.stamp_summary(&mut summary);
+        return Some(summary);
+    }
+    let clean_id = crate::forge::canonical_app_id(raw.trim())?;
+    let cat_item = catalog.get_catalog_item(&clean_id)?;
+    let mut summary = catalog.item_to_stamped_summary(&cat_item);
+    if let Some(icon) = confirmed_icon_for_id(db, catalog, icons_dir, &cat_item.id) {
+        summary.core.icon = icon;
+    }
+    Some(summary)
 }
 
 /// 单 id 的 DB-only 投影：`AppDetail` 子集转 `AppSummary`，无网络、无写盘。
@@ -1721,5 +1740,44 @@ mod repo_card_hydration_tests {
         assert_eq!(touched.last_accessed_at, 1_000);
         // 收录章只在线上投影，不写回表。
         assert_eq!(touched.summary.core.is_cataloged, None);
+    }
+
+    #[test]
+    fn cached_or_catalog_summary_falls_back_to_catalog_without_cache_rows() {
+        let state = test_state();
+        let mut remote = curated("acme/curated");
+        remote.platforms = vec!["windows".to_string(), "macos".to_string()];
+        state.catalog.update_items(vec![remote]);
+        let mut local = curated("acme/local");
+        local.name = "本地库".to_string();
+        local.is_verified = false;
+        local.platforms = vec!["linux".to_string()];
+        state.catalog.set_collected_items(vec![local]);
+        let db = state.db().unwrap();
+        let icons_dir = std::env::temp_dir().join("z-store-test-no-icons");
+
+        let remote_hit =
+            resolve_cached_or_catalog_summary(&db, &state.catalog, &icons_dir, "ACME/Curated")
+                .expect("remote catalog fallback");
+        assert_eq!(remote_hit.core.id, "acme/curated");
+        assert_eq!(remote_hit.core.name, "精选");
+        assert_eq!(remote_hit.core.platforms, vec!["windows", "macos"]);
+        assert_eq!(remote_hit.core.is_cataloged, Some(true));
+        assert_eq!(remote_hit.core.icon, "https://official.example/logo.png");
+
+        let local_hit =
+            resolve_cached_or_catalog_summary(&db, &state.catalog, &icons_dir, "acme/local")
+                .expect("local catalog fallback");
+        assert_eq!(local_hit.core.name, "本地库");
+        assert_eq!(local_hit.core.platforms, vec!["linux"]);
+        assert_eq!(local_hit.core.is_cataloged, Some(true));
+
+        assert!(
+            resolve_cached_or_catalog_summary(&db, &state.catalog, &icons_dir, "acme/missing")
+                .is_none()
+        );
+        assert!(
+            resolve_cached_or_catalog_summary(&db, &state.catalog, &icons_dir, "bad id").is_none()
+        );
     }
 }
