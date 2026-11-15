@@ -242,6 +242,7 @@
     "added_at_badge": "Added {{date}}",
     "list_loading": "Loading…",
     "list_error": "Failed to load. Please retry.",
+    "load_more": "Load more",
     "retry": "Retry"
   },
   "categories": {
@@ -255,6 +256,7 @@
     "category_empty_for_platform": "No apps match current platform.",
     "list_loading": "Loading…",
     "list_error": "Failed to load category apps. Please retry later.",
+    "load_more": "Load more",
     "retry": "Retry",
     "cat_dev_name": "Development",
     "cat_dev_desc": "IDEs, editors, terminals, and version control",
@@ -309,8 +311,6 @@
     "fix_errors": "Some fields failed validation. Fix them before saving.",
     "empty_title": "No Drafts",
     "empty_desc": "Stash drafts and submit when ready.",
-    "group_empty_title": "No drafts in this group",
-    "group_empty_desc": "No drafts in this group.",
     "pick_hint_title": "Select or New Draft",
     "pick_hint_desc": "Select a draft from left or create new.",
     "archived_badge": "Graduated",
@@ -332,25 +332,33 @@
     },
     "identifiers_hint": "One per line: platform=id1, id2 (e.g. windows=app.exe)",
     "groups": {
-      "draft": "Draft",
-      "library": "Local Library",
-      "archived": "Archived"
-    },
-    "segments": {
-      "all": "All",
-      "to_submit": "To Submit",
+      "draft": "Drafts",
+      "to_submit": "Ready to Submit",
       "submitted": "Submitted",
-      "empty_title": {
-        "all": "No apps",
-        "to_submit": "No apps to submit",
-        "submitted": "No submitted apps"
+      "archived": "Archived",
+      "library": "Local Library"
+    },
+    "group_empty": {
+      "draft": {
+        "title": "No drafts",
+        "desc": "New drafts appear here."
       },
-      "empty_desc": {
-        "all": "Apps appear here after collection or Issue submission.",
-        "to_submit": "Collected apps awaiting submission appear here.",
-        "submitted": "Submitted apps awaiting acceptance appear here."
+      "to_submit": {
+        "title": "No apps to submit",
+        "desc": "Collected apps awaiting submission appear here."
+      },
+      "submitted": {
+        "title": "No submitted apps",
+        "desc": "Submitted apps awaiting acceptance appear here."
+      },
+      "archived": {
+        "title": "No archived apps",
+        "desc": "Apps accepted into the catalog appear here."
       }
     },
+    "platform_empty_title": "Nothing for the selected platforms",
+    "platform_empty_desc": "No entries in this group support the selected device platforms.",
+    "platform_empty_reset": "Show all platforms",
     "fields": {
       "id": "App ID",
       "name": "Name",

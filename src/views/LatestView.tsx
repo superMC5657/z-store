@@ -18,7 +18,12 @@ import {
   getLatestCatalogApps,
 } from '../services/api/catalog';
 import type { AppSummary } from '../types';
-import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
+import type { PlatformId } from '../lib/platformFilter';
+import {
+  isInstalled as selectIsInstalled,
+  selectManagedState,
+  selectPlatformCounts,
+} from '../app/selectors';
 import { queueAssembledRowIcons } from '../services/iconStore';
 
 type LatestTimeWindow = '7d' | '30d' | '90d';
@@ -26,6 +31,10 @@ type LatestTimeWindow = '7d' | '30d' | '90d';
 interface LatestViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
   onNavigateCategories?: () => void;
+  /** 未按平台裁剪的全量合并目录，用于计算时间窗内的全平台分布；缺省回退 `apps`。 */
+  allApps?: readonly AppSummary[];
+  /** 向侧栏上报当前时间窗的平台分布；卸载时上报 `null`。 */
+  onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
 export const LatestView: React.FC<LatestViewProps> = ({
@@ -42,6 +51,8 @@ export const LatestView: React.FC<LatestViewProps> = ({
   onToggleWatch,
   onResetPlatformFilter,
   onNavigateCategories,
+  allApps,
+  onDisplayPlatformCounts,
 }) => {
   const { t } = useTranslation();
   const [activeWindow, setActiveWindow] = useState<LatestTimeWindow>('30d');
@@ -51,6 +62,12 @@ export const LatestView: React.FC<LatestViewProps> = ({
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  // 回包 `matched_ids`：该时间窗平台过滤前的全部 ID；旧接口不回传时为 null。
+  const [matchedIds, setMatchedIds] = useState<string[] | null>(null);
+
+  // 平台过滤后的可见目录 ID（小写、排序），交给后端在分页前过滤；`allowedKey` 作为稳定依赖签名。
+  const allowedIds = useMemo(() => apps.map((a) => a.id.toLowerCase()).sort(), [apps]);
+  const allowedKey = allowedIds.join('\n');
 
   const nextPageRef = useRef(2);
   const hasMoreRef = useRef(false);
@@ -76,7 +93,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
     setLoading(true);
     setError(false);
     const range = windowRange(win);
-    getLatestCatalogApps(range, page, LATEST_APPS_PER_PAGE).then(
+    getLatestCatalogApps(range, page, LATEST_APPS_PER_PAGE, allowedIds).then(
       (res) => {
         if (genRef.current !== gen) return;
         setFetchedApps((prev) => {
@@ -96,6 +113,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
         if (typeof res.total === 'number') {
           setTotalCount(res.total);
         }
+        if (res.matched_ids) setMatchedIds(res.matched_ids);
         if (page >= nextPageRef.current) nextPageRef.current = page + 1;
         hasMoreRef.current = res.has_more;
         setHasMore(res.has_more);
@@ -111,17 +129,19 @@ export const LatestView: React.FC<LatestViewProps> = ({
     );
   };
 
-  // 切换时间窗口：重置分页并取第 1 页
+  // 切换时间窗口或平台筛选：重置分页并取第 1 页
   useEffect(() => {
     const gen = genRef.current + 1;
     genRef.current = gen;
     setFetchedApps([]);
     setTotalCount(null);
+    setMatchedIds(null);
     nextPageRef.current = 2;
     hasMoreRef.current = false;
     setHasMore(false);
     requestPage(activeWindow, 1, gen);
-  }, [activeWindow]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWindow, allowedKey]);
 
   loadMoreRef.current = () => {
     if (loadingRef.current || !hasMoreRef.current) return;
@@ -134,16 +154,18 @@ export const LatestView: React.FC<LatestViewProps> = ({
     requestPage(activeWindow, page, genRef.current);
   };
 
-  // 触底续页哨兵（与类别页同口径 rootMargin 320px）
+  // 触底续页哨兵（与类别页同口径 rootMargin 320px）；root 绑定 `.content-area` 独立滚动容器，
+  // 否则 rootMargin 只作用于视口。
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') return;
     if (!hasMore || error) return;
+    const root = el.closest('.content-area');
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) loadMoreRef.current();
       },
-      { rootMargin: '320px 0px' },
+      { root: root instanceof Element ? root : null, rootMargin: '320px 0px' },
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -158,12 +180,36 @@ export const LatestView: React.FC<LatestViewProps> = ({
     return map;
   }, [apps]);
 
-  // 可见行：BE 取回的倒排列表 ∩ 平台预过滤 apps（保序，图标 patch 随 apps 属性更新）
+  // 可见行：BE 已按 allowedIds 过滤（回包带 `matched_ids` 时信任之）；行数据优先取 `apps` 属性以跟进图标 patch。
+  // 未回传 `matched_ids` 的旧接口回退为与平台预过滤 apps 取交集。
   const visibleApps = useMemo(() => {
-    return fetchedApps
-      .filter((a) => appsById.has(a.id.toLowerCase()))
-      .map((a) => appsById.get(a.id.toLowerCase()) ?? a);
-  }, [appsById, fetchedApps]);
+    const rows = matchedIds
+      ? fetchedApps
+      : fetchedApps.filter((a) => appsById.has(a.id.toLowerCase()));
+    return rows.map((a) => appsById.get(a.id.toLowerCase()) ?? a);
+  }, [appsById, fetchedApps, matchedIds]);
+
+  // 侧栏平台分布：该时间窗全平台命中条目（对照未裁剪目录）。
+  const platformSource = allApps ?? apps;
+  const windowPlatformCounts = useMemo(() => {
+    if (!matchedIds) return null;
+    const matched = new Set(matchedIds.map((id) => id.toLowerCase()));
+    const rows = platformSource.filter((a) => matched.has(a.id.toLowerCase()));
+    return selectPlatformCounts(rows, platformResolvedOtherIds);
+  }, [matchedIds, platformSource, platformResolvedOtherIds]);
+
+  const reportCountsRef = useRef(onDisplayPlatformCounts);
+  reportCountsRef.current = onDisplayPlatformCounts;
+  useEffect(() => {
+    if (windowPlatformCounts) reportCountsRef.current?.(windowPlatformCounts);
+  }, [windowPlatformCounts]);
+  useEffect(() => () => reportCountsRef.current?.(null), []);
+
+  const settled = !loading && !error;
+  // 该时间窗在全平台本身无新收录 → 时间窗切换引导；有新收录但被平台筛选排除 → FilterEmptyState。
+  const windowEmpty =
+    settled && (matchedIds ? matchedIds.length === 0 : apps.length > 0 && fetchedApps.length === 0);
+  const filterEmpty = !windowEmpty && (apps.length === 0 || (settled && visibleApps.length === 0));
 
   // 组装落盘图标补齐
   useEffect(() => {
@@ -184,7 +230,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
             <Sparkles size={18} />
             <span>{t('latest.title')}</span>
             {!loading && !error && totalCount !== null && (
-              <CountBadge value={visibleApps.length > 0 ? totalCount : 0} />
+              <CountBadge value={totalCount} />
             )}
           </h3>
           {t('latest.subtitle') ? (
@@ -204,14 +250,14 @@ export const LatestView: React.FC<LatestViewProps> = ({
         />
       </div>
 
-      {apps.length === 0 ? (
+      {filterEmpty ? (
         <FilterEmptyState
           title={t('categories.no_apps_device_filter')}
           description={t('categories.no_apps_device_filter_desc')}
           resetLabel={t('categories.reset_device_filter')}
           onReset={onResetPlatformFilter}
         />
-      ) : !loading && !error && fetchedApps.length === 0 ? (
+      ) : windowEmpty ? (
         <div
           className="empty-state-card"
           style={{
@@ -300,6 +346,18 @@ export const LatestView: React.FC<LatestViewProps> = ({
           {hasMore && !error && (
             <div ref={sentinelRef} style={{ width: '100%', height: '1px' }} />
           )}
+        </div>
+      )}
+
+      {!filterEmpty && !windowEmpty && hasMore && settled && (
+        <div className="feed-more-row">
+          <button
+            type="button"
+            className="btn-fluent btn-secondary"
+            onClick={() => loadMoreRef.current()}
+          >
+            {t('latest.load_more')}
+          </button>
         </div>
       )}
     </ViewShell>

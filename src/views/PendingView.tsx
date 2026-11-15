@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CountBadge, CountLabel } from '../components/CountBadge';
+import { CountLabel } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-pending.css';
-import { Archive, FilePlus2, Inbox, PackageCheck, PencilLine } from 'lucide-react';
-import { FilterEmptyState, ViewShell } from './ViewShell';
+import { Archive, FilePlus2, Inbox, PackageCheck, PencilLine, Send } from 'lucide-react';
+import { FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
+import { PLATFORM_IDS, matchPlatformSet, type PlatformId } from '../lib/platformFilter';
 import type { DraftItem } from '../services/custom';
 import {
   getLicenseAllowlist,
@@ -16,9 +17,9 @@ import {
 } from '../lib/pendingPrefs';
 import {
   PENDING_EMPTY_DRAFT,
+  PENDING_GROUP_ORDER,
   canonicalDraftId,
   entryGroup,
-  entrySegment,
   isPendingCollectedStatus,
   parseIdentifiersText,
   pendingDraftToAppSummary,
@@ -29,7 +30,6 @@ import {
   type LicenseAllowlistInput,
   type PendingDraftErrors,
   type PendingGroupId,
-  type PendingSegmentId,
 } from './pending/draftModel';
 import { runSubmitPrefillFlow } from './pending/submitPrefillFlow';
 import type { ShowToast } from '../types';
@@ -92,20 +92,31 @@ interface PendingViewProps {
   onGetLicenseAllowlist?: () => Promise<LicenseAllowlistResult>;
   /** 轻提示通道（缺席时静默）。 */
   onNotify?: ShowToast;
+  /** 全局设备平台筛选（缺席时视为全选，独立渲染/单测不受过滤）。 */
+  selectedPlatforms?: ReadonlySet<string>;
+  /** 「显示全部平台」重置（缺席时走广播兜底）。 */
+  onResetPlatformFilter?: () => void;
+  /** 向侧栏上报当前作用域（未归档 / 已归档）条目的平台分布。 */
+  onDisplayPlatformCounts?: (counts: Record<PlatformId, number>) => void;
 }
 
-/** 顶层三态分组（draft/library/archived）与组图标。 */
-const GROUP_META: ReadonlyArray<{ id: PendingGroupId; icon: typeof Inbox }> = [
-  { id: 'draft', icon: FilePlus2 },
-  { id: 'library', icon: PackageCheck },
-  { id: 'archived', icon: Archive },
-];
+const ALL_PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_IDS);
 
-/** 本地收录内部分段（待提交 / 已提交）。 */
-const SEGMENT_META: ReadonlyArray<{ id: PendingSegmentId }> = [
-  { id: 'to_submit' },
-  { id: 'submitted' },
-];
+/** 顶层四个互斥 Tab 的组图标（顺序见 PENDING_GROUP_ORDER）。 */
+const GROUP_ICON: Record<PendingGroupId, typeof Inbox> = {
+  draft: FilePlus2,
+  to_submit: PackageCheck,
+  submitted: Send,
+  archived: Archive,
+};
+
+function emptyGroupCounts(): Record<PendingGroupId, number> {
+  return { draft: 0, to_submit: 0, submitted: 0, archived: 0 };
+}
+
+function entryMatchesPlatforms(e: CustomDraftEntry, selected: ReadonlySet<string>): boolean {
+  return matchPlatformSet({ platforms: [...(e.item.platforms ?? [])] }, selected);
+}
 
 /** 归一草稿表单与文本态字段（id 由非空 owner/repo 自动按小写派生，否则保留已有 id）。 */
 function buildNormalizedFormItem(
@@ -156,12 +167,21 @@ export const PendingView: React.FC<PendingViewProps> = ({
   onGetPrPayload,
   onGetLicenseAllowlist,
   onNotify,
+  selectedPlatforms = ALL_PLATFORMS,
+  onResetPlatformFilter,
+  onDisplayPlatformCounts,
 }) => {
   const { t } = useTranslation();
   const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
   const entries = controlledEntries ?? localEntries;
-  const [activeGroup, setActiveGroup] = useState<PendingGroupId>('draft');
-  const [activeSegment, setActiveSegment] = useState<PendingSegmentId>('to_submit');
+  const [activeGroup, setActiveGroupState] = useState<PendingGroupId>('draft');
+  // 智能默认落点只在首次拿到非空条目且用户/操作流尚未定过 Tab 时生效一次。
+  const userPickedGroupRef = useRef(false);
+  const didAutoSelectGroupRef = useRef(false);
+  const setActiveGroup = useCallback((group: PendingGroupId) => {
+    userPickedGroupRef.current = true;
+    setActiveGroupState(group);
+  }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -177,27 +197,13 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const [previewExpanded, setPreviewExpanded] = useState(true);
 
   /**
-   * 顶层三态切换（draft/library/archived）：
+   * 顶层四 Tab 切换（草稿 / 待提交 / 已提交 / 已归档）：
    * 右侧详情 + 操作按钮随 activeGroup 联动，
-   * 切 Tab 即重置跨分组选中（含新建态与二次确认态）与分段（回默认「待提交」），无选中走空态提示。
+   * 切 Tab 即重置跨分组选中（含新建态与二次确认态），无选中走空态提示。
    */
   const handleGroupChange = (group: PendingGroupId) => {
     if (group === activeGroup) return;
     setActiveGroup(group);
-    setActiveSegment('to_submit');
-    setSelectedId(null);
-    setIsCreating(false);
-    setConfirmDeleteId(null);
-    setConfirmRevertId(null);
-    setConfirmWithdrawId(null);
-    setPrUrlInput('');
-    setFormErrors({});
-  };
-
-  /** 分段切换沿用切 Tab 的重置语义（选中/表单/报错归零）。 */
-  const handleSegmentChange = (segment: PendingSegmentId) => {
-    if (segment === activeSegment) return;
-    setActiveSegment(segment);
     setSelectedId(null);
     setIsCreating(false);
     setConfirmDeleteId(null);
@@ -295,33 +301,52 @@ export const PendingView: React.FC<PendingViewProps> = ({
   const hasSubmitErrors = Object.keys(liveSubmitErrors).length > 0;
   const hasLicenseSubmitError = Boolean(liveSubmitErrors.license);
 
-  const counts = useMemo(() => {
-    const c: Record<PendingGroupId, number> = { draft: 0, library: 0, archived: 0 };
-    for (const e of entries) c[entryGroup(e)] += 1;
-    return c;
-  }, [entries]);
-
-  // 内层过滤计数：与 counts.library 同源（库内每条必属 to_submit 或 submitted），
-  // 让「待提交 / 已提交」读作数据过滤而非第二层导航。
-  const segmentCounts = useMemo(() => {
-    const c: Record<PendingSegmentId, number> = { to_submit: 0, submitted: 0 };
+  // rawCounts：不看平台筛选的分组条数（判定「被平台筛空」与兜底落点）；
+  // counts：按全局设备平台筛选后的条数，即 Tab 角标，等于切入该 Tab 后左栏条目数。
+  const { rawCounts, counts } = useMemo(() => {
+    const raw = emptyGroupCounts();
+    const filtered = emptyGroupCounts();
     for (const e of entries) {
-      if (entryGroup(e) !== 'library') continue;
-      const seg = entrySegment(e);
-      if (seg) c[seg] += 1;
+      const g = entryGroup(e);
+      raw[g] += 1;
+      if (entryMatchesPlatforms(e, selectedPlatforms)) filtered[g] += 1;
     }
-    return c;
-  }, [entries]);
+    return { rawCounts: raw, counts: filtered };
+  }, [entries, selectedPlatforms]);
 
   const visibleEntries = useMemo(
     () =>
-      entries.filter((e) => {
-        if (entryGroup(e) !== activeGroup) return false;
-        if (activeGroup !== 'library') return true;
-        return entrySegment(e) === activeSegment;
-      }),
-    [entries, activeGroup, activeSegment],
+      entries.filter((e) => entryGroup(e) === activeGroup && entryMatchesPlatforms(e, selectedPlatforms)),
+    [entries, activeGroup, selectedPlatforms],
   );
+
+  // 首次拿到非空条目：当前 Tab 筛后为空则落到首个筛后非空 Tab（全空则首个原始非空 Tab，展示重置引导）。
+  useEffect(() => {
+    if (didAutoSelectGroupRef.current || userPickedGroupRef.current || isCreating) return;
+    if (entries.length === 0) return;
+    didAutoSelectGroupRef.current = true;
+    if (counts[activeGroup] > 0) return;
+    const target =
+      PENDING_GROUP_ORDER.find((g) => counts[g] > 0) ?? PENDING_GROUP_ORDER.find((g) => rawCounts[g] > 0);
+    if (target && target !== activeGroup) setActiveGroupState(target);
+  }, [entries.length, counts, rawCounts, activeGroup, isCreating]);
+
+  // 侧栏平台芯片：已归档 Tab 统计已归档条目，其余 Tab 统计未归档条目。
+  const scopeArchived = activeGroup === 'archived';
+  const displayPlatformCounts = useMemo<Record<PlatformId, number>>(() => {
+    const out = {} as Record<PlatformId, number>;
+    for (const id of PLATFORM_IDS) {
+      const singleton = new Set<string>([id]);
+      out[id] = entries.filter(
+        (e) => Boolean(e.archived) === scopeArchived && entryMatchesPlatforms(e, singleton),
+      ).length;
+    }
+    return out;
+  }, [entries, scopeArchived]);
+
+  useEffect(() => {
+    onDisplayPlatformCounts?.(displayPlatformCounts);
+  }, [displayPlatformCounts, onDisplayPlatformCounts]);
 
   const previewPlatforms = useMemo(() => {
     return splitCsv(platformsText.toLowerCase());
@@ -329,15 +354,11 @@ export const PendingView: React.FC<PendingViewProps> = ({
 
   const editingEntry = useMemo(() => {
     const found = entries.find((e) => e.id === selectedId) ?? null;
-    // 跨 Tab/分段选中重置兜底：选中行不在当前 Tab（或不在当前分段）时视为无选中，走空态提示。
-    if (found && !isCreating) {
-      if (entryGroup(found) !== activeGroup) return null;
-      if (activeGroup === 'library' && entrySegment(found) !== activeSegment) {
-        return null;
-      }
-    }
+    // 跨 Tab 选中重置兜底：选中行不在当前 Tab 时视为无选中，走空态提示。
+    // 平台筛选不参与判定：正在编辑的条目被筛出左栏时表单保持不丢失。
+    if (found && !isCreating && entryGroup(found) !== activeGroup) return null;
     return found;
-  }, [entries, selectedId, activeGroup, activeSegment, isCreating]);
+  }, [entries, selectedId, activeGroup, isCreating]);
 
   const loadIntoForm = (item: DraftItem) => {
     setForm({ ...item });
@@ -570,9 +591,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
     } else {
       flipLocalSubmitted(id, url);
     }
-    // 手动标记后切到本地收录 · 已提交：富卡仅展 Issue 链接，禁止重复提交。
-    setActiveGroup('library');
-    setActiveSegment('submitted');
+    // 手动标记后切到已提交：富卡仅展 Issue 链接，禁止重复提交。
+    setActiveGroup('submitted');
     onNotify?.(t('pending.marked_submitted', { id }), 'success');
   };
 
@@ -601,9 +621,9 @@ export const PendingView: React.FC<PendingViewProps> = ({
   };
 
   /**
-   * 本地收录退回草稿：二次确认复用删除确认形态（首点置确认态 4s，次点执行）；
+   * 待提交退回草稿：二次确认复用删除确认形态（首点置确认态 4s，次点执行）；
    * 有回调走后端落盘（App 透传 revert，失败抛错 toast 不静默），缺席仅本地预览翻 draft 态；toast 复用现有风格。
-   * 退回后停留本地收录页（不跳 Tab）：选中清空或落到下一条同组行，由调用方切 Tab 回草稿查看。
+   * 退回后停留待提交 Tab：选中清空或落到下一条同组行，由调用方切 Tab 回草稿查看。
    */
   const handleRevertToDraft = async (id: string) => {
     const target = entries.find((e) => e.id === id);
@@ -679,7 +699,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     setWithdrawingId(id);
     try {
       await onWithdrawSubmitted(id);
-      // 撤下后行离开已提交：选中清空（父级刷新后回待提交分段）。
+      // 撤下后行离开已提交：选中清空（父级刷新后条目进入待提交 Tab）。
       setSelectedId(null);
       setIsCreating(false);
       setPrUrlInput('');
@@ -737,9 +757,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
         flipLocalCollected(id, item);
       }
       loadIntoForm(item);
-      // 收录后切到本地收录 · 待提交，右侧切富卡。
-      setActiveGroup('library');
-      setActiveSegment('to_submit');
+      // 收录后切到待提交，右侧切富卡。
+      setActiveGroup('to_submit');
       onNotify?.(t('pending.collected', { id }), 'success');
     } catch (e) {
       onNotify?.(e instanceof Error ? e.message : String(e), 'error');
@@ -753,7 +772,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
    * （失败提示重试并中止，不回退本地名单）→ 提交档本地预检（与后端 SubmitStrict 同口径；
    * 缺项可点击：置内联 + 定位首错，不 toast）→ 共享提交尾段（取 URL→https 判→超长复制
    * 载荷→开页，见 pending/submitPrefillFlow）即止：不自动 mark submitted，
-   * 用户在预填页提交 Issue 后回本地收录手动贴链接确认（复用 mark_submitted 行），
+   * 用户在预填页提交 Issue 后回待提交手动贴链接确认（复用 mark_submitted 行），
    * 取消则停留 collected，可重新提交。
    */
   const handleSubmitPr = async (id: string) => {
@@ -827,49 +846,30 @@ export const PendingView: React.FC<PendingViewProps> = ({
         </div>
       </div>
 
-      {/* 2. 状态 tabs 分组（草稿 / 本地收录 / 已归档） */}
+      {/* 2. 四个互斥顶层 Tab（草稿 / 待提交 / 已提交 / 已归档），角标按全局平台筛选计数 */}
       <div className="segmented-group" role="tablist" aria-label={t('pending.title')} style={{ marginBottom: '12px' }}>
-        {GROUP_META.map(({ id, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={activeGroup === id}
-            className={`segmented-item ${activeGroup === id ? 'active' : ''}`}
-            onClick={() => handleGroupChange(id)}
-          >
-            <CountLabel
-              icon={<Icon size={13} strokeWidth={1.5} aria-hidden="true" />}
-              label={t(`pending.groups.${id}`)}
-              count={counts[id]}
-              active={activeGroup === id}
-            />
-          </button>
-        ))}
-      </div>
-
-      {/* 2b. 本地收录内部分段：待提交 / 已提交（内层过滤，非第二层导航；其他 Tab 不展） */}
-      {activeGroup === 'library' && (
-        <div
-          className="pending-segment-row"
-          role="group"
-          aria-label={t('pending.groups.library')}
-        >
-          {SEGMENT_META.map(({ id }) => (
+        {PENDING_GROUP_ORDER.map((id) => {
+          const Icon = GROUP_ICON[id];
+          return (
             <button
               key={id}
               type="button"
-              data-testid={`pending-segment-${id}`}
-              aria-pressed={activeSegment === id}
-              className={`pending-segment ${activeSegment === id ? 'active' : ''}`}
-              onClick={() => handleSegmentChange(id)}
+              role="tab"
+              data-testid={`pending-tab-${id}`}
+              aria-selected={activeGroup === id}
+              className={`segmented-item ${activeGroup === id ? 'active' : ''}`}
+              onClick={() => handleGroupChange(id)}
             >
-              <span>{t(`pending.segments.${id}`)}</span>
-              <CountBadge value={segmentCounts[id]} active={activeSegment === id} />
+              <CountLabel
+                icon={<Icon size={13} strokeWidth={1.5} aria-hidden="true" />}
+                label={t(`pending.groups.${id}`)}
+                count={counts[id]}
+                active={activeGroup === id}
+              />
             </button>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
 
       {/* 3. 主区：草稿全空时展示全局引导；有草稿时展示 master-detail 左右分栏 */}
       {entries.length === 0 && !isCreating ? (
@@ -888,7 +888,8 @@ export const PendingView: React.FC<PendingViewProps> = ({
             selectedId={selectedId}
             onSelect={handleSelectEntry}
             activeGroup={activeGroup}
-            activeSegment={activeSegment}
+            hiddenByPlatformFilter={visibleEntries.length === 0 && rawCounts[activeGroup] > 0}
+            onResetPlatformFilter={resolvePlatformReset(onResetPlatformFilter)}
           />
 
           {/* 右：Detail（draft 表单 / 后链路富卡：collected/submitted/archived 一律富卡） */}

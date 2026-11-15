@@ -242,6 +242,7 @@
     "added_at_badge": "收录于 {{date}}",
     "list_loading": "正在加载…",
     "list_error": "加载失败，请重试",
+    "load_more": "加载更多",
     "retry": "重试"
   },
   "categories": {
@@ -255,6 +256,7 @@
     "category_empty_for_platform": "当前平台下暂无应用。",
     "list_loading": "正在加载…",
     "list_error": "分类列表加载失败，稍后重试。",
+    "load_more": "加载更多",
     "retry": "重试",
     "cat_dev_name": "开发工具",
     "cat_dev_desc": "IDE, 编辑器, 调试台, 版本控制",
@@ -309,8 +311,6 @@
     "fix_errors": "表单尚有未通过的校验项，请修正后再保存",
     "empty_title": "暂无待收录草稿",
     "empty_desc": "暂存草稿，完善后可提交收录。",
-    "group_empty_title": "该分组暂无草稿",
-    "group_empty_desc": "暂无该状态草稿。",
     "pick_hint_title": "选择或新建草稿",
     "pick_hint_desc": "从左侧选择草稿，或点击新建。",
     "archived_badge": "已转正归档",
@@ -333,24 +333,32 @@
     "identifiers_hint": "每行 platform=标识1, 标识2 (如 windows=app.exe)",
     "groups": {
       "draft": "草稿",
-      "library": "本地收录",
-      "archived": "已归档"
-    },
-    "segments": {
-      "all": "全部",
       "to_submit": "待提交",
       "submitted": "已提交",
-      "empty_title": {
-        "all": "暂无应用",
-        "to_submit": "暂无待提交应用",
-        "submitted": "暂无已提交应用"
+      "archived": "已归档",
+      "library": "本地收录"
+    },
+    "group_empty": {
+      "draft": {
+        "title": "暂无草稿",
+        "desc": "新建草稿后显示在此。"
       },
-      "empty_desc": {
-        "all": "收录草稿或提交 Issue 后显示在此。",
-        "to_submit": "已收录未提交的应用显示在此。",
-        "submitted": "已提交等待收录的应用显示在此。"
+      "to_submit": {
+        "title": "暂无待提交应用",
+        "desc": "已收录未提交的应用显示在此。"
+      },
+      "submitted": {
+        "title": "暂无已提交应用",
+        "desc": "已提交等待收录的应用显示在此。"
+      },
+      "archived": {
+        "title": "暂无已归档应用",
+        "desc": "已被正式收录的应用显示在此。"
       }
     },
+    "platform_empty_title": "当前平台下暂无条目",
+    "platform_empty_desc": "该分组的条目均不支持所选设备平台。",
+    "platform_empty_reset": "显示全部平台",
     "fields": {
       "id": "应用标识 id",
       "name": "应用名称",

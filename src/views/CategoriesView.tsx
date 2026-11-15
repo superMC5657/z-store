@@ -29,12 +29,21 @@ import {
 import { isPlatformLoading } from '../lib/platformFilter';
 import { CATEGORY_APPS_PER_PAGE, getCategoryApps } from '../services/api/catalog';
 import type { AppSummary } from '../types';
-import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
+import type { PlatformId } from '../lib/platformFilter';
+import {
+  isInstalled as selectIsInstalled,
+  selectManagedState,
+  selectPlatformCounts,
+} from '../app/selectors';
 
 interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
   platformResolvedOtherIds?: ReadonlySet<string>;
   /** 进入视图时直接打开的分类（精选页「进入分类」），缺席时停在分类大厅。 */
   initialCategory?: string | null;
+  /** 未按平台裁剪的全量合并目录，用于计算分类子页的全平台分布；缺省回退 `apps`。 */
+  allApps?: readonly AppSummary[];
+  /** 分类子页向侧栏上报该分类平台分布；在大厅或卸载时上报 `null`。 */
+  onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
 /** 分类匹配与 BE `get_category_apps` 同口径（`category`/`category_name` 大小写不敏感）；
@@ -74,6 +83,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onToggleWatch,
   onResetPlatformFilter,
   initialCategory = null,
+  allApps,
+  onDisplayPlatformCounts,
 }) => {
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(initialCategory);
@@ -95,6 +106,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const sentinelRef = React.useRef<HTMLDivElement | null>(null);
   const loadMoreRef = React.useRef(() => {});
 
+  // 平台过滤后的可见目录 ID（小写、排序），交给后端在分页前过滤；`allowedKey` 作为稳定依赖签名。
+  const allowedIds = useMemo(() => apps.map((a) => a.id.toLowerCase()).sort(), [apps]);
+  const allowedKey = allowedIds.join('\n');
+
   const appendPageIds = (rows: AppSummary[]) => {
     const seen = new Set(pagedIdsRef.current);
     const next = [...pagedIdsRef.current];
@@ -113,7 +128,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     loadingRef.current = true;
     setCatLoading(true);
     setCatError(false);
-    getCategoryApps(category, page, CATEGORY_APPS_PER_PAGE).then(
+    getCategoryApps(category, page, CATEGORY_APPS_PER_PAGE, allowedIds).then(
       (res) => {
         if (genRef.current !== gen) return;
         appendPageIds(res.items);
@@ -132,7 +147,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     );
   };
 
-  // 切分类：重置分页并取第 1 页（`apps` 属性变化只重组可见行，不重置取页）。
+  // 切分类或平台筛选变化：重置分页并取第 1 页（`apps` 内容不变的属性刷新只重组可见行）。
   React.useEffect(() => {
     if (!selectedCategory) return;
     const gen = genRef.current + 1;
@@ -144,7 +159,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     setCatHasMore(false);
     requestPage(selectedCategory, 1, gen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCategory]);
+  }, [selectedCategory, allowedKey]);
 
   loadMoreRef.current = () => {
     if (!selectedCategory || loadingRef.current || !catHasMoreRef.current) return;
@@ -158,15 +173,17 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   };
 
   // 触底续页哨兵（与发现页同口径 rootMargin 320px；失败页由重试按钮重发，不自动追）。
+  // root 绑定 `.content-area` 独立滚动容器，否则 rootMargin 只作用于视口。
   React.useEffect(() => {
     const el = sentinelRef.current;
     if (!el || typeof IntersectionObserver === 'undefined') return;
     if (!catHasMore || catError) return;
+    const root = el.closest('.content-area');
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) loadMoreRef.current();
       },
-      { rootMargin: '320px 0px' },
+      { root: root instanceof Element ? root : null, rootMargin: '320px 0px' },
     );
     observer.observe(el);
     return () => observer.disconnect();
@@ -219,6 +236,28 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
   const currentCategoryMeta = CATEGORY_DEFINITIONS.find((c) => c.id === selectedCategory);
 
+  // 子页标题总数与大厅卡片「N 款可用」同源（均来自平台预过滤 `apps`），首帧即稳定，不随翻页跳变。
+  const selectedCategoryCount = useMemo(
+    () =>
+      categoryStats.entries.find((e) => e.cat.id === selectedCategory)?.count ?? visibleApps.length,
+    [categoryStats, selectedCategory, visibleApps.length],
+  );
+
+  // 侧栏平台分布：子页报该分类在未裁剪目录中的全平台分布，大厅报 null 恢复全库分布。
+  const platformSource = allApps ?? apps;
+  const categoryPlatformCounts = useMemo(() => {
+    if (!selectedCategory) return null;
+    const rows = platformSource.filter((a) => matchCategory(a, selectedCategory));
+    return selectPlatformCounts(rows, platformResolvedOtherIds);
+  }, [selectedCategory, platformSource, platformResolvedOtherIds]);
+
+  const reportCountsRef = React.useRef(onDisplayPlatformCounts);
+  reportCountsRef.current = onDisplayPlatformCounts;
+  useEffect(() => {
+    reportCountsRef.current?.(categoryPlatformCounts);
+  }, [categoryPlatformCounts]);
+  useEffect(() => () => reportCountsRef.current?.(null), []);
+
   const handleResetFilter = () => {
     onResetPlatformFilter();
     setSelectedCategory(null);
@@ -237,7 +276,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 style={{ color: currentCategoryMeta.color }}
               />
               <span>{t(currentCategoryMeta.nameKey)}</span>
-              <CountBadge value={visibleApps.length} />
+              <CountBadge value={selectedCategoryCount} />
             </>
           ) : (
             <>
@@ -430,6 +469,17 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               variant="secondary"
               onReset={handleResetFilter}
             />
+          )}
+          {catHasMore && !catLoading && !catError && (
+            <div className="feed-more-row" style={{ width: '100%' }}>
+              <button
+                type="button"
+                className="btn-fluent btn-secondary"
+                onClick={() => loadMoreRef.current()}
+              >
+                {t('categories.load_more')}
+              </button>
+            </div>
           )}
         </div>
       )}
