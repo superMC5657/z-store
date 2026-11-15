@@ -85,7 +85,7 @@ describe('LatestView component', () => {
     );
 
     // Initial call should be 30 days (default: 7~30d)
-    expect(mockGetLatestCatalogApps).toHaveBeenCalledWith({ minDays: 7, maxDays: 30 }, 1, 20);
+    expect(mockGetLatestCatalogApps).toHaveBeenCalledWith({ minDays: 7, maxDays: 30 }, 1, 20, ['demo/app1']);
 
     // Header exists
     expect(screen.getByText('最新入库')).toBeDefined();
@@ -142,7 +142,7 @@ describe('LatestView component', () => {
       fireEvent.click(screen.getByText('7 天'));
     });
 
-    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith({ minDays: 0, maxDays: 7 }, 1, 20);
+    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith({ minDays: 0, maxDays: 7 }, 1, 20, ['demo/app1', 'demo/app2']);
 
     await waitFor(() => {
       expect(screen.getByText('App Two')).toBeDefined();
@@ -189,7 +189,7 @@ describe('LatestView component', () => {
       fireEvent.click(widenBtn);
     });
 
-    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith({ minDays: 30, maxDays: 90 }, 1, 20);
+    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith({ minDays: 30, maxDays: 90 }, 1, 20, ['demo/app1']);
   });
 
   it('renders 90d upper-limit guidance text and explore categories button when empty', async () => {
@@ -334,5 +334,124 @@ describe('LatestView component', () => {
     await waitFor(() => {
       expect(titleCount()).toBe('5');
     });
+  });
+
+  it('pre-filters by platform via allowedIds and reports window platform distribution', async () => {
+    const androidApps = Array.from({ length: 4 }, (_, i) => ({
+      ...makeSummary(`demo/and${i}`, `Android ${i}`, '2026-10-16'),
+      platforms: ['android'],
+    }));
+    const windowsApps = Array.from({ length: 26 }, (_, i) =>
+      makeSummary(`demo/win${i}`, `Windows ${i}`, '2026-10-16'),
+    );
+    const allApps = [...windowsApps, ...androidApps];
+    mockGetLatestCatalogApps.mockResolvedValueOnce({
+      items: androidApps,
+      total: 4,
+      has_more: false,
+      matched_ids: allApps.map((a) => a.id),
+    });
+    const onDisplayPlatformCounts = vi.fn();
+
+    render(
+      <LatestView
+        apps={androidApps}
+        allApps={allApps}
+        installedIds={new Set()}
+        favoriteIds={new Set()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onResetPlatformFilter={onResetPlatformFilter}
+        onDisplayPlatformCounts={onDisplayPlatformCounts}
+      />,
+    );
+
+    expect(mockGetLatestCatalogApps).toHaveBeenCalledWith(
+      { minDays: 7, maxDays: 30 },
+      1,
+      20,
+      ['demo/and0', 'demo/and1', 'demo/and2', 'demo/and3'],
+    );
+    await waitFor(() => {
+      expect(titleCount()).toBe('4');
+    });
+    expect(document.querySelectorAll('.app-grid .app-card')).toHaveLength(4);
+    expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
+      windows: 26,
+      macos: 0,
+      linux: 0,
+      ios: 0,
+      android: 4,
+      other: 0,
+    });
+  });
+
+  it('shows the platform-filter empty state when the window has apps but none match the selected platform', async () => {
+    const winApp = makeSummary('demo/win', 'Win App', '2026-10-16');
+    const iosOld = { ...makeSummary('demo/ios', 'iOS Old', '2025-01-01'), platforms: ['ios'] };
+    mockGetLatestCatalogApps.mockResolvedValueOnce({
+      items: [],
+      total: 0,
+      has_more: false,
+      matched_ids: [winApp.id],
+    });
+
+    render(
+      <LatestView
+        apps={[iosOld]}
+        allApps={[winApp, iosOld]}
+        installedIds={new Set()}
+        favoriteIds={new Set()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onResetPlatformFilter={onResetPlatformFilter}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector('.filter-empty-reset')).toBeTruthy();
+    });
+    expect(document.querySelector('.app-grid')).toBeNull();
+    expect(screen.queryByText('暂无新收录应用')).toBeNull();
+    fireEvent.click(document.querySelector('.filter-empty-reset') as HTMLElement);
+    expect(onResetPlatformFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a load-more button when has_more and requests page 2 on click', async () => {
+    const page1 = Array.from({ length: 20 }, (_, i) =>
+      makeSummary(`demo/p${i}`, `Page ${i}`, '2026-10-16'),
+    );
+    const page2 = [makeSummary('demo/p20', 'Page 20', '2026-10-16')];
+    const apps = [...page1, ...page2];
+    mockGetLatestCatalogApps
+      .mockResolvedValueOnce({ items: page1, total: 21, has_more: true, matched_ids: apps.map((a) => a.id) })
+      .mockResolvedValueOnce({ items: page2, total: 21, has_more: false, matched_ids: apps.map((a) => a.id) });
+
+    render(
+      <LatestView
+        apps={apps}
+        installedIds={new Set()}
+        favoriteIds={new Set()}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onResetPlatformFilter={onResetPlatformFilter}
+      />,
+    );
+
+    const loadMore = await screen.findByRole('button', { name: '加载更多' });
+    await act(async () => {
+      fireEvent.click(loadMore);
+    });
+    expect(mockGetLatestCatalogApps).toHaveBeenLastCalledWith(
+      { minDays: 7, maxDays: 30 },
+      2,
+      20,
+      expect.any(Array),
+    );
+    await screen.findByText('Page 20');
+    expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
   });
 });

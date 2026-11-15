@@ -358,6 +358,7 @@ export const App: React.FC = () => {
   // 6. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
   const {
     catalogPlatformFilteredApps,
+    fullMergedCatalogApps,
     searchPlatformFilteredApps,
     platformFilteredOnlineApps,
     platformFilteredRecentApps,
@@ -369,6 +370,8 @@ export const App: React.FC = () => {
     handleResetPlatformFilter,
     handleTrendsPlatformCounts,
     handlePendingPlatformCounts,
+    handleLatestPlatformCounts,
+    handleCategoryPlatformCounts,
     handleStarredPlatformCounts,
     sidebarPlatformCounts,
     installedIds,
@@ -784,6 +787,8 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
               onNavigateCategories={() => navigate('categories')}
+              allApps={fullMergedCatalogApps}
+              onDisplayPlatformCounts={handleLatestPlatformCounts}
             />
           )}
 
@@ -802,6 +807,8 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
               initialCategory={categoryFocus}
+              allApps={fullMergedCatalogApps}
+              onDisplayPlatformCounts={handleCategoryPlatformCounts}
             />
           )}
 
