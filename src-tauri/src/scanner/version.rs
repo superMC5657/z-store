@@ -4,6 +4,7 @@
 use super::{AppScanner, ScannedRawApp};
 
 /// 把版本资源的四段数字格式化为版本号：末段为 0 时省略（至少保留三段）；全 0 视为未设置。
+#[cfg(any(target_os = "windows", test))]
 pub(crate) fn format_fixed_version(parts: [u16; 4]) -> Option<String> {
     if parts.iter().all(|p| *p == 0) {
         return None;
