@@ -653,7 +653,7 @@
     "dismissed_at": "确认于: {{date}}",
     "tab_watch_short": "关注已读",
     "badge_watch_read": "已读 {{version}}",
-    "restore_watch_notice_success": "已恢复 {{id}} 关注提醒，可在收藏 · 关注中查看",
+    "restore_watch_notice_success": "已恢复 {{id}} 关注提醒，可在星标 · 关注中查看",
     "title": "规则管理",
     "add_rule": "新建规则",
     "collapse_add": "收起",

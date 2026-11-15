@@ -653,7 +653,7 @@
     "dismissed_at": "Seen on: {{date}}",
     "tab_watch_short": "Seen alerts",
     "badge_watch_read": "Seen {{version}}",
-    "restore_watch_notice_success": "Restored the watch alert for {{id}}; see Favorites · Watched",
+    "restore_watch_notice_success": "Restored the watch alert for {{id}}; see Starred · Watched",
     "title": "Rules",
     "add_rule": "New Rule",
     "collapse_add": "Collapse",
