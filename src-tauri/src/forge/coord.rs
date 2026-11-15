@@ -391,10 +391,7 @@ mod tests {
             crate::forge::canonical_app_id("SuperMC5657/Z-Store").as_deref(),
             Some(joined.as_str())
         );
-        assert_eq!(
-            crate::icons::icon_key("SuperMC5657", "Z-Store"),
-            joined
-        );
+        assert_eq!(crate::icons::icon_key("SuperMC5657", "Z-Store"), joined);
         assert_eq!(
             crate::icons::resolve_icon_coord("SuperMC5657/Z-Store")
                 .unwrap()

@@ -174,7 +174,10 @@ mod tests {
             validate("HTTPS://example.com/path").as_deref(),
             Ok("https://example.com/path")
         );
-        assert_eq!(validate("  http://example.com ").as_deref(), Ok("http://example.com"));
+        assert_eq!(
+            validate("  http://example.com ").as_deref(),
+            Ok("http://example.com")
+        );
     }
 
     #[test]

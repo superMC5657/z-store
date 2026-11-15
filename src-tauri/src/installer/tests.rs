@@ -3,18 +3,12 @@ use std::path::{Path, PathBuf};
 
 #[test]
 fn test_classify_asset() {
-    assert_eq!(
-        classify_asset("vlc-3.0.21-win64.msi").0,
-        AssetKind::Msi
-    );
+    assert_eq!(classify_asset("vlc-3.0.21-win64.msi").0, AssetKind::Msi);
     assert_eq!(
         classify_asset("RustDesk-1.2.6-Setup.exe").0,
         AssetKind::SetupExe
     );
-    assert_eq!(
-        classify_asset("app-portable.zip").0,
-        AssetKind::PortableZip
-    );
+    assert_eq!(classify_asset("app-portable.zip").0, AssetKind::PortableZip);
     assert_eq!(
         classify_asset("obs-studio_30.1.2_amd64.deb").0,
         AssetKind::Deb
@@ -23,18 +17,9 @@ fn test_classify_asset() {
         classify_asset("LocalSend-1.15.2.AppImage").0,
         AssetKind::AppImage
     );
-    assert_eq!(
-        classify_asset("KeePassXC-2.7.9.dmg").0,
-        AssetKind::Dmg
-    );
-    assert_eq!(
-        classify_asset("Wireshark-4.2.4.pkg").0,
-        AssetKind::Pkg
-    );
-    assert_eq!(
-        classify_asset("rustdesk-1.2.6.rpm").0,
-        AssetKind::Rpm
-    );
+    assert_eq!(classify_asset("KeePassXC-2.7.9.dmg").0, AssetKind::Dmg);
+    assert_eq!(classify_asset("Wireshark-4.2.4.pkg").0, AssetKind::Pkg);
+    assert_eq!(classify_asset("rustdesk-1.2.6.rpm").0, AssetKind::Rpm);
 
     // macOS .app bundle archives (e.g. Maccy.app.zip) must classify as macos, not windows
     let (kind, os, _) = classify_asset("Maccy.app.zip");
@@ -106,10 +91,7 @@ fn test_classify_tarball_binary() {
     );
 
     // .7z 保持 Other，不受 tar 分支影响
-    assert_eq!(
-        classify_asset("tool-linux-x64.7z").0,
-        AssetKind::Other
-    );
+    assert_eq!(classify_asset("tool-linux-x64.7z").0, AssetKind::Other);
 }
 
 #[test]
@@ -195,10 +177,7 @@ fn test_classify_7z_never_portable() {
         assert_eq!(kind, AssetKind::Other, ".7z must map to Other: {}", name);
     }
     // 守卫测试：确保 `.zip` 的便携版声明保持完好。
-    assert_eq!(
-        classify_asset("app-portable.zip").0,
-        AssetKind::PortableZip
-    );
+    assert_eq!(classify_asset("app-portable.zip").0, AssetKind::PortableZip);
     assert_eq!(
         classify_asset("tool-windows-x64.zip").0,
         AssetKind::PortableZip

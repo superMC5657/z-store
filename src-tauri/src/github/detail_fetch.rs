@@ -524,10 +524,18 @@ pub(crate) fn is_same_repo_homepage(
     };
     let forge = forge_host.trim();
     let forge = lowercase_http_scheme(forge)
-        .map(|s| s.split_once("://").map(|(_, rest)| rest.to_string()).unwrap_or(s))
+        .map(|s| {
+            s.split_once("://")
+                .map(|(_, rest)| rest.to_string())
+                .unwrap_or(s)
+        })
         .unwrap_or_else(|| forge.to_string());
     let forge = forge.trim_end_matches('/');
-    let forge = if forge.is_empty() { "github.com" } else { forge };
+    let forge = if forge.is_empty() {
+        "github.com"
+    } else {
+        forge
+    };
     let Ok(repo_url) = reqwest::Url::parse(&format!("https://{}/", forge)) else {
         return false;
     };
@@ -596,26 +604,24 @@ fn resolve_detail_stats(
         .map(|i| i.license.trim())
         .filter(|l| CatalogItem::is_concrete_license(l))
         .map(str::to_string);
-    let remote_license = repo_info
-        .and_then(|r| r.license.as_ref())
-        .and_then(|l| {
-            if let Some(ref spdx) = l.spdx_id {
-                let trimmed = spdx.trim();
-                if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("NOASSERTION") {
-                    return Some(trimmed.to_string());
-                }
+    let remote_license = repo_info.and_then(|r| r.license.as_ref()).and_then(|l| {
+        if let Some(ref spdx) = l.spdx_id {
+            let trimmed = spdx.trim();
+            if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("NOASSERTION") {
+                return Some(trimmed.to_string());
             }
-            if let Some(ref key) = l.key {
-                let trimmed = key.trim();
-                if let Some(&matched) = crate::config::DEFAULT_LICENSE_ALLOWLIST
-                    .iter()
-                    .find(|&&allowed| allowed.eq_ignore_ascii_case(trimmed))
-                {
-                    return Some(matched.to_string());
-                }
+        }
+        if let Some(ref key) = l.key {
+            let trimmed = key.trim();
+            if let Some(&matched) = crate::config::DEFAULT_LICENSE_ALLOWLIST
+                .iter()
+                .find(|&&allowed| allowed.eq_ignore_ascii_case(trimmed))
+            {
+                return Some(matched.to_string());
             }
-            None
-        });
+        }
+        None
+    });
     let license = curated_license
         .or(remote_license)
         .or_else(|| catalog_item.map(|i| i.license.trim().to_string()))
@@ -755,13 +761,7 @@ impl CatalogService {
                 reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref())
             {
                 if let Some(ref ri) = repo_info {
-                    apply_304_repo_refresh(
-                        &mut detail,
-                        ri,
-                        catalog_item.as_ref(),
-                        &owner,
-                        &repo,
-                    );
+                    apply_304_repo_refresh(&mut detail, ri, catalog_item.as_ref(), &owner, &repo);
                 }
                 diag.steps.push("reuse_304".to_string());
                 return Ok(DetailFetchOutput {
@@ -900,12 +900,8 @@ impl CatalogService {
         }
         diag.steps.push(chk_step);
         diag.checksum_why = chk_why;
-        let probed_with_level = probed_hit.map(|p| {
-            (
-                crate::icons::ProbeIconLevel::from_source(p.source),
-                p.url,
-            )
-        });
+        let probed_with_level =
+            probed_hit.map(|p| (crate::icons::ProbeIconLevel::from_source(p.source), p.url));
 
         let DetailStats {
             stars: latest_stars,
@@ -925,11 +921,8 @@ impl CatalogService {
             catalog_item.as_ref().map(|i| i.platforms.as_slice()),
         );
 
-        let icon_resolution = crate::icons::pick_detail_icon_with_level(
-            &icon,
-            probed_with_level,
-            extracted_logo,
-        );
+        let icon_resolution =
+            crate::icons::pick_detail_icon_with_level(&icon, probed_with_level, extracted_logo);
         let final_icon = icon_resolution.icon.clone();
 
         let (effective_desc, effective_description_en) =
@@ -1046,7 +1039,11 @@ impl CatalogService {
             }
             Err(_) => {
                 let step = format!("chk:timeout({}ms)", start.elapsed().as_millis());
-                return (map, step, Some(format!("timeout_{}s", checksum_timeout.as_secs())));
+                return (
+                    map,
+                    step,
+                    Some(format!("timeout_{}s", checksum_timeout.as_secs())),
+                );
             }
         };
         let status = res.status().as_u16();
@@ -1120,7 +1117,11 @@ mod tests {
         let headers = reqwest::header::HeaderMap::new();
         let (map, step, reason) =
             CatalogService::extract_checksums_map(&assets, &client, &headers).await;
-        assert_eq!(map.get("app.msi").map(String::as_str), Some(hash.as_str()), "{step} {reason:?}");
+        assert_eq!(
+            map.get("app.msi").map(String::as_str),
+            Some(hash.as_str()),
+            "{step} {reason:?}"
+        );
     }
 
     #[test]
@@ -1263,9 +1264,19 @@ mod tests {
             assert!(same(hp, "github.com", "BurntSushi", "ripgrep"), "{hp}");
         }
         assert!(same("https://github.com/o/r", "", "o", "r"));
-        assert!(!same("https://github.com/apps/desktop", "github.com", "desktop", "desktop"));
+        assert!(!same(
+            "https://github.com/apps/desktop",
+            "github.com",
+            "desktop",
+            "desktop"
+        ));
         assert!(!same("https://github.com/o/r/wiki", "github.com", "o", "r"));
-        assert!(!same("https://gitlab.com/OpenMW/openmw", "github.com", "OpenMW", "openmw"));
+        assert!(!same(
+            "https://gitlab.com/OpenMW/openmw",
+            "github.com",
+            "OpenMW",
+            "openmw"
+        ));
         assert!(!same("https://o.github.io/r", "github.com", "o", "r"));
         assert!(same(
             "https://git.example.com:8443/Org/App",
@@ -1279,7 +1290,12 @@ mod tests {
             "org",
             "app"
         ));
-        assert!(same("https://codeberg.org/FreeTubeApp/FreeTube/", "https://codeberg.org/", "FreeTubeApp", "FreeTube"));
+        assert!(same(
+            "https://codeberg.org/FreeTubeApp/FreeTube/",
+            "https://codeberg.org/",
+            "FreeTubeApp",
+            "FreeTube"
+        ));
     }
 
     #[test]
@@ -1358,7 +1374,10 @@ mod tests {
             ..repo_base
         };
         let stats = super::resolve_detail_stats(Some(&repo_self), None, "OpenMW", "openmw");
-        assert_eq!(stats.homepage.as_deref(), Some("https://github.com/OpenMW/openmw"));
+        assert_eq!(
+            stats.homepage.as_deref(),
+            Some("https://github.com/OpenMW/openmw")
+        );
     }
 
     #[test]
@@ -1485,7 +1504,8 @@ mod tests {
     }
 
     #[test]
-    fn test_heal_cached_detail_fixes_maccy_stale_and_304_preserves_concrete_license_and_zero_stars() {
+    fn test_heal_cached_detail_fixes_maccy_stale_and_304_preserves_concrete_license_and_zero_stars()
+    {
         // 1. Stale 兜底自愈：旧库里被错标为 windows 的 Maccy.app.zip 应纠正为 macos 且保留 is_stale
         let mut stale_maccy = crate::models::AppDetail {
             core: crate::models::AppCore {

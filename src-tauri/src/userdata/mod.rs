@@ -123,16 +123,14 @@ pub fn import_backup(
         .favorites
         .iter()
         .map(|id| {
-            crate::forge::canonical_app_id(id)
-                .ok_or_else(|| format!("无法识别的应用标识: {}", id))
+            crate::forge::canonical_app_id(id).ok_or_else(|| format!("无法识别的应用标识: {}", id))
         })
         .collect::<Result<Vec<String>, String>>()?;
     let watched_ids = plan
         .watched
         .iter()
         .map(|id| {
-            crate::forge::canonical_app_id(id)
-                .ok_or_else(|| format!("无法识别的应用标识: {}", id))
+            crate::forge::canonical_app_id(id).ok_or_else(|| format!("无法识别的应用标识: {}", id))
         })
         .collect::<Result<Vec<String>, String>>()?;
 

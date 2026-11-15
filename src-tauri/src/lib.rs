@@ -15,10 +15,10 @@ pub mod oauth;
 pub mod proxy;
 pub mod repositories;
 pub mod scanner;
-pub mod userdata;
-pub mod z_log;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod userdata;
+pub mod z_log;
 
 pub use error::{AppError, AppResult};
 
@@ -465,12 +465,17 @@ pub fn run() {
                             let _ = db.delete_private_repo_cards();
                             let _ = db.delete_private_search_list_cache();
                         }
-                        if let Ok(Some(user_json)) = db.get_setting(crate::oauth::SETTING_OAUTH_USER) {
+                        if let Ok(Some(user_json)) =
+                            db.get_setting(crate::oauth::SETTING_OAUTH_USER)
+                        {
                             match serde_json::from_str::<crate::oauth::OAuthUser>(&user_json) {
                                 Ok(mut user) => {
                                     user.is_expired = true;
                                     if let Ok(updated_json) = serde_json::to_string(&user) {
-                                        let _ = db.set_setting(crate::oauth::SETTING_OAUTH_USER, &updated_json);
+                                        let _ = db.set_setting(
+                                            crate::oauth::SETTING_OAUTH_USER,
+                                            &updated_json,
+                                        );
                                     }
                                 }
                                 Err(e) => {

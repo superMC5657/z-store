@@ -262,13 +262,8 @@ fn test_load_split_cached_bytes_self_heals_empty_cache_file_and_meta() {
     let cat_url = "https://example.com/cat_selfheal.png";
     let cat_fname = hash_icon_filename(cat_url, "png");
     std::fs::write(icons_dir.join(&cat_fname), png_bytes).unwrap();
-    let cat_hit = load_split_cached_bytes(
-        icons_dir,
-        &db,
-        &IconRef::new(cat_url, "png"),
-        true,
-        None,
-    );
+    let cat_hit =
+        load_split_cached_bytes(icons_dir, &db, &IconRef::new(cat_url, "png"), true, None);
     assert_eq!(cat_hit.as_deref(), Some(&png_bytes[..]));
     assert_eq!(
         db.get_icon_cache_url(&cat_fname).unwrap().as_deref(),
@@ -283,7 +278,10 @@ async fn test_resolve_confirmed_icon_from_db_scenarios() {
     let owner = "testowner";
     let repo = "testrepo";
 
-    assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, owner, repo), None);
+    assert_eq!(
+        resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
+        None
+    );
 
     let empty_cycle = AppIconCycle {
         app_id: app_id.to_string(),
@@ -295,7 +293,10 @@ async fn test_resolve_confirmed_icon_from_db_scenarios() {
         ..Default::default()
     };
     db.upsert_icon_cycle(&empty_cycle).unwrap();
-    assert_eq!(resolve_confirmed_icon_from_db(&db, app_id, owner, repo), None);
+    assert_eq!(
+        resolve_confirmed_icon_from_db(&db, app_id, owner, repo),
+        None
+    );
 
     let cycle_missing_file = AppIconCycle {
         app_id: app_id.to_string(),

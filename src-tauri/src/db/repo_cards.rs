@@ -261,7 +261,10 @@ fn merge_card(prev: Option<&CardRow>, inc: &RepoCardUpsert, now: i64) -> Option<
         .filter(|s| !s.is_empty())
         .or_else(|| prev.and_then(|p| p.description_en.clone()))
         .filter(|s| !s.trim().is_empty());
-    let license = non_empty_or(sanitize_license(&core.license, &forge), prev.map(|p| &p.license));
+    let license = non_empty_or(
+        sanitize_license(&core.license, &forge),
+        prev.map(|p| &p.license),
+    );
     let latest_version = non_empty_or(
         sanitize_card_version(&core.latest_version),
         prev.map(|p| &p.latest_version),
@@ -551,7 +554,9 @@ impl Database {
             return Ok(());
         }
         let inc_platforms = clean_platforms(platforms);
-        let inc_version = latest_version.map(sanitize_card_version).unwrap_or_default();
+        let inc_version = latest_version
+            .map(sanitize_card_version)
+            .unwrap_or_default();
         let now = now_secs();
         match self.get_card_row(&id)? {
             Some(mut prev) => {
@@ -596,7 +601,12 @@ impl Database {
     }
 
     /// 图标同步（流式补图 / 详情图标轮换）：清洗后为空且 `!allow_clear` 时不动；不改 `updated_at`。
-    pub fn sync_repo_card_icon(&self, raw_id: &str, new_icon: &str, allow_clear: bool) -> Result<bool> {
+    pub fn sync_repo_card_icon(
+        &self,
+        raw_id: &str,
+        new_icon: &str,
+        allow_clear: bool,
+    ) -> Result<bool> {
         let Some(id) = crate::forge::canonical_app_id(raw_id) else {
             return Ok(false);
         };
@@ -623,7 +633,10 @@ impl Database {
     }
 
     /// 平台快径读出（含预写壳）。
-    pub fn get_repo_card_platform_state(&self, raw_id: &str) -> Result<Option<RepoCardPlatformState>> {
+    pub fn get_repo_card_platform_state(
+        &self,
+        raw_id: &str,
+    ) -> Result<Option<RepoCardPlatformState>> {
         let Some(id) = crate::forge::canonical_app_id(raw_id) else {
             return Ok(None);
         };
@@ -659,7 +672,11 @@ impl Database {
             let select = format!(
                 "SELECT {SELECT_COLS} FROM repo_card_cache WHERE updated_at > 0 AND id IN ({placeholders})"
             );
-            let rows = self.query_vec(&select, rusqlite::params_from_iter(chunk.iter()), row_to_card)?;
+            let rows = self.query_vec(
+                &select,
+                rusqlite::params_from_iter(chunk.iter()),
+                row_to_card,
+            )?;
             if rows.is_empty() {
                 continue;
             }
@@ -669,7 +686,10 @@ impl Database {
             );
             let mut values: Vec<rusqlite::types::Value> = Vec::with_capacity(rows.len() + 1);
             values.push(now.into());
-            values.extend(rows.iter().map(|r| rusqlite::types::Value::from(r.id.clone())));
+            values.extend(
+                rows.iter()
+                    .map(|r| rusqlite::types::Value::from(r.id.clone())),
+            );
             self.exec_write(&update, rusqlite::params_from_iter(values))?;
             for mut row in rows {
                 row.last_accessed_at = now;
@@ -778,25 +798,38 @@ mod tests {
         assert_eq!(card.summary.core.icon, "");
         assert_eq!(card.summary.core.id, "acme/tool");
 
-        db.upsert_repo_card(&up(full("acme/tool"), false, None)).unwrap();
+        db.upsert_repo_card(&up(full("acme/tool"), false, None))
+            .unwrap();
         let mut s = summary("acme/tool");
         s.core.icon = "data:image/svg+xml;base64,BBBB".to_string();
         db.upsert_repo_card(&up(s, false, None)).unwrap();
         let card = db.get_repo_card("acme/tool").unwrap().unwrap();
-        assert_eq!(card.summary.core.icon, "https://avatars.githubusercontent.com/u/1");
+        assert_eq!(
+            card.summary.core.icon,
+            "https://avatars.githubusercontent.com/u/1"
+        );
 
         let mut s = summary("acme/tool");
         s.core.icon = "https://img.shields.io/badge/build-passing-green.svg".to_string();
         db.upsert_repo_card(&up(s, false, None)).unwrap();
         let card = db.get_repo_card("acme/tool").unwrap().unwrap();
-        assert_eq!(card.summary.core.icon, "https://avatars.githubusercontent.com/u/1");
+        assert_eq!(
+            card.summary.core.icon,
+            "https://avatars.githubusercontent.com/u/1"
+        );
     }
 
     #[test]
     fn placeholders_never_overwrite_real_values() {
         let db = db();
-        db.upsert_repo_card(&up(full("acme/tool"), false, None)).unwrap();
-        for desc in ["开源软件项目", "GitHub 社区开源项目", "No description available", "  "] {
+        db.upsert_repo_card(&up(full("acme/tool"), false, None))
+            .unwrap();
+        for desc in [
+            "开源软件项目",
+            "GitHub 社区开源项目",
+            "No description available",
+            "  ",
+        ] {
             let mut s = summary("acme/tool");
             s.core.name = "加载中...".to_string();
             s.core.description = desc.to_string();
@@ -826,7 +859,8 @@ mod tests {
     #[test]
     fn empty_version_reads_back_as_latest() {
         let db = db();
-        db.upsert_repo_card(&up(summary("acme/tool"), false, None)).unwrap();
+        db.upsert_repo_card(&up(summary("acme/tool"), false, None))
+            .unwrap();
         let card = db.get_repo_card("acme/tool").unwrap().unwrap();
         assert_eq!(card.summary.core.latest_version, "latest");
     }
@@ -834,12 +868,24 @@ mod tests {
     #[test]
     fn platform_state_upgrades_monotonically() {
         let db = db();
-        db.upsert_repo_card(&up(summary("acme/tool"), true, None)).unwrap();
-        assert!(db.get_repo_card("acme/tool").unwrap().unwrap().confirmed_other);
+        db.upsert_repo_card(&up(summary("acme/tool"), true, None))
+            .unwrap();
+        assert!(
+            db.get_repo_card("acme/tool")
+                .unwrap()
+                .unwrap()
+                .confirmed_other
+        );
 
         // 未知空平台不冲掉已确认 Other
-        db.upsert_repo_card(&up(summary("acme/tool"), false, None)).unwrap();
-        assert!(db.get_repo_card("acme/tool").unwrap().unwrap().confirmed_other);
+        db.upsert_repo_card(&up(summary("acme/tool"), false, None))
+            .unwrap();
+        assert!(
+            db.get_repo_card("acme/tool")
+                .unwrap()
+                .unwrap()
+                .confirmed_other
+        );
 
         // 具体平台升级并清零 confirmed_other
         let mut s = summary("acme/tool");
@@ -850,8 +896,10 @@ mod tests {
         assert!(!card.confirmed_other);
 
         // 空平台（未知或确认 Other）都不降级具体平台
-        db.upsert_repo_card(&up(summary("acme/tool"), false, None)).unwrap();
-        db.upsert_repo_card(&up(summary("acme/tool"), true, None)).unwrap();
+        db.upsert_repo_card(&up(summary("acme/tool"), false, None))
+            .unwrap();
+        db.upsert_repo_card(&up(summary("acme/tool"), true, None))
+            .unwrap();
         db.patch_repo_card_platforms("acme/tool", "acme", "tool", &[], None, true)
             .unwrap();
         let card = db.get_repo_card("acme/tool").unwrap().unwrap();
@@ -876,7 +924,10 @@ mod tests {
             .get_repo_cards_batch_and_touch(&["acme/tool".to_string()], 10)
             .unwrap()
             .is_empty());
-        let state = db.get_repo_card_platform_state("acme/tool").unwrap().unwrap();
+        let state = db
+            .get_repo_card_platform_state("acme/tool")
+            .unwrap()
+            .unwrap();
         assert_eq!(state.platforms, vec!["macos"]);
 
         let mut s = full("acme/tool");
@@ -893,7 +944,10 @@ mod tests {
         let db = db();
         db.patch_repo_card_platforms("acme/tool", "acme", "tool", &[], None, false)
             .unwrap();
-        assert!(db.get_repo_card_platform_state("acme/tool").unwrap().is_none());
+        assert!(db
+            .get_repo_card_platform_state("acme/tool")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -908,10 +962,7 @@ mod tests {
             .unwrap();
 
         let hits = db
-            .get_repo_cards_batch_and_touch(
-                &["A/One".to_string(), "a/missing".to_string()],
-                500,
-            )
+            .get_repo_cards_batch_and_touch(&["A/One".to_string(), "a/missing".to_string()], 500)
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits["a/one"].last_accessed_at, 500);
@@ -949,16 +1000,21 @@ mod tests {
         assert!(db.get_repo_card("o/free").unwrap().is_some());
 
         // 已收录 id 不再写入
-        assert!(!db.upsert_repo_card(&up(full("o/remote"), false, None)).unwrap());
+        assert!(!db
+            .upsert_repo_card(&up(full("o/remote"), false, None))
+            .unwrap());
         assert!(db.get_repo_card("o/remote").unwrap().is_none());
     }
 
     #[test]
     fn private_flag_preserved_on_partial_writes_and_purged() {
         let db = db();
-        db.upsert_repo_card(&up(full("me/secret"), false, Some(true))).unwrap();
-        db.upsert_repo_card(&up(full("me/public"), false, None)).unwrap();
-        db.upsert_repo_card(&up(summary("me/secret"), false, None)).unwrap();
+        db.upsert_repo_card(&up(full("me/secret"), false, Some(true)))
+            .unwrap();
+        db.upsert_repo_card(&up(full("me/public"), false, None))
+            .unwrap();
+        db.upsert_repo_card(&up(summary("me/secret"), false, None))
+            .unwrap();
         assert!(db.get_repo_card("me/secret").unwrap().unwrap().is_private);
         assert_eq!(db.delete_private_repo_cards().unwrap(), 1);
         assert!(db.get_repo_card("me/secret").unwrap().is_none());
@@ -968,9 +1024,12 @@ mod tests {
     #[test]
     fn icon_sync_respects_allow_clear() {
         let db = db();
-        db.upsert_repo_card(&up(full("acme/tool"), false, None)).unwrap();
+        db.upsert_repo_card(&up(full("acme/tool"), false, None))
+            .unwrap();
         let before = db.get_repo_card("acme/tool").unwrap().unwrap().updated_at;
-        assert!(!db.sync_repo_card_icon("acme/tool", "data:image/png;base64,AA", false).unwrap());
+        assert!(!db
+            .sync_repo_card_icon("acme/tool", "data:image/png;base64,AA", false)
+            .unwrap());
         assert!(db
             .sync_repo_card_icon("acme/tool", "https://example.com/logo.png", false)
             .unwrap());
@@ -978,6 +1037,14 @@ mod tests {
         assert_eq!(card.summary.core.icon, "https://example.com/logo.png");
         assert_eq!(card.updated_at, before);
         assert!(db.sync_repo_card_icon("acme/tool", "", true).unwrap());
-        assert_eq!(db.get_repo_card("acme/tool").unwrap().unwrap().summary.core.icon, "");
+        assert_eq!(
+            db.get_repo_card("acme/tool")
+                .unwrap()
+                .unwrap()
+                .summary
+                .core
+                .icon,
+            ""
+        );
     }
 }

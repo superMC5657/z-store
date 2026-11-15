@@ -76,9 +76,15 @@ pub async fn list_github_starred(
         )
     };
     let rows = cards.rows;
-    super::catalog_search::spawn_starred_icon_stream(&app_handle, cards.need_icon, token, page == 1);
+    super::catalog_search::spawn_starred_icon_stream(
+        &app_handle,
+        cards.need_icon,
+        token,
+        page == 1,
+    );
     if fetched.is_stale == Some(true) {
-        let mut ev = crate::z_log::WideEvent::new("detail", "starred page stale").with_started(start);
+        let mut ev =
+            crate::z_log::WideEvent::new("detail", "starred page stale").with_started(start);
         ev.field("page", page)
             .dev("force", force_refresh.unwrap_or(false));
         ev.warn();

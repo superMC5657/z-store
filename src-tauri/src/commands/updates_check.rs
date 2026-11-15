@@ -140,14 +140,24 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     // 剥除坏 ETag 发起一次无条件请求自愈。
     if matches!(
         resolution,
-        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_))
-            | Err(crate::github::release_fetch::ShallowError::Miss(
-                crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache
-            ))
+        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(
+            _
+        )) | Err(crate::github::release_fetch::ShallowError::Miss(
+            crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache
+        ))
     ) {
-        let retry_outcome =
-            crate::github::http::get_with_etag(&crate::shared_http_client(), &ep, None, &base_headers, None).await;
-        if matches!(retry_outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
+        let retry_outcome = crate::github::http::get_with_etag(
+            &crate::shared_http_client(),
+            &ep,
+            None,
+            &base_headers,
+            None,
+        )
+        .await;
+        if matches!(
+            retry_outcome,
+            crate::github::http::EtagGetOutcome::Unauthorized
+        ) {
             crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
         }
         resolution = crate::github::release_fetch::decide_shallow_release(
@@ -190,10 +200,8 @@ pub(crate) fn resolve_update_shallow_with_fallback(
     cached_payload: Option<&str>,
     stale_row: Option<&crate::models::AppDetail>,
     catalog_default_version: Option<&str>,
-) -> Result<
-    crate::github::release_fetch::ShallowRelease,
-    crate::github::release_fetch::ShallowError,
-> {
+) -> Result<crate::github::release_fetch::ShallowRelease, crate::github::release_fetch::ShallowError>
+{
     match crate::github::release_fetch::decide_shallow_release(
         outcome,
         cached_payload,
@@ -295,7 +303,11 @@ pub async fn check_for_updates(
     // 过滤掉已锁定版本的应用；隐藏应用照常检查，以便跳过其新版本
     let eligible_apps: Vec<_> = installed
         .into_iter()
-        .filter(|app| !rules_map.get(&app.app_id).is_some_and(|rule| rule.is_frozen))
+        .filter(|app| {
+            !rules_map
+                .get(&app.app_id)
+                .is_some_and(|rule| rule.is_frozen)
+        })
         .collect();
 
     let total = eligible_apps.len();
@@ -691,17 +703,32 @@ mod watch_first_seen_tests {
     #[test]
     fn recent_release_notifies_old_release_baselines() {
         let six_hours_ago = NOW - 6 * 3600;
-        assert_eq!(decide_first_seen(Some(six_hours_ago), NOW, false), FirstSeenAction::Notify);
-        assert_eq!(decide_first_seen(Some(six_hours_ago), NOW, true), FirstSeenAction::Notify);
+        assert_eq!(
+            decide_first_seen(Some(six_hours_ago), NOW, false),
+            FirstSeenAction::Notify
+        );
+        assert_eq!(
+            decide_first_seen(Some(six_hours_ago), NOW, true),
+            FirstSeenAction::Notify
+        );
         let just_over = NOW - WATCH_RECENT_RELEASE_SECONDS;
-        assert_eq!(decide_first_seen(Some(just_over), NOW, true), FirstSeenAction::Baseline);
-        assert_eq!(decide_first_seen(Some(NOW - 30 * 86400), NOW, false), FirstSeenAction::Baseline);
+        assert_eq!(
+            decide_first_seen(Some(just_over), NOW, true),
+            FirstSeenAction::Baseline
+        );
+        assert_eq!(
+            decide_first_seen(Some(NOW - 30 * 86400), NOW, false),
+            FirstSeenAction::Baseline
+        );
     }
 
     #[test]
     fn unknown_publish_time_defers_offline_and_baselines_online() {
         assert_eq!(decide_first_seen(None, NOW, false), FirstSeenAction::Defer);
-        assert_eq!(decide_first_seen(None, NOW, true), FirstSeenAction::Baseline);
+        assert_eq!(
+            decide_first_seen(None, NOW, true),
+            FirstSeenAction::Baseline
+        );
     }
 
     #[test]

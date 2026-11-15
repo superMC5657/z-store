@@ -426,13 +426,10 @@ pub(crate) fn load_or_new_cycle(
     } else {
         canon_id.as_str()
     };
-    db.get_icon_cycle(eff_id)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| {
-            let (owner, repo) = owner_repo_for_new_cycle(lookup_id);
-            crate::db::AppIconCycle::new(eff_id, owner, repo)
-        })
+    db.get_icon_cycle(eff_id).ok().flatten().unwrap_or_else(|| {
+        let (owner, repo) = owner_repo_for_new_cycle(lookup_id);
+        crate::db::AppIconCycle::new(eff_id, owner, repo)
+    })
 }
 
 /// DB 落盘确认图标解析（零网络 M2 dataURI 直显；L1..L3 缺盘回退远端，L4 缺盘返回 `None`）。
@@ -704,15 +701,13 @@ async fn ensure_cycle_levels(
     let need_l3 =
         token.filter(|t| !t.trim().is_empty()).is_some() && cycle.l3_url.trim().is_empty();
     let need_l4 = cycle.l4_url.trim().is_empty();
-    let slow_headers = token
-        .filter(|t| !t.trim().is_empty())
-        .map(|t| {
-            crate::forge::http::preset_headers(
-                crate::forge::http::ApiPreset::GithubApi,
-                Some(t),
-                crate::forge::http::AuthScheme::Token,
-            )
-        });
+    let slow_headers = token.filter(|t| !t.trim().is_empty()).map(|t| {
+        crate::forge::http::preset_headers(
+            crate::forge::http::ApiPreset::GithubApi,
+            Some(t),
+            crate::forge::http::AuthScheme::Token,
+        )
+    });
 
     let (probed_l2, probed_l3, probed_l4) = tokio::join!(
         async {
@@ -1260,13 +1255,8 @@ async fn probe_uncataloged_first_cycle(
     if !remote_url.is_empty() {
         let client = new_configured_icon_client();
         if let Ok(bytes) = download_icon_bytes(&client, &remote_url).await {
-            let fn_non = write_icon_file(
-                &icons_dir,
-                state.db().ok().as_deref(),
-                &icon,
-                false,
-                &bytes,
-            );
+            let fn_non =
+                write_icon_file(&icons_dir, state.db().ok().as_deref(), &icon, false, &bytes);
             seal_cycle_selection(&mut temp_cycle, lvl, &remote_url, fn_non);
             if let Ok(db) = state.db() {
                 let _ = db.upsert_icon_cycle(&temp_cycle);

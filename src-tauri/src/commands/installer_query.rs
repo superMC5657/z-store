@@ -57,8 +57,8 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
 
         // 版本来源是 Windows 注册表；其他平台的导入版本不在此刷新
         if cfg!(target_os = "windows") && app.install_method == "system_import" {
-            let entries = registry_entries
-                .get_or_insert_with(crate::scanner::AppScanner::scan_system_apps);
+            let entries =
+                registry_entries.get_or_insert_with(crate::scanner::AppScanner::scan_system_apps);
             if let Some(detected) = crate::scanner::AppScanner::detect_installed_version(
                 entries,
                 &app.install_path,

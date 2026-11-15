@@ -426,8 +426,8 @@ pub(crate) async fn fallback_summary(
         let hdrs_opt = token
             .filter(|t| !t.trim().is_empty())
             .map(|tok| token_headers(Some(tok)));
-        let icon_client = crate::forge::http::new_icon_client(api_timeout().as_secs())
-            .unwrap_or_default();
+        let icon_client =
+            crate::forge::http::new_icon_client(api_timeout().as_secs()).unwrap_or_default();
         crate::icons::probe_single_live(&icon_client, client, hdrs_opt.as_ref(), &owner, &repo)
             .await
             .map(|(url, _level)| url)

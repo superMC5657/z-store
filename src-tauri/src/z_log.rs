@@ -61,8 +61,11 @@ pub fn domain_tag(target: &str) -> &str {
     match stripped {
         "app" | "z_log" | "config" | "db::schema" | "lib" | "" | "commands::history"
         | "commands::system" => "app",
-        "catalog" | "commands::catalog_sync" | "commands::catalog_custom"
-        | "github::catalog_service" | "db::custom_apps" => "catalog",
+        "catalog"
+        | "commands::catalog_sync"
+        | "commands::catalog_custom"
+        | "github::catalog_service"
+        | "db::custom_apps" => "catalog",
         "search" | "commands::catalog_search" | "github::search" => "search",
         "detail"
         | "commands::catalog_detail"
@@ -118,8 +121,7 @@ pub fn is_dev_mode() -> bool {
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
-    let format =
-        time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+    let format = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
     let builder = Builder::default()
         .max_file_size(MAX_SINGLE_FILE_BYTES)
         .rotation_strategy(RotationStrategy::KeepSome(ROTATION_KEEP_COUNT))
@@ -272,7 +274,8 @@ impl WideEvent {
     pub fn dev_url(&mut self, k: &'static str, raw_url: &str) -> &mut Self {
         if self.dev_enabled {
             let safe = crate::log_support::sanitize_url(raw_url);
-            self.dev.push((k, format!("'{}'", safe.replace('\'', "\""))));
+            self.dev
+                .push((k, format!("'{}'", safe.replace('\'', "\""))));
         }
         self
     }
@@ -829,7 +832,10 @@ mod tests {
         assert_eq!(domain_tag("webview:home"), "ui");
         assert_eq!(domain_tag("zstore_lib::commands::catalog_detail"), "detail");
         assert_eq!(domain_tag("zstore_lib::commands::updates_check"), "updater");
-        assert_eq!(domain_tag("zstore_lib::installer::downloader_http"), "download");
+        assert_eq!(
+            domain_tag("zstore_lib::installer::downloader_http"),
+            "download"
+        );
         assert_eq!(domain_tag("zstore_lib::mirror"), "network");
         assert_eq!(domain_tag("zstore_lib::config"), "app");
 
@@ -866,7 +872,10 @@ mod tests {
             .field("id", "kong/insomnia")
             .field("via", "network")
             .dev("rate", "56/60")
-            .dev_url("url", "https://api.github.com/repos/Kong/insomnia/releases/latest?token=abc")
+            .dev_url(
+                "url",
+                "https://api.github.com/repos/Kong/insomnia/releases/latest?token=abc",
+            )
             .step("rel:200(10ms)")
             .step("repo:304(5ms)");
         let rel_line = release_ev.build_line();
@@ -878,13 +887,18 @@ mod tests {
             .field("id", "kong/insomnia")
             .field("via", "network")
             .dev("rate", "56/60")
-            .dev_url("url", "https://api.github.com/repos/Kong/insomnia/releases/latest?token=abc")
+            .dev_url(
+                "url",
+                "https://api.github.com/repos/Kong/insomnia/releases/latest?token=abc",
+            )
             .step("rel:200(10ms)")
             .step("repo:304(5ms)");
         let dev_line = dev_ev.build_line();
         assert!(dev_line.contains("fetch ok id=kong/insomnia via=network"));
         assert!(dev_line.contains("rate=56/60"));
-        assert!(dev_line.contains("url='https://api.github.com/repos/Kong/insomnia/releases/latest?token=***'"));
+        assert!(dev_line.contains(
+            "url='https://api.github.com/repos/Kong/insomnia/releases/latest?token=***'"
+        ));
         assert!(dev_line.contains("steps=rel:200(10ms),repo:304(5ms)"));
     }
 

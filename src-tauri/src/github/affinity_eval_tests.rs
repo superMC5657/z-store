@@ -24,7 +24,11 @@ fn real_catalog() -> Vec<CatalogItem> {
 fn ids_in(catalog: &[CatalogItem], category: &str, n: usize) -> Vec<String> {
     let mut items: Vec<&CatalogItem> = catalog.iter().filter(|c| c.category == category).collect();
     items.sort_by(|a, b| b.stars.cmp(&a.stars).then_with(|| a.id.cmp(&b.id)));
-    items.into_iter().take(n).map(|c| c.id.to_lowercase()).collect()
+    items
+        .into_iter()
+        .take(n)
+        .map(|c| c.id.to_lowercase())
+        .collect()
 }
 
 /// 典型 rich 画像：收藏 2 款 media、安装 2 款 security、关注 1 款 office。
@@ -78,7 +82,12 @@ fn thirty_day_rotation_keeps_hero_diverse_and_guarded() {
             .unwrap_or(0)
     };
     for (name, raw, enabled, state) in [
-        ("off", RawAffinitySignals::default(), false, ProfileState::Off),
+        (
+            "off",
+            RawAffinitySignals::default(),
+            false,
+            ProfileState::Off,
+        ),
         ("rich", rich_raw(&catalog), true, ProfileState::Rich),
     ] {
         let explicit: HashSet<String> = raw
@@ -103,7 +112,10 @@ fn thirty_day_rotation_keeps_hero_diverse_and_guarded() {
             let uniq: HashSet<&String> = ids.iter().collect();
             assert_eq!(uniq.len(), ids.len(), "{name} day {day}: 整页重复");
             for id in &ids {
-                assert!(!explicit.contains(id), "{name} day {day}: 已知应用 {id} 混入");
+                assert!(
+                    !explicit.contains(id),
+                    "{name} day {day}: 已知应用 {id} 混入"
+                );
             }
         }
         assert!(
@@ -198,7 +210,11 @@ fn keyword_reasons_never_surface_generic_words() {
     let mut seen_keywords = 0usize;
     for day in DAYS {
         let (p, _) = page(&catalog, &raw, true, day);
-        for pick in p.hero.iter().chain(p.shelves.iter().flat_map(|s| s.items.iter())) {
+        for pick in p
+            .hero
+            .iter()
+            .chain(p.shelves.iter().flat_map(|s| s.items.iter()))
+        {
             for r in &pick.reasons {
                 if let Reason::Keywords { tokens } = r {
                     seen_keywords += 1;
@@ -248,7 +264,10 @@ fn category_inference_is_word_bounded_and_accurate_on_real_catalog() {
         (dev_pred as f64) <= 1.35 * dev_real as f64,
         "dev 过度预测：{dev_pred} vs 真实 {dev_real}"
     );
-    assert!(acc >= 0.72, "Top-1 准确率 {acc:.3}（{correct}/{with_result}）");
+    assert!(
+        acc >= 0.72,
+        "Top-1 准确率 {acc:.3}（{correct}/{with_result}）"
+    );
 }
 
 /// 页面上第一个可「少推这类」的目标：探索货架或分类精选里的首个条目。
@@ -289,7 +308,12 @@ fn category_dismissal_closes_the_loop_in_every_state() {
     };
     let cases = [
         ("off", rich_raw(&catalog), false, ProfileState::Off),
-        ("cold", RawAffinitySignals::default(), true, ProfileState::Cold),
+        (
+            "cold",
+            RawAffinitySignals::default(),
+            true,
+            ProfileState::Cold,
+        ),
         ("warm", warm, true, ProfileState::Warm),
         ("rich", rich_raw(&catalog), true, ProfileState::Rich),
     ];

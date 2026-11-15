@@ -190,12 +190,9 @@ pub(crate) async fn probe_l3_trees(
     repo: &str,
 ) -> Option<String> {
     let hdrs = slow_headers?;
-    let branches =
-        super::probe::resolve_probe_branches(client, hdrs, owner, repo).await;
+    let branches = super::probe::resolve_probe_branches(client, hdrs, owner, repo).await;
     for branch in &branches {
-        if let Some(h) =
-            super::probe::probe_trees(client, hdrs, owner, repo, branch).await
-        {
+        if let Some(h) = super::probe::probe_trees(client, hdrs, owner, repo, branch).await {
             if !h.url.trim().is_empty() {
                 return Some(h.url);
             }
@@ -277,20 +274,19 @@ pub async fn fetch_icons_stream<F, Fut>(
     }
     // L4=README需网络，详情链专属，不受本核心约束，本 core 不探 README。
     // D5 双池隔离：L2 SimpleIcons 走 icon_client（无鉴权），L3 Trees 走 api_client。
-    let timeout_secs = crate::config::get_project_config().network.api_timeout_seconds;
+    let timeout_secs = crate::config::get_project_config()
+        .network
+        .api_timeout_seconds;
     let icon_client = crate::forge::http::new_icon_client(timeout_secs).unwrap_or_default();
     let api_client = crate::forge::http::new_api_client(timeout_secs).unwrap_or_default();
     // 慢路径鉴权头：有 token 才跑 Trees，无 token 只走快路径。
-    let slow_headers = token
-        .as_deref()
-        .filter(|t| !t.trim().is_empty())
-        .map(|t| {
-            crate::forge::http::preset_headers(
-                crate::forge::http::ApiPreset::GithubApi,
-                Some(t),
-                crate::forge::http::AuthScheme::Token,
-            )
-        });
+    let slow_headers = token.as_deref().filter(|t| !t.trim().is_empty()).map(|t| {
+        crate::forge::http::preset_headers(
+            crate::forge::http::ApiPreset::GithubApi,
+            Some(t),
+            crate::forge::http::AuthScheme::Token,
+        )
+    });
     // 有界并发：单层 buffer_unordered(pool)（默认 5，与趋势 buffered(5) 对齐），
     // 快慢各一次 emit（快命中即返不等慢，慢仅快未命中且有 token 时跑）。
     let pool = cfg.pool.max(1);
@@ -439,11 +435,15 @@ mod tests {
             2
         );
         assert_eq!(
-            level_for_detail_icon("https://raw.githubusercontent.com/owner/repo/main/assets/icon.png"),
+            level_for_detail_icon(
+                "https://raw.githubusercontent.com/owner/repo/main/assets/icon.png"
+            ),
             3
         );
         assert_eq!(
-            level_for_detail_icon("https://raw.githubusercontent.com/owner/repo/HEAD/docs/banner.png"),
+            level_for_detail_icon(
+                "https://raw.githubusercontent.com/owner/repo/HEAD/docs/banner.png"
+            ),
             4
         );
         assert_eq!(

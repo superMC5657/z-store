@@ -1,8 +1,8 @@
-use super::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE};
-use super::developer_profile::EtagGetOutcome;
 use super::affinity_text::{self, CatalogIdf};
+use super::developer_profile::EtagGetOutcome;
 use super::models::{CatalogItem, GitHubRepoResponse};
 use super::CatalogService;
+use super::{GITHUB_API_BASE, GITHUB_STARRED_MAX_PAGE_SIZE};
 use crate::db::{
     Database, FeedbackScope, RawAffinitySignals, RepoRelation, UncatalogedSignalBrief,
     UserRepoSignal,
@@ -385,7 +385,10 @@ where
                     .ok()
                     .flatten()
                     .is_none()
-                && payload.as_deref().map(is_legacy_starred_payload).unwrap_or(false);
+                && payload
+                    .as_deref()
+                    .map(is_legacy_starred_payload)
+                    .unwrap_or(false);
             let etag = if payload.is_some() && !legacy {
                 db.get_etag(&ep)
                     .ok()
@@ -868,11 +871,7 @@ impl ProfileAcc {
 
 impl UserAffinityProfile {
     /// 从本地信号快照与当前收录库实时聚合用户亲和度画像（全部信号源）。
-    pub fn from_signals(
-        raw: &RawAffinitySignals,
-        catalog: &[CatalogItem],
-        now_secs: i64,
-    ) -> Self {
+    pub fn from_signals(raw: &RawAffinitySignals, catalog: &[CatalogItem], now_secs: i64) -> Self {
         Self::from_signals_with_sources(raw, catalog, now_secs, AffinitySources::ALL)
     }
 
@@ -1143,9 +1142,8 @@ impl UserAffinityProfile {
             }
         }
 
-        let has_signals = !category_weights.is_empty()
-            || !owner_weights.is_empty()
-            || !token_weights.is_empty();
+        let has_signals =
+            !category_weights.is_empty() || !owner_weights.is_empty() || !token_weights.is_empty();
 
         let mut seeds: Vec<SeedRef> = acc.seeds.into_values().collect();
         seeds.sort_by(|a, b| {
@@ -1384,9 +1382,17 @@ pub fn seed_similarity_with_idf(
     aliases_map: Option<&HashMap<String, Vec<String>>>,
 ) -> f64 {
     let same_cat = !seed.core.category.trim().is_empty()
-        && seed.core.category.trim().eq_ignore_ascii_case(candidate.core.category.trim());
+        && seed
+            .core
+            .category
+            .trim()
+            .eq_ignore_ascii_case(candidate.core.category.trim());
     let same_owner = !seed.core.owner.trim().is_empty()
-        && seed.core.owner.trim().eq_ignore_ascii_case(candidate.core.owner.trim());
+        && seed
+            .core
+            .owner
+            .trim()
+            .eq_ignore_ascii_case(candidate.core.owner.trim());
     let default_idf = CatalogIdf::default();
     let idf = idf.unwrap_or(&default_idf);
     let sim_tok = idf.cosine_similarity(
@@ -1963,12 +1969,19 @@ mod tests {
         .unwrap();
         assert_eq!(count2, 1);
         let counts = srv.request_counts.lock().unwrap();
-        assert_eq!(counts.get("/user/starred?per_page=100&page=1").copied(), Some(2));
-        assert_eq!(counts.get("/user/starred?per_page=100&page=2").copied(), None);
+        assert_eq!(
+            counts.get("/user/starred?per_page=100&page=1").copied(),
+            Some(2)
+        );
+        assert_eq!(
+            counts.get("/user/starred?per_page=100&page=2").copied(),
+            None
+        );
     }
 
     #[tokio::test]
-    async fn sync_github_affinity_signals_recovers_when_trailing_page_etag_evicted_and_touches_304_lru() {
+    async fn sync_github_affinity_signals_recovers_when_trailing_page_etag_evicted_and_touches_304_lru(
+    ) {
         let starred_p1: Vec<(String, bool, &str)> = (0..100)
             .map(|i| (format!("org/starred-{i}"), false, "Rust"))
             .collect();
@@ -2039,8 +2052,13 @@ mod tests {
                 .unwrap();
             db.delete_etag(&CatalogService::affinity_starred_page_endpoint(2))
                 .unwrap();
-            db.save_etag("https://api.github.com/repos/other/older", "\"old\"", "{}", 500)
-                .unwrap();
+            db.save_etag(
+                "https://api.github.com/repos/other/older",
+                "\"old\"",
+                "{}",
+                500,
+            )
+            .unwrap();
         }
 
         let count2 = CatalogService::sync_github_affinity_signals_bg(
@@ -2055,7 +2073,11 @@ mod tests {
         {
             let db = db_mutex.lock().unwrap();
             let signals = db.get_user_repo_signals().unwrap();
-            assert_eq!(signals.len(), 135, "尾页缓存缺失时不得在 page=1 (304) 处截断");
+            assert_eq!(
+                signals.len(),
+                135,
+                "尾页缓存缺失时不得在 page=1 (304) 处截断"
+            );
             // page=1 与 repos?page=1 命中 304 后均刷新了 last_checked_at，保留最近 3 条时只淘汰 older 行
             db.prune_api_etag_cache(3).unwrap();
             assert!(db
@@ -2129,7 +2151,12 @@ mod tests {
         let ts = |s: &str| parse_rfc3339_secs(Some(s)).unwrap();
         let db = db_mutex.lock().unwrap();
         let sigs = db.get_user_repo_signals().unwrap();
-        let at = |name: &str| sigs.iter().find(|s| s.full_name == name).unwrap().updated_at;
+        let at = |name: &str| {
+            sigs.iter()
+                .find(|s| s.full_name == name)
+                .unwrap()
+                .updated_at
+        };
         assert_eq!(at("org/new-star"), ts("2024-05-01T08:00:00Z"));
         assert_eq!(at("org/old-star"), ts("2019-01-02T03:04:05Z"));
         assert_eq!(at("me/pushed"), ts("2023-03-04T05:06:07Z"));
@@ -2190,7 +2217,9 @@ mod tests {
 
         let seen = srv.seen_inm.lock().unwrap();
         assert_eq!(
-            seen.get("/user/starred?per_page=100&page=1").cloned().flatten(),
+            seen.get("/user/starred?per_page=100&page=1")
+                .cloned()
+                .flatten(),
             None,
             "旧格式缓存不得携带 If-None-Match"
         );
@@ -2217,13 +2246,22 @@ mod tests {
         CatalogService::sync_github_affinity_signals_bg(&db_mutex, "t", Some(&srv.base))
             .await
             .unwrap();
-        assert_eq!(srv.seen_inm.lock().unwrap().get(path).cloned().flatten(), None);
+        assert_eq!(
+            srv.seen_inm.lock().unwrap().get(path).cloned().flatten(),
+            None
+        );
 
         CatalogService::sync_github_affinity_signals_bg(&db_mutex, "t", Some(&srv.base))
             .await
             .unwrap();
         assert_eq!(
-            srv.seen_inm.lock().unwrap().get(path).cloned().flatten().as_deref(),
+            srv.seen_inm
+                .lock()
+                .unwrap()
+                .get(path)
+                .cloned()
+                .flatten()
+                .as_deref(),
             Some("\"s-new\""),
             "升级过一次后应恢复条件请求"
         );
@@ -2264,7 +2302,12 @@ mod tests {
         let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
         assert!(profile.has_signals);
         assert!(
-            profile.category_weights.get("media").copied().unwrap_or(0.0) > 0.7,
+            profile
+                .category_weights
+                .get("media")
+                .copied()
+                .unwrap_or(0.0)
+                > 0.7,
             "media 分类权重应当显著高于其他分类"
         );
 
@@ -2329,7 +2372,9 @@ mod tests {
 
         let none = only(false, false);
         assert!(!none.has_signals);
-        assert!(none.installed_ids.contains("jellyfin/jellyfin-media-player"));
+        assert!(none
+            .installed_ids
+            .contains("jellyfin/jellyfin-media-player"));
 
         // 只开 GitHub 且尚无 GitHub 数据：冷启动选择卡填的兴趣方向仍让画像脱离冷启动
         let seeds_only = RawAffinitySignals {
@@ -2389,7 +2434,14 @@ mod tests {
         };
         let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
         assert!(profile.has_signals);
-        assert!(profile.category_weights.get("system").copied().unwrap_or(0.0) > 0.0);
+        assert!(
+            profile
+                .category_weights
+                .get("system")
+                .copied()
+                .unwrap_or(0.0)
+                > 0.0
+        );
         assert!(profile.known_ids.contains("rustdesk/rustdesk"));
         assert!(profile.installed_ids.contains("rustdesk/rustdesk"));
         assert_eq!(profile.signal_count, 1);
@@ -2400,7 +2452,10 @@ mod tests {
     fn short_decay_halves_after_seven_days() {
         let now = 1_700_000_000i64;
         let d = time_decay_with(now - 7 * 86400, now, SHORT_DECAY_HALF_LIFE_DAYS, 0.0);
-        assert!((d - 0.5).abs() < 0.005, "7 天前的浏览权重应约为一半，实际 {d}");
+        assert!(
+            (d - 0.5).abs() < 0.005,
+            "7 天前的浏览权重应约为一半，实际 {d}"
+        );
     }
 
     #[test]
@@ -2414,7 +2469,10 @@ mod tests {
         let profile = UserAffinityProfile::from_signals(&raw, &catalog, now);
         assert!(profile.category_weights.is_empty());
         assert!(profile.token_weights.contains_key("remote"));
-        assert!(!profile.token_weights.contains_key("desktop"), "desktop 是停用词");
+        assert!(
+            !profile.token_weights.contains_key("desktop"),
+            "desktop 是停用词"
+        );
     }
 
     #[test]
@@ -2786,7 +2844,14 @@ mod tests {
             "同一应用多次浏览不得虚增 signal_count"
         );
         assert!(!profile.known_ids.contains("mpv-player/mpv"));
-        assert!(profile.category_weights.get("media").copied().unwrap_or(0.0) > 0.0);
+        assert!(
+            profile
+                .category_weights
+                .get("media")
+                .copied()
+                .unwrap_or(0.0)
+                > 0.0
+        );
 
         // 与仅浏览 1 次相比，category_weight（软饱和归一化前受单类饱和影响）更高，且增量呈次线性收敛
         let raw_one = RawAffinitySignals {

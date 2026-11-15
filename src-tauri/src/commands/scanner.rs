@@ -22,12 +22,11 @@ pub async fn scan_and_match_local_apps(
                     .collect()
             };
 
-            let outcome =
-                crate::scanner::AppScanner::scan_unmanaged(&catalog_items, installed_ids);
+            let outcome = crate::scanner::AppScanner::scan_unmanaged(&catalog_items, installed_ids);
 
             // 汇总一行 info：只记数量，不记路径/名称原文。
-            let mut ev = crate::z_log::WideEvent::new("scanner", "scan done")
-                .with_started(scan_start);
+            let mut ev =
+                crate::z_log::WideEvent::new("scanner", "scan done").with_started(scan_start);
             ev.field("scanned", outcome.scanned_count)
                 .field("unmanaged", outcome.unmanaged.len());
             ev.info();

@@ -62,7 +62,8 @@ fn row_to_catalog_item(row: &rusqlite::Row<'_>) -> Result<CatalogItem> {
     })
 }
 
-const SELECT_CATALOG_COLS: &str = "id, name, owner, repo, icon, icon_bg, description, description_en, \
+const SELECT_CATALOG_COLS: &str =
+    "id, name, owner, repo, icon, icon_bg, description, description_en, \
     category, category_name, aliases_json, default_version, added_at, license, stars, forks, \
     is_verified, homepage, platforms_json, identifiers_json, install_dirs_json, \
     search_subdirs_json, publishers_json";
@@ -75,8 +76,7 @@ impl Database {
             return Ok(());
         }
         let aliases_json = serde_json::to_string(&item.aliases).unwrap_or_else(|_| "[]".into());
-        let platforms_json =
-            serde_json::to_string(&item.platforms).unwrap_or_else(|_| "[]".into());
+        let platforms_json = serde_json::to_string(&item.platforms).unwrap_or_else(|_| "[]".into());
         let identifiers_json =
             serde_json::to_string(&item.identifiers).unwrap_or_else(|_| "{}".into());
         let install_dirs_json =
@@ -209,7 +209,8 @@ impl Database {
 
     /// 按 canonical id 精确查询单个目录项。
     pub fn get_catalog_app(&self, id: &str) -> Result<Option<CatalogItem>> {
-        let cleaned = crate::forge::canonical_app_id(id).unwrap_or_else(|| clean(id).to_lowercase());
+        let cleaned =
+            crate::forge::canonical_app_id(id).unwrap_or_else(|| clean(id).to_lowercase());
         if cleaned.is_empty() {
             return Ok(None);
         }
@@ -228,11 +229,15 @@ impl Database {
 
     /// 查询 canonical id 是否存在于 `catalog_apps`。
     pub fn exists_catalog_app(&self, id: &str) -> Result<bool> {
-        let cleaned = crate::forge::canonical_app_id(id).unwrap_or_else(|| clean(id).to_lowercase());
+        let cleaned =
+            crate::forge::canonical_app_id(id).unwrap_or_else(|| clean(id).to_lowercase());
         if cleaned.is_empty() {
             return Ok(false);
         }
-        self.record_exists("SELECT 1 FROM catalog_apps WHERE id = ?1 LIMIT 1", params![cleaned])
+        self.record_exists(
+            "SELECT 1 FROM catalog_apps WHERE id = ?1 LIMIT 1",
+            params![cleaned],
+        )
     }
 
     /// 从应用详情回写更新 `catalog_apps` 对应行（stale 跳过；仅更新表内已存在行，不插入未收录应用）。
@@ -365,7 +370,10 @@ mod tests {
             .unwrap();
         assert_eq!(db.count_catalog_apps().unwrap(), 2);
         assert!(db.get_catalog_app("o/a").unwrap().is_none());
-        assert_eq!(db.get_catalog_app("o/b").unwrap().unwrap().name, "Updated B");
+        assert_eq!(
+            db.get_catalog_app("o/b").unwrap().unwrap().name,
+            "Updated B"
+        );
         assert!(db.get_catalog_app("o/c").unwrap().is_some());
     }
 

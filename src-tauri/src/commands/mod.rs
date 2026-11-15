@@ -1,7 +1,7 @@
 pub mod catalog_custom;
 pub mod catalog_detail;
-pub mod catalog_feed;
 pub mod catalog_featured;
+pub mod catalog_feed;
 pub mod catalog_search;
 pub mod catalog_sync;
 pub mod forge;
@@ -25,8 +25,8 @@ mod tests;
 
 pub use catalog_custom::*;
 pub use catalog_detail::*;
-pub use catalog_feed::*;
 pub use catalog_featured::*;
+pub use catalog_feed::*;
 pub use catalog_search::*;
 pub use catalog_sync::*;
 pub use forge::*;

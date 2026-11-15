@@ -931,10 +931,7 @@ mod tests {
             normalize_probe_branches(Some("  master  ")),
             vec!["master".to_string()]
         );
-        assert_eq!(
-            normalize_probe_branches(Some("")),
-            vec!["HEAD".to_string()]
-        );
+        assert_eq!(normalize_probe_branches(Some("")), vec!["HEAD".to_string()]);
         assert_eq!(
             normalize_probe_branches(Some("   ")),
             vec!["HEAD".to_string()]
@@ -961,7 +958,9 @@ mod tests {
                 let mut buf = [0u8; 1024];
                 let _ = sock.read(&mut buf).await;
                 let _ = sock
-                    .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
                     .await;
             }
         });

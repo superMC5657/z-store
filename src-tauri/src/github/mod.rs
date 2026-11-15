@@ -1,7 +1,7 @@
 pub mod affinity;
-pub mod affinity_text;
 #[cfg(test)]
 mod affinity_eval_tests;
+pub mod affinity_text;
 pub mod asset_fetch;
 pub mod catalog_feed_score;
 pub mod catalog_service;
@@ -9,9 +9,9 @@ pub mod detail_assets;
 pub mod detail_fetch;
 pub mod developer_profile;
 pub mod developer_starred;
-pub mod featured;
 #[cfg(test)]
 mod developer_starred_tests;
+pub mod featured;
 pub mod http;
 pub mod markdown;
 pub mod models;

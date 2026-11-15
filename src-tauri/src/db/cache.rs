@@ -816,17 +816,11 @@ mod cache_quota_tests {
 
         let deleted_details = db.prune_app_details(1).unwrap();
         assert_eq!(deleted_details, 1);
-        assert!(db
-            .get_app_detail("o/old-evict", None)
-            .unwrap()
-            .is_none());
+        assert!(db.get_app_detail("o/old-evict", None).unwrap().is_none());
         assert!(db
             .get_app_detail("o/old-protected", None)
             .unwrap()
             .is_some());
-        assert!(db
-            .get_app_detail("o/newest", None)
-            .unwrap()
-            .is_some());
+        assert!(db.get_app_detail("o/newest", None).unwrap().is_some());
     }
 }

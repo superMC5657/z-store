@@ -234,9 +234,7 @@ pub fn heal_cached_detail(
             &detail.releases,
             catalog_item.map(|i| i.platforms.as_slice()),
         );
-    } else if let Some(clean) =
-        catalog_item.and_then(|i| clean_catalog_platforms(&i.platforms))
-    {
+    } else if let Some(clean) = catalog_item.and_then(|i| clean_catalog_platforms(&i.platforms)) {
         detail.core.platforms = clean;
     }
     if let Some(item) = catalog_item {

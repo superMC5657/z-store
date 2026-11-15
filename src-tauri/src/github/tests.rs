@@ -31,7 +31,9 @@ async fn test_fetch_developer_profile_fallback() {
 #[tokio::test]
 async fn test_fetch_starred_page_empty_username_err() {
     let cat = CatalogService::new();
-    let result = cat.fetch_starred_page(Some("   "), None, 1, 20, None, None, None).await;
+    let result = cat
+        .fetch_starred_page(Some("   "), None, 1, 20, None, None, None)
+        .await;
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("请提供 GitHub 用户名"));
 }
@@ -304,7 +306,11 @@ mod catalog_mirror_fallback {
         assert_eq!(f.via, CatalogVia::Mirror);
         assert_eq!(f.items.unwrap()[0].id, "o/r");
         // 镜像请求路径为 `{prefix}/{原始 URL}`。
-        let line = mirror.requests()[0].lines().next().unwrap_or("").to_string();
+        let line = mirror.requests()[0]
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string();
         assert!(line.starts_with(&format!("GET /{} ", url)), "{line}");
     }
 
@@ -325,7 +331,11 @@ mod catalog_mirror_fallback {
         let primary = serve(|_| Reply::status("404 Not Found")).await;
         let mirror = serve(|_| json(VALID_ITEM)).await;
         let err = cat
-            .fetch_http_catalog(&format!("{}/catalog.json", primary.base), None, Some(&mirror.base))
+            .fetch_http_catalog(
+                &format!("{}/catalog.json", primary.base),
+                None,
+                Some(&mirror.base),
+            )
             .await
             .unwrap_err();
         assert!(err.contains("404"), "{err}");
@@ -351,7 +361,9 @@ mod catalog_mirror_fallback {
             .unwrap();
         assert_eq!(f.via, CatalogVia::Mirror);
         assert!(f.etag.is_none());
-        assert!(!mirror.requests()[0].to_ascii_lowercase().contains("if-none-match"));
+        assert!(!mirror.requests()[0]
+            .to_ascii_lowercase()
+            .contains("if-none-match"));
     }
 
     #[tokio::test]
@@ -378,7 +390,9 @@ mod catalog_mirror_fallback {
         let cat = CatalogService::new_empty();
         let mirror = serve(|_| json(VALID_ITEM)).await;
         let custom = dead_url();
-        assert!(!crate::github::catalog_service::is_default_catalog_source(&custom));
+        assert!(!crate::github::catalog_service::is_default_catalog_source(
+            &custom
+        ));
         let res = cat
             .fetch_remote_catalog_with_fallback(&custom, None, Some(&mirror.base))
             .await;
@@ -404,7 +418,11 @@ mod catalog_mirror_fallback {
         let proxied = crate::test_support::proxied_snapshot("http://127.0.0.1:7890");
         cat.http_client_for(&direct);
         cat.http_client_for(&direct);
-        assert_eq!(cat.client.build_count(), 1, "identical signature must reuse");
+        assert_eq!(
+            cat.client.build_count(),
+            1,
+            "identical signature must reuse"
+        );
         cat.http_client_for(&proxied);
         assert_eq!(cat.client.build_count(), 2, "proxy turned on must rebuild");
         cat.http_client_for(&direct);

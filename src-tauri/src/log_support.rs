@@ -245,18 +245,13 @@ pub fn rate_limit_summary(headers: &reqwest::header::HeaderMap) -> Option<String
 
 /// 宽事件键值格式化：简单标识符原样输出，空串、空白、引号或换行内容清洗后用单引号包裹。
 pub fn format_kv_value(val: &str) -> String {
-    let single_line = val
-        .lines()
-        .next()
-        .unwrap_or("")
-        .trim()
-        .replace('\r', "");
+    let single_line = val.lines().next().unwrap_or("").trim().replace('\r', "");
     if single_line.is_empty() {
         return "''".to_string();
     }
-    let needs_quote = single_line.chars().any(|c| {
-        c.is_whitespace() || c == '\'' || c == '"' || c == '=' || c == ';'
-    });
+    let needs_quote = single_line
+        .chars()
+        .any(|c| c.is_whitespace() || c == '\'' || c == '"' || c == '=' || c == ';');
     if !needs_quote {
         return single_line;
     }

@@ -63,15 +63,7 @@ pub fn resolve_license_gate() -> LicenseGateConfig {
 
 /// 官方支持的 10 个标准应用分类
 pub const OFFICIAL_CATEGORIES: &[&str] = &[
-    "system",
-    "network",
-    "media",
-    "security",
-    "dev",
-    "graphics",
-    "office",
-    "reading",
-    "ops",
+    "system", "network", "media", "security", "dev", "graphics", "office", "reading", "ops",
     "games",
 ];
 
@@ -868,8 +860,12 @@ mod tests {
         // 10 个官方分类在 submit 档与 collect 档均放行
         for cat in OFFICIAL_CATEGORIES {
             item.category = cat.to_string();
-            assert!(validate_custom_item(&item, ValidateMode::SubmitStrict, &strict_gate()).is_ok());
-            assert!(validate_custom_item(&item, ValidateMode::CollectStrict, &strict_gate()).is_ok());
+            assert!(
+                validate_custom_item(&item, ValidateMode::SubmitStrict, &strict_gate()).is_ok()
+            );
+            assert!(
+                validate_custom_item(&item, ValidateMode::CollectStrict, &strict_gate()).is_ok()
+            );
         }
     }
 

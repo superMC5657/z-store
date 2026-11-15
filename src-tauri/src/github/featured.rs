@@ -216,7 +216,9 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
 
     let mut used: HashSet<String> = HashSet::new();
     let explain = |app: &AppSummary| -> Vec<Reason> {
-        personal.map(|p| p.affinity_explain(app)).unwrap_or_default()
+        personal
+            .map(|p| p.affinity_explain(app))
+            .unwrap_or_default()
     };
 
     // ---- hero：分类互斥取头部，「少推这类」分类只在其余分类凑不满时补位 ----
@@ -293,8 +295,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
                 .filter(|s| !s.app.core.id.eq_ignore_ascii_case(&seed_ref.id))
                 .filter_map(|s| {
                     let sim = p.seed_similarity(seed_app, &s.app);
-                    (sim >= SEED_SIMILARITY_MIN)
-                        .then(|| (0.6 * sim + 0.4 * s.score / max_score, s))
+                    (sim >= SEED_SIMILARITY_MIN).then(|| (0.6 * sim + 0.4 * s.score / max_score, s))
                 })
                 .collect();
             cands.sort_by(|a, b| {
@@ -940,15 +941,21 @@ mod tests {
                     .find(|s| s.kind == ShelfKind::CategoryPick)
                     .and_then(|s| s.category.clone())
                     .unwrap();
-                let after = page(&with_category_feedback(raw.clone(), &target), enabled, day, None);
+                let after = page(
+                    &with_category_feedback(raw.clone(), &target),
+                    enabled,
+                    day,
+                    None,
+                );
                 assert!(
                     !shelf_categories(&after).contains(&target),
                     "day {day}: {target} still picked"
                 );
-                assert!(after
-                    .hero
-                    .iter()
-                    .all(|h| !h.app.core.category.eq_ignore_ascii_case(&target)));
+                assert!(after.hero.iter().all(|h| !h
+                    .app
+                    .core
+                    .category
+                    .eq_ignore_ascii_case(&target)));
             }
         }
     }
@@ -1022,11 +1029,20 @@ mod tests {
             .iter()
             .filter_map(|s| s.seed_id.as_deref())
             .all(|id| !id.starts_with("dev-")));
-        assert!(!page_categories(&p).contains("dev"), "{:?}", page_categories(&p));
+        assert!(
+            !page_categories(&p).contains("dev"),
+            "{:?}",
+            page_categories(&p)
+        );
 
         // off：每个分类都有一款新入库（未过滤时 media 的那款会补进本月新入库）
         for day in 1..10u64 {
-            let p = page(&with_category_feedback(rich_raw(), "media"), false, day, None);
+            let p = page(
+                &with_category_feedback(rich_raw(), "media"),
+                false,
+                day,
+                None,
+            );
             assert!(!page_categories(&p).contains("media"), "day {day}");
         }
     }

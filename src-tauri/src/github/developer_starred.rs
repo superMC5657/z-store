@@ -126,7 +126,11 @@ fn page_from_cached(body: &str, has_next: bool, per_page: u32) -> Result<Starred
     })
 }
 
-fn starred_error_message(status: Option<u16>, username: Option<&str>, reason: Option<&str>) -> String {
+fn starred_error_message(
+    status: Option<u16>,
+    username: Option<&str>,
+    reason: Option<&str>,
+) -> String {
     match status {
         Some(401) => "GitHub 认证失败 (401)：登录凭据无效或已过期，请在「设置」中重新登录 GitHub 账号。".to_string(),
         Some(403) | Some(429) => "GitHub API 限额已耗尽 (403): 触发了未登录 API 每小时 60 次的速率限制。请在「设置」中填入个人 GitHub Token (PAT) 即可免费提升至 5000 次/小时配额。".to_string(),

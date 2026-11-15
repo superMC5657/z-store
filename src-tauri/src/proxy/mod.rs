@@ -350,7 +350,8 @@ fn store_probe(cache: &Mutex<ProxyCache>, fresh: ProxySnapshot) -> bool {
     if changed {
         if let Some(prev) = g.snap.as_ref() {
             let mut ev = crate::z_log::WideEvent::new("network", "proxy changed");
-            ev.field("from", prev.summary()).field("to", fresh.summary());
+            ev.field("from", prev.summary())
+                .field("to", fresh.summary());
             ev.info();
         }
     }
@@ -581,7 +582,12 @@ mod tests {
         let lower = merged.to_ascii_lowercase();
         assert!(lower.contains("mirror.example.com"), "merged={}", merged);
         assert!(lower.contains(".corp.local"), "merged={}", merged);
-        assert_eq!(lower.matches("gh-proxy.com").count(), 1, "merged={}", merged);
+        assert_eq!(
+            lower.matches("gh-proxy.com").count(),
+            1,
+            "merged={}",
+            merged
+        );
         // 空/unknown 豁免不入列。
         let merged2 = merged_no_proxy_for(
             &ProxySnapshot::direct(),
@@ -606,8 +612,14 @@ mod tests {
             source: ProxySource::MacOs,
             ..ProxySnapshot::default()
         };
-        assert_eq!(socks_only.http_effective(), Some("socks5h://127.0.0.1:7891"));
-        assert_eq!(socks_only.https_effective(), Some("socks5h://127.0.0.1:7891"));
+        assert_eq!(
+            socks_only.http_effective(),
+            Some("socks5h://127.0.0.1:7891")
+        );
+        assert_eq!(
+            socks_only.https_effective(),
+            Some("socks5h://127.0.0.1:7891")
+        );
         assert!(socks_only.has_proxy());
     }
 
@@ -616,7 +628,10 @@ mod tests {
         let a = proxied("http://127.0.0.1:7890");
         let b = proxied("http://127.0.0.1:7890");
         assert_eq!(a.signature(&[]), b.signature(&[]));
-        assert_ne!(a.signature(&[]), proxied("http://127.0.0.1:7891").signature(&[]));
+        assert_ne!(
+            a.signature(&[]),
+            proxied("http://127.0.0.1:7891").signature(&[])
+        );
         assert_ne!(a.signature(&[]), ProxySnapshot::direct().signature(&[]));
         assert_ne!(
             a.signature(&[]),
@@ -626,8 +641,14 @@ mod tests {
 
     #[test]
     fn test_normalize_bypass_entry() {
-        assert_eq!(normalize_bypass_entry("*.corp.local"), Some(".corp.local".to_string()));
-        assert_eq!(normalize_bypass_entry(" example.com "), Some("example.com".to_string()));
+        assert_eq!(
+            normalize_bypass_entry("*.corp.local"),
+            Some(".corp.local".to_string())
+        );
+        assert_eq!(
+            normalize_bypass_entry(" example.com "),
+            Some("example.com".to_string())
+        );
         assert_eq!(normalize_bypass_entry("*"), Some("*".to_string()));
         assert_eq!(normalize_bypass_entry("192.168.*"), None);
         assert_eq!(normalize_bypass_entry("10.*.0.1"), None);
@@ -726,12 +747,18 @@ mod tests {
         // 首次写入不算变化；同签名不算变化；签名变化才算。
         assert!(!store_probe(&cache, ProxySnapshot::direct()));
         assert!(!store_probe(&cache, ProxySnapshot::direct()));
-        assert!(matches!(read_cache(&cache, Instant::now()), CacheRead::Fresh(_)));
+        assert!(matches!(
+            read_cache(&cache, Instant::now()),
+            CacheRead::Fresh(_)
+        ));
 
         // 过期：返回旧快照，仅第一个读者负责发起后台重探。
         let later = Instant::now() + Duration::from_millis(PROXY_CACHE_TTL_MS + 1);
         match read_cache(&cache, later) {
-            CacheRead::Stale { snap, spawn_refresh } => {
+            CacheRead::Stale {
+                snap,
+                spawn_refresh,
+            } => {
                 assert_eq!(snap, ProxySnapshot::direct());
                 assert!(spawn_refresh);
             }
@@ -739,7 +766,10 @@ mod tests {
         }
         assert!(matches!(
             read_cache(&cache, later),
-            CacheRead::Stale { spawn_refresh: false, .. }
+            CacheRead::Stale {
+                spawn_refresh: false,
+                ..
+            }
         ));
         assert!(store_probe(&cache, proxied.clone()));
         match read_cache(&cache, Instant::now()) {

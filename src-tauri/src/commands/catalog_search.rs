@@ -205,13 +205,7 @@ fn backfill_uncataloged_card(
             .unwrap_or_else(|| {
                 crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo)
             });
-        crate::icons::merge_detail_icon(
-            &mut cycle,
-            level,
-            &icon,
-            false,
-            crate::now_secs(),
-        );
+        crate::icons::merge_detail_icon(&mut cycle, level, &icon, false, crate::now_secs());
         Some(cycle)
     } else {
         None
@@ -336,17 +330,13 @@ fn backfill_release_from_etag_cache(db: &crate::db::Database, item: &mut AppSumm
         owner, repo
     );
     let lower = exact.to_lowercase();
-    let payload = db
-        .get_cached_payload(&exact)
-        .ok()
-        .flatten()
-        .or_else(|| {
-            if lower == exact {
-                None
-            } else {
-                db.get_cached_payload(&lower).ok().flatten()
-            }
-        });
+    let payload = db.get_cached_payload(&exact).ok().flatten().or_else(|| {
+        if lower == exact {
+            None
+        } else {
+            db.get_cached_payload(&lower).ok().flatten()
+        }
+    });
     let Some(payload) = payload else {
         return;
     };
@@ -656,8 +646,7 @@ pub async fn search_apps_online(
                 }
                 state.catalog.stamp_summary(&mut row);
                 let id = row.core.id.to_lowercase();
-                let mut result =
-                    OnlineSearchResult::rows_only(vec![row], actual_search_id.clone());
+                let mut result = OnlineSearchResult::rows_only(vec![row], actual_search_id.clone());
                 if confirmed_other && staged.is_some() {
                     result.confirmed_other_ids.push(id);
                 }
@@ -740,8 +729,7 @@ pub async fn search_apps_online(
     };
     let search_stale = fetched.is_stale;
     let search_not_modified = fetched.touched_url.is_some();
-    let private_set: std::collections::HashSet<String> =
-        fetched.private_ids.into_iter().collect();
+    let private_set: std::collections::HashSet<String> = fetched.private_ids.into_iter().collect();
     let mut confirmed_other_set: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     let mut results = fetched.summaries;
@@ -935,9 +923,7 @@ fn enrich_pre_confirmed(
     match db {
         Some(db) => targets
             .iter()
-            .map(|t| {
-                crate::icons::resolve_confirmed_icon_from_db(db, &t.id, &t.owner, &t.repo)
-            })
+            .map(|t| crate::icons::resolve_confirmed_icon_from_db(db, &t.id, &t.owner, &t.repo))
             .collect(),
         None => targets.iter().map(|_| None).collect(),
     }
@@ -1169,8 +1155,11 @@ pub async fn enrich_trend_repos(
                     continue;
                 }
             }
-            let fallback_detail = db.get_app_detail(&coord.id, None).ok().flatten().map(
-                |detail| {
+            let fallback_detail = db
+                .get_app_detail(&coord.id, None)
+                .ok()
+                .flatten()
+                .map(|detail| {
                     let mut core = detail.core;
                     if let Some(ref ci) = pre_confirmed[idx] {
                         if !ci.trim().is_empty() {
@@ -1180,8 +1169,7 @@ pub async fn enrich_trend_repos(
                         core.icon.clear();
                     }
                     AppSummary { core }
-                },
-            );
+                });
             pre_etags[idx] = (cached_etag, cached_payload, fallback_detail);
         }
     }
@@ -1631,7 +1619,10 @@ mod tests {
         assert_eq!(hit.core.description, "精选中文简介");
         assert_eq!(hit.core.icon, "https://official.example/tool.png");
         assert_eq!(hit.core.category, "dev");
-        assert_eq!(hit.core.platforms, vec!["windows".to_string(), "linux".to_string()]);
+        assert_eq!(
+            hit.core.platforms,
+            vec!["windows".to_string(), "linux".to_string()]
+        );
         assert_eq!(hit.core.stars, 250);
         assert_eq!(hit.core.forks, 50);
         assert_eq!(hit.core.is_cataloged, Some(true));
@@ -1688,12 +1679,7 @@ mod tests {
                 gen: 3,
             },
         };
-        let p = crate::icons::icon_ready_payload(
-            &job,
-            "https://cdn.simpleicons.org/r",
-            2,
-            "live",
-        );
+        let p = crate::icons::icon_ready_payload(&job, "https://cdn.simpleicons.org/r", 2, "live");
         assert_eq!(p.id, "o/r");
         assert_eq!(p.level, 2);
         assert_eq!(p.via, "live");
@@ -2158,10 +2144,16 @@ mod repo_card_pipeline_tests {
         assert_eq!(cards.private_ids, vec!["me/secret"]);
         assert_eq!(cards.confirmed_other_ids, vec!["acme/zero"]);
 
-        let secret = db.get_repo_card("me/secret").unwrap().expect("card persisted");
+        let secret = db
+            .get_repo_card("me/secret")
+            .unwrap()
+            .expect("card persisted");
         assert!(secret.is_private);
         assert_eq!(secret.summary.core.description, "Private tool");
-        let zero = db.get_repo_card("acme/zero").unwrap().expect("preseed upgraded");
+        let zero = db
+            .get_repo_card("acme/zero")
+            .unwrap()
+            .expect("preseed upgraded");
         assert!(zero.confirmed_other);
         assert_eq!(zero.summary.core.stars, 9);
 
@@ -2242,6 +2234,8 @@ mod repo_card_pipeline_tests {
             resolve_local_enrich_hit_sourced(&db, &catalog, &coord, None, None, true).unwrap();
         assert_eq!(source, LocalHitSource::RepoCard);
         assert_eq!(hit.core.stars, 5);
-        assert!(resolve_local_enrich_hit_sourced(&db, &catalog, &coord, None, None, false).is_none());
+        assert!(
+            resolve_local_enrich_hit_sourced(&db, &catalog, &coord, None, None, false).is_none()
+        );
     }
 }

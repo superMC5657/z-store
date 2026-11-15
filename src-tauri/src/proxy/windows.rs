@@ -168,7 +168,9 @@ mod tests {
             vec!["localhost", "127.0.0.1", "::1"]
         );
         assert_eq!(
-            parse_windows_proxy_override("*.corp.local; intranet.example.com ;<LOCAL>;10.*;*.corp.local"),
+            parse_windows_proxy_override(
+                "*.corp.local; intranet.example.com ;<LOCAL>;10.*;*.corp.local"
+            ),
             vec![
                 ".corp.local",
                 "intranet.example.com",

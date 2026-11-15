@@ -347,11 +347,18 @@ mod tests {
         assert!(r.bypass_hosts().is_empty());
         let snap = crate::test_support::proxied_snapshot("http://127.0.0.1:7890");
         let merged = crate::proxy::merged_no_proxy_for(&snap, &r.bypass_hosts());
-        assert!(!merged.to_ascii_lowercase().contains("github.com"), "{merged}");
+        assert!(
+            !merged.to_ascii_lowercase().contains("github.com"),
+            "{merged}"
+        );
         assert_eq!(mm.active_mirror_prefix(), None);
 
         // 非 GitHub 资产：direct / ghproxy 两档均不豁免 codeberg.org。
-        assert_eq!(mm.rewrite_installer_asset_url_resolved(cb).bypass_proxy_host, None);
+        assert_eq!(
+            mm.rewrite_installer_asset_url_resolved(cb)
+                .bypass_proxy_host,
+            None
+        );
         mm.set_active_mirror("ghproxy");
         let r_cb = mm.rewrite_installer_asset_url_resolved(cb);
         assert_eq!(r_cb.url, cb);
@@ -360,7 +367,9 @@ mod tests {
 
         // 镜像改写：仅豁免镜像 host。
         let r2 = mm.rewrite_installer_asset_url_resolved(gh);
-        assert!(r2.url.starts_with("https://gh-proxy.com/https://github.com/"));
+        assert!(r2
+            .url
+            .starts_with("https://gh-proxy.com/https://github.com/"));
         assert_eq!(r2.bypass_proxy_host.as_deref(), Some("gh-proxy.com"));
         assert_eq!(mm.active_mirror_prefix().as_deref(), Some(DEFAULT_GH_PROXY));
         mm.set_active_mirror("https://mirror.example.com/");

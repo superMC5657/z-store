@@ -136,13 +136,16 @@ fn test_update_rule_pruned_once_every_policy_is_revoked() {
 
     db.set_frozen_status("obsproject/obs-studio", true).unwrap();
     db.set_hidden_status("obsproject/obs-studio", true).unwrap();
-    db.set_frozen_status("obsproject/obs-studio", false).unwrap();
+    db.set_frozen_status("obsproject/obs-studio", false)
+        .unwrap();
     assert!(db.get_rule("obsproject/obs-studio").unwrap().is_some());
 
-    db.set_hidden_status("obsproject/obs-studio", false).unwrap();
+    db.set_hidden_status("obsproject/obs-studio", false)
+        .unwrap();
     assert!(db.get_rule("obsproject/obs-studio").unwrap().is_none());
 
-    db.set_skip_version("wezterm/wezterm", Some("v1.0.0")).unwrap();
+    db.set_skip_version("wezterm/wezterm", Some("v1.0.0"))
+        .unwrap();
     db.set_skip_version("wezterm/wezterm", None).unwrap();
     assert!(db.get_rule("wezterm/wezterm").unwrap().is_none());
 
@@ -155,18 +158,23 @@ fn test_update_rule_pruned_once_every_policy_is_revoked() {
 fn test_frozen_rule_supersedes_skip_version() {
     let db = fixtures::test_db();
 
-    db.set_skip_version("yetone/magpie", Some("v0.1.4000")).unwrap();
+    db.set_skip_version("yetone/magpie", Some("v0.1.4000"))
+        .unwrap();
     db.set_frozen_status("yetone/magpie", true).unwrap();
     let rule = db.get_rule("yetone/magpie").unwrap().unwrap();
     assert!(rule.is_frozen);
     assert_eq!(rule.skipped_version, None, "锁定清掉跳过版本");
 
-    db.set_skip_version("yetone/magpie", Some("v0.1.5000")).unwrap();
+    db.set_skip_version("yetone/magpie", Some("v0.1.5000"))
+        .unwrap();
     let rule = db.get_rule("yetone/magpie").unwrap().unwrap();
     assert_eq!(rule.skipped_version, None, "已锁定时跳过版本写入被忽略");
 
     db.set_frozen_status("yetone/magpie", false).unwrap();
-    assert!(db.get_rule("yetone/magpie").unwrap().is_none(), "解锁后无策略即删除");
+    assert!(
+        db.get_rule("yetone/magpie").unwrap().is_none(),
+        "解锁后无策略即删除"
+    );
 }
 
 #[test]
@@ -337,10 +345,7 @@ fn test_app_details_cache_crud() {
     assert!(cached_by_id.cached_at.is_some());
 
     // 4. 缓存键精确匹配：非 canonical 形态（裸名 /  host 前缀变体）一律不命中（ADR-0010 单键语义）
-    assert!(db
-        .get_app_detail("rustdesk", Some(1800))
-        .unwrap()
-        .is_none());
+    assert!(db.get_app_detail("rustdesk", Some(1800)).unwrap().is_none());
     assert!(db
         .get_app_detail("github.com/rustdesk/rustdesk", Some(1800))
         .unwrap()
@@ -520,13 +525,17 @@ fn test_watch_notifications_persist_until_dismissed() {
     };
 
     // 静默基线不是提醒
-    db.init_watch_baseline("rustdesk/rustdesk", "v1.0.0").unwrap();
-    db.init_watch_baseline("localsend/localsend", "v2.0.0").unwrap();
+    db.init_watch_baseline("rustdesk/rustdesk", "v1.0.0")
+        .unwrap();
+    db.init_watch_baseline("localsend/localsend", "v2.0.0")
+        .unwrap();
     assert!(pending(&db).is_empty());
 
     // 发出提醒后可读回，最近通知在前
-    db.set_watch_notified("rustdesk/rustdesk", "v1.1.0", 1_700_000_000).unwrap();
-    db.set_watch_notified("localsend/localsend", "v2.1.0", 1_700_000_100).unwrap();
+    db.set_watch_notified("rustdesk/rustdesk", "v1.1.0", 1_700_000_000)
+        .unwrap();
+    db.set_watch_notified("localsend/localsend", "v2.1.0", 1_700_000_100)
+        .unwrap();
     assert_eq!(
         pending(&db),
         vec![
@@ -557,13 +566,20 @@ fn test_watch_notifications_persist_until_dismissed() {
 
     // 静默基线不可确认
     db.watch_app("alacritty/alacritty", false).unwrap();
-    db.init_watch_baseline("alacritty/alacritty", "v0.17.0").unwrap();
-    assert!(!db.dismiss_watch_notification("alacritty/alacritty").unwrap());
+    db.init_watch_baseline("alacritty/alacritty", "v0.17.0")
+        .unwrap();
+    assert!(!db
+        .dismiss_watch_notification("alacritty/alacritty")
+        .unwrap());
     assert_eq!(db.get_dismissed_watch_notifications().unwrap().len(), 1);
 
     // 更新的 Release 再次提醒，旧确认不再列为已确认
-    db.set_watch_notified("rustdesk/rustdesk", "v1.2.0", 1_700_000_200).unwrap();
-    assert_eq!(pending(&db)[0], ("rustdesk/rustdesk".to_string(), "v1.2.0".to_string()));
+    db.set_watch_notified("rustdesk/rustdesk", "v1.2.0", 1_700_000_200)
+        .unwrap();
+    assert_eq!(
+        pending(&db)[0],
+        ("rustdesk/rustdesk".to_string(), "v1.2.0".to_string())
+    );
     assert!(db.get_dismissed_watch_notifications().unwrap().is_empty());
 
     // 取消关注即移除其提醒
@@ -1099,8 +1115,13 @@ fn test_trend_board_cache_prune_caps_row_count() {
 fn test_search_list_cache_roundtrip_cap_and_private_purge() {
     let db = fixtures::test_db();
     assert!(db.get_search_list_cache(" ").unwrap().is_none());
-    db.save_search_list_cache(" rust|1|20 ", "rust", " {\"v\":2,\"ids\":[\"a/b\"],\"hasMore\":true} ", false)
-        .unwrap();
+    db.save_search_list_cache(
+        " rust|1|20 ",
+        "rust",
+        " {\"v\":2,\"ids\":[\"a/b\"],\"hasMore\":true} ",
+        false,
+    )
+    .unwrap();
     let (payload, cached_at, has_private) = db.get_search_list_cache("rust|1|20").unwrap().unwrap();
     assert_eq!(payload, "{\"v\":2,\"ids\":[\"a/b\"],\"hasMore\":true}");
     assert!(cached_at > 0);
@@ -1113,15 +1134,22 @@ fn test_search_list_cache_roundtrip_cap_and_private_purge() {
     assert!(db.get_search_list_cache("y").unwrap().is_none());
 
     let edge = "a".repeat(cache::SEARCH_LIST_CACHE_MAX_BYTES);
-    db.save_search_list_cache("edge|1|20", "edge", &edge, false).unwrap();
+    db.save_search_list_cache("edge|1|20", "edge", &edge, false)
+        .unwrap();
     let big = "a".repeat(cache::SEARCH_LIST_CACHE_MAX_BYTES + 1);
     let err = db
         .save_search_list_cache("rust|1|20", "rust", &big, false)
         .unwrap_err();
     assert!(err.to_string().contains("search_list_payload_too_large"));
-    assert!(db.get_search_list_cache("rust|1|20").unwrap().unwrap().0.starts_with("{"));
+    assert!(db
+        .get_search_list_cache("rust|1|20")
+        .unwrap()
+        .unwrap()
+        .0
+        .starts_with("{"));
 
-    db.save_search_list_cache("mine|1|20", "mine", "{}", true).unwrap();
+    db.save_search_list_cache("mine|1|20", "mine", "{}", true)
+        .unwrap();
     assert!(db.get_search_list_cache("mine|1|20").unwrap().unwrap().2);
     assert_eq!(db.delete_private_search_list_cache().unwrap(), 1);
     assert!(db.get_search_list_cache("mine|1|20").unwrap().is_none());
@@ -1153,7 +1181,8 @@ fn test_search_list_cache_prune_retention_and_row_cap() {
         .is_none());
 
     // 写入时同样按行数上限裁剪。
-    db.save_search_list_cache("fresh|1|20", "fresh", "{}", false).unwrap();
+    db.save_search_list_cache("fresh|1|20", "fresh", "{}", false)
+        .unwrap();
     let count: i64 = db
         .query_scalar_opt("SELECT COUNT(*) FROM search_list_cache", [])
         .unwrap()
@@ -1228,12 +1257,16 @@ fn test_starred_feed_cache_prune_retention_and_row_cap() {
 #[test]
 fn test_starred_feed_cache_scope_prefix_delete() {
     let db = fixtures::test_db();
-    db.save_starred_feed_cache("@me:alice", "@me:alice", "{}").unwrap();
-    db.save_starred_feed_cache("@me:bob", "@me:bob", "{}").unwrap();
-    db.save_starred_feed_cache("torvalds", "torvalds", "{}").unwrap();
+    db.save_starred_feed_cache("@me:alice", "@me:alice", "{}")
+        .unwrap();
+    db.save_starred_feed_cache("@me:bob", "@me:bob", "{}")
+        .unwrap();
+    db.save_starred_feed_cache("torvalds", "torvalds", "{}")
+        .unwrap();
     assert_eq!(db.delete_starred_feed_cache_by_scope_prefix("").unwrap(), 0);
     assert_eq!(
-        db.delete_starred_feed_cache_by_scope_prefix("@me:").unwrap(),
+        db.delete_starred_feed_cache_by_scope_prefix("@me:")
+            .unwrap(),
         2
     );
     assert!(db.get_starred_feed_cache("torvalds").unwrap().is_some());
@@ -1495,11 +1528,17 @@ fn test_cycle_restore_fresh_requires_row_and_file() {
     stale_row.updated_at = now - crate::icons::ICON_TTL_SECS - 1;
     assert!(!crate::icons::is_cycle_restore_fresh(&stale_row, true, now));
     // 文件过期即走下载分支。
-    assert!(!crate::icons::is_cycle_restore_fresh(&fresh_row, false, now));
+    assert!(!crate::icons::is_cycle_restore_fresh(
+        &fresh_row, false, now
+    ));
     // 空 cache_file 永不命中。
     let mut empty_file = fresh_row.clone();
     empty_file.cache_file = String::new();
-    assert!(!crate::icons::is_cycle_restore_fresh(&empty_file, true, now));
+    assert!(!crate::icons::is_cycle_restore_fresh(
+        &empty_file,
+        true,
+        now
+    ));
     // 行零时间戳视为过期。
     let mut zero_row = fresh_row.clone();
     zero_row.updated_at = 0;
@@ -1675,15 +1714,27 @@ fn test_level_for_known_url_and_detail_icon_resolution_slots() {
     let l4_cdn = "https://media.example.com/brand-logo.png";
     let res_l4 = crate::icons::pick_detail_icon_with_level("", None, Some(l4_cdn.to_string()));
     let mut cycle = AppIconCycle::new(app_id, "owner", "readme-only");
-    let was_pinned =
-        crate::icons::apply_detail_icon_resolution(&mut cycle, &res_l4.icon, Some(&res_l4), 3, false, 1000);
+    let was_pinned = crate::icons::apply_detail_icon_resolution(
+        &mut cycle,
+        &res_l4.icon,
+        Some(&res_l4),
+        3,
+        false,
+        1000,
+    );
     assert!(!was_pinned);
     assert_eq!(cycle.level, 4);
     assert_eq!(cycle.l4_url, l4_cdn);
-    assert!(cycle.l3_url.is_empty(), "L4 README logo must not pollute l3_url");
+    assert!(
+        cycle.l3_url.is_empty(),
+        "L4 README logo must not pollute l3_url"
+    );
     assert_eq!(cycle.selected_url, l4_cdn);
     assert_eq!(cycle.level_for_known_url(l4_cdn), Some(4));
-    assert_eq!(cycle.level_for_known_url("https://unknown.example.com/x.png"), None);
+    assert_eq!(
+        cycle.level_for_known_url("https://unknown.example.com/x.png"),
+        None
+    );
 
     // 2. 后续 304 缓存复用或 get_or_fetch_icon 下载同一已知 L4 URL 时，level_for_known_url 保持 level=4。
     let was_pinned_304 =
@@ -1779,7 +1830,8 @@ fn test_prune_bounded_caches_lru_and_asset_protection() {
     db.touch_app_detail("o/protected", 10).unwrap();
     db.add_favorite("o/protected", false).unwrap();
 
-    db.save_app_detail("o/evict", &mk_detail("o/evict")).unwrap();
+    db.save_app_detail("o/evict", &mk_detail("o/evict"))
+        .unwrap();
     db.touch_app_detail("o/evict", 20).unwrap();
 
     db.save_app_detail("o/keep", &mk_detail("o/keep")).unwrap();

@@ -166,8 +166,7 @@ impl Database {
         let now = now_secs();
         let platforms_json =
             serde_json::to_string(&detail.core.platforms).unwrap_or_else(|_| "[]".into());
-        let releases_json =
-            serde_json::to_string(&detail.releases).unwrap_or_else(|_| "[]".into());
+        let releases_json = serde_json::to_string(&detail.releases).unwrap_or_else(|_| "[]".into());
         let readme_variants_json: Option<String> = detail
             .readme_variants
             .as_ref()

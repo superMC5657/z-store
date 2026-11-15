@@ -99,8 +99,8 @@ fn fetch_local_catalog(url: &str, cached_etag: Option<&str>) -> Result<RemoteCat
 
     let text = std::fs::read_to_string(path)
         .map_err(|e| format!("读取本地清单内容失败 ({}): {}", clean_path, e))?;
-    let items: Vec<CatalogItem> = serde_json::from_str(&text)
-        .map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
+    let items: Vec<CatalogItem> =
+        serde_json::from_str(&text).map_err(|e| format!("解析本地收录清单 JSON 失败: {}", e))?;
     Ok(RemoteCatalogFetch {
         items: Some(items),
         etag: Some(local_etag),
@@ -236,7 +236,9 @@ impl CatalogService {
     /// 指定快照下的清单池 Client：签名不变复用，变化即重建。
     pub(crate) fn http_client_for(&self, snap: &crate::proxy::ProxySnapshot) -> reqwest::Client {
         self.client
-            .get_or_build(&snap.signature(&[]), || Self::build_catalog_client(snap, &[]))
+            .get_or_build(&snap.signature(&[]), || {
+                Self::build_catalog_client(snap, &[])
+            })
             .unwrap_or_else(|_| crate::proxy::fallback_client(snap, &[]))
     }
 
@@ -271,7 +273,9 @@ impl CatalogService {
 
     /// 从 SQLite 同步远端精选目录（`catalog_apps`）与本地库 overlay（`custom_apps`）到内存热读索引。
     pub fn sync_from_db(&self, db: &crate::db::Database) {
-        if let Ok((remote, local)) = crate::repositories::CatalogRepository::load_remote_and_local(db) {
+        if let Ok((remote, local)) =
+            crate::repositories::CatalogRepository::load_remote_and_local(db)
+        {
             self.update_items(remote);
             self.set_collected_items(local);
         }
@@ -584,7 +588,10 @@ impl CatalogService {
             .await
             .map_err(|e| format!("{}；镜像重试失败: {}", primary_err, e.message))?;
         let Some(items) = fetched.items else {
-            return Err(format!("{}；镜像清单校验失败: 未发条件请求却返回 304", primary_err));
+            return Err(format!(
+                "{}；镜像清单校验失败: 未发条件请求却返回 304",
+                primary_err
+            ));
         };
         validate_mirrored_catalog(&items)
             .map_err(|reason| format!("{}；镜像清单校验失败: {}", primary_err, reason))?;

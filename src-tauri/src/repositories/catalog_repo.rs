@@ -56,8 +56,7 @@ impl CatalogRepository {
     pub fn backfill_cataloged_flags(db: &Database) -> Result<()> {
         let remote = db.list_catalog_apps()?;
         let local = db.list_local_library_items()?;
-        let mut cataloged_ids: HashSet<String> =
-            HashSet::with_capacity(remote.len() + local.len());
+        let mut cataloged_ids: HashSet<String> = HashSet::with_capacity(remote.len() + local.len());
         for item in &remote {
             cataloged_ids.insert(item.id.clone());
         }

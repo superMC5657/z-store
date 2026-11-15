@@ -181,7 +181,8 @@ impl CatalogItem {
             &core.owner,
             &core.repo,
         );
-        if let Some(clean) = crate::github::detail_assets::clean_catalog_platforms(&self.platforms) {
+        if let Some(clean) = crate::github::detail_assets::clean_catalog_platforms(&self.platforms)
+        {
             core.platforms = clean;
         }
         if !Self::is_concrete_version(&core.latest_version)
@@ -200,9 +201,7 @@ impl CatalogItem {
     /// 判定开源协议是否为非空且非 `"unknown"` / `"opensource"` 占位的真实协议。
     pub(crate) fn is_concrete_license(l: &str) -> bool {
         let t = l.trim();
-        !t.is_empty()
-            && !t.eq_ignore_ascii_case("unknown")
-            && !t.eq_ignore_ascii_case("opensource")
+        !t.is_empty() && !t.eq_ignore_ascii_case("unknown") && !t.eq_ignore_ascii_case("opensource")
     }
 
     /// 判定图标是否为远端 `http(s)://` URL（排除空串与 `data:`）。
@@ -534,7 +533,10 @@ mod tests {
 
         item.overlay_detail_core(&mut core);
 
-        assert_eq!(core.platforms, vec!["windows".to_string(), "ios".to_string()]);
+        assert_eq!(
+            core.platforms,
+            vec!["windows".to_string(), "ios".to_string()]
+        );
         assert_eq!(core.license, "GPL-3.0");
         assert!(core.is_verified);
         // 动态指标保持实时远端值

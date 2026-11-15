@@ -579,7 +579,10 @@ fn push_startup_warning(msg: String) {
 
 pub fn config_source_summary() -> &'static str {
     let _ = get_project_config();
-    CONFIG_SOURCE.get().map(String::as_str).unwrap_or("embedded")
+    CONFIG_SOURCE
+        .get()
+        .map(String::as_str)
+        .unwrap_or("embedded")
 }
 
 pub fn take_startup_warnings() -> Vec<String> {

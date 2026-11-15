@@ -14,8 +14,7 @@ impl CatalogService {
         base_headers: &HeaderMap,
         cached_etag: Option<&str>,
     ) -> EtagGetOutcome {
-        super::http::get_with_etag(client, canonical_url, api_base, base_headers, cached_etag)
-            .await
+        super::http::get_with_etag(client, canonical_url, api_base, base_headers, cached_etag).await
     }
 
     pub async fn fetch_developer_profile(
@@ -63,14 +62,8 @@ impl CatalogService {
         let user_key = Self::dev_user_endpoint(dev);
         let (user_etag, user_payload) = user_cache;
         let (parsed_user, user_new_cache): (Option<GitHubUserResponse>, Option<(String, String)>) =
-            match Self::get_with_etag(
-                &client,
-                &user_key,
-                api_base,
-                &headers,
-                user_etag.as_deref(),
-            )
-            .await
+            match Self::get_with_etag(&client, &user_key, api_base, &headers, user_etag.as_deref())
+                .await
             {
                 EtagGetOutcome::Fresh { text, etag } => {
                     let user: GitHubUserResponse = serde_json::from_str(&text)

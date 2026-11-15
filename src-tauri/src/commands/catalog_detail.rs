@@ -108,13 +108,14 @@ pub async fn get_platforms_lite(
 /// TTL 内详情缓存命中段：复用已 deduce 的 platforms（TTL 口径与 get_app_details_impl
 /// 缓存链一致，见 `detail_ttl_secs`）；stale 标记原样透传（持久化行正常为 None，
 /// 透传仅为防御性一致）。详情未命中时再查 `repo_card_cache`：12h 内已具平台或已确认 Other 即零网络直返。
-fn platforms_lite_from_cache(
-    state: &AppState,
-    clean_id: &str,
-) -> Option<PlatformsLiteResult> {
+fn platforms_lite_from_cache(state: &AppState, clean_id: &str) -> Option<PlatformsLiteResult> {
     let db = state.db().ok()?;
     let ttl_seconds = detail_ttl_secs(&db);
-    if let Some(cached) = db.get_app_detail(clean_id, Some(ttl_seconds)).ok().flatten() {
+    if let Some(cached) = db
+        .get_app_detail(clean_id, Some(ttl_seconds))
+        .ok()
+        .flatten()
+    {
         let cat_plats = state
             .catalog
             .get_catalog_item(clean_id)
@@ -229,7 +230,8 @@ fn warn_platforms_lite_failed(
     endpoint: Option<&str>,
     start: std::time::Instant,
 ) {
-    let mut ev = crate::z_log::WideEvent::new("detail", "platforms-lite failed").with_started(start);
+    let mut ev =
+        crate::z_log::WideEvent::new("detail", "platforms-lite failed").with_started(start);
     ev.field("id", id)
         .field("reason", reason)
         .dev_opt("status", status);
@@ -570,7 +572,12 @@ pub fn get_repo_cards_batch(
     ids: Vec<String>,
 ) -> crate::AppResult<Vec<Option<HydratedRepoCard>>> {
     let db = state.db()?;
-    Ok(hydrate_repo_cards(&db, &state.catalog, &ids, crate::now_secs()))
+    Ok(hydrate_repo_cards(
+        &db,
+        &state.catalog,
+        &ids,
+        crate::now_secs(),
+    ))
 }
 
 pub(crate) fn hydrate_repo_cards(
@@ -737,8 +744,7 @@ async fn fetch_detail_from_forge(
     ) {
         Ok(pair) => pair,
         Err(e) => {
-            let mut ev =
-                crate::z_log::WideEvent::new("detail", "fetch failed").with_started(start);
+            let mut ev = crate::z_log::WideEvent::new("detail", "fetch failed").with_started(start);
             ev.field("id", &clean_id)
                 .field("via", format!("forge:{}", coord.forge.as_str()))
                 .field("reason", crate::log_support::short_reason(&e))
@@ -780,7 +786,10 @@ async fn fetch_detail_from_forge(
             forks: repo_info.forks,
             license,
             latest_version: release_info.tag_name,
-            is_verified: catalog_item.as_ref().map(|i| i.is_verified).unwrap_or(false),
+            is_verified: catalog_item
+                .as_ref()
+                .map(|i| i.is_verified)
+                .unwrap_or(false),
             category: "external".to_string(),
             category_name: "跨平台开源".to_string(),
             forge: Some(coord.forge.as_str().to_string()),
@@ -959,8 +968,7 @@ async fn fetch_detail_from_github(
                 ev.warn();
                 return Ok(fallback_detail);
             }
-            let mut ev =
-                crate::z_log::WideEvent::new("detail", "fetch failed").with_started(start);
+            let mut ev = crate::z_log::WideEvent::new("detail", "fetch failed").with_started(start);
             ev.field("id", clean_id)
                 .field("reason", &reason)
                 .dev_url("url", &release_endpoint);
@@ -1104,7 +1112,8 @@ fn persist_github_detail(
                 let sel = cycle.selected_url.trim().to_string();
                 if !sel.is_empty() && cycle.cache_file.trim().is_empty() {
                     let icons_dir = crate::get_app_data_dir().join("icons");
-                    if let Some((_, fname)) = crate::icons::find_cached_icon_by_url(&icons_dir, &sel)
+                    if let Some((_, fname)) =
+                        crate::icons::find_cached_icon_by_url(&icons_dir, &sel)
                     {
                         cycle.cache_file = fname;
                     }
@@ -1413,7 +1422,11 @@ mod catalog_platform_tests {
             forks: 0,
             is_verified: false,
             homepage: Some("https://demo.example.com".to_string()),
-            platforms: vec!["windows".to_string(), "ios".to_string(), "android".to_string()],
+            platforms: vec![
+                "windows".to_string(),
+                "ios".to_string(),
+                "android".to_string(),
+            ],
             identifiers: Default::default(),
             install_dirs: vec![],
             search_subdirs: vec![],
@@ -1432,7 +1445,11 @@ mod catalog_platform_tests {
             arch: "x86_64".to_string(),
             kind: "setup_exe".to_string(),
         }];
-        state.db().unwrap().save_app_detail("demo/app", &detail).unwrap();
+        state
+            .db()
+            .unwrap()
+            .save_app_detail("demo/app", &detail)
+            .unwrap();
 
         let lite = super::platforms_lite_from_cache(&state, "demo/app").expect("cache hit");
         assert_eq!(lite.platforms, vec!["windows", "ios", "android"]);
@@ -1440,7 +1457,8 @@ mod catalog_platform_tests {
         // 自收录平台为空 [] 时回退 Release 推导
         local_item.platforms = Vec::new();
         state.catalog.set_collected_items(vec![local_item]);
-        let fallback_lite = super::platforms_lite_from_cache(&state, "demo/app").expect("cache hit");
+        let fallback_lite =
+            super::platforms_lite_from_cache(&state, "demo/app").expect("cache hit");
         assert_eq!(fallback_lite.platforms, vec!["windows"]);
     }
 
@@ -1636,8 +1654,14 @@ mod repo_card_hydration_tests {
         patch_lite_repo_card(&state, "acme/curated", "acme", "curated", &[], None);
         patch_lite_repo_card(&state, "acme/zero", "acme", "zero", &[], None);
         let db = state.db().unwrap();
-        assert!(db.get_repo_card_platform_state("acme/curated").unwrap().is_none());
-        let zero = db.get_repo_card_platform_state("acme/zero").unwrap().unwrap();
+        assert!(db
+            .get_repo_card_platform_state("acme/curated")
+            .unwrap()
+            .is_none());
+        let zero = db
+            .get_repo_card_platform_state("acme/zero")
+            .unwrap()
+            .unwrap();
         assert!(zero.confirmed_other);
         drop(db);
         assert!(platforms_lite_from_cache(&state, "acme/zero").is_some());
@@ -1678,7 +1702,10 @@ mod repo_card_hydration_tests {
         assert_eq!(curated.summary.core.description, "精选简介");
         assert_eq!(curated.summary.core.is_cataloged, Some(true));
         assert!(out[3].is_none());
-        assert_eq!(out[4].as_ref().unwrap().summary.core.platforms, vec!["linux"]);
+        assert_eq!(
+            out[4].as_ref().unwrap().summary.core.platforms,
+            vec!["linux"]
+        );
 
         let touched = db.get_repo_card("acme/a").unwrap().unwrap();
         assert_eq!(touched.last_accessed_at, 1_000);

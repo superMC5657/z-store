@@ -104,7 +104,10 @@ fn cleanup_desktop_shortcut(app_name: &str) {
         if let Err(e) = std::fs::remove_file(&lnk) {
             let mut ev = crate::z_log::WideEvent::new("installer", "shortcut cleanup failed");
             ev.field("reason", crate::log_support::short_reason(&e.to_string()))
-                .dev("file", crate::log_support::file_base(&lnk.to_string_lossy()));
+                .dev(
+                    "file",
+                    crate::log_support::file_base(&lnk.to_string_lossy()),
+                );
             ev.warn();
         }
     }
@@ -216,8 +219,8 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
             ev.info();
         }
         Err(e) => {
-            let mut ev = crate::z_log::WideEvent::new("installer", "uninstall failed")
-                .with_started(started);
+            let mut ev =
+                crate::z_log::WideEvent::new("installer", "uninstall failed").with_started(started);
             ev.field("id", &app_id)
                 .field("reason", crate::log_support::short_reason(e))
                 .field("t", &trace);

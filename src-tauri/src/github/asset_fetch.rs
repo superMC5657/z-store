@@ -78,8 +78,7 @@ fn cache_stem(normalized: &str) -> String {
 
 /// 分片目录：`cache/assets/<前2位>/`。
 fn shard_dir(root: &std::path::Path, stem: &str) -> std::path::PathBuf {
-    root
-        .join("cache")
+    root.join("cache")
         .join("assets")
         .join(&stem[..2.min(stem.len())])
 }
@@ -294,7 +293,9 @@ async fn fetch_asset_inner(
             return cached_or_original(existing.as_deref(), trimmed);
         }
     };
-    store_fresh_asset(root, trimmed, normalized, stem, &dir, existing, fetched, app)
+    store_fresh_asset(
+        root, trimmed, normalized, stem, &dir, existing, fetched, app,
+    )
 }
 
 /// 新字节校验落盘并同步数据库记录，返回 `data:` URI（落盘失败仍以内存字节渲染）。
@@ -529,9 +530,11 @@ mod tests {
         use crate::test_support::{serve, Reply};
         serve(|req| {
             if req.starts_with("GET /demo.gif") {
-                Reply::ok(&b"GIF89a\x01\x00\x01\x00\x00\x00\x00;"[..]).header("Content-Type", "image/gif")
+                Reply::ok(&b"GIF89a\x01\x00\x01\x00\x00\x00\x00;"[..])
+                    .header("Content-Type", "image/gif")
             } else {
-                Reply::ok(&b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR"[..]).header("Content-Type", "image/png")
+                Reply::ok(&b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR"[..])
+                    .header("Content-Type", "image/png")
             }
         })
         .await
@@ -560,9 +563,15 @@ mod tests {
     async fn dynamic_and_failed_urls_fall_back_to_original() {
         let root = tempfile::tempdir().unwrap();
         let badge = "https://img.shields.io/badge/x-y-green";
-        assert_eq!(fetch_or_cache_asset_url_in(root.path(), badge, "").await, badge);
+        assert_eq!(
+            fetch_or_cache_asset_url_in(root.path(), badge, "").await,
+            badge
+        );
         let dead = format!("http://{}/gone.png", crate::test_support::dead_addr());
-        assert_eq!(fetch_or_cache_asset_url_in(root.path(), &dead, "").await, dead);
+        assert_eq!(
+            fetch_or_cache_asset_url_in(root.path(), &dead, "").await,
+            dead
+        );
     }
 
     #[test]

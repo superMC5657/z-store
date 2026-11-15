@@ -22,8 +22,10 @@ pub fn get_favorite_entries(state: State<'_, AppState>) -> crate::AppResult<Vec<
 /// 回填失败单行 warn：只记操作、行 id 与首行原因。
 fn log_backfill_warn(op: &str, id: Option<&str>, reason: impl std::fmt::Display) {
     let mut ev = crate::z_log::WideEvent::new("app", op);
-    ev.field_opt("id", id)
-        .field("reason", crate::log_support::short_reason(&reason.to_string()));
+    ev.field_opt("id", id).field(
+        "reason",
+        crate::log_support::short_reason(&reason.to_string()),
+    );
     ev.warn();
 }
 

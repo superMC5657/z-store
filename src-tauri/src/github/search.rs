@@ -84,7 +84,10 @@ fn is_private_flag(private: bool, visibility: Option<&str>) -> bool {
 pub(crate) fn repo_json_is_private(payload_json: &str) -> Option<bool> {
     let v: serde_json::Value = serde_json::from_str(payload_json).ok()?;
     let obj = v.as_object()?;
-    let private = obj.get("private").and_then(|p| p.as_bool()).unwrap_or(false);
+    let private = obj
+        .get("private")
+        .and_then(|p| p.as_bool())
+        .unwrap_or(false);
     let visibility = obj.get("visibility").and_then(|p| p.as_str());
     Some(is_private_flag(private, visibility))
 }
@@ -110,8 +113,8 @@ async fn summaries_from_search(
         let description_en = it.description.clone();
         let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
         let topics = it.topics.unwrap_or_default();
-        let license = resolve_online_license(it.license.as_ref())
-            .unwrap_or_else(|| "OpenSource".to_string());
+        let license =
+            resolve_online_license(it.license.as_ref()).unwrap_or_else(|| "OpenSource".to_string());
         let homepage = it.homepage.filter(|h| !h.trim().is_empty());
         super::http::fallback_summary(
             client,
@@ -203,8 +206,8 @@ impl CatalogService {
         };
         let client = super::http::build_api_client()?;
         let headers = super::http::token_headers(token);
-        let cached_ok = cached_payload
-            .filter(|p| serde_json::from_str::<OnlineSearchResponse>(p).is_ok());
+        let cached_ok =
+            cached_payload.filter(|p| serde_json::from_str::<OnlineSearchResponse>(p).is_ok());
         // 没有可用旧载荷时不发 `If-None-Match`，避免 304 后无物可回。
         let send_etag = cached_ok.and(cached_etag);
         let (outcome, diag) =
@@ -517,7 +520,11 @@ mod tests {
             .unwrap();
         assert_eq!(item.core.id, "acme/tool");
         assert_eq!(item.core.stars, 12);
-        assert!(item.core.icon.is_empty(), "no inline probe: {}", item.core.icon);
+        assert!(
+            item.core.icon.is_empty(),
+            "no inline probe: {}",
+            item.core.icon
+        );
         let (url, tag, text) = etag.expect("fresh etag to persist");
         assert_eq!(url, "https://api.github.com/repos/acme/tool");
         assert_eq!(tag, "\"r1\"");
@@ -539,7 +546,12 @@ mod tests {
         assert!(none.is_none());
         assert!(again.core.icon.is_empty());
         assert_eq!(
-            srv.seen_inm.lock().unwrap().get("/repos/acme/tool").cloned().flatten(),
+            srv.seen_inm
+                .lock()
+                .unwrap()
+                .get("/repos/acme/tool")
+                .cloned()
+                .flatten(),
             Some("\"r1\"".to_string())
         );
         assert_eq!(srv.request_counts.lock().unwrap().len(), 1);
@@ -579,7 +591,10 @@ mod tests {
     #[tokio::test]
     async fn keyword_search_uses_etag_and_recovers_on_304() {
         let url = super::online_search_endpoint("tool", Some(1), Some(20)).unwrap();
-        let path = url.strip_prefix("https://api.github.com").unwrap().to_string();
+        let path = url
+            .strip_prefix("https://api.github.com")
+            .unwrap()
+            .to_string();
         let body = serde_json::json!({
             "items": [{
                 "name": "tool",

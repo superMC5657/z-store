@@ -221,9 +221,10 @@ async fn send_direct_first(
 ) -> (TrendSend, TrendVia) {
     let first = send_trends_once(direct, url, direct_timeout).await;
     match proxied {
-        Some(client) if first.should_fallback() => {
-            (send_trends_once(client, url, proxy_timeout).await, TrendVia::Proxy)
-        }
+        Some(client) if first.should_fallback() => (
+            send_trends_once(client, url, proxy_timeout).await,
+            TrendVia::Proxy,
+        ),
         _ => (first, TrendVia::Direct),
     }
 }
@@ -439,13 +440,19 @@ mod trends_fallback_tests {
     #[tokio::test]
     async fn retries_via_proxy_on_5xx_when_proxy_active() {
         let (status, body, via) = run("502 Bad Gateway", true).await;
-        assert_eq!((status, body.as_str(), via), (Some(200), "via-proxy", TrendVia::Proxy));
+        assert_eq!(
+            (status, body.as_str(), via),
+            (Some(200), "via-proxy", TrendVia::Proxy)
+        );
     }
 
     #[tokio::test]
     async fn no_retry_on_success_or_429() {
         let (status, body, via) = run("200 OK", true).await;
-        assert_eq!((status, body.as_str(), via), (Some(200), "direct", TrendVia::Direct));
+        assert_eq!(
+            (status, body.as_str(), via),
+            (Some(200), "direct", TrendVia::Direct)
+        );
         let (status, _, via) = run("429 Too Many Requests", true).await;
         assert_eq!((status, via), (Some(429), TrendVia::Direct));
     }
@@ -460,7 +467,10 @@ mod trends_fallback_tests {
     async fn retries_via_proxy_on_transport_error() {
         // 直连首跳必然连接失败。
         let (status, body, via) = run_against(format!("http://{}/repo", dead_addr()), true).await;
-        assert_eq!((status, body.as_str(), via), (Some(200), "via-proxy", TrendVia::Proxy));
+        assert_eq!(
+            (status, body.as_str(), via),
+            (Some(200), "via-proxy", TrendVia::Proxy)
+        );
     }
 }
 
@@ -487,7 +497,10 @@ mod trends_text_tests {
     fn auth_headers_only_for_github_api_host() {
         use reqwest::header::AUTHORIZATION;
         let api = trends_auth_headers("api.github.com", Some("tok123"));
-        let v = api.get(AUTHORIZATION).and_then(|v| v.to_str().ok()).unwrap_or("");
+        let v = api
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
         assert!(v.contains("tok123"), "{}", v);
         assert!(api.get(reqwest::header::USER_AGENT).is_none());
         assert!(trends_auth_headers("API.GitHub.com", Some("t"))

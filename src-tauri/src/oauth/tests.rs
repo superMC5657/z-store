@@ -199,8 +199,10 @@ fn clear_oauth_session_purges_private_repo_cards_and_search_lists_only() {
     };
     db.upsert_repo_cards_batch(&[card("me/secret", true), card("pub/tool", false)])
         .unwrap();
-    db.save_search_list_cache("mine|1|20", "mine", "{}", true).unwrap();
-    db.save_search_list_cache("rust|1|20", "rust", "{}", false).unwrap();
+    db.save_search_list_cache("mine|1|20", "mine", "{}", true)
+        .unwrap();
+    db.save_search_list_cache("rust|1|20", "rust", "{}", false)
+        .unwrap();
 
     clear_oauth_session(&db).expect("clear session");
 

@@ -1,6 +1,6 @@
 use super::readme_parse::{select_readme_candidates, ContentsEntry, GitTreeResponse};
-use crate::github::{CatalogService, GITHUB_API_BASE};
 use crate::github::models::GitHubRepoResponse;
+use crate::github::{CatalogService, GITHUB_API_BASE};
 use crate::models::ReadmeVariant;
 use reqwest::header::{HeaderValue, ACCEPT};
 use std::sync::LazyLock;

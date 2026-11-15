@@ -252,8 +252,7 @@ pub async fn sync_catalog(
             record_catalog_sync_cycle(&db, &url, &cycle_day);
         }
         let count = state.catalog.get_catalog_count();
-        let mut ev =
-            crate::z_log::WideEvent::new("catalog", "sync unchanged").with_started(start);
+        let mut ev = crate::z_log::WideEvent::new("catalog", "sync unchanged").with_started(start);
         ev.field("source", source_kind)
             .field("updated", false)
             .field("count", count)
@@ -286,13 +285,10 @@ fn apply_manifest_to_db(
     etag_entry: Option<(&str, &str, i64)>,
 ) -> Result<Vec<String>, String> {
     let db = state.db()?;
-    let graduated =
-        crate::repositories::CatalogRepository::apply_remote_manifest_with_etag(
-            &db,
-            items,
-            etag_entry,
-        )
-        .map_err(|e| format!("保存收录清单到数据库失败: {}", e))?;
+    let graduated = crate::repositories::CatalogRepository::apply_remote_manifest_with_etag(
+        &db, items, etag_entry,
+    )
+    .map_err(|e| format!("保存收录清单到数据库失败: {}", e))?;
     state.catalog.sync_from_db(&db);
     // 新转正的仓库改由精选目录承接，清除其单仓富卡旧行。
     let _ = db.purge_cataloged_repo_cards();
@@ -359,7 +355,10 @@ mod tests {
 
         // 跨年边界：北京时间 2027-01-01 09:00（01:00 UTC < 06:00 UTC）归属 2026-12-31
         let new_year_morning = datetime!(2027-01-01 09:00:00 +08:00);
-        assert_eq!(super::catalog_sync_cycle_day(new_year_morning), "2026-12-31");
+        assert_eq!(
+            super::catalog_sync_cycle_day(new_year_morning),
+            "2026-12-31"
+        );
     }
 
     #[test]

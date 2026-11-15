@@ -146,7 +146,10 @@ pub async fn execute_installation(
         .field("id", app_id)
         .field("kind", &kind_str)
         .field("t", &trace)
-        .dev("file", crate::log_support::file_base(&installer_path.to_string_lossy()));
+        .dev(
+            "file",
+            crate::log_support::file_base(&installer_path.to_string_lossy()),
+        );
     start_ev.info();
 
     let res = execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;

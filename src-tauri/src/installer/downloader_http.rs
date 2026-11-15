@@ -398,10 +398,22 @@ mod tests {
         // 自定义镜像 host 才改变豁免集合（`gh-proxy.com` 已在默认豁免中，同池复用）。
         let mirror = vec!["mirror.example.com".to_string()];
         let gh_proxy = vec!["gh-proxy.com".to_string()];
-        assert_eq!(download_pool_key(&direct, &none), download_pool_key(&direct, &none));
-        assert_ne!(download_pool_key(&direct, &none), download_pool_key(&proxied, &none));
-        assert_ne!(download_pool_key(&proxied, &none), download_pool_key(&proxied, &mirror));
-        assert_eq!(download_pool_key(&proxied, &none), download_pool_key(&proxied, &gh_proxy));
+        assert_eq!(
+            download_pool_key(&direct, &none),
+            download_pool_key(&direct, &none)
+        );
+        assert_ne!(
+            download_pool_key(&direct, &none),
+            download_pool_key(&proxied, &none)
+        );
+        assert_ne!(
+            download_pool_key(&proxied, &none),
+            download_pool_key(&proxied, &mirror)
+        );
+        assert_eq!(
+            download_pool_key(&proxied, &none),
+            download_pool_key(&proxied, &gh_proxy)
+        );
         // 官方直连（无豁免）的键不含上游 forge host。
         assert!(!download_pool_key(&proxied, &none).contains("github.com"));
     }

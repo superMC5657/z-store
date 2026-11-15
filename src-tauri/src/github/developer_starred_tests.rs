@@ -143,7 +143,10 @@ mod tests {
             .await
             .unwrap();
         let (url, etag, text) = first.etag_write.expect("etag to persist");
-        assert_eq!(url, "https://api.github.com/users/alice/starred?per_page=2&page=1");
+        assert_eq!(
+            url,
+            "https://api.github.com/users/alice/starred?per_page=2&page=1"
+        );
         assert_eq!(etag, "\"s1\"");
         assert!(first.touched_url.is_none());
         assert_eq!(first.page.repos.len(), 2);
@@ -201,7 +204,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(srv.seen_inm.lock().unwrap().get(&path).cloned().flatten(), None);
+        assert_eq!(
+            srv.seen_inm.lock().unwrap().get(&path).cloned().flatten(),
+            None
+        );
         assert!(out.etag_write.is_some());
         assert_eq!(out.page.repos.len(), 1);
     }

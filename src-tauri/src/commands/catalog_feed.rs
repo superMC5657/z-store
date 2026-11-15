@@ -150,13 +150,7 @@ pub fn dismiss_featured(
     app_id: Option<String>,
 ) -> crate::AppResult<()> {
     let db = state.db()?;
-    record_featured_dismissal(
-        &db,
-        &target,
-        &scope,
-        app_id.as_deref(),
-        crate::now_secs(),
-    )
+    record_featured_dismissal(&db, &target, &scope, app_id.as_deref(), crate::now_secs())
 }
 
 fn record_featured_dismissal(
@@ -166,8 +160,8 @@ fn record_featured_dismissal(
     app_id: Option<&str>,
     now: i64,
 ) -> crate::AppResult<()> {
-    let parsed = crate::db::FeedbackScope::parse(scope)
-        .ok_or_else(|| format!("未知的反馈范围：{scope}"))?;
+    let parsed =
+        crate::db::FeedbackScope::parse(scope).ok_or_else(|| format!("未知的反馈范围：{scope}"))?;
     match parsed {
         crate::db::FeedbackScope::App => {
             let key = crate::forge::canonical_app_id(target)
@@ -456,10 +450,12 @@ mod tests {
         let now = 1_800_000_000i64;
         record_featured_dismissal(&db, "media", "category", Some("Acme/Player"), now).unwrap();
         let fb = db.get_active_feed_feedback(now).unwrap();
-        assert!(fb.iter().any(|f| f.target == "media"
-            && f.scope == crate::db::FeedbackScope::Category));
-        assert!(fb.iter().any(|f| f.target == "acme/player"
-            && f.scope == crate::db::FeedbackScope::App));
+        assert!(fb
+            .iter()
+            .any(|f| f.target == "media" && f.scope == crate::db::FeedbackScope::Category));
+        assert!(fb
+            .iter()
+            .any(|f| f.target == "acme/player" && f.scope == crate::db::FeedbackScope::App));
 
         db.clear_feed_feedback().unwrap();
         record_featured_dismissal(&db, "games", "category", Some("  "), now).unwrap();

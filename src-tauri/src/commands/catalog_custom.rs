@@ -330,9 +330,7 @@ fn sync_custom_app_cache_and_cycle(db: &crate::db::Database, item: &CatalogItem)
             .get_icon_cycle(&clean_id)
             .ok()
             .flatten()
-            .unwrap_or_else(|| {
-                crate::db::AppIconCycle::new(&clean_id, &item.owner, &item.repo)
-            });
+            .unwrap_or_else(|| crate::db::AppIconCycle::new(&clean_id, &item.owner, &item.repo));
         cycle.is_cataloged = true;
         if cycle.l1_url != icon_trimmed {
             cycle.cache_file = String::new();

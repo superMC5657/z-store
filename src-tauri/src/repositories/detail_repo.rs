@@ -270,7 +270,10 @@ mod tests {
             timestamp: 1700000000,
         }];
         DetailRepository::persist_detail_bundle(&db, "o/r", &detail, None, &etags).unwrap();
-        let card = db.get_repo_card("o/r").unwrap().expect("uncataloged card persisted");
+        let card = db
+            .get_repo_card("o/r")
+            .unwrap()
+            .expect("uncataloged card persisted");
         assert!(card.confirmed_other);
         assert!(card.is_private);
         assert_eq!(card.summary.core.latest_version, "v2.5.0");
@@ -287,7 +290,8 @@ mod tests {
             is_private: None,
         })
         .unwrap();
-        let summary = DetailRepository::cached_detail_summary(&db, "O/R").expect("repo card fallback");
+        let summary =
+            DetailRepository::cached_detail_summary(&db, "O/R").expect("repo card fallback");
         assert_eq!(summary.core.id, "o/r");
         assert_eq!(summary.core.stars, 888);
         assert_eq!(summary.core.platforms, vec!["windows", "linux"]);
@@ -316,7 +320,8 @@ mod tests {
             arch: "universal".to_string(),
             kind: "portable_zip".to_string(),
         }];
-        db.save_app_detail("p0deje/maccy", &poisoned_detail).unwrap();
+        db.save_app_detail("p0deje/maccy", &poisoned_detail)
+            .unwrap();
 
         let svc = CatalogService::new_empty();
         svc.sync_from_db(&db);

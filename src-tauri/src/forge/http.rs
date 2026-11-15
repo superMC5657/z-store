@@ -191,8 +191,15 @@ pub(crate) async fn get_with_retry_after_once(
     let mut active = client.clone();
     let resp = match active.get(url).headers(headers.clone()).send().await {
         Ok(r) => r,
-        Err(e) if (e.is_connect() || e.is_timeout()) && crate::proxy::refresh_after_transport_error().await => {
-            active = api_client(crate::config::get_project_config().network.api_timeout_seconds);
+        Err(e)
+            if (e.is_connect() || e.is_timeout())
+                && crate::proxy::refresh_after_transport_error().await =>
+        {
+            active = api_client(
+                crate::config::get_project_config()
+                    .network
+                    .api_timeout_seconds,
+            );
             active.get(url).headers(headers.clone()).send().await?
         }
         Err(e) => {

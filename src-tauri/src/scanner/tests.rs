@@ -530,7 +530,8 @@ fn test_match_unmanaged_filters_managed_with_canonical_healing_and_no_fabricatio
         },
     ];
     // 大小写漂移行 `RustDesk/RustDesk` 经 canonical 归一识别为已纳管并剔除
-    let results = AppScanner::match_unmanaged(&scanned, &catalog, ["RustDesk/RustDesk".to_string()]);
+    let results =
+        AppScanner::match_unmanaged(&scanned, &catalog, ["RustDesk/RustDesk".to_string()]);
     assert_eq!(results.len(), 1, "only unmanaged VLC should remain");
     assert_eq!(results[0].catalog_id, "videolan/vlc");
 }
@@ -561,8 +562,14 @@ fn test_import_path_prefers_executable_then_install_location() {
         resolved_executable_path: exe.map(str::to_string),
     };
 
-    assert_eq!(make(Some("/opt/wt/wt.exe"), Some("/opt/wt")).import_path(), Some("/opt/wt/wt.exe"));
-    assert_eq!(make(None, Some("\"/opt/wt\"")).import_path(), Some("/opt/wt"));
+    assert_eq!(
+        make(Some("/opt/wt/wt.exe"), Some("/opt/wt")).import_path(),
+        Some("/opt/wt/wt.exe")
+    );
+    assert_eq!(
+        make(None, Some("\"/opt/wt\"")).import_path(),
+        Some("/opt/wt")
+    );
     // 只有图标路径不算可导入路径
     assert_eq!(make(None, None).import_path(), None);
     assert_eq!(make(None, Some("  ")).import_path(), None);
@@ -571,8 +578,14 @@ fn test_import_path_prefers_executable_then_install_location() {
 #[test]
 fn test_format_fixed_version() {
     use super::version::format_fixed_version;
-    assert_eq!(format_fixed_version([0, 1, 3853, 0]).as_deref(), Some("0.1.3853"));
-    assert_eq!(format_fixed_version([1, 2, 3, 4]).as_deref(), Some("1.2.3.4"));
+    assert_eq!(
+        format_fixed_version([0, 1, 3853, 0]).as_deref(),
+        Some("0.1.3853")
+    );
+    assert_eq!(
+        format_fixed_version([1, 2, 3, 4]).as_deref(),
+        Some("1.2.3.4")
+    );
     assert_eq!(format_fixed_version([2, 0, 0, 0]).as_deref(), Some("2.0.0"));
     assert_eq!(format_fixed_version([0, 0, 0, 0]), None);
 }
@@ -602,14 +615,21 @@ fn test_detect_local_version_prefers_registry_then_executable() {
     );
     // 都没有时版本未知，不回落到收录库版本
     assert_eq!(AppScanner::detect_local_version("", None, exe), None);
-    assert_eq!(AppScanner::detect_local_version("", Some("a.exe"), |_| None), None);
+    assert_eq!(
+        AppScanner::detect_local_version("", Some("a.exe"), |_| None),
+        None
+    );
 }
 
 #[test]
 fn test_detect_installed_version_matches_registry_entry_by_path() {
     let entries = vec![
         registry_entry("9.9.9", Some(r"C:\Users\me\AppData\Local\Programs"), None),
-        registry_entry("", Some(r"C:\Users\me\AppData\Local\Programs\magpie\"), None),
+        registry_entry(
+            "",
+            Some(r"C:\Users\me\AppData\Local\Programs\magpie\"),
+            None,
+        ),
         registry_entry("1.0.0", Some(r"C:\Other"), None),
     ];
     let exe = |p: &str| {
@@ -627,7 +647,11 @@ fn test_detect_installed_version_matches_registry_entry_by_path() {
         Some("0.1.3853")
     );
 
-    let by_icon = vec![registry_entry("3.1.0", None, Some(r#""C:\Tools\foo.exe",0"#))];
+    let by_icon = vec![registry_entry(
+        "3.1.0",
+        None,
+        Some(r#""C:\Tools\foo.exe",0"#),
+    )];
     assert_eq!(
         AppScanner::detect_installed_version(&by_icon, r"C:\Tools\foo.exe", |_| None).as_deref(),
         Some("3.1.0")
@@ -669,6 +693,12 @@ fn test_read_exe_version_reads_system_executable() {
     let notepad = format!(r"{windir}\System32\notepad.exe");
     let version = AppScanner::read_exe_version(&notepad).expect("notepad has a version resource");
     assert!(version.split('.').count() >= 3, "{version}");
-    assert_eq!(AppScanner::read_exe_version(&format!(r"{windir}\System32")), None);
-    assert_eq!(AppScanner::read_exe_version(r"Z:\definitely\missing.exe"), None);
+    assert_eq!(
+        AppScanner::read_exe_version(&format!(r"{windir}\System32")),
+        None
+    );
+    assert_eq!(
+        AppScanner::read_exe_version(r"Z:\definitely\missing.exe"),
+        None
+    );
 }
