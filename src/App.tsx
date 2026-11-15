@@ -368,6 +368,7 @@ export const App: React.FC = () => {
     filteredUpdates,
     handleResetPlatformFilter,
     handleTrendsPlatformCounts,
+    handlePendingPlatformCounts,
     handleStarredPlatformCounts,
     sidebarPlatformCounts,
     installedIds,
@@ -816,6 +817,9 @@ export const App: React.FC = () => {
               onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
               onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}
               onNotify={(message, type) => showToast(message, type ?? 'info')}
+              selectedPlatforms={selectedPlatforms}
+              onResetPlatformFilter={handleResetPlatformFilter}
+              onDisplayPlatformCounts={handlePendingPlatformCounts}
             />
           )}
 

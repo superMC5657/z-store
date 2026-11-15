@@ -1,6 +1,6 @@
 /**
  * 待收录页左列：Master 列表。
- * 只渲染调用方已按 Tab/分段过滤后的条目。
+ * 只渲染调用方已按 Tab 与全局设备平台筛选过滤后的条目。
  */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,16 +10,17 @@ import {
   resolvePendingDraftDescription,
   type CustomDraftEntry,
   type PendingGroupId,
-  type PendingSegmentId,
 } from './draftModel';
 
 interface PendingListColumnProps {
-  /** 当前 Tab + 分段过滤后的可见条目。 */
+  /** 当前 Tab + 平台筛选后的可见条目。 */
   entries: CustomDraftEntry[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   activeGroup: PendingGroupId;
-  activeSegment: PendingSegmentId;
+  /** 当前 Tab 有条目但全部被平台筛选隐藏：展示平台筛选空态与重置动作。 */
+  hiddenByPlatformFilter: boolean;
+  onResetPlatformFilter: () => void;
 }
 
 export const PendingListColumn: React.FC<PendingListColumnProps> = ({
@@ -27,7 +28,8 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
   selectedId,
   onSelect,
   activeGroup,
-  activeSegment,
+  hiddenByPlatformFilter,
+  onResetPlatformFilter,
 }) => {
   const { t, i18n } = useTranslation();
 
@@ -37,15 +39,25 @@ export const PendingListColumn: React.FC<PendingListColumnProps> = ({
         <div className="pending-list-empty-inline">
           <Inbox size={22} strokeWidth={1.25} aria-hidden="true" style={{ opacity: 0.5 }} />
           <div style={{ fontWeight: 510, color: 'var(--text-secondary)' }}>
-            {activeGroup === 'library'
-              ? t(`pending.segments.empty_title.${activeSegment}`)
-              : t('pending.group_empty_title')}
+            {hiddenByPlatformFilter
+              ? t('pending.platform_empty_title')
+              : t(`pending.group_empty.${activeGroup}.title`)}
           </div>
           <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-tertiary)' }}>
-            {activeGroup === 'library'
-              ? t(`pending.segments.empty_desc.${activeSegment}`)
-              : t('pending.group_empty_desc')}
+            {hiddenByPlatformFilter
+              ? t('pending.platform_empty_desc')
+              : t(`pending.group_empty.${activeGroup}.desc`)}
           </div>
+          {hiddenByPlatformFilter && (
+            <button
+              type="button"
+              className="btn-fluent btn-secondary filter-empty-reset"
+              data-testid="pending-platform-reset"
+              onClick={onResetPlatformFilter}
+            >
+              {t('pending.platform_empty_reset')}
+            </button>
+          )}
         </div>
       ) : (
         entries.map((entry) => {

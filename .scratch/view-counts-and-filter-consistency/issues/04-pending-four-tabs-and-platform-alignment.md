@@ -1,6 +1,6 @@
 # Issue 04: 待收录子页展平为四个顶层 Tab、智能默认落点与全局设备平台筛选对齐
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02
 
 ## Summary

@@ -10,7 +10,7 @@ import {
   type DraftItem,
   type DraftStatus,
 } from '../../services/custom';
-import { isCollectedStatus, isLocalLibraryStatus } from '../../app/selectors';
+import { isCollectedStatus } from '../../app/selectors';
 import type { LicenseAllowlistResult } from '../../services/api/catalog';
 
 /** 草稿领域形状（唯一定义见 `services/custom.ts`）。 */
@@ -22,13 +22,14 @@ type PendingDraftStatus = DraftStatus;
 /** 视图条目 = 草稿领域形状（唯一定义见 `services/custom.ts`）。 */
 export type CustomDraftEntry = DraftEntry;
 
-export type PendingGroupId = 'draft' | 'library' | 'archived';
-
 /**
- * 「本地收录」内部分段（Issue 进度）：
- * 待提交 = 收录系（collected/local_collected）；已提交 = submitted。
+ * 待收录页四个互斥顶层 Tab：
+ * 草稿 / 待提交（收录系 collected/local_collected）/ 已提交（submitted）/ 已归档。
  */
-export type PendingSegmentId = 'to_submit' | 'submitted';
+export type PendingGroupId = 'draft' | 'to_submit' | 'submitted' | 'archived';
+
+/** Tab 渲染顺序，也是首次进入时智能默认落点的优先顺序。 */
+export const PENDING_GROUP_ORDER: readonly PendingGroupId[] = ['draft', 'to_submit', 'submitted', 'archived'];
 
 /** 收录态判定唯一口径收敛于 selectors。 */
 export const isPendingCollectedStatus = isCollectedStatus;
@@ -247,18 +248,11 @@ export function stringifyIdentifiers(ids: Record<string, string[]>): string {
 }
 
 export function entryGroup(e: CustomDraftEntry): PendingGroupId {
-  // 归档优先（权威已交给远端）；库内成员 = collected 系 + submitted，其余（draft/未知）归草稿。
+  // 归档优先（权威已交给远端）；submitted 单列；收录系归待提交；其余（draft/未知）归草稿。
   if (e.archived) return 'archived';
-  if (isLocalLibraryStatus(e.status)) return 'library';
-  return 'draft';
-}
-
-/** 库内行的 Issue 进度分段；非库内行返回 null（不参与分段过滤）。 */
-export function entrySegment(e: CustomDraftEntry): PendingSegmentId | null {
-  if (e.archived) return null;
   if (e.status === 'submitted') return 'submitted';
   if (isPendingCollectedStatus(e.status)) return 'to_submit';
-  return null;
+  return 'draft';
 }
 
 /** submitted（已提交）判定：已归档行恒视为只读归档，不视为待合入 submitted。 */
