@@ -14,7 +14,7 @@
 | **独立生态清单仓库** | `Decoupled Catalog Repository` | 独立维护于 `superMC5657/z-store-catalog` 的开源清单数据仓库，独立运作保鲜 CI 与准入校验，详见 ADR-0009。 | 中心数据库、后台仓库 |
 | **种子清单兜底** | `Catalog Seed Fallback` | 客户端本地打包内置的 `catalog.json` 静态种子，仅在数据库首次初始化且 `catalog_apps` 为空时一次性播种写入，亦作离线显式降级源。 | 默认缓存、离线数据包 |
 | **多端应用标识符** | `Platform Identifiers` | 按操作系统（Windows、Linux、macOS、Android、iOS）区分的原生进程/包名标识符映射字典，用于精准匹配管理与启动。 | 执行文件名、进程表 |
-| **双维目录筛选** | `Bi-dimensional Filter` | 分类浏览中心提供的“设备平台（全部/Windows/Android/macOS/Linux/iOS）”与“功能分类（开发、影音等 10 类）”双维交叉过滤机制。其中设备平台轴取值为全部 + Windows/Android/macOS/Linux/iOS 五端，全部为不过滤快捷方式；空选择（`[]`）表示什么都不选，视图渲染空筛选状态；缺少本地键时回退全选，仅显式 `[]` 渲染空状态。 | 标签过滤、分类切换 |
+| **双维目录筛选** | `Bi-dimensional Filter` | 分类浏览中心提供的“设备平台（全部/Windows/Android/macOS/Linux/iOS）”与“功能分类（开发、影音等 10 类）”双维交叉过滤机制。其中设备平台轴取值为全部 + Windows/Android/macOS/Linux/iOS 五端，全部为不过滤快捷方式；空选择（`[]`）表示什么都不选，视图渲染空筛选状态；缺少本地键时回退全选，仅显式 `[]` 渲染空状态。设备平台轴为全站筛选：精选、趋势、最新入库、分类、待收录、我的应用、收藏 / 关注一律按同一选择裁剪，搜索结果另以搜索集裁剪；各视图的角标与可见卡片同源，被筛空时渲染带重置入口的空筛选状态。侧栏平台芯片计数按当前视图（及子页 / 子签）所展示的数据集统计平台分布，离开视图即恢复全库分布。 | 标签过滤、分类切换 |
 | **应用概要** | `AppSummary` | 列表页展示的轻量级实体，包含 Star 数、协议、分类、图标、多端平台支持与最新版本信息。 | 应用简报、AppInfo |
 | **应用详情** | `AppDetail` | 弹窗呈现的完整元数据，包含对应 Release 的构建资产列表 (`releases`)、官方 README Markdown、分类与多端标识符等字段（以 `src-tauri/src/models.rs` 为准）。 | 详细信息、FullApp |
 | **构建资产** | `ReleaseAsset` | Release 附带的编译产物二进制包（如 `.msi`、`.exe`、`.zip`、`.tar.gz`/`.tgz`/`.tar.xz`/`.tar`、`.deb`、`.dmg`、`.apk`，其中 `.7z`/`.tar.bz2`为Download-Only），带有平台架构分类。 | 附件、下载包、安装文件 |
@@ -22,7 +22,7 @@
 | **校验清单** | `Checksum Manifest` | Release 附带的 `checksums.txt` / `SHA256SUMS`，记录官方预期 SHA-256 哈希值。 | 哈希表、签名文件 |
 | **加速镜像节点** | `MirrorNode` | 代理文件下载的反代节点（如 `gh-proxy.com`），支持在设置页手动切换前缀、`test_proxy` 手动测速与透明重写安装包下载 URL；镜像节点自身经 per-client `no_proxy` 直连，不消耗系统代理流量。 | 代理源、加速线路、CDN |
 | **已安装应用** | `InstalledApp` | 由 ZStore 管理且持久化存储在本地 SQLite 中的应用实体，包含本地路径与卸载入口。 | 本地应用、已装软件 |
-| **我的应用** | `My Apps` (`installed`) | 侧栏「管理」组下的一级视图，列出全部已安装应用，并就地呈现可用更新（版本差、更新日志、更新 / 全部更新）；深链 `zstore://view/updates` 打开此视图并落在「有更新」筛选签。详见 ADR-0022。 | 已安装页、更新中心、更新页 |
+| **我的应用** | `My Apps` (`installed`) | 侧栏「管理」组下的一级视图，列出全部已安装应用，并就地呈现可用更新（版本差、更新日志、更新 / 全部更新）；深链 `zstore://view/updates` 打开此视图并落在「有更新」筛选签。列表与筛选签角标（全部 / 有更新 / 已冻结 / 已隐藏）同时受全局设备平台筛选与页内搜索框作用；未收录行按安装方式推导平台。详见 ADR-0022。 | 已安装页、更新中心、更新页 |
 | **条件请求缓存** | `ETag Cache` | 存储于本地 SQLite `api_etag_cache` 中的 HTTP 304 缓存机制，通过 `If-None-Match` 实现零配额消耗更新检测；覆盖清单、详情、`releases/latest`、画像同步、趋势 enrich、在线搜索与 Star 列表，按 `last_checked_at` LRU 限行（`API_ETAG_CACHE_MAX_ROWS`）。 | 本地缓存、HTTP缓存 |
 | **清单同步** | `Manifest Catalog Sync` | 客户端从独立开源收录仓库动态拉取或增量刷新应用元数据清单的机制，跟随系统代理；官方默认源首跳传输失败 / 429 / 5xx 时经加速镜像节点重试一次并严格校验（非空且 id 全部合法），详见 ADR-0007、ADR-0009 与 ADR-0025。 | 清单下载、列表更新 |
 | **缓存生存时效** | `Cache TTL` | 客户端本地持久化详情的有效周期（基线 60 分钟；设置页不暴露；后端对改库/导入值按挡位 `[0, 10, 60, 360, 1440]` 归一化，非法值回退 60），过期后触发带 ETag 的条件重新验证；仅约束详情浏览：非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用，资产面（我的应用、收藏）仅手动触发网络——我的应用中的可用更新为手动快照（仅显式刷新写 `update_results`，其余读库），收藏/关注凭记录自带收录标记就近读卡。 | 缓存过期时间、过期策略 |
@@ -46,7 +46,7 @@
 | **搜索列表缓存** | `Search List Cache` | 在线搜索与 Star 列表的分页有序 id 索引（`services/search/searchListCache.ts`）：L1 前端内存，key=`命名空间\|归一query\|page\|perPage`，命名空间 `search` / `starred` 各自 50 条 FIFO，条目只存 `{ at, ids, hasMore, hasPrivate }`、卡片按 id 单份共享；5min 内新鲜可零网络直出，5–30min 需后台重验，30min 起驱逐，空不存。在线搜索另有 L2 SQLite `search_list_cache`（`v: 2` 有序 id，7 天保留，`has_private=1` 登出即清），冷启动经批量水合首绘。见 ADR-0027。 | 搜索缓存、结果缓存 |
 | **单仓富卡派生缓存** | `Repo Enrich Cache` | 趋势、在线搜索与 Star 列表按规范应用标识共享的未收录应用轻量富卡：SQLite `repo_card_cache`（与 `catalog_apps` / `custom_apps` 物理隔离，2000 行按 `last_accessed_at` LRU，`is_private=1` 随登出清除）+ 前端 M1 镜像 `services/repoEnrichCache.ts`（底层 `trendEnrichCache` / `trendConfirmedOtherCache`，12h、600 条 FIFO）。三态均入池（具体平台 > 已确认 Other > 平台未知），空值与占位不覆盖实值，不存收录标注与 `data:` 图标；列表恢复经 `get_repo_cards_batch` / `hydrateCardsByIds` 批量水合。见 ADR-0027。 | 平台缓存、富卡缓存 |
 | **Star 列表快照缓存** | `Starred Feed Cache` | 收藏页「Star 同步」的 SQLite 瘦索引快照（`starred_feed_cache`，`v: 2` 按页有序 id，前 3 页 / 60 个 id，12h 新鲜、7 天保留、最多 15 个目标），进入视图经批量水合零网络直展；`@me:` 私有快照登出即清。见 ADR-0027。 | Star 缓存、收藏快照 |
-| **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`），经暂存校验（canonical 身份对齐）后参与合并目录视图，提交时才强制全字段校验。 | 草稿箱、未提交应用 |
+| **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`），经暂存校验（canonical 身份对齐）后参与合并目录视图，提交时才强制全字段校验。待收录页以四个平级 Tab 分组：草稿（`draft`）/ 待提交（收录态）/ 已提交（`submitted`）/ 已归档（`archived`），各 Tab 计数与列表均按全局设备平台筛选；侧栏「待收录」角标为未归档三组之和。 | 草稿箱、未提交应用 |
 | **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=local` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
 | **转正** | `Graduated` | 自维护草稿被远端精选收录库正式收录（`sync_catalog` 命中 canonical id），本地行置 `archived=1` 自动归档，退出合并视图。 | 毕业、上岸、合并完成 |
 | **已收录/未收录** | `Cataloged/Uncataloged` | 卡片收录态徽标：id 命中精选收录库为已收录，否则为未收录（走详情缓存读富卡）；与自维护/转正正交（后者仅描述本地草稿生命周期）。 | 收录状态、有无收录 |
@@ -58,7 +58,7 @@
 | **本地收录徽标** | `verified-badge-local` | 本地收录行的橘黄徽标变体（浅色 `#F59E0B`、深色 `#D97706`，见 `components-app-card.css`）：已验证蓝标优先，本地收录仅在未验证时叠加；为 D4 去彩例外点缀（与星级金、榜单金/银/铜、告警/错误色同类）。 | 黄标、本地标 |
 | **确认图标** | `Confirmed Icon` | `app_icon_cycles` 表 + 本地 `icons/` 磁盘图标文件（`sha256(url)[0:16].{ext}`）已落定的可直显图标：若 `cache_file` 为空但磁盘已有对应哈希文件则自愈关联并作为 M2 `data:` 直显（涵盖 L1–L4），无磁盘文件时 L1–L3 为远端回退、L4 为空；7 天 TTL 外遇网络波动自动回退本地旧图标文件（SWR）；榜重挂时经 `getConfirmedIconsBatch` 本地回填（DB-only：零网络、只进内存呈现，收录应用无 cycle 行时回退检查 `icons/` 磁盘缓存）。与统一图标获取（后端探测与流式事件）及 M1/M2 缓存分层正交。 | 落定图标、本地回填 |
 | **收录时间** | `added_at` | 精选收录库与自维护本地库中应用被正式收录的入库日期（ISO `YYYY-MM-DD` 格式字符串），`custom_apps` 本地库条目以其创建时间 `created_at` 投影回填；用于时效性倒排与时间分期筛选。 | 入库时间、收录日期 |
-| **最新入库** | `New Arrivals` (`latest`) | 侧栏「发现」组下的独立一级导航视图，按收录时间 `added_at` 倒序呈现精选收录与本地库应用；支持预设分段选项卡（最近 7 天、最近 30 天、最近 90 天）快速过滤，并以 `stars` 降序作为同批并列的二级保质排序。详见 ADR-0021。 | 最新收录、新增应用、新货上架 |
+| **最新入库** | `New Arrivals` (`latest`) | 侧栏「发现」组下的独立一级导航视图，按收录时间 `added_at` 倒序呈现精选收录与本地库应用；支持预设分段选项卡（最近 7 天、最近 30 天、最近 90 天）快速过滤，并以 `stars` 降序作为同批并列的二级保质排序。列表分页由后端按当前平台筛选允许的 ID 先过滤再分页，标题角标取该时间窗在当前筛选下的总匹配数。详见 ADR-0021。 | 最新收录、新增应用、新货上架 |
 | **本地亲和度画像** | `User Affinity Profile` | 纯客户端内存聚合的开源偏好画像（`src-tauri/src/github/affinity.rs::UserAffinityProfile`），消费本地 SQLite 中的仓库特征信号（`user_repo_signals`）、应用内星标/收藏/关注（`user_stars`、`user_favorites`、`watched_apps`）、已安装（`installed_apps`）、浏览与搜索历史（`view_history`、`search_history`）、兴趣种子与推荐负反馈；收藏/关注/已安装/星标按 30 天半衰期、浏览与搜索按 7 天半衰期衰减。应用内信号与 GitHub 信号分两个通道各自软饱和归一化后按 0.65 : 0.35 融合，兴趣种子作为分类先验合入；词袋使用中英双语分词与目录级 IDF，关键词分按命中词降序固定系数加权（多命中只加分）；未收录应用的本地信号回退读取 `app_details` 概要。输出分类权重、开发者权重、关键词词袋权重与推荐种子，驱动精选页推荐货架（`get_featured_page`）与 Feed 排序（`get_home_feed`）的个性化重排（见 ADR-0024）。 | 云端画像、用户推荐模型 |
 | **推荐货架** | `Featured Shelf` | 精选页由后端一次组装的推荐区块（`get_featured_page`，见 ADR-0023、ADR-0024）：今日为你（hero）、因为你 X 了 Y（`because_you`）、分类为你挑选（`category_pick`）、探索新领域（`explore`）、本月新入库（`fresh`）；整页同一应用只出现一次。已安装、已收藏、已关注的应用不进货架（仍可作为 `because_you` 的种子）；`rich` 画像的 `because_you` 不足 2 排时补出本月新入库；货架按日期种子宽幅抖动轮换。 | 推荐位、推荐栏 |
 | **推荐理由** | `Recommendation Reason` | 推荐条目附带的可解释来源（`Reason`：种子、分类、作者、关键词、新入库、探索），由 `affinity_explain` 与打分共用同一分项计算得出，每条至多 2 个。 | 推荐原因、推荐标签 |

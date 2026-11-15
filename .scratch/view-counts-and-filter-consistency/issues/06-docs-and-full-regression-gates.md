@@ -1,6 +1,6 @@
 # Issue 06: 数量显示与领域规范文档同步及全量回归门禁验收
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 03, 04, 05
 
 ## Summary

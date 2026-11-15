@@ -4,8 +4,12 @@
  *
  * 所有测试均基于行为级覆盖：持久化往返经过 loadSelectedPlatforms/parseSelectedPlatforms 检验，
  * 过滤语义经过 matchPlatformSet 检验。无任何针对源码字面量的脆弱断言。
+ *
+ * 末尾的真实 <App/> 跨视图回归：顶栏搜索后切页不丢卡，侧栏平台筛选下各视图角标与可见卡片数同源。
  */
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { AppSummary } from './types';
 import {
   PLATFORM_FILTER_STORAGE_KEY,
   PLATFORM_IDS,
@@ -261,5 +265,350 @@ describe('global platform filter applies to Favorites/Installed/Updates', () => 
     // 视图内的筛选绝不能缩减统计计数
     expect(filterCatalog(iosOnly)).toHaveLength(1);
     expect(countOverFull('windows')).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 真实 <App/> 跨视图回归：数量与可见内容同源
+// ---------------------------------------------------------------------------
+
+function makeCatalogApp(id: string, name: string, platforms: string[], category: string): AppSummary {
+  const [owner = 'o', repo = id] = id.split('/');
+  return {
+    id,
+    name,
+    owner,
+    repo,
+    icon: '',
+    icon_bg: '',
+    description: `${name} desc`,
+    stars: 100,
+    forks: 1,
+    license: 'MIT',
+    latest_version: 'v1.0.0',
+    category,
+    category_name: category,
+    is_verified: false,
+    forge: 'github',
+    forge_host: 'github.com',
+    homepage: null,
+    platforms,
+  };
+}
+
+const APP_CATALOG: AppSummary[] = [
+  makeCatalogApp('acme/win-tool', 'WinTool', ['windows'], 'dev'),
+  makeCatalogApp('acme/droid-tool', 'DroidTool', ['android'], 'dev'),
+  makeCatalogApp('acme/cross-kit', 'CrossKit', ['windows', 'android'], 'dev'),
+  makeCatalogApp('acme/mac-player', 'MacPlayer', ['macos'], 'media'),
+];
+
+const FAVORITE_IDS = ['acme/win-tool', 'acme/droid-tool', 'acme/mac-player'];
+const WATCHED_IDS = ['acme/cross-kit', 'acme/droid-tool'];
+const INSTALLED_IDS = ['acme/win-tool', 'acme/cross-kit', 'acme/mac-player'];
+
+function makePendingEntry(id: string, platforms: string[], status: string, archived = false) {
+  return {
+    id,
+    item: {
+      id,
+      name: id,
+      owner: 'draft',
+      repo: id,
+      icon: '',
+      icon_bg: '',
+      description: `${id} desc`,
+      description_en: null,
+      // 本地库条目同样并入目录与分类 feed；放到未参与断言的分类，避免干扰开发工具子页计数。
+      category: 'office',
+      category_name: 'office',
+      aliases: [],
+      default_version: 'v1.0.0',
+      license: 'MIT',
+      stars: 1,
+      forks: 0,
+      is_verified: false,
+      homepage: null,
+      install_dirs: [],
+      search_subdirs: [],
+      publishers: [],
+      platforms,
+      identifiers: {},
+    },
+    status,
+    pr_url: status === 'submitted' ? 'https://github.com/o/r/pull/1' : null,
+    created_at: 1,
+    updated_at: 1,
+    archived,
+  };
+}
+
+const PENDING_ENTRIES = [
+  makePendingEntry('draft-win', ['windows'], 'draft'),
+  makePendingEntry('draft-droid', ['android'], 'draft'),
+  makePendingEntry('ready-win', ['windows'], 'collected'),
+  makePendingEntry('sent-mac', ['macos'], 'submitted'),
+  makePendingEntry('old-win', ['windows'], 'draft', true),
+];
+
+/** 内存版分页 feed：与后端同口径（先按 allowedIds 过滤再分页，`matched_ids` 为过滤前全部 ID）。 */
+function feedPage(rows: AppSummary[], allowedIds?: readonly string[]) {
+  const allowed = allowedIds ? new Set(allowedIds.map((id) => id.toLowerCase())) : null;
+  const items = allowed ? rows.filter((a) => allowed.has(a.id.toLowerCase())) : rows;
+  return { items, total: items.length, has_more: false, matched_ids: rows.map((a) => a.id) };
+}
+
+vi.mock('./services/api/catalog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./services/api/catalog')>();
+  return {
+    ...actual,
+    getLatestCatalogApps: async (
+      _win: unknown,
+      _page?: number,
+      _perPage?: number,
+      allowedIds?: readonly string[],
+    ) => feedPage(APP_CATALOG, allowedIds),
+    getCategoryApps: async (
+      category: string,
+      _page?: number,
+      _perPage?: number,
+      allowedIds?: readonly string[],
+    ) => feedPage(APP_CATALOG.filter((a) => a.category === category), allowedIds),
+  };
+});
+
+vi.mock('./services/api', () => {
+  const emptyLists = new Set([
+    'getUpdateRules',
+    'getRecentlyViewedApps',
+    'checkForUpdates',
+    'getCachedUpdates',
+    'getSearchHistory',
+    'getConfirmedIconsBatch',
+    'getWatchNotifications',
+    'getFavoriteEntries',
+    'getCachedAppDetailsBatch',
+  ]);
+  const tauriApi = new Proxy(
+    {},
+    {
+      get(_t, prop: string) {
+        if (prop === 'then') return undefined;
+        if (prop === 'getSettings') return async () => ({ language: 'zh-CN' });
+        if (prop === 'getOAuthUser' || prop === 'getCliDeepLink') return async () => null;
+        if (prop === 'searchApps') {
+          return async (q: string) => {
+            const trimmed = q.trim().toLowerCase();
+            if (!trimmed) return APP_CATALOG;
+            return APP_CATALOG.filter((a) => a.id.toLowerCase().includes(trimmed));
+          };
+        }
+        if (prop === 'getFavorites') return async () => [...FAVORITE_IDS];
+        if (prop === 'getWatchedApps') {
+          return async () => WATCHED_IDS.map((app_id) => ({ app_id, is_cataloged: true }));
+        }
+        if (prop === 'getInstalledApps') {
+          return async () =>
+            INSTALLED_IDS.map((app_id, i) => ({
+              app_id,
+              app_name: app_id.split('/')[1],
+              version: 'v1.0.0',
+              installed_at: 1000 + i,
+              install_method: 'portable',
+              install_path: `C:/apps/${app_id}`,
+              asset_name: 'a.zip',
+              asset_sha256: '',
+            }));
+        }
+        if (prop === 'listCustomApps') return async () => PENDING_ENTRIES;
+        if (prop === 'getPlatformsLite') {
+          return async (id: string) => ({ id, platforms: [], is_stale: false });
+        }
+        if (prop === 'recordSearchQuery') return async () => undefined;
+        if (emptyLists.has(prop)) return async () => [];
+        if (prop.startsWith('on')) return async () => () => {};
+        return async () => undefined;
+      },
+    },
+  );
+  return {
+    tauriApi,
+    ONLINE_SEARCH_PER_PAGE: 20,
+    DEFAULT_SETTINGS: {
+      theme: 'dark',
+      ui_scale: '100',
+      font_size: '14',
+      portable_dir: '',
+      download_dir: '',
+      active_mirror: '',
+      launch_on_startup: false,
+      update_frequency: 'manual',
+      detail_cache_ttl_minutes: 30,
+      catalog_source_url: '',
+      watch_notify_frequency: 'daily',
+    },
+  };
+});
+
+const { App } = await import('./App');
+
+(globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
+
+function badgeText(el: Element | null | undefined): string | null {
+  return el?.querySelector('.count-badge')?.textContent ?? null;
+}
+
+function navigate(viewId: string): void {
+  const item = document.querySelector(`[data-view-id="${viewId}"]`) as HTMLElement | null;
+  if (!item) throw new Error(`nav item ${viewId} missing`);
+  fireEvent.click(item);
+}
+
+function viewRoot(viewClass: string): Element {
+  const root = document.querySelector(`.${viewClass}`);
+  if (!root) throw new Error(`.${viewClass} not rendered`);
+  return root;
+}
+
+function cardNames(root: Element): string[] {
+  return [...root.querySelectorAll('.app-grid .app-card .app-card-header')]
+    .map((el) => el.textContent ?? '')
+    .map((text) => APP_CATALOG.find((a) => text.includes(a.name))?.name ?? text)
+    .sort();
+}
+
+/** 断言「最新」标题角标与可见卡片同源。 */
+async function expectLatest(expected: string[]): Promise<void> {
+  navigate('latest');
+  await waitFor(() => {
+    const root = viewRoot('latest-view');
+    expect(badgeText(root.querySelector('.section-title'))).toBe(String(expected.length));
+    expect(cardNames(root)).toEqual([...expected].sort());
+  });
+}
+
+/** 进入「分类 / 开发工具」子页，断言标题角标与可见卡片同源。 */
+async function expectDevCategory(expected: string[]): Promise<void> {
+  navigate('categories');
+  const devCard = await waitFor(() => {
+    const card = [...document.querySelectorAll('.category-bento-card')].find((el) =>
+      el.textContent?.includes('/dev'),
+    );
+    if (!card) throw new Error('dev category card missing');
+    return card as HTMLElement;
+  });
+  fireEvent.click(devCard);
+  await waitFor(() => {
+    const root = viewRoot('categories-view');
+    expect(badgeText(root.querySelector('.section-title'))).toBe(String(expected.length));
+    expect(cardNames(root)).toEqual([...expected].sort());
+  });
+}
+
+/** 收藏页两个签：签上角标 = 该签可见卡片数。 */
+async function expectFavorites(local: string[], watched: string[]): Promise<void> {
+  navigate('favorites');
+  const tabs = () => [...viewRoot('favorites-view').querySelectorAll('.segmented-item')];
+  await waitFor(() => {
+    expect(badgeText(tabs()[0])).toBe(String(local.length));
+    expect(cardNames(viewRoot('favorites-view'))).toEqual([...local].sort());
+  });
+  fireEvent.click(tabs()[1] as HTMLElement);
+  await waitFor(() => {
+    expect(badgeText(tabs()[1])).toBe(String(watched.length));
+    expect(cardNames(viewRoot('favorites-view'))).toEqual([...watched].sort());
+  });
+}
+
+/** 我的应用「全部」筛选签角标 = 可见行数。 */
+async function expectInstalled(expectedCount: number): Promise<void> {
+  navigate('installed');
+  await waitFor(() => {
+    const root = viewRoot('installed-view');
+    const allTab = root.querySelector('.manage-filter-tab');
+    expect(badgeText(allTab)).toBe(String(expectedCount));
+    expect(root.querySelectorAll('.installed-list-row')).toHaveLength(expectedCount);
+  });
+}
+
+describe('App cross-view counts match visible content', () => {
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
+  it('a residual top-bar search does not trim Latest / Categories / Favorites / Installed', async () => {
+    render(<App />);
+
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'win-tool' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    await screen.findByText('WinTool');
+
+    await expectLatest(['WinTool', 'DroidTool', 'CrossKit', 'MacPlayer']);
+    await expectDevCategory(['WinTool', 'DroidTool', 'CrossKit']);
+    await expectFavorites(['WinTool', 'DroidTool', 'MacPlayer'], ['CrossKit', 'DroidTool']);
+    await expectInstalled(3);
+  });
+
+  it('a single-platform sidebar selection keeps every view badge equal to its visible cards', async () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['windows']));
+    render(<App />);
+
+    await expectLatest(['WinTool', 'CrossKit']);
+    await expectDevCategory(['WinTool', 'CrossKit']);
+
+    navigate('pending');
+    await waitFor(() => {
+      expect(badgeText(screen.getByTestId('pending-tab-draft'))).toBe('1');
+      expect(badgeText(screen.getByTestId('pending-tab-to_submit'))).toBe('1');
+      expect(badgeText(screen.getByTestId('pending-tab-submitted'))).toBe('0');
+      expect(badgeText(screen.getByTestId('pending-tab-archived'))).toBe('1');
+      expect(document.querySelectorAll('.pending-list-item')).toHaveLength(1);
+    });
+
+    await expectInstalled(2);
+    await expectFavorites(['WinTool'], ['CrossKit']);
+  });
+
+  it('an empty sidebar selection (0/6) shows the reset entry in every view', async () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([]));
+    render(<App />);
+
+    const expectReset = async (viewClass: string) => {
+      await waitFor(() => {
+        const root = viewRoot(viewClass);
+        expect(root.querySelector('.filter-empty-reset')).not.toBeNull();
+        expect(root.querySelectorAll('.app-grid .app-card')).toHaveLength(0);
+      });
+    };
+
+    navigate('latest');
+    await expectReset('latest-view');
+    expect(badgeText(viewRoot('latest-view').querySelector('.section-title'))).toBe('0');
+
+    navigate('categories');
+    await expectReset('categories-view');
+    expect(badgeText(viewRoot('categories-view').querySelector('.section-title'))).toBe('0');
+
+    navigate('pending');
+    await waitFor(() => {
+      for (const id of ['draft', 'to_submit', 'submitted', 'archived']) {
+        expect(badgeText(screen.getByTestId(`pending-tab-${id}`))).toBe('0');
+      }
+      expect(screen.getByTestId('pending-platform-reset')).toBeTruthy();
+      expect(document.querySelectorAll('.pending-list-item')).toHaveLength(0);
+    });
+
+    navigate('installed');
+    await expectReset('installed-view');
+
+    navigate('favorites');
+    await expectReset('favorites-view');
+    const tabs = [...viewRoot('favorites-view').querySelectorAll('.segmented-item')];
+    expect(badgeText(tabs[0])).toBe('0');
+    expect(badgeText(tabs[1])).toBe('0');
+    fireEvent.click(tabs[1] as HTMLElement);
+    await expectReset('favorites-view');
   });
 });
