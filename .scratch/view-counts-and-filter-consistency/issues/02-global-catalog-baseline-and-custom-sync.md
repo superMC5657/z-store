@@ -1,6 +1,6 @@
 # Issue 02: 全局目录基线与搜索态隔离、本地库同步闭环及视图级侧栏平台计数通道
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 ## Summary

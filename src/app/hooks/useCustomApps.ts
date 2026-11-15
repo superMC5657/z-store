@@ -3,7 +3,7 @@
  * - customApps：后端草稿列表（null = 未加载/非 Tauri 预览，
  *   此时 PendingView 缺 entries 走内部本地态；备份/转正语义不受影响）；
  * - 挂载即拉取 + `zstore:custom-apps-changed` 变更跟随；
- * - 六个 handler 均为「后端落盘 → 全量重拉」；revert 失败必须报错并向上传递
+ * - 六个 handler 均为「后端落盘 → 全量重拉 → 派发 `zstore:catalog-synced`」；revert 失败必须报错并向上传递
  *   （PendingView 侧同样 toast），禁止静默本地翻 draft。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -46,17 +46,16 @@ export function useCustomApps() {
     };
   }, [reloadCustomApps]);
 
+  // 侧栏「待收录」角标按平台过滤口径由 `useAppSelectors().pendingFilteredCount` 派生。
   const customAppEntries = useMemo(() => customApps ?? undefined, [customApps]);
-  const pendingCount = useMemo(
-    () => customApps?.filter((e) => !e.archived).length ?? 0,
-    [customApps],
-  );
 
-  // 落盘后全量重拉：六个 handler 共用同一「写入 → 刷新」序列。
+  // 落盘后全量重拉：六个 handler 共用同一「写入 → 刷新 → 目录同步广播」序列。
+  // 本地库成员属于后端合并目录，广播让 fullCatalogApps 与 CatalogService 同代（退回/删除后不残留）。
   const mutateAndReload = useCallback(
     async (mutate: () => Promise<unknown>) => {
       await mutate();
       await reloadCustomApps();
+      window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
     },
     [reloadCustomApps],
   );
@@ -95,7 +94,6 @@ export function useCustomApps() {
   return {
     customApps,
     customAppEntries,
-    pendingCount,
     localLibrarySummaries,
     handleSaveCustomApp,
     handleDeleteCustomApp,

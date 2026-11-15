@@ -9,6 +9,8 @@ interface UseUpdateActionsParams {
   setInstalledApps: React.Dispatch<React.SetStateAction<InstalledApp[]>>;
   setUpdateRules: React.Dispatch<React.SetStateAction<UpdateRule[]>>;
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  /** 隐藏规则变更后刷新未经搜索裁剪的全量目录基线。 */
+  setFullCatalogApps?: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setIsCheckingUpdates: React.Dispatch<React.SetStateAction<boolean>>;
   setUpdateCheckProgress: React.Dispatch<React.SetStateAction<UpdateCheckProgressPayload | null>>;
   searchQuery: string;
@@ -26,6 +28,7 @@ export function useUpdateActions({
   setInstalledApps,
   setUpdateRules,
   setApps,
+  setFullCatalogApps,
   setIsCheckingUpdates,
   setUpdateCheckProgress,
   searchQuery,
@@ -36,8 +39,9 @@ export function useUpdateActions({
   const handleApplyUpdate = async (id: string) => {
     try {
       const updatedApp = await tauriApi.installApp(id);
-      setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== id), updatedApp]);
-      setUpdates((prev) => prev.filter((u) => u.app_id !== id));
+      const key = normalizeId(id);
+      setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), updatedApp]);
+      setUpdates((prev) => prev.filter((u) => normalizeId(u.app_id) !== key));
       showToast(t('toast.update_success', { name: updatedApp.app_name || id }), 'success');
     } catch (err) {
       showToast(t('toast.update_failed', { error: String(err) }), 'error');
@@ -47,7 +51,8 @@ export function useUpdateActions({
   // 跳过指定版本
   const handleSkipVersion = async (id: string, version: string) => {
     await tauriApi.setAppSkipVersion(id, version);
-    setUpdates((prev) => prev.filter((u) => u.app_id !== id));
+    const key = normalizeId(id);
+    setUpdates((prev) => prev.filter((u) => normalizeId(u.app_id) !== key));
     const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
     showToast(t('toast.skip_version', { id, version }), 'info');
@@ -73,15 +78,17 @@ export function useUpdateActions({
     showToast(isFrozen ? t('toast.rule_locked', { id: appId }) : t('toast.rule_unlocked', { id: appId }), 'info');
   };
 
-  // 切换应用隐藏状态
+  // 切换应用隐藏状态：后端目录剔除隐藏项，全量基线与搜索结果分别重拉（空搜索词复用同一份）。
   const handleToggleRuleHidden = async (appId: string, isHidden: boolean) => {
     await tauriApi.setAppHidden(appId, isHidden);
     const rules = await tauriApi.getUpdateRules();
     setUpdateRules(rules);
     const freshUpdates = await tauriApi.checkForUpdates();
     setUpdates(freshUpdates);
-    const catalogApps = await tauriApi.searchApps(searchQuery);
-    setApps(catalogApps);
+    const fullCatalog = await tauriApi.searchApps('');
+    setFullCatalogApps?.(fullCatalog);
+    const trimmedQuery = searchQuery.trim();
+    setApps(trimmedQuery ? await tauriApi.searchApps(searchQuery) : fullCatalog);
     showToast(isHidden ? t('toast.rule_hidden', { id: appId }) : t('toast.rule_unhidden', { id: appId }), 'info');
   };
 
@@ -91,20 +98,22 @@ export function useUpdateActions({
     showToast(t('toast.batch_update_starting'), 'info');
     let successCount = 0;
     let failCount = 0;
+    // 规范小写键：后端回包 ID 与快照行大小写不同也按同一应用剔除。
     const updatedIds = new Set<string>();
 
     for (const u of targets) {
       try {
         const updatedApp = await tauriApi.installApp(u.app_id);
-        setInstalledApps((prev) => [...prev.filter((a) => a.app_id !== u.app_id), updatedApp]);
-        updatedIds.add(u.app_id);
+        const key = normalizeId(u.app_id);
+        setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), updatedApp]);
+        updatedIds.add(key);
         successCount++;
       } catch {
         failCount++;
       }
     }
 
-    setUpdates((prev) => prev.filter((u) => !updatedIds.has(u.app_id)));
+    setUpdates((prev) => prev.filter((u) => !updatedIds.has(normalizeId(u.app_id))));
     if (failCount === 0) {
       showToast(t('toast.batch_update_success', { count: successCount }), 'success');
     } else {

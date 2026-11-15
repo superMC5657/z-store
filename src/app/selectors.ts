@@ -9,6 +9,7 @@ import type {
 import {
   PLATFORM_IDS,
   isPlatformLoading,
+  matchPlatformSet,
   matchPlatformSetWithLoading,
   normalizePlatform,
   type PlatformId,
@@ -45,18 +46,67 @@ interface UseAppSelectorsParams {
   customApps?: AppSummary[];
   showCustom?: boolean;
   searchQuery?: string;
-  /** 未经搜索词裁剪的完整目录（供在线段 is_cataloged 标注，避免搜索态误把已收录项标成未收录）。 */
+  /** 未经搜索词裁剪的完整目录：全站目录基线（非搜索视图、收藏池、已装查表、侧栏默认计数）的唯一来源。 */
   fullCatalogApps?: AppSummary[];
+  /** 收藏 ID 集（任意大小写），供侧栏「收藏」角标的平台过滤计数。 */
+  favoriteIds?: ReadonlySet<string>;
+  /** 待收录条目（含归档），供侧栏「待收录」角标的平台过滤计数。 */
+  pendingEntries?: readonly PendingCountEntry[];
+}
+
+/** 待收录计数所需的最小条目形状（与 `DraftEntry` 结构兼容）。 */
+export interface PendingCountEntry {
+  item: { platforms?: readonly string[] };
+  archived: boolean;
+}
+
+/** 平台分布计数：侧栏 6 枚平台芯片下方的数字。 */
+export type PlatformCounts = Record<PlatformId, number>;
+
+/**
+ * 侧栏「待收录」角标口径：未归档条目按 `selectedPlatforms` 过滤后的条数
+ * （等于待收录页草稿 / 待提交 / 已提交三个 Tab 在同一平台筛选下的条数之和）。
+ */
+export function selectPendingFilteredCount(
+  entries: readonly PendingCountEntry[],
+  selectedPlatforms: ReadonlySet<string>,
+): number {
+  let n = 0;
+  for (const e of entries) {
+    if (e.archived) continue;
+    if (matchPlatformSet({ platforms: [...(e.item.platforms ?? [])] }, selectedPlatforms)) n++;
+  }
+  return n;
+}
+
+/** 目录与补充行按 `normalizeId` 去重合并（目录行优先），不过平台过滤。 */
+function mergeUniqueById(base: AppSummary[], extras: readonly AppSummary[]): AppSummary[] {
+  if (extras.length === 0) return base;
+  const seen = new Set<string>();
+  for (const a of base) {
+    const k = normalizeId(a.id);
+    if (k) seen.add(k);
+  }
+  const out = [...base];
+  for (const e of extras) {
+    const k = normalizeId(e.id);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  return out.length === base.length ? base : out;
 }
 
 /**
  * 派生选择器。
  *
- * - 平台优先派生（加载中恒可见，落定后走 matchPlatformSet）；
- * - 侧栏计数基于全量 `apps`（已确认 other 才计 other 桶，加载中不计数）；
- * - 收藏页 left-join 供给（收录段 + 未收录占位段，小写去重）；
- * - 已安装/更新列表经 `appsById` O(1) 查表，未收录行保持可见；
- * - 深链确认弹窗的详情/摘要/SHA-256 解析。
+ * 两条互不污染的派生链：
+ * - 全量目录链：`fullCatalogApps`（缺席回退 `apps`）+ 本地库 → `fullMergedCatalogApps`
+ *   → `catalogPlatformFilteredApps`，服务除搜索结果外的全部视图，顶栏搜索词绝不裁剪它；
+ * - 搜索链：`apps`（顶栏搜索命中）+ 按词过滤的本地库 → `searchPlatformFilteredApps`，仅服务 home 搜索态。
+ *
+ * 另含：平台优先派生（加载中恒可见，落定后走 matchPlatformSet）；收藏页 left-join 供给；
+ * 已安装/更新列表经 `appsById` O(1) 查表；视图级侧栏平台计数通道；深链确认弹窗解析。
  */
 
 function selectPlatformFilteredApps(
@@ -853,34 +903,39 @@ export function useAppSelectors({
   showCustom = SHOW_CUSTOM_DEFAULT,
   searchQuery,
   fullCatalogApps,
+  favoriteIds,
+  pendingEntries,
 }: UseAppSelectorsParams) {
-  // 自维护 overlay：custom 未归档叠加到 Home/分类/搜索（远端优先去重，custom 标 source=custom）。
-  // 缺省（customApps=[]/showCustom=true）即原数组透传。搜索态按词过滤，避免误将不相关的收录行追加到搜索结果。
-  const mergedApps = useMemo(
+  const trimmedQuery = typeof searchQuery === 'string' ? searchQuery.trim() : '';
+
+  // 全量目录链（全站权威基线）：不传 searchQuery，本地库行全部补位。
+  const catalogBase = selectCatalogBase(fullCatalogApps, apps) as AppSummary[];
+  const fullMergedCatalogApps = useMemo(
+    () => selectMergedCatalogApps(catalogBase, customApps, showCustom),
+    [catalogBase, customApps, showCustom],
+  );
+  // 精选/最新/分类/趋势/我的应用消费；加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
+  const catalogPlatformFilteredApps = useMemo(
+    () => selectPlatformFilteredApps(fullMergedCatalogApps, selectedPlatforms, platformResolvedOtherIds),
+    [fullMergedCatalogApps, selectedPlatforms, platformResolvedOtherIds],
+  );
+
+  // 搜索链：顶栏搜索命中 + 按词过滤的本地库行，仅 SearchResultsView 与 home 搜索空态判断消费。
+  const searchMergedApps = useMemo(
     () => selectMergedCatalogApps(apps, customApps, showCustom, searchQuery),
     [apps, customApps, showCustom, searchQuery],
   );
-  const fullMergedForAnnotate = useMemo(
-    () =>
-      fullCatalogApps && fullCatalogApps.length > 0
-        ? selectMergedCatalogApps(fullCatalogApps, customApps, showCustom)
-        : mergedApps,
-    [fullCatalogApps, mergedApps, customApps, showCustom],
+  const searchPlatformFilteredApps = useMemo(
+    () => selectPlatformFilteredApps(searchMergedApps, selectedPlatforms, platformResolvedOtherIds),
+    [searchMergedApps, selectedPlatforms, platformResolvedOtherIds],
   );
-  // 以平台优先派生数据供给 精选/趋势/分类 视图（使用同名 apps 属性）。
-  // 加载中行恒可见（不看 Other 勾选），落定后再走 matchPlatformSet。
-  const platformFilteredApps = useMemo(
-    () => selectPlatformFilteredApps(mergedApps, selectedPlatforms, platformResolvedOtherIds),
-    [mergedApps, selectedPlatforms, platformResolvedOtherIds]
-  );
+
   // 搜索在线段同口径平台过滤：与本地段一致，加载中恒可见，落定后走正常过滤。
-  // 在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对），
-  // 显式标记优先于 category 兜底；已收录在线仍正确隐藏按钮，未收录 dev 猜分类正确显示。
-  // 本地收录橘黄链路：目录用完整合并目录（含本地，远端优先去重语义不动），在线同 id 命中本地
-  // 叠加 source='local'/status（蓝优先：自身已验证不叠加），供 badge 判定。
+  // 在线落定处按全量合并目录显式标注 is_cataloged（含本地，蓝优先：自身已验证不叠加），
+  // 已收录在线仍正确隐藏按钮，未收录 dev 猜分类正确显示。
   const annotatedOnlineApps = useMemo(
-    () => annotateOnlineCataloged(onlineApps, fullMergedForAnnotate, customApps),
-    [onlineApps, fullMergedForAnnotate, customApps],
+    () => annotateOnlineCataloged(onlineApps, fullMergedCatalogApps, customApps),
+    [onlineApps, fullMergedCatalogApps, customApps],
   );
   const platformFilteredOnlineApps = useMemo(
     () => selectPlatformFilteredApps(annotatedOnlineApps, selectedPlatforms, platformResolvedOtherIds),
@@ -890,25 +945,47 @@ export function useAppSelectors({
     () => selectPlatformFilteredApps(recentlyViewedApps, selectedPlatforms, platformResolvedOtherIds),
     [recentlyViewedApps, selectedPlatforms, platformResolvedOtherIds],
   );
-  // 收藏页 left-join 供给：收录段（已平台过滤）+ 未收录占位段（收藏/关注 union 合成，同口径平台过滤后并入，
-  // 小写去重防双显）。其它视图仍用 `platformFilteredApps`，计数仍基于全量 `apps`。
+
+  // 收藏/关注池：全量目录 ∪ 未收录占位行（normalizeId 去重，不过平台），供收藏页平台分布与空态判定。
+  const allFavoritesPoolApps = useMemo(
+    () => mergeUniqueById(fullMergedCatalogApps, uncatalogedExtraApps),
+    [fullMergedCatalogApps, uncatalogedExtraApps],
+  );
+  // 收藏页 left-join 供给：全量目录链（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，小写去重）。
   const favoritesViewApps = useMemo(
-    () => selectFavoritesViewApps(platformFilteredApps, uncatalogedExtraApps, selectedPlatforms, platformResolvedOtherIds),
-    [platformFilteredApps, uncatalogedExtraApps, selectedPlatforms, platformResolvedOtherIds]
+    () => selectFavoritesViewApps(catalogPlatformFilteredApps, uncatalogedExtraApps, selectedPlatforms, platformResolvedOtherIds),
+    [catalogPlatformFilteredApps, uncatalogedExtraApps, selectedPlatforms, platformResolvedOtherIds]
+  );
+  // 侧栏「收藏」角标：平台过滤后命中收藏集的去重条数（不受页内搜索词影响）。
+  const platformFilteredFavoriteCount = useMemo(() => {
+    if (!favoriteIds || favoriteIds.size === 0) return 0;
+    const wanted = new Set<string>();
+    for (const id of favoriteIds) {
+      const k = normalizeId(id);
+      if (k) wanted.add(k);
+    }
+    const hit = new Set<string>();
+    for (const a of favoritesViewApps) {
+      const k = normalizeId(a.id);
+      if (wanted.has(k)) hit.add(k);
+    }
+    return hit.size;
+  }, [favoriteIds, favoritesViewApps]);
+  // 侧栏「待收录」角标：未归档条目按平台过滤计数。
+  const pendingFilteredCount = useMemo(
+    () => selectPendingFilteredCount(pendingEntries ?? [], selectedPlatforms),
+    [pendingEntries, selectedPlatforms],
   );
 
-  // 侧栏分组的各平台应用计数：
-  // 基于全量 `mergedApps` 计算，准确呈现各平台收录数量。
-  // 一次扫完 6 项：已确认 other 才计入虚拟 other 桶，加载中行暂不计数（缺席沿用收录库口径，
-  // 落定后单次更新），大小写归一，同应用去重后各桶 +1（与 6×filter 语义一致）。
-  // 计数基于合并后全量（含 custom 补位行）。
+  // 全库平台分布（侧栏默认口径）：基于全量合并目录（含本地库补位行），顶栏搜索词不缩小它。
+  // 已确认 other 才计入 other 桶，加载中行暂不计数，大小写归一，同应用去重后各桶 +1。
   const platformCounts = useMemo(
-    () => selectPlatformCounts(mergedApps, platformResolvedOtherIds),
-    [mergedApps, platformResolvedOtherIds]
+    () => selectPlatformCounts(fullMergedCatalogApps, platformResolvedOtherIds),
+    [fullMergedCatalogApps, platformResolvedOtherIds]
   );
 
   // 目录 id（小写）→ AppSummary 索引，供已安装/更新列表 O(1) 查表，避免每行 apps.find 全扫
-  const appsById = useMemo(() => buildAppsById(mergedApps), [mergedApps]);
+  const appsById = useMemo(() => buildAppsById(fullMergedCatalogApps), [fullMergedCatalogApps]);
 
   const filteredInstalledApps = useMemo(() => {
     return installedApps.filter((inst) => {
@@ -928,37 +1005,69 @@ export function useAppSelectors({
     setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
   }, [setSelectedPlatforms]);
 
-  // 趋势榜单平台分布（TrendsView 上报其榜单行口径）：趋势页侧栏计数切到该口径，
-  // 收藏页 Star 列表激活且已拉取时切到 Star 列表分布，
-  // 搜索态首页（HomeView 同时展示本地段与在线段）纳入去重后的在线结果分布，
-  // 其余页面沿用收录库口径。null = 尚未上报（沿用收录库，避免闪 0）。
-  const [trendsPlatformCounts, setTrendsPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
-  const handleTrendsPlatformCounts = useCallback((counts: Record<PlatformId, number>) => {
-    setTrendsPlatformCounts(counts);
+  // 视图级侧栏平台计数通道：各视图按自身作用域上报分布（null = 未上报/撤回，回退默认口径）。
+  // 只读取 currentView 的槽位；离开视图即清空其槽位，回到该视图在重新上报前回退默认口径（不闪旧值）。
+  const [viewPlatformCounts, setViewPlatformCountsState] = useState<
+    Partial<Record<ViewType, PlatformCounts>>
+  >({});
+  const setViewPlatformCounts = useCallback((view: ViewType, counts: PlatformCounts | null) => {
+    setViewPlatformCountsState((prev) => {
+      if (counts === null) {
+        if (!(view in prev)) return prev;
+        const next = { ...prev };
+        delete next[view];
+        return next;
+      }
+      if (prev[view] === counts) return prev;
+      return { ...prev, [view]: counts };
+    });
   }, []);
-  const [starredPlatformCounts, setStarredPlatformCounts] = useState<Record<PlatformId, number> | null>(null);
-  const handleStarredPlatformCounts = useCallback((counts: Record<PlatformId, number> | null) => {
-    setStarredPlatformCounts(counts);
-  }, []);
-  const hasActiveOnlineSearch =
-    currentView === 'home' &&
-    typeof searchQuery === 'string' &&
-    searchQuery.trim().length > 0 &&
-    isOnlineResults &&
-    annotatedOnlineApps.length > 0;
+  const prevViewRef = useRef(currentView);
+  useEffect(() => {
+    const left = prevViewRef.current;
+    prevViewRef.current = currentView;
+    if (left !== currentView) setViewPlatformCounts(left, null);
+  }, [currentView, setViewPlatformCounts]);
+  const handleLatestPlatformCounts = useCallback(
+    (counts: PlatformCounts | null) => setViewPlatformCounts('latest', counts),
+    [setViewPlatformCounts],
+  );
+  const handleCategoryPlatformCounts = useCallback(
+    (counts: PlatformCounts | null) => setViewPlatformCounts('categories', counts),
+    [setViewPlatformCounts],
+  );
+  const handleTrendsPlatformCounts = useCallback(
+    (counts: PlatformCounts | null) => setViewPlatformCounts('trends', counts),
+    [setViewPlatformCounts],
+  );
+  const handlePendingPlatformCounts = useCallback(
+    (counts: PlatformCounts | null) => setViewPlatformCounts('pending', counts),
+    [setViewPlatformCounts],
+  );
+  const handleInstalledPlatformCounts = useCallback(
+    (counts: PlatformCounts | null) => setViewPlatformCounts('installed', counts),
+    [setViewPlatformCounts],
+  );
+  const handleFavoritesPlatformCounts = useCallback(
+    (counts: PlatformCounts | null) => setViewPlatformCounts('favorites', counts),
+    [setViewPlatformCounts],
+  );
+
+  // home 搜索态：本地搜索命中（有在线结果时 ∪ 在线结果，按行别名去重）的分布；非 home 搜索态为 null。
+  const isHomeSearch = currentView === 'home' && trimmedQuery.length > 0;
+  const hasActiveOnlineSearch = isHomeSearch && isOnlineResults && annotatedOnlineApps.length > 0;
   const searchPlatformCounts = useMemo(() => {
-    if (!hasActiveOnlineSearch) return null;
+    if (!isHomeSearch) return null;
     return selectPlatformCounts(
-      mergeAppsForPlatformCounts(mergedApps, annotatedOnlineApps),
+      hasActiveOnlineSearch
+        ? mergeAppsForPlatformCounts(searchMergedApps, annotatedOnlineApps)
+        : searchMergedApps,
       platformResolvedOtherIds,
     );
-  }, [hasActiveOnlineSearch, mergedApps, annotatedOnlineApps, platformResolvedOtherIds]);
-  const sidebarPlatformCounts =
-    currentView === 'trends' && trendsPlatformCounts
-      ? trendsPlatformCounts
-      : currentView === 'favorites' && starredPlatformCounts
-        ? starredPlatformCounts
-        : searchPlatformCounts ?? platformCounts;
+  }, [isHomeSearch, hasActiveOnlineSearch, searchMergedApps, annotatedOnlineApps, platformResolvedOtherIds]);
+  // 优先级：当前视图上报值 > home 搜索态分布 > 全库分布。
+  const sidebarPlatformCounts: PlatformCounts =
+    viewPlatformCounts[currentView] ?? searchPlatformCounts ?? platformCounts;
 
   // 已安装 id 集（大小写归一）：安装态与「受管」判定共用同一集合，一处计算两处消费。
   const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
@@ -999,19 +1108,30 @@ export function useAppSelectors({
   const stagedDeepLinkSha256 = stagedDeepLinkDetail?.releases.find((r) => r.sha256)?.sha256;
 
   return {
-    platformFilteredApps,
+    fullMergedCatalogApps,
+    catalogPlatformFilteredApps,
+    searchPlatformFilteredApps,
     platformFilteredOnlineApps,
     platformFilteredRecentApps,
+    allFavoritesPoolApps,
     favoritesViewApps,
+    platformFilteredFavoriteCount,
+    pendingFilteredCount,
     platformCounts,
     appsById,
-    mergedApps,
     showCustom,
     filteredInstalledApps,
     filteredUpdates,
     handleResetPlatformFilter,
+    setViewPlatformCounts,
+    handleLatestPlatformCounts,
+    handleCategoryPlatformCounts,
     handleTrendsPlatformCounts,
-    handleStarredPlatformCounts,
+    handlePendingPlatformCounts,
+    handleInstalledPlatformCounts,
+    handleFavoritesPlatformCounts,
+    /** 收藏页 Star 同步签沿用的旧名，与 `handleFavoritesPlatformCounts` 同一槽位。 */
+    handleStarredPlatformCounts: handleFavoritesPlatformCounts,
     sidebarPlatformCounts,
     installedIds,
     managedIds,

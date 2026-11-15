@@ -79,6 +79,7 @@ function renderActions(updates: UpdateItem[] = [], searchQuery = '') {
     setInstalledApps: vi.fn(),
     setUpdateRules: vi.fn(),
     setApps: vi.fn(),
+    setFullCatalogApps: vi.fn(),
     setIsCheckingUpdates: vi.fn(),
     setUpdateCheckProgress: vi.fn(),
     searchQuery,
@@ -266,5 +267,73 @@ describe('useUpdateActions：手动检查更新', () => {
     expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.check_failed'), 'error');
     expect(deps.setIsCheckingUpdates).toHaveBeenLastCalledWith(false);
     expect(deps.setUpdateCheckProgress).toHaveBeenLastCalledWith(null);
+  });
+});
+
+type ListUpdater<T> = (prev: T[]) => T[];
+
+describe('useUpdateActions：大小写混合 ID 归一', () => {
+  it('单项更新：Owner/Repo 与 owner/repo 不产生重复已装行或残留更新项', async () => {
+    const { rendered, deps } = renderActions([makeUpdate('owner/repo')]);
+    mocks.installApp.mockResolvedValue(makeInstalled('Owner/Repo'));
+    await act(async () => {
+      await rendered.result.current.handleApplyUpdate('Owner/Repo');
+    });
+    const installedUpdater = deps.setInstalledApps.mock.calls[0][0] as ListUpdater<InstalledApp>;
+    expect(installedUpdater([makeInstalled('owner/repo')]).map((a) => a.app_id)).toEqual(['Owner/Repo']);
+    const updatesUpdater = deps.setUpdates.mock.calls[0][0] as ListUpdater<UpdateItem>;
+    expect(updatesUpdater([makeUpdate('owner/repo'), makeUpdate('beta/bravo')])).toEqual([
+      makeUpdate('beta/bravo'),
+    ]);
+  });
+
+  it('跳过版本：大小写不同的更新项一并剔除', async () => {
+    const { rendered, deps } = renderActions([makeUpdate('owner/repo')]);
+    await act(async () => {
+      await rendered.result.current.handleSkipVersion('Owner/Repo', '2.0.0');
+    });
+    const updatesUpdater = deps.setUpdates.mock.calls[0][0] as ListUpdater<UpdateItem>;
+    expect(updatesUpdater([makeUpdate('owner/repo')])).toEqual([]);
+  });
+
+  it('批量升级：后端回包 ID 大小写与已装行不同仍替换而非追加，updates 按归一剔除', async () => {
+    const { rendered, deps } = renderActions([makeUpdate('Owner/Repo')]);
+    mocks.installApp.mockResolvedValue(makeInstalled('owner/repo'));
+    await act(async () => {
+      await rendered.result.current.handleBatchUpdateAll();
+    });
+    const installedUpdater = deps.setInstalledApps.mock.calls[0][0] as ListUpdater<InstalledApp>;
+    expect(installedUpdater([makeInstalled('OWNER/REPO')]).map((a) => a.app_id)).toEqual(['owner/repo']);
+    const updatesUpdater = deps.setUpdates.mock.calls[0][0] as ListUpdater<UpdateItem>;
+    expect(updatesUpdater([makeUpdate('owner/REPO')])).toEqual([]);
+  });
+});
+
+describe('useUpdateActions：隐藏规则同步全量目录', () => {
+  it('空搜索词：一次 searchApps("") 同时刷新 apps 与 fullCatalogApps', async () => {
+    const { rendered, deps } = renderActions([], '');
+    mocks.checkForUpdates.mockResolvedValue([]);
+    const full = [{ id: 'acme/atlas' }];
+    mocks.searchApps.mockResolvedValue(full);
+    await act(async () => {
+      await rendered.result.current.handleToggleRuleHidden('acme/atlas', true);
+    });
+    expect(mocks.searchApps).toHaveBeenCalledTimes(1);
+    expect(mocks.searchApps).toHaveBeenCalledWith('');
+    expect(deps.setFullCatalogApps).toHaveBeenCalledWith(full);
+    expect(deps.setApps).toHaveBeenCalledWith(full);
+  });
+
+  it('非空搜索词：全量目录走 searchApps("")，apps 保持搜索结果', async () => {
+    const { rendered, deps } = renderActions([], 'vlc');
+    mocks.checkForUpdates.mockResolvedValue([]);
+    const full = [{ id: 'acme/atlas' }, { id: 'videolan/vlc' }];
+    const hits = [{ id: 'videolan/vlc' }];
+    mocks.searchApps.mockImplementation(async (q: string) => (q === '' ? full : hits));
+    await act(async () => {
+      await rendered.result.current.handleToggleRuleHidden('acme/atlas', true);
+    });
+    expect(deps.setFullCatalogApps).toHaveBeenCalledWith(full);
+    expect(deps.setApps).toHaveBeenCalledWith(hits);
   });
 });

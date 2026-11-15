@@ -195,6 +195,23 @@ describe('草稿 mappers 与状态判定', () => {
     expect(summary.latest_version).toBe('v0.1.0');
     expect(summary.platforms).not.toBe(item.platforms);
   });
+
+  it('added_at 只读投影：item.added_at 优先，缺省按 created_at 取 UTC 日期，写盘剥离', () => {
+    // 1767225599 = 2025-12-31T23:59:59Z（东八区已是次日，必须按 UTC 取日）
+    const derived = entryFromWire(wireEntry({ created_at: 1767225599 }));
+    expect(derived.item.added_at).toBe('2025-12-31');
+    expect(entryToCollectedSummary(derived).added_at).toBe('2025-12-31');
+
+    const explicit = entryFromWire(
+      wireEntry({ created_at: 1767225599, item: wireItem({ added_at: '2024-03-05' }) }),
+    );
+    expect(explicit.item.added_at).toBe('2024-03-05');
+    expect(entryToCollectedSummary(explicit).added_at).toBe('2024-03-05');
+
+    expect(entryFromWire(wireEntry({ created_at: 0 })).item.added_at).toBeUndefined();
+    expect('added_at' in itemToSummary(draftItem({ added_at: undefined }), 'collected')).toBe(false);
+    expect('added_at' in itemToWire(explicit.item)).toBe(false);
+  });
 });
 
 describe('移入收录预填图标与 forge 门', () => {
