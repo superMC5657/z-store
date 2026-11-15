@@ -223,7 +223,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [rawDisplayItems, selectedPlatforms, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
   displayItemsRef.current = displayItems;
 
-  // 榜单平台分布（加载中行暂不计数，落定后单次更新）。
+  // 榜单平台分布：取平台过滤前的行，各平台计数不随当前勾选变化（加载中行暂不计数，落定后单次更新）。
   const displayPlatformCounts = useMemo<Record<PlatformId, number>>(() => {
     const counts = {} as Record<PlatformId, number>;
     for (const id of PLATFORM_IDS) counts[id] = 0;
@@ -238,13 +238,13 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     };
     for (const id of PLATFORM_IDS) {
       const singleton = new Set<string>([id]);
-      for (const item of displayItems) {
+      for (const item of rawDisplayItems) {
         if (isLoadingItem(item)) continue;
         if (matchPlatformSet({ platforms: platsOf(item) }, singleton)) counts[id] += 1;
       }
     }
     return counts;
-  }, [displayItems, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
+  }, [rawDisplayItems, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
 
   useEffect(() => {
     onDisplayPlatformCounts?.(displayPlatformCounts);
