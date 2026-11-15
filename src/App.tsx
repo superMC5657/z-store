@@ -72,7 +72,7 @@ export const App: React.FC = () => {
   const navigate = useMemo(() => createNavigate(setCurrentView), [setCurrentView]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [apps, setApps] = useState<AppSummary[]>([]);
-  // 完整未裁剪目录（仅由 searchApps('') 与 zstore:catalog-synced 更新），供收藏/趋势/Star/在线段判收录使用，
+  // 完整未裁剪目录（由 searchApps('')、zstore:catalog-synced 与详情回填同步），供收藏/趋势/Star/在线段判收录及详情优先展示，
   // 避免顶栏输入搜索词覆盖 apps 后导致其余已收录项误判为未收录。
   const [fullCatalogApps, setFullCatalogApps] = useState<AppSummary[]>([]);
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
@@ -277,6 +277,7 @@ export const App: React.FC = () => {
     onlineAppsRef,
     recentsRef,
     setApps,
+    setFullCatalogApps,
     setOnlineApps,
     setRecentlyViewedApps,
     setUncatalogedExtraApps,

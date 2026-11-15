@@ -33,12 +33,6 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
         || name_lower.ends_with(".exe")
     {
         (AssetKind::SetupExe, "windows", arch)
-    } else if (name_lower.contains("portable")
-        || contains_word(n, "win")
-        || contains_word(n, "windows"))
-        && name_lower.ends_with(".zip")
-    {
-        (AssetKind::PortableZip, "windows", arch)
     } else if name_lower.ends_with(".deb") {
         (AssetKind::Deb, "linux", arch)
     } else if name_lower.ends_with(".rpm") {
@@ -56,6 +50,7 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
             || contains_word(n, "macos")
             || contains_word(n, "osx")
             || contains_word(n, "mac")
+            || name_lower.ends_with(".app.zip")
         {
             "macos"
         } else if contains_word(n, "linux") {
@@ -81,6 +76,7 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
             || contains_word(n, "macos")
             || contains_word(n, "osx")
             || contains_word(n, "mac")
+            || crate::github::detail_assets::is_app_bundle_tarball(n)
         {
             "macos"
         } else if contains_word(n, "windows")

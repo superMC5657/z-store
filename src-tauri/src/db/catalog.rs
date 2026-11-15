@@ -282,7 +282,7 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// 平台懒回填持久化：仅当 `catalog_apps` 存在对应行且推导出非空平台时回写 `platforms_json`。
+    /// 平台懒回填持久化：仅当 `catalog_apps` 存在对应行、原有平台为空且推导出非空平台时补写 `platforms_json`（不覆盖已有收录平台）。
     pub fn update_catalog_app_platforms(&self, id: &str, platforms: &[String]) -> Result<bool> {
         if platforms.is_empty() {
             return Ok(false);
@@ -290,6 +290,12 @@ impl Database {
         let Some(key) = crate::forge::canonical_app_id(id) else {
             return Ok(false);
         };
+        let Some(existing) = self.get_catalog_app(&key)? else {
+            return Ok(false);
+        };
+        if !existing.platforms.is_empty() {
+            return Ok(false);
+        }
         let platforms_json = serde_json::to_string(platforms).unwrap_or_else(|_| "[]".into());
         let now = now_secs();
         let rows = self.exec_write(
@@ -405,13 +411,32 @@ mod tests {
 
         assert!(db.update_catalog_app_from_detail(&detail).unwrap());
         let got = db.get_catalog_app("o/r").unwrap().unwrap();
+        // 动态指标与缺失图标回填更新
         assert_eq!(got.stars, 555);
         assert_eq!(got.forks, 44);
         assert_eq!(got.default_version, "v2.0.0");
-        assert_eq!(got.license, "Apache-2.0");
-        assert_eq!(got.homepage.as_deref(), Some("https://new.example.com"));
         assert_eq!(got.icon, "https://example.com/new.png");
-        assert_eq!(got.platforms, vec!["windows", "linux"]);
+        // 已有精校公共字段保持收录库优先，不被详情覆盖
+        assert_eq!(got.license, "MIT");
+        assert_eq!(got.homepage.as_deref(), Some("https://example.com"));
+        assert_eq!(got.platforms, vec!["windows"]);
+
+        // 原目录字段为空时允许详情回填补齐
+        let mut empty_item = sample_item("o/empty", 10);
+        empty_item.platforms = Vec::new();
+        empty_item.homepage = None;
+        empty_item.license = String::new();
+        db.replace_catalog_apps(&[empty_item]).unwrap();
+        let mut empty_detail = detail.clone();
+        empty_detail.core.id = "o/empty".to_string();
+        assert!(db.update_catalog_app_from_detail(&empty_detail).unwrap());
+        let got_empty = db.get_catalog_app("o/empty").unwrap().unwrap();
+        assert_eq!(got_empty.platforms, vec!["windows", "linux"]);
+        assert_eq!(got_empty.license, "Apache-2.0");
+        assert_eq!(
+            got_empty.homepage.as_deref(),
+            Some("https://new.example.com")
+        );
 
         // 未收录应用不会插入 catalog_apps
         let mut uncataloged = detail.clone();

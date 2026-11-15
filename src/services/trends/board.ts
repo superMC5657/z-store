@@ -33,6 +33,7 @@ import {
 } from '../../lib/platformFilter';
 import { zlogWarn } from '../../lib/z-log';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
+import { arePlatformsEqual } from '../../utils/appHelper';
 import {
   buildDoforceCacheKey,
   buildTrendsCacheKey,
@@ -877,7 +878,7 @@ function applyPlatformsHealToMirror(
   for (const k of Object.keys(prev)) {
     if (!keySet.has(k.toLowerCase())) continue;
     const cur = prev[k];
-    if (!cur.platforms || cur.platforms.length === 0) {
+    if (!cur.platforms || cur.platforms.length === 0 || !arePlatformsEqual(cur.platforms, platforms)) {
       const keepIcon = summary.icon.trim() === '' && cur.icon.trim() !== '';
       next[k] = {
         ...summary,
@@ -928,7 +929,7 @@ function patchHealRow(
 ): AppSummary | null {
   const patched: AppSummary = { ...cur };
   let rowChanged = false;
-  if ((!patched.platforms || patched.platforms.length === 0) && platforms && platforms.length > 0) {
+  if (platforms && platforms.length > 0 && !arePlatformsEqual(patched.platforms, platforms)) {
     patched.platforms = [...platforms];
     rowChanged = true;
   }

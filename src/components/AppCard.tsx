@@ -7,7 +7,7 @@ import { AppIconFrame } from './AppIconFrame';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from './VerifiedBadge';
 import { PlatformIcon, ForgeIcon, WatchEyeIcon } from './icons/PlatformIcons';
 import { PLATFORM_META, type PlatformId } from '../lib/platformFilter';
-import { getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
+import { arePlatformsEqual, getAppDescription, getCategoryLabel, isAppCataloged } from '../utils/appHelper';
 import { formatStars, isPlaceholderDescription } from '../services/trends';
 
 interface AppCardProps {
@@ -125,16 +125,6 @@ const FeedbackMenu: React.FC<{
     </span>
   );
 };
-
-function arePlatformsEqual(a?: string[], b?: string[]): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
 
 function isAppVisualEqual(prev: AppSummary, next: AppSummary): boolean {
   if (prev === next) return true;

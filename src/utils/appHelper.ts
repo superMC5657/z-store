@@ -56,6 +56,17 @@ export function formatAppDate(ts: number, locale = 'zh-CN'): string {
   });
 }
 
+/** 比较两组平台标识数组内容与顺序是否一致。 */
+export function arePlatformsEqual(a?: readonly string[], b?: readonly string[]): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 /**
  * 格式化字节大小为可读字符串（B 整数 / KB·MB 一位小数 / GB 两位小数）。
  * 缺失、非数值、非有限或非正输入一律回退 '0 B'。

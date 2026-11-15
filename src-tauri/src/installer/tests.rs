@@ -35,6 +35,31 @@ fn test_classify_asset() {
         classify_asset("rustdesk-1.2.6.rpm").0,
         AssetKind::Rpm
     );
+
+    // macOS .app bundle archives (e.g. Maccy.app.zip) must classify as macos, not windows
+    let (kind, os, _) = classify_asset("Maccy.app.zip");
+    assert_eq!(kind, AssetKind::PortableZip);
+    assert_eq!(os, "macos");
+
+    let (kind, os, _) = classify_asset("Rectangle-portable.app.zip");
+    assert_eq!(kind, AssetKind::PortableZip);
+    assert_eq!(os, "macos");
+
+    let (kind, os, _) = classify_asset("App-macos-portable.zip");
+    assert_eq!(kind, AssetKind::PortableZip);
+    assert_eq!(os, "macos");
+
+    let (kind, os, _) = classify_asset("app-linux-portable.zip");
+    assert_eq!(kind, AssetKind::PortableZip);
+    assert_eq!(os, "linux");
+
+    let (kind, os, _) = classify_asset("app-win64-portable.zip");
+    assert_eq!(kind, AssetKind::PortableZip);
+    assert_eq!(os, "windows");
+
+    let (kind, os, _) = classify_asset("Maccy.app.tar.gz");
+    assert_eq!(kind, AssetKind::PortableTarball);
+    assert_eq!(os, "macos");
 }
 
 #[test]

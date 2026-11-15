@@ -37,6 +37,14 @@ pub fn is_excluded_signature_or_text(name_lower: &str) -> bool {
     false
 }
 
+/// 判断文件名是否为 macOS `.app` 打包的 tar 归档（属于二进制分发包，非源码包）。
+pub fn is_app_bundle_tarball(name_lower: &str) -> bool {
+    name_lower.ends_with(".app.tar.gz")
+        || name_lower.ends_with(".app.tgz")
+        || name_lower.ends_with(".app.tar.xz")
+        || name_lower.ends_with(".app.tar")
+}
+
 /// 判断是否为源码包（源码归档或含源码标记的包，不可作为安装包）
 pub fn is_source_package(name_lower: &str) -> bool {
     // tar 系归档：后缀命中后加二进制豁免 —— 含源码标记仍为 true；
@@ -76,6 +84,9 @@ pub fn is_source_package(name_lower: &str) -> bool {
             || crate::installer::contains_word(name_lower, "i386")
             || crate::installer::contains_word(name_lower, "i686")
             || crate::installer::contains_word(name_lower, "x86");
+        if is_app_bundle_tarball(name_lower) {
+            return false;
+        }
         if has_os && has_arch {
             return false;
         }
@@ -161,37 +172,75 @@ pub fn sort_platforms(platforms: &mut [String]) {
     platforms.sort_by_key(|p| ORDER.iter().position(|&x| x == p.as_str()).unwrap_or(99));
 }
 
-/// ios 并集 + 排序 SSOT（detail/fetch + lite 共用唯一真相源）：
-/// deduced 为空直接返回空（永不 stamp `["other"]`/`["windows"]`）；
-/// 非空时并入收录库的 `ios`（仅 ios，前端 virtual-Other 之外唯一允许的收录侧并集），再按 ORDER 排序。
-pub fn with_ios_union(deduced: Vec<String>, catalog_platforms: &[String]) -> Vec<String> {
-    if deduced.is_empty() {
-        return Vec::new();
-    }
-    let mut set = std::collections::BTreeSet::new();
-    for p in &deduced {
-        set.insert(p.clone());
-    }
-    for p in catalog_platforms {
-        if p == "ios" {
-            set.insert(p.clone());
-        }
-    }
-    let mut list: Vec<String> = set.into_iter().collect();
-    sort_platforms(&mut list);
-    list
+/// 详情/轻量通道平台决议 SSOT（收录库优先，空 `[]` 时回退 Release 推导）：
+/// - 收录库 `catalog_platforms` 为 `Some` 且含有效非空平台时，直接以收录库为准；
+/// - 否则（未收录或收录库为 `[]`），使用 Release 资产推导的 `deduced`。
+pub fn resolve_platforms_catalog_first(
+    deduced: Vec<String>,
+    catalog_platforms: Option<&[String]>,
+) -> Vec<String> {
+    catalog_platforms
+        .and_then(clean_catalog_platforms)
+        .unwrap_or(deduced)
 }
 
-/// deduce + ios 并集一步完成（releases 已为最小 `ReleaseAsset` 投影时用）。
-/// `catalog_platforms=None` 时等价于纯 `platforms_from_assets`。
-pub fn platforms_with_ios_union(
+/// 收录库平台清洗：去空白、剔除空串与 `other`，保持收录库原序；清洗后为空返回 `None`。
+pub fn clean_catalog_platforms(catalog_platforms: &[String]) -> Option<Vec<String>> {
+    let clean: Vec<String> = catalog_platforms
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("other"))
+        .collect();
+    (!clean.is_empty()).then_some(clean)
+}
+
+/// 一步完成：先查收录库平台（非空即用），为空或未收录时从 Release 资产推导。
+pub fn platforms_with_catalog_priority(
     releases: &[ReleaseAsset],
     catalog_platforms: Option<&[String]>,
 ) -> Vec<String> {
-    let deduced = platforms_from_assets(releases);
-    match catalog_platforms {
-        Some(cp) => with_ios_union(deduced, cp),
-        None => deduced,
+    catalog_platforms
+        .and_then(clean_catalog_platforms)
+        .unwrap_or_else(|| platforms_from_assets(releases))
+}
+
+/// 按当前资产分类规则刷新 `ReleaseAsset` 的 `kind`、`os`、`arch`（用于 304/DB 缓存读取自愈）。
+pub fn refresh_release_assets_classification(releases: &mut [ReleaseAsset]) {
+    for r in releases.iter_mut() {
+        let (kind, os, arch) = crate::forge::provider::classify_asset_fields(&r.name);
+        r.kind = kind;
+        r.os = os;
+        r.arch = arch;
+    }
+}
+
+/// 缓存详情统一自愈（DB 投影、`304` 复用、`ReuseStale` 与 `platforms-lite` 兜底共用）：
+/// - `releases` 非空时剔除无效包、重算 `kind`/`os`/`arch`、按宿主适配度重排，并以收录库优先重推 `platforms`；
+/// - `releases` 为空时保留历史 `platforms`，仅在收录库含非空有效平台时覆盖；
+/// - 最后用收录项精校元数据覆写 `core`（保留实时动态指标）。
+pub fn heal_cached_detail(
+    detail: &mut crate::models::AppDetail,
+    catalog_item: Option<&crate::github::models::CatalogItem>,
+) {
+    if !detail.releases.is_empty() {
+        detail
+            .releases
+            .retain(|r| is_valid_installer_asset(&r.name, r.size_bytes));
+        refresh_release_assets_classification(&mut detail.releases);
+        detail
+            .releases
+            .sort_by_key(|b| std::cmp::Reverse(crate::installer::score_asset(b)));
+        detail.core.platforms = platforms_with_catalog_priority(
+            &detail.releases,
+            catalog_item.map(|i| i.platforms.as_slice()),
+        );
+    } else if let Some(clean) =
+        catalog_item.and_then(|i| clean_catalog_platforms(&i.platforms))
+    {
+        detail.core.platforms = clean;
+    }
+    if let Some(item) = catalog_item {
+        item.overlay_detail_core(&mut detail.core);
     }
 }
 
@@ -214,12 +263,15 @@ pub fn checksum_asset_platform_eligible(lower_name: &str) -> (bool, &'static str
     (true, "generic")
 }
 
-/// GitHub 原始资产 → 最小 `ReleaseAsset` 投影 → deduce + ios 并集（lite 通道 SSOT）。
-/// 空推导明确返回空向量，不做任何兜底；排序 ORDER 复用 `sort_platforms`。
+/// GitHub 原始资产 → 收录库平台优先（保持收录库原序），空时最小 `ReleaseAsset` 投影 → deduce（lite 通道 SSOT）。
+/// 空推导明确返回空向量，不做任何兜底；推导分支排序 ORDER 复用 `sort_platforms`。
 pub(crate) fn lite_platforms_for_github_assets(
     assets: &[crate::github::models::GitHubAssetResponse],
     catalog_platforms: Option<&[String]>,
 ) -> Vec<String> {
+    if let Some(clean) = catalog_platforms.and_then(clean_catalog_platforms) {
+        return clean;
+    }
     let lite: Vec<ReleaseAsset> = assets
         .iter()
         .map(|a| ReleaseAsset {
@@ -232,7 +284,7 @@ pub(crate) fn lite_platforms_for_github_assets(
             kind: String::new(),
         })
         .collect();
-    platforms_with_ios_union(&lite, catalog_platforms)
+    platforms_from_assets(&lite)
 }
 
 #[cfg(test)]
@@ -367,6 +419,16 @@ mod tests {
                 "linux".to_string()
             ]
         );
+
+        // macOS .app.zip (bad case: Maccy.app.zip) must derive ["macos"], never ["windows"]
+        let maccy_assets = vec![make_asset("Maccy.app.zip", 5_288_775)];
+        assert_eq!(
+            platforms_from_assets(&maccy_assets),
+            vec!["macos".to_string()]
+        );
+
+        // .app.tar.gz is a binary bundle archive, not a source tarball
+        assert!(is_valid_installer_asset("Maccy.app.tar.gz", 5_288_775));
     }
 
     #[test]
@@ -384,5 +446,49 @@ mod tests {
         assert!(ok, "{}", reason);
         let (ok, _) = checksum_asset_platform_eligible("SHA256SUMS");
         assert!(ok);
+    }
+
+    #[test]
+    fn test_platforms_with_catalog_priority_prefers_nonempty_catalog_and_falls_back_when_empty() {
+        let releases = vec![ReleaseAsset {
+            name: "app-setup.exe".to_string(),
+            download_url: "https://example.com/app-setup.exe".to_string(),
+            size_bytes: 20_000_000,
+            sha256: None,
+            os: String::new(),
+            arch: String::new(),
+            kind: String::new(),
+        }];
+
+        // 收录库非空时优先取收录库（保留 android / ios / macos 等）
+        let curated = vec![
+            "windows".to_string(),
+            "macos".to_string(),
+            "android".to_string(),
+            "ios".to_string(),
+        ];
+        assert_eq!(
+            platforms_with_catalog_priority(&releases, Some(&curated)),
+            curated
+        );
+
+        // 收录库仅含 ios 且无 release 二进制时，仍保留收录库的 ios
+        let ios_only = vec!["ios".to_string()];
+        assert_eq!(
+            platforms_with_catalog_priority(&[], Some(&ios_only)),
+            ios_only
+        );
+
+        // 收录库为空 [] 时回退 Release 推导
+        assert_eq!(
+            platforms_with_catalog_priority(&releases, Some(&[])),
+            vec!["windows".to_string()]
+        );
+
+        // 未收录（None）走 Release 推导
+        assert_eq!(
+            platforms_with_catalog_priority(&releases, None),
+            vec!["windows".to_string()]
+        );
     }
 }

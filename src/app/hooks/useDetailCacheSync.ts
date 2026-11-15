@@ -1,10 +1,11 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
 import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
 import { annotateIsCataloged, buildCatalogIdSet, prepareRecentViews, selectCatalogBase } from '../selectors';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import { resolveRemoteIconUrl } from '../../services/custom';
+import { arePlatformsEqual, buildAppRepoUrl, resolveExternalHomepageUrl } from '../../utils/appHelper';
 import { findInSearchListCache, patchSearchListCacheRows } from '../../services/search/searchListCache';
 import { unmaskRecentViewApp } from '../../services/recentViewsMask';
 import {
@@ -28,6 +29,7 @@ interface UseDetailCacheSyncParams {
   onlineAppsRef: React.MutableRefObject<AppSummary[]>;
   recentsRef: React.MutableRefObject<AppSummary[]>;
   setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  setFullCatalogApps?: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setUncatalogedExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
@@ -56,6 +58,26 @@ function nonBlankString(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
 }
 
+function isConcreteLicense(v: unknown): v is string {
+  if (typeof v !== 'string') return false;
+  const lower = v.trim().toLowerCase();
+  return lower !== '' && lower !== '...' && lower !== 'unknown' && lower !== 'opensource';
+}
+
+/**
+ * 收录库行选取（ADR-0017 §2.3 去重远端优先）：同 id 取远端目录行，本地收录仅在远端缺席时补位。
+ * 远端目录按 `fullCatalogApps` → `apps` 逐级查找。
+ */
+function findCuratedEntry(
+  idClean: string,
+  fullCatalogApps: readonly AppSummary[] | undefined,
+  apps: readonly AppSummary[],
+  localApps: readonly AppSummary[] | undefined,
+): AppSummary | undefined {
+  const matches = (a: AppSummary) => a.id.toLowerCase() === idClean;
+  return fullCatalogApps?.find(matches) ?? apps.find(matches) ?? localApps?.find(matches);
+}
+
 export function useDetailCacheSync({
   selectedApp,
   appsRef,
@@ -63,6 +85,7 @@ export function useDetailCacheSync({
   onlineAppsRef,
   recentsRef,
   setApps,
+  setFullCatalogApps,
   setOnlineApps,
   setRecentlyViewedApps,
   setUncatalogedExtraApps,
@@ -74,6 +97,22 @@ export function useDetailCacheSync({
   const activeDetailIdRef = useRef<string | null>(null);
   const selectedAppRef = useRef<AppDetailViewModel | null>(null);
   selectedAppRef.current = selectedApp;
+  const localAppsRef = useRef<readonly AppSummary[] | undefined>(localApps);
+  localAppsRef.current = localApps;
+
+  // 收录库或本地自收录变更时清空详情内存快照，避免再次打开仍沿用旧收录字段。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const clearCache = () => {
+      appDetailMemoryCache.current.clear();
+    };
+    window.addEventListener('zstore:custom-apps-changed', clearCache);
+    window.addEventListener('zstore:catalog-synced', clearCache);
+    return () => {
+      window.removeEventListener('zstore:custom-apps-changed', clearCache);
+      window.removeEventListener('zstore:catalog-synced', clearCache);
+    };
+  }, []);
 
   // 详情入口唯一标注口：按当前目录集显式标注 is_cataloged（fail-closed，未命中即 false）。
   // 标注后经 patchSummary 内 shouldSyncCataloged 写透列表：false 恒写透，true 仅纠正已有显式位，
@@ -219,10 +258,17 @@ export function useDetailCacheSync({
         if (!prev) return healed;
         if (
           !isBackgroundSilent ||
+          prev.name !== detail.name ||
           prev.latest_version !== detail.latest_version ||
           prev.releases.length !== detail.releases.length ||
           prev.stars !== detail.stars ||
+          prev.license !== detail.license ||
+          prev.category !== detail.category ||
+          prev.icon !== detail.icon ||
+          prev.description !== nextDesc ||
+          (prev.description_en ?? undefined) !== (nextDescEn ?? undefined) ||
           (prev.homepage ?? null) !== nextHomepage ||
+          !arePlatformsEqual(prev.platforms, detail.platforms) ||
           detailDescIsPlaceholder ||
           detailDescEnIsPlaceholder
         ) {
@@ -248,9 +294,10 @@ export function useDetailCacheSync({
         (detail.id && app.id.toLowerCase() === detail.id.toLowerCase());
       if (!isTarget) return app;
       const nextIcon = patchedIcon ? patchedIcon : app.icon;
-      // stale 详情不碰平台：列表保持 loading，避免离线快照误治愈/误确认
-      const nextPlatforms = detailPlatforms && (!app.platforms || app.platforms.length === 0)
-        ? detailPlatforms
+      // stale 详情不碰平台：列表保持 loading，避免离线快照误治愈/误确认；
+      // 非 stale 且详情给出有效平台时，与富卡同步保持一致（同值保原引用）。
+      const nextPlatforms = detailPlatforms
+        ? (arePlatformsEqual(app.platforms, detailPlatforms) ? app.platforms : detailPlatforms)
         : app.platforms;
       // 富卡全字段回填：同值即保持原引用（避免无谓全网格重渲染），异值即取详情新值；
       // Rust 合成占位简介视为空（保留列表实值，不污染三列表）；
@@ -336,11 +383,13 @@ export function useDetailCacheSync({
     // 图标写口唯一经店内 `admitIconHit`（写透四列表 + 文件预热 + M1 缓冲，不走窗口总线）。
     const iconPatch = (tid: string, icon: string): void => {
       setApps((prev) => patchAppIconList(prev, tid, icon));
+      setFullCatalogApps?.((prev) => patchAppIconList(prev, tid, icon));
       setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
       setRecentlyViewedApps((prev) => patchAppIconList(prev, tid, icon));
       setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
     };
     setApps(patchList);
+    setFullCatalogApps?.(patchList);
     // 在线段与本地段上下分段展示：详情回填打内存补丁到 onlineApps（店内 `admitIconHit` 写透，不走窗口总线）
     setOnlineApps(patchList);
     setRecentlyViewedApps(patchList);
@@ -479,7 +528,7 @@ export function useDetailCacheSync({
         // 取不到轮换图标则保持占位，不阻塞
       });
     }
-  }, [annotateEntry, appsRef, onlineAppsRef, recentsRef, setApps, setUncatalogedExtraApps, setOnlineApps, setPlatformResolvedOtherIds, setRecentlyViewedApps, setSelectedApp]);
+  }, [annotateEntry, appsRef, onlineAppsRef, recentsRef, setApps, setFullCatalogApps, setUncatalogedExtraApps, setOnlineApps, setPlatformResolvedOtherIds, setRecentlyViewedApps, setSelectedApp]);
 
   // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
   // 经 useCallback + ref 稳定：搜索键入改 apps 时回调引用不变，memo 卡片不跟风重渲染
@@ -532,12 +581,21 @@ export function useDetailCacheSync({
             // 快照失败则直接展示缓存
           }
         }
+        // 收录库行优先；未收录再回退在线/最近/搜缓存
+        const curatedCatalogHit = findCuratedEntry(
+          idClean,
+          fullCatalogAppsRef?.current,
+          appsRef.current,
+          localAppsRef.current,
+        );
         const catalogHit =
-          localApps?.find((a) => a.id.toLowerCase() === idClean) ??
-          appsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
+          curatedCatalogHit ??
           onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
           recentsRef.current.find((a) => a.id.toLowerCase() === idClean) ??
           findInSearchListCache(idClean);
+        if (curatedCatalogHit && nonBlankString(curatedCatalogHit.name) && cachedForShow.name !== curatedCatalogHit.name) {
+          cachedForShow = { ...cachedForShow, name: curatedCatalogHit.name };
+        }
         if (
           catalogHit?.description &&
           catalogHit.description.trim() !== '' &&
@@ -546,9 +604,24 @@ export function useDetailCacheSync({
         ) {
           cachedForShow = { ...cachedForShow, description: catalogHit.description };
         }
-        const catalogHomepage = nonBlankString(catalogHit?.homepage);
-        if (!nonBlankString(cachedForShow.homepage) && catalogHomepage) {
-          cachedForShow = { ...cachedForShow, homepage: catalogHomepage };
+        if (
+          catalogHit?.description_en &&
+          catalogHit.description_en.trim() !== '' &&
+          !isPlaceholderDescription(catalogHit.description_en) &&
+          cachedForShow.description_en !== catalogHit.description_en
+        ) {
+          cachedForShow = { ...cachedForShow, description_en: catalogHit.description_en };
+        }
+        const curatedExternalHomepage = curatedCatalogHit
+          ? resolveExternalHomepageUrl(curatedCatalogHit.homepage, buildAppRepoUrl(curatedCatalogHit))
+          : null;
+        if (curatedExternalHomepage && cachedForShow.homepage !== curatedExternalHomepage) {
+          cachedForShow = { ...cachedForShow, homepage: curatedExternalHomepage };
+        } else {
+          const catalogHomepage = nonBlankString(catalogHit?.homepage);
+          if (!nonBlankString(cachedForShow.homepage) && catalogHomepage) {
+            cachedForShow = { ...cachedForShow, homepage: catalogHomepage };
+          }
         }
         if (catalogHit?.icon && catalogHit.icon.trim() !== '' && cachedForShow.icon !== catalogHit.icon) {
           cachedForShow = { ...cachedForShow, icon: catalogHit.icon };
@@ -562,6 +635,24 @@ export function useDetailCacheSync({
             category: catalogHit.category,
             category_name: catalogHit.category_name ?? cachedForShow.category_name,
           };
+        }
+        if (curatedCatalogHit && isConcreteLicense(curatedCatalogHit.license) && cachedForShow.license !== curatedCatalogHit.license) {
+          cachedForShow = { ...cachedForShow, license: curatedCatalogHit.license };
+        }
+        if (curatedCatalogHit) {
+          if (cachedForShow.is_verified !== curatedCatalogHit.is_verified) {
+            cachedForShow = { ...cachedForShow, is_verified: curatedCatalogHit.is_verified };
+          }
+          if (curatedCatalogHit.added_at !== undefined && cachedForShow.added_at !== curatedCatalogHit.added_at) {
+            cachedForShow = { ...cachedForShow, added_at: curatedCatalogHit.added_at };
+          }
+        }
+        if (
+          curatedCatalogHit?.platforms &&
+          curatedCatalogHit.platforms.length > 0 &&
+          !arePlatformsEqual(cachedForShow.platforms, curatedCatalogHit.platforms)
+        ) {
+          cachedForShow = { ...cachedForShow, platforms: [...curatedCatalogHit.platforms] };
         }
         appDetailMemoryCache.current.set(idClean, cachedForShow);
 
@@ -598,8 +689,7 @@ export function useDetailCacheSync({
 
     // 2. 内存未命中或主动刷新：若弹窗已打开则保持现有视图无感刷新，否则展示基础卡片信息
     const existing =
-      localApps?.find((a) => a.id.toLowerCase() === idClean) ||
-      appsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
+      findCuratedEntry(idClean, fullCatalogAppsRef?.current, appsRef.current, localAppsRef.current) ||
       onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       recentsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       findInSearchListCache(idClean);
@@ -673,6 +763,7 @@ export function useDetailCacheSync({
           forge_host: existing.forge_host,
           homepage: nonBlankString(existing.homepage) ?? enrichInitialHomepage ?? null,
           platforms: existing.platforms,
+          added_at: existing.added_at,
           isLoading: true,
           isRefreshing: forceRefresh,
         }

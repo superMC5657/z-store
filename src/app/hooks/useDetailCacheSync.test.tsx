@@ -716,4 +716,157 @@ describe('useDetailCacheSync：官方主页同步', () => {
       expect.objectContaining({ id: 'acme/atlas', homepage: 'https://atlas.dev', isLoading: true }),
     );
   });
+
+  it('已收录应用非空旧平台与详情非 stale 新平台不一致时同步更新列表（含 fullCatalogApps）且同值保引用', () => {
+    const initialCard = makeApp({
+      id: 'p0deje/maccy',
+      name: 'Maccy',
+      owner: 'p0deje',
+      repo: 'Maccy',
+      platforms: ['windows'],
+      is_cataloged: true,
+    });
+    const sameCard = makeApp({
+      id: 'other/same',
+      platforms: ['macos'],
+      is_cataloged: true,
+    });
+    const setFullCatalogApps = vi.fn();
+    const { result, params } = renderSync({
+      appsRef: { current: [initialCard, sameCard] },
+      fullCatalogAppsRef: { current: [initialCard, sameCard] },
+      setFullCatalogApps: setFullCatalogApps as unknown as React.Dispatch<React.SetStateAction<AppSummary[]>>,
+    });
+
+    act(() => {
+      result.current.patchDetailMemoryAndLists(
+        'p0deje/maccy',
+        makeDetail({
+          id: 'p0deje/maccy',
+          name: 'Maccy',
+          owner: 'p0deje',
+          repo: 'Maccy',
+          platforms: ['macos'],
+          is_cataloged: true,
+        }),
+      );
+    });
+
+    const patchedApps = applyListSetter(params.setApps, [initialCard, sameCard]);
+    expect(patchedApps[0].platforms).toEqual(['macos']);
+    expect(patchedApps[1]).toBe(sameCard);
+
+    const patchedFull = applyListSetter(setFullCatalogApps, [initialCard, sameCard]);
+    expect(patchedFull[0].platforms).toEqual(['macos']);
+
+    // 平台相同但数组引用不同时，不产生新对象引用
+    params.setApps.mockClear();
+    const updatedCard = patchedApps[0];
+    act(() => {
+      result.current.patchDetailMemoryAndLists(
+        'p0deje/maccy',
+        makeDetail({
+          id: 'p0deje/maccy',
+          name: 'Maccy',
+          owner: 'p0deje',
+          repo: 'Maccy',
+          stars: updatedCard.stars,
+          forks: updatedCard.forks,
+          latest_version: updatedCard.latest_version,
+          icon: updatedCard.icon,
+          description: updatedCard.description,
+          description_en: updatedCard.description_en,
+          license: updatedCard.license,
+          category: updatedCard.category,
+          category_name: updatedCard.category_name,
+          is_verified: updatedCard.is_verified,
+          homepage: updatedCard.homepage,
+          platforms: ['macos'],
+          is_cataloged: true,
+        }),
+      );
+    });
+    const noopResult = applyListSetter(params.setApps, [updatedCard]);
+    expect(noopResult[0]).toBe(updatedCard);
+  });
+
+  it('内存快照命中时：收录库/本地收录公共字段（含 platforms/license/homepage/name/is_verified/added_at）优先覆盖快照，保留实时 stars/latest_version', async () => {
+    const localCard = makeApp({
+      id: 'acme/atlas',
+      name: 'Curated Atlas',
+      license: 'GPL-3.0',
+      homepage: 'https://curated.atlas.dev',
+      platforms: ['windows', 'ios'],
+      is_verified: true,
+      added_at: '2026-11-12',
+      is_cataloged: true,
+      source: 'local',
+      status: 'collected',
+    });
+    const { result, params } = renderSync({
+      localApps: [localCard],
+    });
+    result.current.appDetailMemoryCache.current.set(
+      'acme/atlas',
+      makeDetail({
+        id: 'acme/atlas',
+        name: 'Repo Atlas',
+        license: 'MIT',
+        homepage: 'https://repo.atlas.dev',
+        platforms: ['linux'],
+        is_verified: false,
+        added_at: '2025-01-01',
+        stars: 9999,
+        latest_version: 'v3.2.1',
+      }),
+    );
+    mocks.getAppDetails.mockReturnValue(new Promise(() => {}));
+
+    await act(async () => {
+      await result.current.handleOpenDetail('acme/atlas');
+    });
+
+    expect(params.setSelectedApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'acme/atlas',
+        name: 'Curated Atlas',
+        license: 'GPL-3.0',
+        homepage: 'https://curated.atlas.dev',
+        platforms: ['windows', 'ios'],
+        is_verified: true,
+        added_at: '2026-11-12',
+        stars: 9999,
+        latest_version: 'v3.2.1',
+        isLoading: false,
+      }),
+    );
+  });
+
+  it('内存未命中首帧：继承收录库 added_at 与 is_verified', async () => {
+    const curatedCard = makeApp({
+      id: 'acme/atlas',
+      name: 'Curated Atlas',
+      is_verified: true,
+      added_at: '2026-11-14',
+      platforms: ['macos'],
+      is_cataloged: true,
+    });
+    const { result, params } = renderSync({
+      fullCatalogAppsRef: { current: [curatedCard] },
+    });
+    mocks.getAppDetails.mockReturnValue(new Promise(() => {}));
+
+    await act(async () => {
+      void result.current.handleOpenDetail('acme/atlas');
+    });
+
+    expect(params.setSelectedApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'acme/atlas',
+        is_verified: true,
+        added_at: '2026-11-14',
+        isLoading: true,
+      }),
+    );
+  });
 });

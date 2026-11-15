@@ -61,9 +61,8 @@ impl DetailRepository {
         if mark_stale {
             detail.is_stale = Some(true);
         }
-        if let Some(cat_item) = catalog.get_catalog_item(clean_id) {
-            cat_item.overlay_detail_core(&mut detail.core);
-        }
+        let cat_item = catalog.get_catalog_item(clean_id);
+        crate::github::detail_assets::heal_cached_detail(&mut detail, cat_item.as_ref());
         catalog.stamp_detail(&mut detail);
         Some(detail)
     }
@@ -72,9 +71,11 @@ impl DetailRepository {
     /// 无详情行时回退 `repo_card_cache` 单仓富卡。
     pub fn cached_detail_summary(db: &Database, raw_id: &str) -> Option<AppSummary> {
         let clean_id = crate::forge::canonical_app_id(raw_id)?;
-        let Some(detail) = db.get_app_detail(&clean_id, None).ok().flatten() else {
+        let Some(mut detail) = db.get_app_detail(&clean_id, None).ok().flatten() else {
             return Self::repo_card_summary(db, &clean_id);
         };
+        crate::github::detail_assets::heal_cached_detail(&mut detail, None);
+        let platforms = detail.core.platforms.clone();
         let icon_trimmed = detail.core.icon.trim();
         let mut summary = AppSummary {
             core: AppCore {
@@ -83,6 +84,7 @@ impl DetailRepository {
                 } else {
                     detail.core.icon.clone()
                 },
+                platforms,
                 is_cataloged: None,
                 source: None,
                 status: None,
@@ -290,5 +292,40 @@ mod tests {
         assert_eq!(summary.core.stars, 888);
         assert_eq!(summary.core.platforms, vec!["windows", "linux"]);
         assert!(summary.core.is_cataloged.is_none());
+    }
+
+    #[test]
+    fn project_detail_heals_misclassified_cached_releases_and_platforms() {
+        let db = Database::open_in_memory().unwrap();
+        let mut maccy_item = catalog_item("p0deje/maccy");
+        maccy_item.owner = "p0deje".to_string();
+        maccy_item.repo = "Maccy".to_string();
+        maccy_item.name = "Maccy".to_string();
+        maccy_item.platforms = vec!["macos".to_string()];
+        db.seed_catalog_apps_if_empty(&[maccy_item]).unwrap();
+
+        let mut poisoned_detail = detail_payload("p0deje/maccy");
+        poisoned_detail.core.platforms = vec!["windows".to_string()];
+        poisoned_detail.releases = vec![crate::models::ReleaseAsset {
+            name: "Maccy.app.zip".to_string(),
+            download_url: "https://github.com/p0deje/Maccy/releases/download/2.8.0/Maccy.app.zip"
+                .to_string(),
+            size_bytes: 5_288_775,
+            sha256: None,
+            os: "windows".to_string(),
+            arch: "universal".to_string(),
+            kind: "portable_zip".to_string(),
+        }];
+        db.save_app_detail("p0deje/maccy", &poisoned_detail).unwrap();
+
+        let svc = CatalogService::new_empty();
+        svc.sync_from_db(&db);
+        let projected =
+            DetailRepository::project_detail(&db, &svc, "p0deje/maccy", Some(3600), false)
+                .expect("should project cached detail");
+        assert_eq!(projected.core.platforms, vec!["macos".to_string()]);
+        assert_eq!(projected.releases.len(), 1);
+        assert_eq!(projected.releases[0].os, "macos");
+        assert_eq!(projected.releases[0].kind, "portable_zip");
     }
 }

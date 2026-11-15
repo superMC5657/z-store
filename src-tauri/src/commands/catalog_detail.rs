@@ -71,6 +71,21 @@ pub async fn get_platforms_lite(
     let start = std::time::Instant::now();
     let is_force = force_refresh.unwrap_or(false);
 
+    // 0. 收录库（含自收录）已有非空平台时直接以收录库为准，零网络返回；
+    //    收录库平台是精校真值，`forceRefresh` 也不绕过此段。
+    if let Some(clean_plats) = state
+        .catalog
+        .get_catalog_item(&clean_id)
+        .and_then(|i| crate::github::detail_assets::clean_catalog_platforms(&i.platforms))
+    {
+        return Ok(PlatformsLiteResult {
+            id: clean_id,
+            platforms: clean_plats,
+            from_cache: true,
+            is_stale: None,
+        });
+    }
+
     // 1. TTL 内详情缓存命中段：零网络开销复用已 deduce 的 platforms。
     // 显式强制刷新时跳过此快径，直探远端。
     if !is_force {
@@ -100,9 +115,24 @@ fn platforms_lite_from_cache(
     let db = state.db().ok()?;
     let ttl_seconds = detail_ttl_secs(&db);
     if let Some(cached) = db.get_app_detail(clean_id, Some(ttl_seconds)).ok().flatten() {
+        let cat_plats = state
+            .catalog
+            .get_catalog_item(clean_id)
+            .map(|i| i.platforms);
+        let platforms = if !cached.releases.is_empty() {
+            crate::github::detail_assets::platforms_with_catalog_priority(
+                &cached.releases,
+                cat_plats.as_deref(),
+            )
+        } else {
+            crate::github::detail_assets::resolve_platforms_catalog_first(
+                cached.core.platforms,
+                cat_plats.as_deref(),
+            )
+        };
         return Some(PlatformsLiteResult {
             id: clean_id.to_string(),
-            platforms: cached.core.platforms,
+            platforms,
             from_cache: true,
             is_stale: cached.is_stale,
         });
@@ -209,6 +239,29 @@ fn warn_platforms_lite_failed(
     ev.warn();
 }
 
+/// `platforms_lite_from_github` 平台解析：
+/// - `StaleRow` 兜底行不直接信任旧 `row.core.platforms`，先过 `heal_cached_detail`（重分类资产 + 收录库优先）；
+/// - 其余情况直接沿用 `row_platforms` 或 `deduce_lite_platforms`。
+fn resolve_lite_platforms_from_shallow(
+    catalog: &crate::github::CatalogService,
+    clean_id: &str,
+    rel: &crate::github::release_fetch::ShallowRelease,
+    stale_row: Option<&crate::models::AppDetail>,
+) -> Vec<String> {
+    if rel.source == crate::github::release_fetch::ShallowSource::StaleRow {
+        if let Some(row) = stale_row {
+            let mut healed = row.clone();
+            let catalog_item = catalog.get_catalog_item(clean_id);
+            crate::github::detail_assets::heal_cached_detail(&mut healed, catalog_item.as_ref());
+            return healed.core.platforms;
+        }
+    }
+    match rel.row_platforms {
+        Some(ref p) => p.clone(),
+        None => catalog.deduce_lite_platforms(clean_id, &rel.assets),
+    }
+}
+
 /// GitHub ETag 段：release_endpoint + ETag 条件请求（仅 releases/latest 单次 RTT）。
 async fn platforms_lite_from_github(
     state: &AppState,
@@ -220,7 +273,12 @@ async fn platforms_lite_from_github(
     let (release_endpoint, cached_etag, cached_payload, coords) = {
         if let Err(e) = state.catalog.get_repo_coordinates(&clean_id) {
             if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_app_detail(&clean_id, None) {
+                if let Ok(Some(mut fallback)) = db.get_app_detail(&clean_id, None) {
+                    let catalog_item = state.catalog.get_catalog_item(&clean_id);
+                    crate::github::detail_assets::heal_cached_detail(
+                        &mut fallback,
+                        catalog_item.as_ref(),
+                    );
                     let mut ev = crate::z_log::WideEvent::new("detail", "platforms-lite stale")
                         .with_started(start);
                     ev.field("id", &clean_id)
@@ -279,10 +337,12 @@ async fn platforms_lite_from_github(
         None,
     ) {
         Ok(rel) => {
-            let platforms = match rel.row_platforms {
-                Some(p) => p,
-                None => state.catalog.deduce_lite_platforms(&clean_id, &rel.assets),
-            };
+            let platforms = resolve_lite_platforms_from_shallow(
+                &state.catalog,
+                &clean_id,
+                &rel,
+                stale_row.as_ref(),
+            );
             if let Ok(db) = state.db() {
                 crate::github::release_fetch::apply_release_cache_effects(
                     &db,
@@ -440,6 +500,9 @@ pub fn get_cached_app_details_batch(
         .iter()
         .map(|raw| {
             let mut summary = cached_detail_summary(&db, raw)?;
+            if let Some(cat_item) = state.catalog.get_catalog_item(&summary.core.id) {
+                cat_item.overlay_detail_core(&mut summary.core);
+            }
             state.catalog.stamp_summary(&mut summary);
             Some(summary)
         })
@@ -622,13 +685,26 @@ fn project_from_cache(state: &AppState, clean_id: &str, ttl_gated: bool) -> Opti
     } else {
         None
     };
-    crate::repositories::DetailRepository::project_detail(
+    let detail = crate::repositories::DetailRepository::project_detail(
         &db,
         &state.catalog,
         clean_id,
         ttl_seconds,
         !ttl_gated,
-    )
+    )?;
+    if ttl_gated && detail.is_stale != Some(true) && !detail.core.platforms.is_empty() {
+        if let Some(cat_item) = state.catalog.get_catalog_item(clean_id) {
+            if cat_item.platforms != detail.core.platforms {
+                if let Ok(true) = db.update_catalog_app_platforms(clean_id, &detail.core.platforms)
+                {
+                    state
+                        .catalog
+                        .update_catalog_item_platforms(clean_id, &detail.core.platforms);
+                }
+            }
+        }
+    }
+    Some(detail)
 }
 
 /// 多源 forge lite 段：repo + latest release 并发拉取合成详情。
@@ -673,14 +749,14 @@ async fn fetch_detail_from_forge(
     };
     let now = crate::now_secs();
     let catalog_item = state.catalog.get_catalog_item(&clean_id);
-    let platforms = crate::github::detail_assets::platforms_with_ios_union(
+    let platforms = crate::github::detail_assets::platforms_with_catalog_priority(
         &release_info.assets,
         catalog_item.as_ref().map(|i| i.platforms.as_slice()),
     );
     let license = catalog_item
         .as_ref()
         .map(|i| i.license.trim())
-        .filter(|l| !l.is_empty())
+        .filter(|l| crate::github::models::CatalogItem::is_concrete_license(l))
         .map(str::to_string)
         .unwrap_or_else(|| "OpenSource".to_string());
     let homepage = crate::github::detail_fetch::resolve_homepage(
@@ -1305,6 +1381,143 @@ mod catalog_platform_tests {
         .unwrap();
         let hit = super::cached_detail_summary(&db, "demo/app").expect("缓存行应当命中");
         assert_eq!(hit.core.icon, "", "无确认图标时 data: 详情图标必须置空");
+    }
+
+    #[test]
+    fn platforms_lite_from_cache_prefers_catalog_platforms_over_cached_releases() {
+        let state = crate::AppState {
+            db: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::db::Database::open_in_memory().unwrap(),
+            )),
+            catalog: crate::github::CatalogService::new_empty(),
+            mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
+            github_token: std::sync::Mutex::new(None),
+            sync_lock: tokio::sync::Mutex::new(()),
+        };
+        let mut local_item = crate::github::CatalogItem {
+            id: "demo/app".to_string(),
+            name: "Demo App".to_string(),
+            owner: "demo".to_string(),
+            repo: "app".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: "Local desc".to_string(),
+            description_en: None,
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            default_version: "v1.0.0".to_string(),
+            added_at: None,
+            license: "MIT".to_string(),
+            stars: 0,
+            forks: 0,
+            is_verified: false,
+            homepage: Some("https://demo.example.com".to_string()),
+            platforms: vec!["windows".to_string(), "ios".to_string(), "android".to_string()],
+            identifiers: Default::default(),
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+        };
+        state.catalog.set_collected_items(vec![local_item.clone()]);
+
+        let mut detail = batch_detail("demo/app", "");
+        detail.core.platforms = vec!["windows".to_string()];
+        detail.releases = vec![crate::models::ReleaseAsset {
+            name: "demo-setup.exe".to_string(),
+            download_url: "https://example.com/demo-setup.exe".to_string(),
+            size_bytes: 20_000_000,
+            sha256: None,
+            os: "windows".to_string(),
+            arch: "x86_64".to_string(),
+            kind: "setup_exe".to_string(),
+        }];
+        state.db().unwrap().save_app_detail("demo/app", &detail).unwrap();
+
+        let lite = super::platforms_lite_from_cache(&state, "demo/app").expect("cache hit");
+        assert_eq!(lite.platforms, vec!["windows", "ios", "android"]);
+
+        // 自收录平台为空 [] 时回退 Release 推导
+        local_item.platforms = Vec::new();
+        state.catalog.set_collected_items(vec![local_item]);
+        let fallback_lite = super::platforms_lite_from_cache(&state, "demo/app").expect("cache hit");
+        assert_eq!(fallback_lite.platforms, vec!["windows"]);
+    }
+
+    #[test]
+    fn platforms_lite_stale_row_heals_misclassified_maccy_assets_and_respects_catalog() {
+        let catalog = crate::github::CatalogService::new_empty();
+        let mut maccy_stale = batch_detail("p0deje/maccy", "");
+        maccy_stale.core.owner = "p0deje".to_string();
+        maccy_stale.core.repo = "Maccy".to_string();
+        maccy_stale.core.platforms = vec!["windows".to_string()];
+        maccy_stale.releases = vec![crate::models::ReleaseAsset {
+            name: "Maccy.app.zip".to_string(),
+            download_url: "https://example.com/Maccy.app.zip".to_string(),
+            size_bytes: 5_288_775,
+            sha256: None,
+            os: "windows".to_string(),
+            arch: "universal".to_string(),
+            kind: "portable_zip".to_string(),
+        }];
+
+        let rel = crate::github::release_fetch::decide_shallow_release(
+            &crate::github::http::EtagGetOutcome::Failed,
+            None,
+            Some(&maccy_stale),
+            None,
+        )
+        .expect("stale row fallback");
+        assert_eq!(
+            rel.source,
+            crate::github::release_fetch::ShallowSource::StaleRow
+        );
+
+        let platforms = super::resolve_lite_platforms_from_shallow(
+            &catalog,
+            "p0deje/maccy",
+            &rel,
+            Some(&maccy_stale),
+        );
+        assert_eq!(platforms, vec!["macos".to_string()]);
+
+        // 若收录库明确指定了非空平台，stale 自愈仍保持收录库优先
+        let curated_item = crate::github::CatalogItem {
+            id: "p0deje/maccy".to_string(),
+            name: "Maccy".to_string(),
+            owner: "p0deje".to_string(),
+            repo: "Maccy".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            category: "tools".to_string(),
+            category_name: "效率工具".to_string(),
+            aliases: vec![],
+            default_version: "v2.0.0".to_string(),
+            added_at: None,
+            license: "MIT".to_string(),
+            stars: 0,
+            forks: 0,
+            is_verified: true,
+            homepage: None,
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec!["macos".to_string(), "ios".to_string()],
+            identifiers: Default::default(),
+        };
+        catalog.set_collected_items(vec![curated_item]);
+        let platforms_with_catalog = super::resolve_lite_platforms_from_shallow(
+            &catalog,
+            "p0deje/maccy",
+            &rel,
+            Some(&maccy_stale),
+        );
+        assert_eq!(
+            platforms_with_catalog,
+            vec!["macos".to_string(), "ios".to_string()]
+        );
     }
 }
 

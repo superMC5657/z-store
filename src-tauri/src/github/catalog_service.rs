@@ -503,7 +503,7 @@ impl CatalogService {
         }
     }
 
-    /// 平台懒回填同步内存目录项（与 `db.update_catalog_app_platforms` 保持一致）。
+    /// 平台懒回填同步内存目录项（与 `db.update_catalog_app_platforms` 保持一致：仅目录原为空时补齐）。
     pub fn update_catalog_item_platforms(&self, id: &str, platforms: &[String]) {
         if platforms.is_empty() {
             return;
@@ -513,7 +513,7 @@ impl CatalogService {
         };
         let apply = |list: &mut Vec<CatalogItem>| {
             if let Some(item) = list.iter_mut().find(|i| i.id == key) {
-                if item.platforms != platforms {
+                if item.platforms.is_empty() {
                     item.platforms = platforms.to_vec();
                 }
             }
@@ -675,7 +675,7 @@ impl CatalogService {
         }
     }
 
-    /// 轻量 deduce（`get_platforms_lite` 通道 SSOT）：GitHub release 原始资产 → deduce + 收录库 ios 并集 + 排序。
+    /// 轻量 deduce（`get_platforms_lite` 通道 SSOT）：收录库非空平台优先，否则 GitHub release 原始资产 → deduce + 排序。
     /// 空推导明确返回空向量，不做任何兜底；`platforms/valid-asset/sort` 真相源在 `detail_assets`。
     pub(crate) fn deduce_lite_platforms(
         &self,

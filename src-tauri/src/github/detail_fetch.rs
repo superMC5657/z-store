@@ -187,8 +187,49 @@ async fn fetch_repo_info(
     }
 }
 
+/// `304` 复用命中且远端 `/repos` 返回时刷新动态指标与回退元数据：
+/// - `stars` / `forks` 以远端显式数值为准（含合法 `0`）；
+/// - `license` 仅在解析值为具体协议，或缓存原协议为空/占位时更新，避免 `OpenSource` 覆盖缓存中的 `MIT` 等具体协议。
+fn apply_304_repo_refresh(
+    detail: &mut AppDetail,
+    repo_info: &GitHubRepoResponse,
+    catalog_item: Option<&CatalogItem>,
+    owner: &str,
+    repo: &str,
+) {
+    let DetailStats {
+        stars,
+        forks,
+        license,
+        homepage,
+    } = resolve_detail_stats(Some(repo_info), catalog_item, owner, repo);
+    if repo_info.stargazers_count.is_some() {
+        detail.core.stars = stars;
+    }
+    if repo_info.forks_count.is_some() {
+        detail.core.forks = forks;
+    }
+    if CatalogItem::is_concrete_license(&license)
+        || !CatalogItem::is_concrete_license(&detail.core.license)
+    {
+        detail.core.license = license;
+    }
+    if homepage.is_some() {
+        detail.core.homepage = homepage;
+    }
+    let (eff_desc, eff_en) = resolve_effective_descriptions(
+        catalog_item,
+        detail.core.description.clone(),
+        Some(repo_info),
+    );
+    detail.core.description = eff_desc;
+    if eff_en.is_some() {
+        detail.core.description_en = eff_en;
+    }
+}
+
 /// 304 零开销复用 seam：release 未变 + 本地有完整缓存（releases 非空 + readme 非空）直接复用；
-/// deduce + ios 并集经内部平台 seam 单口，description_en 收录精校回填，时间戳收敛 now_secs。
+/// 经 `heal_cached_detail` 统一自愈（过滤无效资产、重算分类/平台并叠加收录库精校字段），时间戳收敛 now_secs。
 fn reuse_304_cached(
     cached_detail: Option<&AppDetail>,
     catalog_item: Option<&CatalogItem>,
@@ -198,14 +239,7 @@ fn reuse_304_cached(
         return None;
     }
     let mut detail = existing.clone();
-    detail
-        .releases
-        .retain(|r| is_valid_installer_asset(&r.name, r.size_bytes));
-    // deduce + ios 并集 + 排序经内部平台 seam（与成功路径共用）。
-    detail.core.platforms = unioned_detail_platforms(&detail.releases, catalog_item);
-    if let Some(item) = catalog_item {
-        item.overlay_detail_core(&mut detail.core);
-    }
+    super::detail_assets::heal_cached_detail(&mut detail, catalog_item);
     detail.cached_at = Some(crate::github::http::now_secs());
     detail.is_stale = None;
     Some(detail)
@@ -387,18 +421,6 @@ fn build_release_assets(
     releases
 }
 
-/// 平台推导 seam：deduce + ios 并集 + 排序经 `detail_assets` 单口
-///（304 快径与成功路径共用）。
-fn unioned_detail_platforms(
-    releases: &[ReleaseAsset],
-    catalog_item: Option<&CatalogItem>,
-) -> Vec<String> {
-    super::detail_assets::platforms_with_ios_union(
-        releases,
-        catalog_item.map(|i| i.platforms.as_slice()),
-    )
-}
-
 /// 显式 `http(s)://` 前缀（ASCII 大小写不敏感）归一为小写协议头，其余原样保留；
 /// 非 `http(s)://` 开头返回 `None`。
 pub(crate) fn lowercase_http_scheme(trimmed: &str) -> Option<String> {
@@ -525,8 +547,8 @@ pub(crate) fn is_same_repo_homepage(
     got == want
 }
 
-/// 主页决议：远端与精校主页各自清洗；远端仅填了仓库自链而精校有独立官网时取精校，
-/// 否则远端优先、缺失回退精校。
+/// 主页决议：收录库与远端各自清洗；收录库优先（合法且非仓库自链时恒取收录库，
+/// 仅当收录库缺失/无效，或收录库仅为仓库自链而远端带独立官网时取远端）。
 pub(crate) fn resolve_homepage(
     remote: Option<&str>,
     curated: Option<&str>,
@@ -536,18 +558,19 @@ pub(crate) fn resolve_homepage(
 ) -> Option<String> {
     let remote = remote.and_then(normalize_http_homepage);
     let curated = curated.and_then(normalize_http_homepage);
-    match (remote, curated) {
-        (Some(r), Some(c))
-            if is_same_repo_homepage(&r, forge_host, owner, repo)
-                && !is_same_repo_homepage(&c, forge_host, owner, repo) =>
+    match (curated, remote) {
+        (Some(c), Some(r))
+            if is_same_repo_homepage(&c, forge_host, owner, repo)
+                && !is_same_repo_homepage(&r, forge_host, owner, repo) =>
         {
-            Some(c)
+            Some(r)
         }
-        (r, c) => r.or(c),
+        (c, r) => c.or(r),
     }
 }
 
-/// 统计回写 seam：repo 真值优先，缺失回退收录库（stars/forks/license/homepage；homepage 经 `resolve_homepage` 清洗）。
+/// 统计回写 seam：stars/forks 取实时 repo 真值（缺失回退收录库），
+/// license/homepage 优先取收录库有效配置，缺失或占位回退 repo 真值。
 struct DetailStats {
     stars: u64,
     forks: u64,
@@ -569,7 +592,11 @@ fn resolve_detail_stats(
         .and_then(|r| r.forks_count)
         .or_else(|| catalog_item.map(|i| i.forks))
         .unwrap_or(0);
-    let license = repo_info
+    let curated_license = catalog_item
+        .map(|i| i.license.trim())
+        .filter(|l| CatalogItem::is_concrete_license(l))
+        .map(str::to_string);
+    let remote_license = repo_info
         .and_then(|r| r.license.as_ref())
         .and_then(|l| {
             if let Some(ref spdx) = l.spdx_id {
@@ -588,8 +615,10 @@ fn resolve_detail_stats(
                 }
             }
             None
-        })
-        .or_else(|| catalog_item.map(|i| i.license.clone()))
+        });
+    let license = curated_license
+        .or(remote_license)
+        .or_else(|| catalog_item.map(|i| i.license.trim().to_string()))
         // 空串不视作真值（与下方 homepage 同过滤模式），未知一律显式 `unknown`
         //（诚实未知，不伪装已验证开源）；D1 门禁按名单外拒绝
         //（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
@@ -725,34 +754,14 @@ impl CatalogService {
             if let Some(mut detail) =
                 reuse_304_cached(cached_detail.as_ref(), catalog_item.as_ref())
             {
-                if repo_info.is_some() {
-                    let DetailStats {
-                        stars,
-                        forks,
-                        license,
-                        homepage,
-                    } = resolve_detail_stats(repo_info.as_ref(), catalog_item.as_ref(), &owner, &repo);
-                    if stars > 0 {
-                        detail.core.stars = stars;
-                    }
-                    if forks > 0 {
-                        detail.core.forks = forks;
-                    }
-                    if license != "unknown" || detail.core.license.trim().is_empty() {
-                        detail.core.license = license;
-                    }
-                    if homepage.is_some() {
-                        detail.core.homepage = homepage;
-                    }
-                    let (eff_desc, eff_en) = resolve_effective_descriptions(
+                if let Some(ref ri) = repo_info {
+                    apply_304_repo_refresh(
+                        &mut detail,
+                        ri,
                         catalog_item.as_ref(),
-                        detail.core.description.clone(),
-                        repo_info.as_ref(),
+                        &owner,
+                        &repo,
                     );
-                    detail.core.description = eff_desc;
-                    if eff_en.is_some() {
-                        detail.core.description_en = eff_en;
-                    }
                 }
                 diag.steps.push("reuse_304".to_string());
                 return Ok(DetailFetchOutput {
@@ -779,7 +788,9 @@ impl CatalogService {
                 is_auth_unauthorized,
             },
         )? {
-            super::release_fetch::DetailReleaseDecision::ReuseStale(existing) => {
+            super::release_fetch::DetailReleaseDecision::ReuseStale(mut existing) => {
+                // stale 兜底同样走统一自愈（不改 cached_at、保留 is_stale=true）
+                super::detail_assets::heal_cached_detail(&mut existing, catalog_item.as_ref());
                 diag.steps.push("reuse_stale".to_string());
                 return Ok(DetailFetchOutput {
                     detail: *existing,
@@ -909,7 +920,10 @@ impl CatalogService {
 
         let releases = build_release_assets(release_resp.assets, &checksums);
 
-        let final_platforms = unioned_detail_platforms(&releases, catalog_item.as_ref());
+        let final_platforms = super::detail_assets::platforms_with_catalog_priority(
+            &releases,
+            catalog_item.as_ref().map(|i| i.platforms.as_slice()),
+        );
 
         let icon_resolution = crate::icons::pick_detail_icon_with_level(
             &icon,
@@ -921,7 +935,7 @@ impl CatalogService {
         let (effective_desc, effective_description_en) =
             resolve_effective_descriptions(catalog_item.as_ref(), desc, repo_info.as_ref());
 
-        let detail = AppDetail {
+        let mut detail = AppDetail {
             core: AppCore {
                 id: id.to_string(),
                 name,
@@ -974,6 +988,9 @@ impl CatalogService {
                 None
             },
         };
+        if let Some(ref item) = catalog_item {
+            item.overlay_detail_core(&mut detail.core);
+        }
 
         Ok(DetailFetchOutput {
             detail,
@@ -1318,7 +1335,22 @@ mod tests {
         assert_eq!(stats_for("N/A"), curated);
         assert_eq!(stats_for("ftp://files.example.com"), curated);
         assert_eq!(stats_for("https://github.com/OpenMW/openmw"), curated);
-        assert_eq!(stats_for("HTTPS://openmw.org"), Some("https://openmw.org".to_string()));
+        // 收录库已有独立官网时，优先取收录库而非远端官网
+        assert_eq!(stats_for("HTTPS://openmw.org"), curated);
+
+        // 收录库仅填仓库自链时，远端独立官网可回填展示
+        let mut self_link_item = item.clone();
+        self_link_item.homepage = Some("https://github.com/OpenMW/openmw".to_string());
+        let repo_ext = super::GitHubRepoResponse {
+            homepage: Some("HTTPS://openmw.org".to_string()),
+            ..repo_base.clone()
+        };
+        assert_eq!(
+            super::resolve_detail_stats(Some(&repo_ext), Some(&self_link_item), "OpenMW", "openmw")
+                .homepage
+                .as_deref(),
+            Some("https://openmw.org")
+        );
 
         // 无精校主页时仓库自链照常透出（前端判重负责隐藏）
         let repo_self = super::GitHubRepoResponse {
@@ -1327,6 +1359,64 @@ mod tests {
         };
         let stats = super::resolve_detail_stats(Some(&repo_self), None, "OpenMW", "openmw");
         assert_eq!(stats.homepage.as_deref(), Some("https://github.com/OpenMW/openmw"));
+    }
+
+    #[test]
+    fn test_resolve_detail_stats_prefers_catalog_concrete_license_over_repo() {
+        let repo_mit = super::GitHubRepoResponse {
+            name: None,
+            full_name: None,
+            html_url: None,
+            description: None,
+            stargazers_count: Some(500),
+            forks_count: Some(20),
+            language: None,
+            license: Some(crate::github::models::GitHubLicense {
+                key: Some("apache-2.0".to_string()),
+                spdx_id: Some("Apache-2.0".to_string()),
+            }),
+            homepage: None,
+            default_branch: None,
+            fork: None,
+            pushed_at: None,
+            updated_at: None,
+        };
+        let item = crate::github::models::CatalogItem {
+            id: "o/r".to_string(),
+            name: "R".to_string(),
+            owner: "o".to_string(),
+            repo: "r".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            default_version: "v0.1.0".to_string(),
+            added_at: None,
+            license: "MIT".to_string(),
+            stars: 10,
+            forks: 1,
+            is_verified: false,
+            homepage: None,
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec![],
+            identifiers: std::collections::HashMap::new(),
+        };
+        let stats = super::resolve_detail_stats(Some(&repo_mit), Some(&item), "o", "r");
+        assert_eq!(stats.license, "MIT");
+        assert_eq!(stats.stars, 500);
+        assert_eq!(stats.forks, 20);
+
+        // 收录库为占位协议时，由远端具体 SPDX 补齐
+        let mut placeholder_item = item;
+        placeholder_item.license = "OpenSource".to_string();
+        let stats_placeholder =
+            super::resolve_detail_stats(Some(&repo_mit), Some(&placeholder_item), "o", "r");
+        assert_eq!(stats_placeholder.license, "Apache-2.0");
     }
 
     #[test]
@@ -1392,5 +1482,110 @@ mod tests {
             res_dual.extra_l4_url.as_deref(),
             Some("https://media.example.com/readme-banner-logo.png")
         );
+    }
+
+    #[test]
+    fn test_heal_cached_detail_fixes_maccy_stale_and_304_preserves_concrete_license_and_zero_stars() {
+        // 1. Stale 兜底自愈：旧库里被错标为 windows 的 Maccy.app.zip 应纠正为 macos 且保留 is_stale
+        let mut stale_maccy = crate::models::AppDetail {
+            core: crate::models::AppCore {
+                id: "p0deje/maccy".to_string(),
+                name: "Maccy".to_string(),
+                description_en: None,
+                owner: "p0deje".to_string(),
+                repo: "Maccy".to_string(),
+                icon: String::new(),
+                icon_bg: String::new(),
+                description: "Clipboard manager".to_string(),
+                stars: 100,
+                forks: 10,
+                license: "MIT".to_string(),
+                latest_version: "v2.0.0".to_string(),
+                is_verified: true,
+                category: "tools".to_string(),
+                category_name: "效率工具".to_string(),
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: None,
+                platforms: vec!["windows".to_string()],
+                is_cataloged: None,
+                source: None,
+                status: None,
+                added_at: None,
+            },
+            changelog: String::new(),
+            readme_markdown: "# Maccy".to_string(),
+            readme_variants: None,
+            releases: vec![crate::models::ReleaseAsset {
+                name: "Maccy.app.zip".to_string(),
+                download_url: "https://example.com/Maccy.app.zip".to_string(),
+                size_bytes: 5_288_775,
+                sha256: None,
+                os: "windows".to_string(),
+                arch: "universal".to_string(),
+                kind: "portable_zip".to_string(),
+            }],
+            cached_at: Some(12345),
+            is_stale: Some(true),
+        };
+        crate::github::detail_assets::heal_cached_detail(&mut stale_maccy, None);
+        assert_eq!(stale_maccy.releases[0].os, "macos");
+        assert_eq!(stale_maccy.core.platforms, vec!["macos".to_string()]);
+        assert_eq!(stale_maccy.is_stale, Some(true));
+        assert_eq!(stale_maccy.cached_at, Some(12345));
+
+        // 2. 304 刷新：收录库为 OpenSource 占位且远端 license=None 时保留缓存的 MIT；远端 stars=0 时不被旧值保留
+        let mut cached = stale_maccy.clone();
+        cached.is_stale = None;
+        let placeholder_item = crate::github::models::CatalogItem {
+            id: "p0deje/maccy".to_string(),
+            name: "Maccy".to_string(),
+            owner: "p0deje".to_string(),
+            repo: "Maccy".to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: String::new(),
+            description_en: None,
+            category: "tools".to_string(),
+            category_name: "效率工具".to_string(),
+            aliases: vec![],
+            default_version: "v2.0.0".to_string(),
+            added_at: None,
+            license: "OpenSource".to_string(),
+            stars: 999,
+            forks: 88,
+            is_verified: true,
+            homepage: None,
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+            platforms: vec![],
+            identifiers: std::collections::HashMap::new(),
+        };
+        let repo_zero = super::GitHubRepoResponse {
+            name: None,
+            full_name: None,
+            html_url: None,
+            description: None,
+            stargazers_count: Some(0),
+            forks_count: Some(0),
+            language: None,
+            license: None,
+            homepage: None,
+            default_branch: None,
+            fork: None,
+            pushed_at: None,
+            updated_at: None,
+        };
+        super::apply_304_repo_refresh(
+            &mut cached,
+            &repo_zero,
+            Some(&placeholder_item),
+            "p0deje",
+            "Maccy",
+        );
+        assert_eq!(cached.core.license, "MIT");
+        assert_eq!(cached.core.stars, 0);
+        assert_eq!(cached.core.forks, 0);
     }
 }
