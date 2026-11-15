@@ -777,6 +777,7 @@
       "selected_file_download_only": "Selected file · {{os}} {{arch}} (download only)",
       "recommended_version": "Recommended · {{os}} {{arch}}",
       "download_version": "Download · {{os}} {{arch}}",
+      "platform_all": "All platforms",
       "latest_package": "{{name}} latest release",
       "downloading": "Downloading...",
       "hash_verified": "Hash verified",

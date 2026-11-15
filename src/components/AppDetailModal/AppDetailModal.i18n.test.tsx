@@ -451,6 +451,60 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     expect(screen.getByText('2.5 MB/s')).toBeTruthy();
   });
 
+  it('labels a fallback download with the platform of the package itself, not the host', async () => {
+    const macDmg: ReleaseAsset = {
+      name: 'Demo-3.4.4.dmg',
+      download_url: 'https://github.com/test/demo-app/releases/download/3.4.4/Demo-3.4.4.dmg',
+      size_bytes: 1024 * 1024 * 48,
+      os: 'macos',
+      arch: 'x86_64',
+      kind: 'dmg',
+    };
+    const props = {
+      app: FIXTURE_APP,
+      displayName: 'Demo App',
+      releases: [macDmg],
+      primaryAsset: macDmg,
+      hasNoReleases: false,
+      isAuthExpired: false,
+      canInstallPrimary: false,
+      currentOs: 'windows',
+      currentArch: 'x86_64',
+      selectedAssetName: null,
+      showSkeleton: false,
+      downloadProgress: null,
+      installError: null,
+      showAllAssets: false,
+      onToggleShowAllAssets: () => {},
+      isInstalled: false,
+      isExploreMode: false,
+      isManaged: null,
+      isUninstallingGlobal: false,
+      downloadedFile: null,
+      isRevealingFolder: false,
+      isDownloadingOnly: false,
+      effectiveIsInstalling: false,
+      effectiveIsBusy: false,
+      onLaunch: () => {},
+      onClose: () => {},
+      onRevealDownload: () => {},
+      onDownloadPrimary: () => {},
+      onAction: () => {},
+    };
+
+    await i18n.changeLanguage('zh-CN');
+    const { unmount } = render(<InstallActions {...props} />);
+    expect(screen.getByText('下载版本 · macOS x86_64')).toBeTruthy();
+    unmount();
+
+    await i18n.changeLanguage('en-US');
+    const { unmount: unmountAll } = render(
+      <InstallActions {...props} primaryAsset={{ ...macDmg, os: 'all', arch: 'universal' }} />,
+    );
+    expect(screen.getByText('Download · All platforms universal')).toBeTruthy();
+    unmountAll();
+  });
+
   it('switches ReadmeSection error and loading states between Chinese and English', async () => {
     // 1. Error state in zh-CN
     await i18n.changeLanguage('zh-CN');

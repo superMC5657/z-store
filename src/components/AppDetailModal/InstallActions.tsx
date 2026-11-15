@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, ReleaseAsset } from '../../types';
 import { InlineConfirmButton } from '../InlineConfirmButton';
+import { PLATFORM_META, PlatformId } from '../../lib/platformFilter';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -88,6 +89,11 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
   // 已纳管绿已安装；未纳管走获取安装。
   // 三态：isManaged===null（未知）+ 已安装 = 未知，中性占位。
   const isUnknown = isInstalled && isManaged === null;
+  // 资产 os 取值见 installer/selector.rs：windows / macos / linux / android / all。
+  const osLabel = (os: string) =>
+    os === 'all' ? t('detail.install.platform_all') : PLATFORM_META[os.toLowerCase() as PlatformId]?.label || os;
+  // 标签描述的是这个包本身面向的平台；宿主无匹配包时回退到的是别的平台的包。
+  const assetTarget = { os: osLabel(primaryAsset?.os || ''), arch: primaryAsset?.arch || '' };
 
   const statusLabel =
     app.isLoading && hasNoReleases
@@ -104,11 +110,11 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
         : t('detail.install.ready')
       : selectedAssetName
       ? canInstallPrimary
-        ? t('detail.install.selected_package', { os: primaryAsset?.os || '', arch: primaryAsset?.arch || '' })
-        : t('detail.install.selected_file_download_only', { os: primaryAsset?.os || '', arch: primaryAsset?.arch || '' })
+        ? t('detail.install.selected_package', assetTarget)
+        : t('detail.install.selected_file_download_only', assetTarget)
       : canInstallPrimary
-      ? t('detail.install.recommended_version', { os: currentOs === 'windows' ? 'Windows' : currentOs, arch: currentArch })
-      : t('detail.install.download_version', { os: currentOs === 'windows' ? 'Windows' : currentOs, arch: currentArch });
+      ? t('detail.install.recommended_version', { os: osLabel(currentOs), arch: currentArch })
+      : t('detail.install.download_version', assetTarget);
   const statusTitle = statusLabel;
   const statusText = statusLabel;
   const statusBadge = isUnknown ? 'unknown' : isInstalled && isManaged ? 'managed' : 'none';

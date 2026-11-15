@@ -777,6 +777,7 @@
       "selected_file_download_only": "已选文件 · {{os}} {{arch}}（仅下载）",
       "recommended_version": "推荐版本 · {{os}} {{arch}}",
       "download_version": "下载版本 · {{os}} {{arch}}",
+      "platform_all": "全平台",
       "latest_package": "{{name}} 最新版本",
       "downloading": "正在下载...",
       "hash_verified": "哈希校验通过",
