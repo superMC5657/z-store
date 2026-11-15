@@ -33,3 +33,7 @@ Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `doc
 - Frontend request keys MUST be camelCase (`appId`, `forceRefresh`, `perPage`, `cacheKey`, `payloadJson`); backend Rust params stay snake_case bridged by `#[tauri::command(rename_all = "camelCase")]`; single-word params are exempt.
 - Response/event struct fields use snake_case on both sides; keep this distinct from the request-key rule.
 - Demo mock MUST be camel-only (no snake fallback in `argStr`/`argNum`); `ipcArgsNaming.test.ts` enforces `/^[a-z][a-zA-Z0-9]*$/` on all `tauriInvoke` args, `noDirectInvoke.test.ts` is recursive and bans views importing `api/client`.
+
+## Workflow Overrides
+- When executing `/implement` or `/implement-spec`, stop immediately after all tests pass and changes are committed.
+- **DO NOT** run the built-in `code-review` phase or spawn review subagents at the end of `/implement`. I will run `/code-review` manually in a fresh session.
