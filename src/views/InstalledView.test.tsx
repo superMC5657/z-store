@@ -364,6 +364,8 @@ describe('InstalledView counts follow the in-page search and platform filter', (
       />,
     );
     expect(screen.queryByText('暂未安装任何应用')).toBeNull();
+    expect(screen.getByPlaceholderText('筛选名称、仓库或路径...')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '全部 0' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
     expect(onReset).toHaveBeenCalledTimes(1);
   });

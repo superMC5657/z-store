@@ -346,7 +346,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
 
       {isChecking && <CheckProgressBanner progress={checkProgress} />}
 
-      {installedApps.length > 0 && (
+      {(installedApps.length > 0 || isPlatformFilteredEmpty) && (
         <ManageFilterBar<InstalledFilterTabId>
           tabs={filterTabs}
           activeTab={activeTab}
