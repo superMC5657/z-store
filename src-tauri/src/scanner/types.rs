@@ -35,6 +35,10 @@ pub struct AppMatchResult {
     pub confidence: f32,
     pub confidence_tier: String, // 置信度等级："high"（高）、"medium"（中）、"low"（低）
     pub resolved_executable_path: Option<String>,
+    /// 匹配依据编码：`exact_name`、`prefix_name`、`alias`、`executable`、`bundle_id`、
+    /// `install_dir`、`publisher`、`version`。
+    #[serde(default)]
+    pub match_reasons: Vec<String>,
 }
 
 impl AppMatchResult {

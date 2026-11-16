@@ -395,6 +395,7 @@
     "forks": 11287,
     "is_verified": true,
     "homepage": "https://clash-verge-rev.github.io",
+    "install_dirs": ["Clash Verge", "clash-verge-rev", "Clash Verge Rev"],
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
       "windows": ["Clash Verge.exe"],
@@ -447,6 +448,7 @@
     "forks": 416,
     "is_verified": true,
     "homepage": "https://www.7-zip.org",
+    "install_dirs": ["7-Zip-Zstandard", "7-Zip-zstd"],
     "publishers": ["Igor Pavlov"],
     "platforms": ["windows", "linux"],
     "identifiers": {

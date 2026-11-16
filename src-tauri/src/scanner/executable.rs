@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 /// 候选名通用停用词（`resolve_installed_app_path` token 过滤与 `linux_candidate_names`
 /// 切分过滤同源共用；防 `app` / `tool` / `test` 等通用词误命中 `/usr/bin/test`、
 /// `apport-gtk.desktop` 同类误配）。
-const CANDIDATE_STOP_WORDS: &[&str] = &[
+pub(crate) const CANDIDATE_STOP_WORDS: &[&str] = &[
     "microsoft",
     "google",
     "apple",

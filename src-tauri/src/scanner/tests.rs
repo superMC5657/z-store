@@ -750,6 +750,7 @@ fn test_import_path_prefers_executable_then_install_location() {
         confidence: 0.6,
         confidence_tier: "medium".to_string(),
         resolved_executable_path: exe.map(str::to_string),
+        match_reasons: vec![],
     };
 
     assert_eq!(
@@ -1091,4 +1092,138 @@ fn installed_at_is_read_from_cached_entries() {
         AppScanner::detect_installed_at_from_entries(&entries, r"Z:\elsewhere\x.exe"),
         None
     );
+}
+
+#[test]
+fn normalize_app_title_strips_version_arch_and_scope_noise() {
+    use super::matcher::normalize_app_title as n;
+    assert_eq!(n("Motrix 1.8.19"), "motrix");
+    assert_eq!(n("7-Zip 24.08 (x64)"), "7-zip");
+    assert_eq!(n("Mozilla Firefox (x64 zh-CN)"), "mozilla firefox");
+    assert_eq!(
+        n("Microsoft Visual Studio Code (User)"),
+        "microsoft visual studio code"
+    );
+    assert_eq!(n("Notepad++ (64-bit x64)"), "notepad++");
+    assert_eq!(n("VLC media player 3.0.21"), "vlc media player");
+    assert_eq!(n("WinRAR 7.01 (64-bit)"), "winrar");
+    assert_eq!(n("  Some   App  v2.0.1-beta x64 "), "some app");
+    // 名称本身的数字与非标注括号保留
+    assert_eq!(n("Warzone 2100"), "warzone 2100");
+    assert_eq!(n("Tool (Portable Edition)"), "tool (portable edition)");
+}
+
+fn catalog_item(id: &str, name: &str, platforms: &[&str]) -> CatalogItem {
+    let (owner, repo) = id.split_once('/').unwrap();
+    let mut item = create_mock_catalog().remove(0);
+    item.id = id.to_string();
+    item.name = name.to_string();
+    item.owner = owner.to_string();
+    item.repo = repo.to_string();
+    item.aliases = vec![];
+    item.publishers = vec![];
+    item.install_dirs = vec![];
+    item.identifiers = std::collections::HashMap::new();
+    item.description_en = None;
+    item.platforms = platforms.iter().map(|p| p.to_string()).collect();
+    item
+}
+
+#[test]
+fn inverted_index_retrieves_only_related_candidates() {
+    use super::matcher::CatalogMatchIndex;
+    let mut catalog = create_mock_catalog();
+    catalog.push(catalog_item("minbrowser/min", "Min", &[]));
+    catalog.push(catalog_item("jordanbaird/ice", "Ice", &[]));
+    let index = CatalogMatchIndex::build(&catalog);
+
+    let vlc = ScannedRawApp {
+        display_name: "VLC media player 3.0.21".into(),
+        publisher: Some("VideoLAN".into()),
+        ..Default::default()
+    };
+    assert_eq!(index.candidate_ids(&vlc), vec!["videolan/vlc"]);
+
+    let miniconda = ScannedRawApp {
+        display_name: "Miniconda3".into(),
+        install_location: Some(r"C:\Users\admin\miniconda3".into()),
+        ..Default::default()
+    };
+    assert!(index.candidate_ids(&miniconda).is_empty());
+    let wps = ScannedRawApp {
+        display_name: "WPS Office".into(),
+        install_location: Some(r"C:\Program Files\WPS Office".into()),
+        ..Default::default()
+    };
+    assert!(index.candidate_ids(&wps).is_empty());
+    assert!(AppScanner::match_apps(&[miniconda, wps], &catalog).is_empty());
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn short_names_need_corroboration_and_reasons_are_reported() {
+    let mut rio = catalog_item("raphamorim/rio", "Rio", &[]);
+    rio.identifiers
+        .insert("windows".into(), vec!["rio.exe".into()]);
+    rio.identifiers.insert("linux".into(), vec!["rio".into()]);
+    let catalog = vec![rio];
+
+    let name_only = ScannedRawApp {
+        display_name: "Rio".into(),
+        ..Default::default()
+    };
+    assert!(AppScanner::match_apps(&[name_only], &catalog).is_empty());
+
+    let with_exe = ScannedRawApp {
+        display_name: "Rio".into(),
+        display_icon: Some(if cfg!(target_os = "linux") {
+            "/usr/bin/rio".into()
+        } else {
+            r"C:\Program Files\Rio\rio.exe".into()
+        }),
+        ..Default::default()
+    };
+    let results = AppScanner::match_apps(&[with_exe], &catalog);
+    assert_eq!(results.len(), 1);
+    assert!(results[0].match_reasons.contains(&"exact_name".to_string()));
+    assert!(results[0].match_reasons.contains(&"executable".to_string()));
+}
+
+#[test]
+fn match_unmanaged_prefilters_platform_and_managed_entries() {
+    let other = if cfg!(target_os = "macos") {
+        "linux"
+    } else {
+        "macos"
+    };
+    let mut mac_only = catalog_item("someone/maconly", "MacOnlyTool", &[other]);
+    mac_only.publishers = vec!["Someone".into()];
+    let catalog = vec![
+        mac_only,
+        catalog_item("acme/widgetry", "Widgetry", &[]),
+        catalog_item(
+            "acme/gizmotron",
+            "Gizmotron",
+            &[CatalogItem::current_platform_key()],
+        ),
+    ];
+    let scanned = vec![
+        ScannedRawApp {
+            display_name: "MacOnlyTool".into(),
+            publisher: Some("Someone".into()),
+            ..Default::default()
+        },
+        ScannedRawApp {
+            display_name: "Widgetry".into(),
+            ..Default::default()
+        },
+        ScannedRawApp {
+            display_name: "Gizmotron".into(),
+            ..Default::default()
+        },
+    ];
+    assert_eq!(AppScanner::match_apps(&scanned, &catalog).len(), 3);
+    let results = AppScanner::match_unmanaged(&scanned, &catalog, ["ACME/Widgetry".to_string()]);
+    let ids: Vec<&str> = results.iter().map(|r| r.catalog_id.as_str()).collect();
+    assert_eq!(ids, vec!["acme/gizmotron"]);
 }

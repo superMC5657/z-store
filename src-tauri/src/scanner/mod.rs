@@ -9,6 +9,8 @@ pub mod types;
 pub mod version;
 
 #[cfg(test)]
+mod matcher_eval_tests;
+#[cfg(test)]
 mod tests;
 
 pub use types::{AppMatchResult, ImportAppRequest, ScanConfig, ScanOutcome, ScannedRawApp};
@@ -55,15 +57,22 @@ impl AppScanner {
         }
     }
 
-    /// 确保匹配结果带有磁盘上存在的导入路径：已有则原样返回；否则经路径修复补上主程序路径
-    /// （版本未知时顺带读该主程序的版本）；仍找不到返回 None。
+    /// 确保匹配结果带有磁盘上存在的导入路径：已解析主程序存在则原样返回；本机条目自带的
+    /// 安装目录仍存在时也原样保留（不拿全盘探测结果覆盖成无关路径）；两者都不在时才经路径修复
+    /// 补上主程序路径（版本未知时顺带读该主程序的版本）；仍找不到返回 None。
     fn ensure_import_path(mut m: AppMatchResult) -> Option<AppMatchResult> {
-        if m.import_path()
-            .is_some_and(|p| std::path::Path::new(p).exists())
-        {
+        let exists = |p: &str| {
+            let p = version::unquote_path(p);
+            !p.is_empty() && std::path::Path::new(p).exists()
+        };
+        if m.resolved_executable_path.as_deref().is_some_and(exists) {
             return Some(m);
         }
-        let repaired = Self::resolve_installed_app_path(&m.name, &m.catalog_id, None)?;
+        if m.scanned.install_location.as_deref().is_some_and(exists) {
+            m.resolved_executable_path = None;
+            return Some(m);
+        }
+        let repaired = Self::resolve_installed_app_path(&m.name, &m.catalog_id, Some(&m.repo))?;
         if m.local_version.trim().is_empty() {
             m.local_version = Self::read_exe_version(&repaired).unwrap_or_default();
         }

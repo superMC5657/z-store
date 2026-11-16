@@ -1,6 +1,6 @@
 # Issue 03: Memory Inverted Index, Word/Path-Boundary Scoring Engine, Fork Disambiguation & Global 1-to-1 Assignment
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01, 02
 
 ## Summary
