@@ -121,14 +121,14 @@ fn test_match_apps_high_confidence() {
         .find(|r| r.catalog_id == "videolan/vlc")
         .unwrap();
     assert!(vlc_match.confidence >= 0.70);
-    assert_eq!(vlc_match.confidence_tier, "high");
+    assert_eq!(vlc_match.confidence_tier, ConfidenceTier::High);
 
     let obs_match = results
         .iter()
         .find(|r| r.catalog_id == "obsproject/obs-studio")
         .unwrap();
     assert!(obs_match.confidence >= 0.70);
-    assert_eq!(obs_match.confidence_tier, "high");
+    assert_eq!(obs_match.confidence_tier, ConfidenceTier::High);
 }
 
 #[test]
@@ -748,7 +748,7 @@ fn test_import_path_prefers_executable_then_install_location() {
         local_version: "1.0".to_string(),
         catalog_version: "1.0".to_string(),
         confidence: 0.6,
-        confidence_tier: "medium".to_string(),
+        confidence_tier: ConfidenceTier::Medium,
         resolved_executable_path: exe.map(str::to_string),
         match_reasons: vec![],
     };
@@ -897,7 +897,7 @@ fn test_read_exe_version_reads_system_executable() {
 
 #[test]
 fn desktop_entry_ignores_spec_version_and_action_sections() {
-    use super::executable::parse_desktop_entry_content;
+    use super::linux::parse_desktop_entry_content;
     let content = "[Desktop Entry]\nVersion=1.0\nType=Application\nName=Motrix\nX-AppImage-Version=2.4.1\nExec=/opt/Motrix/motrix %U\nIcon=motrix\n\n[Desktop Action new-window]\nName=New Window\nExec=/usr/bin/other --new\n";
     let parsed = parse_desktop_entry_content("motrix", content).expect("parsed");
     assert_eq!(parsed.name, "Motrix");
@@ -919,7 +919,7 @@ fn desktop_entry_ignores_spec_version_and_action_sections() {
 
 #[test]
 fn distro_package_versions_reduce_to_upstream() {
-    use super::executable::{
+    use super::linux::{
         clean_distro_package_version as clean, parse_appimage_stem, parse_dpkg_search_output,
         parse_dpkg_versions,
     };
@@ -988,7 +988,7 @@ fn scoop_layout_produces_scoop_entries() {
     let rg = &found[1];
     assert_eq!(rg.display_name, "ripgrep");
     assert_eq!(rg.display_version, "14.1.0");
-    assert_eq!(rg.source_kind.as_deref(), Some("scoop"));
+    assert_eq!(rg.source_kind, Some(SourceKind::Scoop));
     assert!(rg.display_icon.as_deref().unwrap().ends_with("rg.exe"));
     assert!(rg.install_location.as_deref().unwrap().ends_with("current"));
 }
@@ -1185,8 +1185,8 @@ fn short_names_need_corroboration_and_reasons_are_reported() {
     };
     let results = AppScanner::match_apps(&[with_exe], &catalog);
     assert_eq!(results.len(), 1);
-    assert!(results[0].match_reasons.contains(&"exact_name".to_string()));
-    assert!(results[0].match_reasons.contains(&"executable".to_string()));
+    assert!(results[0].match_reasons.contains(&MatchReason::ExactName));
+    assert!(results[0].match_reasons.contains(&MatchReason::Executable));
 }
 
 #[test]
@@ -1226,4 +1226,76 @@ fn match_unmanaged_prefilters_platform_and_managed_entries() {
     let results = AppScanner::match_unmanaged(&scanned, &catalog, ["ACME/Widgetry".to_string()]);
     let ids: Vec<&str> = results.iter().map(|r| r.catalog_id.as_str()).collect();
     assert_eq!(ids, vec!["acme/gizmotron"]);
+}
+
+#[test]
+fn macos_bundle_display_icon_and_contents_macos_resolution() {
+    let mac_exe = "/Applications/Obsidian.app/Contents/MacOS/Obsidian";
+    assert_eq!(
+        AppScanner::clean_display_icon(mac_exe),
+        Some(std::path::PathBuf::from(mac_exe))
+    );
+    assert_eq!(
+        AppScanner::clean_display_icon("/Applications/Obsidian.app"),
+        Some(std::path::PathBuf::from("/Applications/Obsidian.app"))
+    );
+
+    let temp_dir = temp_test_dir(".test_mac_app_");
+    let bundle = temp_dir.path().join("Obsidian.app");
+    let macos_dir = bundle.join("Contents").join("MacOS");
+    std::fs::create_dir_all(&macos_dir).unwrap();
+    let bin = macos_dir.join("Obsidian");
+    std::fs::write(&bin, b"dummy").unwrap();
+    let config = ScanConfig {
+        target_executables: vec!["Obsidian".to_string()],
+        install_dirs: vec!["Obsidian.app".to_string()],
+        search_subdirs: vec![],
+    };
+    assert_eq!(
+        AppScanner::find_exe_in_directory(&bundle, &config).as_deref(),
+        Some(bin.to_string_lossy().as_ref())
+    );
+
+    let mut cat = catalog_item("obsidianmd/obsidian", "Obsidian", &[]);
+    cat.identifiers
+        .insert(CatalogItem::current_platform_key().to_string(), vec!["Obsidian".into()]);
+    let scanned = ScannedRawApp {
+        display_name: "笔记工具".into(),
+        display_icon: Some(mac_exe.into()),
+        install_location: Some("/Applications/Obsidian.app".into()),
+        source_kind: Some(SourceKind::MacosApp),
+        ..Default::default()
+    };
+    let results = AppScanner::match_apps(&[scanned], &[cat]);
+    assert_eq!(results.len(), 1);
+    assert!(results[0].match_reasons.contains(&MatchReason::Executable));
+    assert!(results[0].confidence >= 0.48);
+}
+
+#[test]
+fn mid_string_name_match_requires_multi_token_sequence() {
+    let mut single = catalog_item("acme/obsidian", "Obsidian", &[]);
+    single.publishers = vec!["Acme".into()];
+    let mut multi = catalog_item("obsproject/obs-studio", "OBS Studio", &[]);
+    multi.publishers = vec!["OBS Project".into()];
+    let catalog = vec![single, multi];
+
+    // 单词（即使 >= 5 字符）出现在名称中段不触发词序列包含（+0.32），仅靠发布者 0.22 不足以过线
+    let single_mid = ScannedRawApp {
+        display_name: "My Obsidian Helper".into(),
+        publisher: Some("Acme".into()),
+        ..Default::default()
+    };
+    assert!(AppScanner::match_apps(&[single_mid], &catalog).is_empty());
+
+    // 完整多词元序列（>= 2 个词，长度 >= 5）出现在中段可触发 +0.32，叠加发布者 +0.22 达 0.54
+    let multi_mid = ScannedRawApp {
+        display_name: "Portable OBS Studio Edition".into(),
+        publisher: Some("OBS Project".into()),
+        ..Default::default()
+    };
+    let results = AppScanner::match_apps(&[multi_mid], &catalog);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].catalog_id, "obsproject/obs-studio");
+    assert!(results[0].match_reasons.contains(&MatchReason::PrefixName));
 }

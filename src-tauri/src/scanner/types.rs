@@ -1,6 +1,94 @@
 use crate::github::CatalogItem;
 use serde::{Deserialize, Serialize};
 
+/// 发现来源枚举。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    Registry,
+    Scoop,
+    Shortcut,
+    Desktop,
+    Appimage,
+    MacosApp,
+}
+
+impl SourceKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Registry => "registry",
+            Self::Scoop => "scoop",
+            Self::Shortcut => "shortcut",
+            Self::Desktop => "desktop",
+            Self::Appimage => "appimage",
+            Self::MacosApp => "macos_app",
+        }
+    }
+}
+
+/// 置信度分级阈值常量
+pub const MIN_QUALIFIED_SCORE: f32 = 0.45;
+pub const TIER_HIGH_CONFIDENCE_THRESHOLD: f32 = 0.70;
+pub const TIER_MEDIUM_CONFIDENCE_THRESHOLD: f32 = 0.55;
+
+/// 置信度等级。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfidenceTier {
+    High,
+    Medium,
+    Low,
+}
+
+impl ConfidenceTier {
+    pub fn from_score(score: f32) -> Self {
+        if score >= TIER_HIGH_CONFIDENCE_THRESHOLD {
+            Self::High
+        } else if score >= TIER_MEDIUM_CONFIDENCE_THRESHOLD {
+            Self::Medium
+        } else {
+            Self::Low
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::High => "high",
+            Self::Medium => "medium",
+            Self::Low => "low",
+        }
+    }
+}
+
+/// 匹配依据编码（前端按此映射文案）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchReason {
+    ExactName,
+    PrefixName,
+    Alias,
+    Executable,
+    BundleId,
+    InstallDir,
+    Publisher,
+    Version,
+}
+
+impl MatchReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ExactName => "exact_name",
+            Self::PrefixName => "prefix_name",
+            Self::Alias => "alias",
+            Self::Executable => "executable",
+            Self::BundleId => "bundle_id",
+            Self::InstallDir => "install_dir",
+            Self::Publisher => "publisher",
+            Self::Version => "version",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScannedRawApp {
     pub display_name: String,
@@ -15,9 +103,9 @@ pub struct ScannedRawApp {
     /// Linux `.desktop` 文件名、macOS `CFBundleIdentifier`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_key: Option<String>,
-    /// 发现来源：`registry`、`scoop`、`shortcut`、`desktop`、`appimage`、`macos_app`。
+    /// 发现来源。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_kind: Option<String>,
+    pub source_kind: Option<SourceKind>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,12 +121,11 @@ pub struct AppMatchResult {
     pub local_version: String,
     pub catalog_version: String,
     pub confidence: f32,
-    pub confidence_tier: String, // 置信度等级："high"（高）、"medium"（中）、"low"（低）
+    pub confidence_tier: ConfidenceTier,
     pub resolved_executable_path: Option<String>,
-    /// 匹配依据编码：`exact_name`、`prefix_name`、`alias`、`executable`、`bundle_id`、
-    /// `install_dir`、`publisher`、`version`。
+    /// 匹配依据编码。
     #[serde(default)]
-    pub match_reasons: Vec<String>,
+    pub match_reasons: Vec<MatchReason>,
 }
 
 impl AppMatchResult {

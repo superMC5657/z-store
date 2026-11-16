@@ -10,35 +10,23 @@ import {
   Info,
   X,
 } from 'lucide-react';
-import { AppMatchResult, ImportAppRequest } from '../types';
+import {
+  AppMatchResult,
+  HIGH_CONFIDENCE_THRESHOLD,
+  ImportAppRequest,
+  isKnownMatchReason,
+} from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 import { AppIconFrame } from './AppIconFrame';
 import { stripVersionPrefix } from '../utils/appHelper';
 import { useTranslation } from 'react-i18next';
 
-/** 默认勾选门槛：与后端高置信度阈值一致。 */
-const HIGH_CONFIDENCE = 0.7;
 /** 每行最多展示的匹配依据数。 */
 const MAX_REASON_TAGS = 3;
-const KNOWN_REASONS = [
-  'exact_name',
-  'prefix_name',
-  'alias',
-  'executable',
-  'bundle_id',
-  'install_dir',
-  'publisher',
-  'version',
-] as const;
-type MatchReason = (typeof KNOWN_REASONS)[number];
-
-function isKnownReason(r: string): r is MatchReason {
-  return (KNOWN_REASONS as readonly string[]).includes(r);
-}
 
 function isHighConfidence(r: AppMatchResult): boolean {
-  return r.confidence_tier === 'high' || r.confidence >= HIGH_CONFIDENCE;
+  return r.confidence_tier === 'high' || r.confidence >= HIGH_CONFIDENCE_THRESHOLD;
 }
 
 const TIER_BADGE_STYLE: Record<AppMatchResult['confidence_tier'], React.CSSProperties> = {
@@ -335,7 +323,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                 const detectedName = detectedNameOf(item);
                 const publisher = item.scanned.publisher?.trim();
                 const reasons = (item.match_reasons ?? [])
-                  .filter(isKnownReason)
+                  .filter(isKnownMatchReason)
                   .slice(0, MAX_REASON_TAGS);
                 return (
                   <div

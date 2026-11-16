@@ -21,14 +21,18 @@ fn read_u32(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(data.get(at..at + 4)?.try_into().ok()?))
 }
 
-/// 自 `at` 起读取以 NUL 结尾的 UTF-16LE 字符串（越界时截至缓冲区末尾）。
-fn read_utf16z(data: &[u8], at: usize) -> Option<String> {
-    let units: Vec<u16> = data
-        .get(at..)?
+/// 将小端字节切片解码为 UTF-16 码元序列（忽略不足两字节的尾部）。
+fn decode_utf16le_units(bytes: &[u8]) -> impl Iterator<Item = u16> + '_ {
+    bytes
         .as_chunks::<2>()
         .0
         .iter()
         .map(|c| u16::from_le_bytes(*c))
+}
+
+/// 自 `at` 起读取以 NUL 结尾的 UTF-16LE 字符串（越界时截至缓冲区末尾）。
+fn read_utf16z(data: &[u8], at: usize) -> Option<String> {
+    let units: Vec<u16> = decode_utf16le_units(data.get(at..)?)
         .take_while(|&u| u != 0)
         .collect();
     Some(String::from_utf16_lossy(&units))
@@ -133,12 +137,7 @@ fn read_counted_string(data: &[u8], at: usize, unicode: bool) -> Option<(String,
     let start = at + 2;
     if unicode {
         let bytes = data.get(start..start + count * 2)?;
-        let units: Vec<u16> = bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| u16::from_le_bytes(*c))
-            .collect();
+        let units: Vec<u16> = decode_utf16le_units(bytes).collect();
         Some((String::from_utf16_lossy(&units), start + count * 2))
     } else {
         let bytes = data.get(start..start + count)?;

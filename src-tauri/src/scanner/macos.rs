@@ -120,7 +120,7 @@ impl super::AppScanner {
                     display_icon: binary.or_else(|| Some(bundle_str.clone())),
                     installed_at: Self::detect_path_installed_at(&bundle_str),
                     registry_key: meta.identifier.clone(),
-                    source_kind: Some("macos_app".to_string()),
+                    source_kind: Some(super::types::SourceKind::MacosApp),
                     ..Default::default()
                 });
             }

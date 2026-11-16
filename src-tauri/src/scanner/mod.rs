@@ -1,5 +1,7 @@
 pub mod display_icon;
 pub mod executable;
+#[cfg(any(target_os = "linux", test))]
+pub mod linux;
 pub mod lnk_target;
 #[cfg(any(target_os = "macos", test))]
 pub mod macos;
@@ -13,7 +15,10 @@ mod matcher_eval_tests;
 #[cfg(test)]
 mod tests;
 
-pub use types::{AppMatchResult, ImportAppRequest, ScanConfig, ScanOutcome, ScannedRawApp};
+pub use types::{
+    AppMatchResult, ConfidenceTier, ImportAppRequest, MatchReason, ScanConfig, ScanOutcome,
+    ScannedRawApp, SourceKind,
+};
 
 pub struct AppScanner;
 

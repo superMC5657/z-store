@@ -1,12 +1,14 @@
-import type {
-  AffinityProfileSummary,
-  AppDetail,
-  AppMatchResult,
-  AppSummary,
-  HydratedRepoCard,
-  ImportAppRequest,
-  SearchListCacheEntry,
-  SyncCatalogResult,
+import {
+  confidenceTierForScore,
+  type AffinityProfileSummary,
+  type AppDetail,
+  type AppMatchResult,
+  type AppSummary,
+  type HydratedRepoCard,
+  type ImportAppRequest,
+  type MatchReason,
+  type SearchListCacheEntry,
+  type SyncCatalogResult,
 } from '../../types';
 import type { AppIconCycleResult, PlatformsLiteResult, ReadmeVariantsResult } from '../../services/api';
 import {
@@ -408,7 +410,7 @@ interface DemoScanSample {
   location: string;
   executable?: string;
   confidence: number;
-  reasons: string[];
+  reasons: MatchReason[];
 }
 
 const DEMO_SCAN_SAMPLES: readonly DemoScanSample[] = [
@@ -472,12 +474,6 @@ const DEMO_SCAN_SAMPLES: readonly DemoScanSample[] = [
   },
 ];
 
-function demoTier(confidence: number): AppMatchResult['confidence_tier'] {
-  if (confidence >= 0.7) return 'high';
-  if (confidence >= 0.55) return 'medium';
-  return 'low';
-}
-
 /** 与后端同口径：已纳管的应用不再出现在扫描结果里；每个置信度档位最多取两条。 */
 export function handleScanAndMatchLocalApps(): AppMatchResult[] {
   const managed = new Set(getInstalledApps().map((i) => i.app_id.toLowerCase()));
@@ -486,7 +482,7 @@ export function handleScanAndMatchLocalApps(): AppMatchResult[] {
   for (const sample of DEMO_SCAN_SAMPLES) {
     const s = findSummary(sample.id);
     if (!s || managed.has(s.id.toLowerCase())) continue;
-    const tier = demoTier(sample.confidence);
+    const tier = confidenceTierForScore(sample.confidence);
     if ((perTier[tier] ?? 0) >= 2) continue;
     perTier[tier] = (perTier[tier] ?? 0) + 1;
     out.push({
