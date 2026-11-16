@@ -22,6 +22,18 @@ import {
   warnOnce,
 } from './demoState';
 import { asRecord } from './handlers/common';
+import {
+  handleCollectLocalApp,
+  handleDeleteCustomApp,
+  handleGetCustomAppPrPayload,
+  handleGetCustomAppPrUrl,
+  handleGetLicenseAllowlist,
+  handleListCustomApps,
+  handleMarkCustomSubmitted,
+  handleRevertCollectedApp,
+  handleSaveCustomApp,
+  handleWithdrawSubmitted,
+} from './handlers/customApps';
 import { handlePluginCommand } from './handlers/plugins';
 import {
   handleClearSearchHistory,
@@ -36,6 +48,8 @@ import {
   handleGetAffinityProfileSummary,
   handleGetOrFetchIcon,
   handleGetPlatformsLite,
+  handleGetConfirmedIconsBatch,
+  handleFetchOrCacheAssetUrl,
   handleGetReadmeVariants,
   handleGetRecentlyViewedApps,
   handleGetRepoCardsBatch,
@@ -96,6 +110,10 @@ import {
   handleGetFavorites,
   handleGetOAuthUser,
   handleGetWatchedApps,
+  handleGetWatchNotifications,
+  handleGetDismissedWatchNotifications,
+  handleDismissWatchNotification,
+  handleRestoreWatchNotification,
   handleFetchStarredStatus,
   handleOAuthDevicePoll,
   handleOAuthDeviceStart,
@@ -246,6 +264,14 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleSaveSearchListCache(a);
     case 'get_platforms_lite':
       return handleGetPlatformsLite(a);
+    case 'get_confirmed_icons_batch':
+      return handleGetConfirmedIconsBatch(a);
+    case 'fetch_or_cache_asset_url':
+      return handleFetchOrCacheAssetUrl(a);
+    // 趋势榜 L2 快照：演示站每次从内置快照现算，读恒为未命中、写为空操作
+    case 'get_trend_board_cache':
+    case 'save_trend_board_cache':
+      return null;
     case 'get_home_feed':
       return handleGetHomeFeed(a);
     case 'get_affinity_profile_summary':
@@ -318,13 +344,35 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     case 'get_update_rules':
       return handleGetUpdateRules();
     case 'set_app_skip_version':
-      return handleSetAppSkipVersion();
+      return handleSetAppSkipVersion(a);
     case 'set_app_frozen':
-      return handleSetAppFrozen();
+      return handleSetAppFrozen(a);
     case 'set_app_hidden':
-      return handleSetAppHidden();
+      return handleSetAppHidden(a);
     case 'select_folder':
       return handleSelectFolder();
+
+    // -- 待收录草稿域 ---------------------------------------------------
+    case 'list_custom_apps':
+      return handleListCustomApps(a);
+    case 'save_custom_app':
+      return handleSaveCustomApp(a);
+    case 'delete_custom_app':
+      return handleDeleteCustomApp(a);
+    case 'mark_submitted':
+      return handleMarkCustomSubmitted(a);
+    case 'collect_local_app':
+      return handleCollectLocalApp(a);
+    case 'revert_collected_to_draft':
+      return handleRevertCollectedApp(a);
+    case 'withdraw_submitted':
+      return handleWithdrawSubmitted(a);
+    case 'get_custom_app_pr_url':
+      return handleGetCustomAppPrUrl(a);
+    case 'get_custom_app_pr_payload':
+      return handleGetCustomAppPrPayload(a);
+    case 'get_license_allowlist':
+      return handleGetLicenseAllowlist();
 
     // -- 设置 / 代理 / 系统 ---------------------------------------------
     case 'switch_mirror':
@@ -375,13 +423,14 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleWatchApp(a);
     case 'unwatch_app':
       return handleUnwatchApp(a);
-    // 演示环境不跑关注检查，无待处理提醒
     case 'get_watch_notifications':
+      return handleGetWatchNotifications();
     case 'get_dismissed_watch_notifications':
-      return [];
+      return handleGetDismissedWatchNotifications();
     case 'dismiss_watch_notification':
+      return handleDismissWatchNotification(a);
     case 'restore_watch_notification':
-      return true;
+      return handleRestoreWatchNotification(a);
     case 'oauth_device_start':
       return handleOAuthDeviceStart();
     case 'oauth_device_poll':

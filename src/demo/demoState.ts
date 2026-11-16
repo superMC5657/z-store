@@ -1,5 +1,16 @@
 import type { InstalledApp } from '../types';
-import { summaries, summaryToInstalled } from './fixtures';
+import {
+  buildSeedCustomApps,
+  buildSeedInstalled,
+  buildSeedRecentViewTimes,
+  buildSeedUpdateRules,
+  buildSeedWatchNotifications,
+  SEED_FAVORITES,
+  SEED_RECENT_VIEWS,
+  SEED_SEARCH_HISTORY,
+  SEED_WATCHED,
+} from './seed';
+import { nowSecs } from './handlers/common';
 import { zlogWarn } from '../lib/z-log';
 
 export const LS = {
@@ -9,11 +20,14 @@ export const LS = {
   searchHistory: 'zstore:demo:search_history:v1',
   recentViews: 'zstore:demo:recent_views:v1',
   recentViewTimes: 'zstore:demo:recent_view_times:v1',
-  installed: 'zstore:demo:installed:v1',
+  installed: 'zstore:demo:installed:v2',
   settings: 'zstore:demo:settings:v1',
+  updateRules: 'zstore:demo:update_rules:v1',
+  watchNotifications: 'zstore:demo:watch_notifications:v1',
+  customApps: 'zstore:demo:custom_apps:v1',
 } as const;
 
-function lsGet<T>(key: string, fallback: T): T {
+export function lsGet<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return fallback;
@@ -29,6 +43,36 @@ export function lsSet(key: string, value: unknown): void {
   } catch {
     // 无痕模式 / 配额超出——保留内存中的状态
   }
+}
+
+function lsHas(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 首次访问（键不存在）时写入演示初始数据（见 seed.ts）；用户清空后保持为空。
+ * 演示站全部种子只在这里落盘，各 handler 只读写持久化值。
+ */
+function seedFirstVisit(): void {
+  const now = nowSecs();
+  const seedIfMissing = (key: string, build: () => unknown): void => {
+    if (!lsHas(key)) lsSet(key, build());
+  };
+  seedIfMissing(LS.favorites, () => SEED_FAVORITES.map((s) => s.toLowerCase()));
+  seedIfMissing(LS.watched, () => SEED_WATCHED.map((s) => s.toLowerCase()));
+  seedIfMissing(LS.searchHistory, () => [...SEED_SEARCH_HISTORY]);
+  if (!lsHas(LS.recentViews)) {
+    lsSet(LS.recentViews, [...SEED_RECENT_VIEWS]);
+    lsSet(LS.recentViewTimes, buildSeedRecentViewTimes(now));
+  }
+  seedIfMissing(LS.installed, () => buildSeedInstalled(now));
+  seedIfMissing(LS.updateRules, () => buildSeedUpdateRules(now));
+  seedIfMissing(LS.watchNotifications, () => buildSeedWatchNotifications(now));
+  seedIfMissing(LS.customApps, () => buildSeedCustomApps(now));
 }
 
 function lsStringArray(key: string): string[] {
@@ -110,6 +154,7 @@ export function persistSets(): void {
 }
 
 export function hydrate(): void {
+  seedFirstVisit();
   favSet = new Set(lsStringArray(LS.favorites).map((s) => s.toLowerCase()));
   watchSet = new Set(lsStringArray(LS.watched).map((s) => s.toLowerCase()));
   starSet = new Set(lsStringArray(LS.starred).map((s) => s.toLowerCase()));
@@ -127,14 +172,10 @@ export function hydrate(): void {
   } else {
     recentViewTimes = {};
   }
-  const stored = lsGet<unknown>(LS.installed, null);
-  if (Array.isArray(stored) && stored.length > 0) {
-    const valid = (stored as InstalledApp[]).filter((i) => typeof i?.app_id === 'string');
-    installedApps = valid.slice(0, 10);
-  } else {
-    installedApps = summaries.slice(0, 2).map((s) => summaryToInstalled(s));
-    lsSet(LS.installed, installedApps);
-  }
+  const stored = lsGet<unknown>(LS.installed, []);
+  installedApps = Array.isArray(stored)
+    ? (stored as InstalledApp[]).filter((i) => typeof i?.app_id === 'string')
+    : [];
   try {
     const s = lsGet<unknown>(LS.settings, null);
     if (s && typeof s === 'object' && !Array.isArray(s)) {

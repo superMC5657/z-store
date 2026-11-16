@@ -4,11 +4,14 @@ import type {
   StarAppResult,
   StarredFeedCacheEntry,
   StarredPageResult,
+  WatchDismissedEntry,
   WatchedAppEntry,
+  WatchUpdatedPayload,
 } from '../../types';
 import { summaries, findSummary } from '../fixtures';
-import { getFavSet, getStarSet, getWatchSet, persistSets } from '../demoState';
-import { argNum, argStr, type InvokeArgs } from './common';
+import { getFavSet, getStarSet, getWatchSet, LS, lsGet, lsSet, persistSets } from '../demoState';
+import type { SeedWatchNotifications } from '../seed';
+import { argNum, argStr, nowSecs, warnUnknownArgs, type InvokeArgs } from './common';
 import { clearDemoPrivateSearchListCache } from './catalog';
 
 export function handleGetFavorites(): string[] {
@@ -54,6 +57,71 @@ export function handleUnwatchApp(a: InvokeArgs): boolean {
   getWatchSet().delete(id);
   persistSets();
   return true;
+}
+
+// -- 关注提醒（对齐 `db/watch.rs`）：读写 `LS.watchNotifications`（种子见 seed.ts）---
+// 提醒挂在关注行上，取消关注后不再返回。
+
+let watchNotes: SeedWatchNotifications | null = null;
+
+function loadWatchNotes(): SeedWatchNotifications {
+  if (!watchNotes) {
+    const stored = lsGet<Partial<SeedWatchNotifications> | null>(LS.watchNotifications, null);
+    watchNotes = {
+      pending: Array.isArray(stored?.pending) ? stored.pending : [],
+      dismissed: Array.isArray(stored?.dismissed) ? stored.dismissed : [],
+    };
+  }
+  return watchNotes;
+}
+
+function isWatched(appId: string): boolean {
+  return getWatchSet().has(appId.toLowerCase());
+}
+
+export function handleGetWatchNotifications(): WatchUpdatedPayload[] {
+  return loadWatchNotes()
+    .pending.filter((n) => isWatched(n.app_id))
+    .map((n) => ({ ...n }));
+}
+
+export function handleGetDismissedWatchNotifications(): WatchDismissedEntry[] {
+  return loadWatchNotes()
+    .dismissed.filter((n) => isWatched(n.app_id))
+    .sort((x, y) => y.dismissed_at - x.dismissed_at)
+    .map((n) => ({ ...n }));
+}
+
+export function handleDismissWatchNotification(a: InvokeArgs): boolean {
+  warnUnknownArgs(['appId'], a, 'handleDismissWatchNotification');
+  const id = argStr(a, 'appId').toLowerCase();
+  const notes = loadWatchNotes();
+  const hit = notes.pending.find((n) => n.app_id.toLowerCase() === id);
+  if (!hit) return false;
+  notes.pending = notes.pending.filter((n) => n !== hit);
+  notes.dismissed = [
+    ...notes.dismissed.filter((n) => n.app_id.toLowerCase() !== id),
+    { app_id: hit.app_id, version: hit.version, dismissed_at: nowSecs() },
+  ];
+  lsSet(LS.watchNotifications, notes);
+  return true;
+}
+
+export function handleRestoreWatchNotification(a: InvokeArgs): boolean {
+  warnUnknownArgs(['appId'], a, 'handleRestoreWatchNotification');
+  const id = argStr(a, 'appId').toLowerCase();
+  const notes = loadWatchNotes();
+  const hit = notes.dismissed.find((n) => n.app_id.toLowerCase() === id);
+  if (!hit) return false;
+  notes.dismissed = notes.dismissed.filter((n) => n !== hit);
+  notes.pending = [{ app_id: hit.app_id, version: hit.version }, ...notes.pending];
+  lsSet(LS.watchNotifications, notes);
+  return true;
+}
+
+/** 测试用：丢弃内存缓存，下次读取重新从 localStorage 载入。 */
+export function resetWatchNotificationsCache(): void {
+  watchNotes = null;
 }
 
 export function handleStarApp(a: InvokeArgs): StarAppResult {
