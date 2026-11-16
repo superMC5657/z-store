@@ -1,6 +1,6 @@
 # Issue 08: ADR-0029 架构决策记录、领域词汇文档同步与全量回归门禁验收
 
-Status: ready-for-agent
+Status: done
 Blocked by: 04, 05
 
 ## Summary

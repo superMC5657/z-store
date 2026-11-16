@@ -1,6 +1,6 @@
 # Feature Spec: 开源广场（Launchpad）社交化新品导流分页与零后端上架自动化
 
-> 状态：Draft（待实施）
+> 状态：Implemented
 > 关联契约：`CONTEXT.md`（D1 纯粹开源、D2 零服务器成本与解耦清单同步、D3 零信任完整性校验、D4 Linear 去彩单色界面、D5 双池复用、D6 有限并发、D7 有限重试、D10 统一图标获取）、`docs/count-display.md`（数量显示规范）、ADR-0006（多托管源 `ForgeProvider`）、ADR-0009（独立生态清单仓库解耦）、ADR-0010（规范应用标识）、ADR-0018（开源协议门禁）、ADR-0020（OAuth 令牌边界）、ADR-0025（动态系统代理与资产缓存收敛）、ADR-0027（单仓富卡独立缓存表 `repo_card_cache`）。
 
 ---
