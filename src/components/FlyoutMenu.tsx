@@ -5,7 +5,7 @@ interface FlyoutMenuProps {
   onClose: () => void;
   children: React.ReactNode;
   width?: number;
-  align?: 'right' | 'left';
+  align?: 'right' | 'left' | 'center';
 }
 
 export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
@@ -72,7 +72,11 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
       className="flyout-menu"
       style={{
         position: 'absolute',
-        ...(align === 'right' ? { right: 0 } : { left: 0 }),
+        ...(align === 'right'
+          ? { right: 0 }
+          : align === 'center'
+            ? { left: '50%', transform: 'translateX(-50%)' }
+            : { left: 0 }),
         ...(placement === 'bottom'
           ? { top: 'calc(100% + 6px)' }
           : { bottom: 'calc(100% + 6px)' }),

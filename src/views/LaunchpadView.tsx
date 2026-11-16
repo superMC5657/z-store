@@ -87,7 +87,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<LaunchpadSortMode>('recommended');
-  const [submitOpen, setSubmitOpen] = useState(false);
+  const [openSubmitMenu, setOpenSubmitMenu] = useState<'header' | 'empty' | null>(null);
   const [starring, setStarring] = useState<ReadonlySet<string>>(EMPTY_SET);
   const [upvoting, setUpvoting] = useState<ReadonlySet<string>>(EMPTY_SET);
   const [upvoted, setUpvoted] = useState<Record<string, boolean>>({});
@@ -267,7 +267,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
   const submitIssueUrl = feed?.submit_issue_url;
   const submitWebUrl = feed?.submit_web_url;
   const openSubmit = (url: string | undefined) => {
-    setSubmitOpen(false);
+    setOpenSubmitMenu(null);
     if (url) void tauriApi.openUrl(url);
   };
 
@@ -312,34 +312,41 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
     { value: 'discussions' as const, label: t('launchpad.sort.discussions') },
   ];
 
-  const submitButton = (variant: 'secondary' | 'primary') => (
-    <span className="launchpad-submit">
-      <button
-        type="button"
-        className={`btn-fluent btn-${variant} btn-compact`}
-        aria-haspopup="menu"
-        aria-expanded={submitOpen}
-        onClick={() => setSubmitOpen((v) => !v)}
-      >
-        <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
-        <span>{t('launchpad.submit')}</span>
-      </button>
-      <FlyoutMenu isOpen={submitOpen} onClose={() => setSubmitOpen(false)} align="right" width={260}>
-        <button type="button" role="menuitem" className="flyout-item" onClick={() => openSubmit(submitIssueUrl)}>
-          <span className="flyout-item-icon"><FilePlus size={14} strokeWidth={1.5} /></span>
-          <span className="flyout-item-content">
-            <span className="flyout-item-title"><span>{t('launchpad.submit_issue')}</span></span>
-          </span>
+  const submitButton = (
+    slot: 'header' | 'empty',
+    variant: 'secondary' | 'primary',
+    align: 'right' | 'center',
+  ) => {
+    const isOpen = openSubmitMenu === slot;
+    return (
+      <span className="launchpad-submit">
+        <button
+          type="button"
+          className={`btn-fluent btn-${variant} btn-compact`}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          onClick={() => setOpenSubmitMenu((v) => (v === slot ? null : slot))}
+        >
+          <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
+          <span>{t('launchpad.submit')}</span>
         </button>
-        <button type="button" role="menuitem" className="flyout-item" onClick={() => openSubmit(submitWebUrl)}>
-          <span className="flyout-item-icon"><BookOpen size={14} strokeWidth={1.5} /></span>
-          <span className="flyout-item-content">
-            <span className="flyout-item-title"><span>{t('launchpad.submit_web')}</span></span>
-          </span>
-        </button>
-      </FlyoutMenu>
-    </span>
-  );
+        <FlyoutMenu isOpen={isOpen} onClose={() => setOpenSubmitMenu(null)} align={align} width={260}>
+          <button type="button" role="menuitem" className="flyout-item" onClick={() => openSubmit(submitIssueUrl)}>
+            <span className="flyout-item-icon"><FilePlus size={14} strokeWidth={1.5} /></span>
+            <span className="flyout-item-content">
+              <span className="flyout-item-title"><span>{t('launchpad.submit_issue')}</span></span>
+            </span>
+          </button>
+          <button type="button" role="menuitem" className="flyout-item" onClick={() => openSubmit(submitWebUrl)}>
+            <span className="flyout-item-icon"><BookOpen size={14} strokeWidth={1.5} /></span>
+            <span className="flyout-item-content">
+              <span className="flyout-item-title"><span>{t('launchpad.submit_web')}</span></span>
+            </span>
+          </button>
+        </FlyoutMenu>
+      </span>
+    );
+  };
 
   return (
     <ViewShell viewClass="launchpad-view">
@@ -362,7 +369,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
           >
             <RefreshCw size={13} strokeWidth={1.5} aria-hidden="true" className={loading ? 'launchpad-refresh-spin' : ''} />
           </button>
-          {submitButton('secondary')}
+          {submitButton('header', 'secondary', 'right')}
         </div>
       </div>
 
@@ -397,7 +404,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
           <Rocket size={32} aria-hidden="true" />
           <h4>{t('launchpad.empty_title')}</h4>
           <p>{t('launchpad.empty_desc')}</p>
-          {submitButton('primary')}
+          {submitButton('empty', 'primary', 'center')}
         </div>
       ) : (
         <>

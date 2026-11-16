@@ -204,6 +204,7 @@ describe('LaunchpadView', () => {
     const reset = await screen.findByRole('button', { name: '重置设备筛选' });
     fireEvent.click(reset);
     expect(props.onResetPlatformFilter).toHaveBeenCalled();
+    await waitFor(() => expect(onDisplayPlatformCounts).toHaveBeenCalled());
     const counts = onDisplayPlatformCounts.mock.calls.at(-1)?.[0] as Record<string, number>;
     expect(counts.windows).toBe(1);
     expect(counts.macos).toBe(1);
@@ -253,6 +254,24 @@ describe('LaunchpadView', () => {
     });
     await waitFor(() => expect(screen.getByTestId('launchpad-upvote-acme/hyper').textContent).toBe('4'));
     expect(screen.getByTestId('launchpad-upvote-acme/hyper').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('空状态时页头与空态投稿按钮互不串扰，一次只展开一个菜单', async () => {
+    api.getLaunchpadFeed.mockResolvedValue(feed([], []));
+    renderView();
+    await screen.findByText('广场还没有上架作品');
+    const buttons = screen.getAllByRole('button', { name: '提交我的开源作品' });
+    expect(buttons).toHaveLength(2);
+
+    fireEvent.click(buttons[1]);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    expect(buttons[0].getAttribute('aria-expanded')).toBe('false');
+    expect(buttons[1].getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(buttons[0]);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    expect(buttons[0].getAttribute('aria-expanded')).toBe('true');
+    expect(buttons[1].getAttribute('aria-expanded')).toBe('false');
   });
 });
 
