@@ -34,6 +34,13 @@ export const PLATFORM_META: Record<PlatformId, { label: string }> = {
   other: { label: '其他' },
 };
 
+/** 平台展示名列表（大小写不敏感，未知平台原样保留），如 `Windows, macOS, Linux`；用于纯图标平台标签的提示文案。 */
+export function formatPlatformLabels(platforms: readonly string[]): string {
+  return platforms
+    .map((p) => PLATFORM_META[p.toLowerCase() as PlatformId]?.label || p)
+    .join(', ');
+}
+
 const KNOWN_PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_IDS);
 
 function isPlatformId(value: string): value is PlatformId {

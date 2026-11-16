@@ -59,6 +59,7 @@ function renderInstall(currentView = 'home') {
   // spies 与 hook 入参对象分离：断言面恒为 vi.fn（无联合类型）。
   const spies = {
     showToast: vi.fn(),
+    onAppRemoved: vi.fn(),
   };
   const rendered = renderHook(
     (props: { currentView: string }) =>
@@ -66,6 +67,7 @@ function renderInstall(currentView = 'home') {
         currentView: props.currentView,
         apps: [],
         showToast: spies.showToast,
+        onAppRemoved: spies.onAppRemoved,
         t: ((key: string, opts?: Record<string, unknown>) =>
           `${key}${opts ? ` ${JSON.stringify(opts)}` : ''}`) as never,
       } as Parameters<typeof useInstallState>[0]),
@@ -229,5 +231,55 @@ describe('useInstallState：已装列表加载（installed 视图驱动）', () 
   it('非 installed 视图不触发加载', () => {
     renderInstall('home');
     expect(mocks.getInstalledApps).not.toHaveBeenCalled();
+  });
+});
+
+describe('useInstallState：移除后清理与大小写归一', () => {
+  it('取消管理：大小写不同的已装行被移除，并通知 onAppRemoved 清理更新项', async () => {
+    const { rendered, deps } = renderInstall();
+    act(() => {
+      rendered.result.current.setInstalledApps([makeInstalled('owner/repo'), makeInstalled('beta/bravo')]);
+    });
+    await act(async () => {
+      await rendered.result.current.handleUnmanageApp('Owner/Repo');
+    });
+    expect(rendered.result.current.installedApps.map((a) => a.app_id)).toEqual(['beta/bravo']);
+    expect(deps.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('owner/repo App'),
+      'info',
+    );
+    expect(deps.onAppRemoved).toHaveBeenCalledWith('Owner/Repo');
+  });
+
+  it('卸载成功通知 onAppRemoved；取消/失败不通知', async () => {
+    const { rendered, deps } = renderInstall();
+    act(() => {
+      rendered.result.current.setInstalledApps([makeInstalled('acme/atlas')]);
+    });
+    mocks.uninstallApp.mockRejectedValueOnce('用户取消');
+    await act(async () => {
+      await rendered.result.current.handleUninstallApp('acme/atlas');
+    });
+    expect(deps.onAppRemoved).not.toHaveBeenCalled();
+
+    mocks.uninstallApp.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      await rendered.result.current.handleUninstallApp('acme/atlas');
+    });
+    expect(deps.onAppRemoved).toHaveBeenCalledWith('acme/atlas');
+  });
+
+  it('启动：大小写不同仍取到已装行名称', async () => {
+    const { rendered, deps } = renderInstall();
+    act(() => {
+      rendered.result.current.setInstalledApps([makeInstalled('owner/repo')]);
+    });
+    await act(async () => {
+      await rendered.result.current.handleLaunchApp('Owner/Repo');
+    });
+    expect(deps.showToast).toHaveBeenCalledWith(
+      expect.stringContaining('owner/repo App'),
+      'success',
+    );
   });
 });

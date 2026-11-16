@@ -90,7 +90,7 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
             </span>
           ) : isSubmittedEntry(entry) ? (
             <span className="status-tag" style={{ color: 'var(--brand-primary)', borderColor: 'var(--brand-glow)' }}>
-              {t('pending.segments.submitted')}
+              {t('pending.groups.submitted')}
             </span>
           ) : (
             <span className="status-tag" title={t('pending.groups.library')}>

@@ -63,7 +63,7 @@ describe('rows kept and counts from full sets', () => {
     onToggleFavorite: () => {},
   };
 
-  it('未收录占位行照常渲染（行不消失），tab 计数用全集（含无行 id）', () => {
+  it('未收录占位行照常渲染（行不消失），tab 计数等于实际渲染的卡片数', () => {
     const cataloged = makeApp({ id: 'owner/app-a', name: 'AppA', category: 'system', platforms: ['windows'] });
     const extra = makeFavoritePlaceholderSummary('Unknown/PlaceholderApp');
     const { container } = render(
@@ -77,8 +77,8 @@ describe('rows kept and counts from full sets', () => {
     expect(container.textContent).toContain('AppA');
     expect(container.textContent).toContain('PlaceholderApp');
     expect(container.textContent).not.toContain('未收录');
-    // 计数：全集 3（含无行的 ghost/app），不随行数缩水。
-    expect(screen.getByRole('tab', { name: '收藏 3' })).not.toBeNull();
+    // 计数：与网格行数一致（ghost/app 无行不计）。
+    expect(screen.getByRole('tab', { name: '收藏 2' })).not.toBeNull();
   });
 
   it('缓存回填的富卡行按真实信息直显渲染（同形 AppSummary）', () => {
@@ -210,5 +210,90 @@ describe('watch release alerts arriving after the page opened', () => {
     fireEvent.click(screen.getByRole('tab', { name: /^收藏/ }));
     second.rerender(<FavoritesView {...props} watchNotifications={alert} />);
     expect(screen.queryByText('你关注的 RustDesk 发布了 v1.5.0')).toBeNull();
+  });
+});
+
+describe('favorites & watched counts, platform spread and empty states', () => {
+  const winApp = makeApp({ id: 'acme/win-tool', name: 'WinTool', platforms: ['windows'] });
+  const macApp = makeApp({ id: 'acme/mac-tool', name: 'MacTool', platforms: ['macos'] });
+  const linuxApp = makeApp({ id: 'acme/linux-tool', name: 'LinuxTool', platforms: ['linux'] });
+  const all = [winApp, macApp, linuxApp];
+  const base = {
+    allApps: all,
+    favoriteIds: new Set(['acme/win-tool', 'acme/mac-tool']),
+    watchedIds: new Set(['ACME/Linux-Tool', 'acme/mac-tool']),
+    installedIds: new Set<string>(),
+    onOpenDetail: () => {},
+    onQuickInstall: () => {},
+    onToggleFavorite: () => {},
+  };
+  const cardCount = (container: HTMLElement) => container.querySelectorAll('.app-grid > *').length;
+
+  it('tab badges equal the rendered cards under platform filter and page search', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const { container, rerender } = render(<FavoritesView {...base} apps={all} />);
+    expect(screen.getByRole('tab', { name: '收藏 2' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '关注 2' })).toBeTruthy();
+    expect(cardCount(container)).toBe(2);
+
+    // 平台筛选后（父层已过滤 apps）只剩 macOS 行
+    rerender(<FavoritesView {...base} apps={[macApp, linuxApp]} />);
+    expect(screen.getByRole('tab', { name: '收藏 1' })).toBeTruthy();
+    expect(cardCount(container)).toBe(1);
+
+    fireEvent.change(screen.getByPlaceholderText('搜索应用或仓库...'), { target: { value: 'linux' } });
+    expect(screen.getByRole('tab', { name: '收藏 0' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '关注 1' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: '关注 1' }));
+    expect(cardCount(container)).toBe(1);
+  });
+
+  it('renders a platform-filter empty state with reset when favorites exist but none match the platforms', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const onReset = vi.fn();
+    render(<FavoritesView {...base} apps={[]} onResetPlatformFilter={onReset} />);
+    expect(screen.queryByText('收藏夹还是空的')).toBeNull();
+    expect(screen.getByText('当前平台下暂无收藏应用')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('tab', { name: /^关注/ }));
+    expect(screen.queryByText('关注的应用暂未收录')).toBeNull();
+    expect(screen.getByText('当前平台下暂无关注应用')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
+    expect(onReset).toHaveBeenCalledTimes(2);
+  });
+
+  it('a search with no hits offers a clear-search action', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const { container } = render(<FavoritesView {...base} apps={all} />);
+    fireEvent.change(screen.getByPlaceholderText('搜索应用或仓库...'), { target: { value: 'zzz' } });
+    expect(screen.getByText('没有匹配的收藏应用')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '清空搜索' }));
+    expect(cardCount(container)).toBe(2);
+  });
+
+  it('reports the full favorites or watched platform spread for the active tab', () => {
+    const onCounts = vi.fn();
+    render(<FavoritesView {...base} apps={[]} onDisplayPlatformCounts={onCounts} />);
+    expect(onCounts).toHaveBeenLastCalledWith({ windows: 1, macos: 1, linux: 0, ios: 0, android: 0, other: 0 });
+    fireEvent.click(screen.getByRole('tab', { name: /^关注/ }));
+    expect(onCounts).toHaveBeenLastCalledWith({ windows: 0, macos: 1, linux: 1, ios: 0, android: 0, other: 0 });
+  });
+
+  it('the new-release panel follows the platform filter and page search', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const alerts = [
+      { app_id: 'acme/linux-tool', app_name: 'LinuxTool', version: 'v2' },
+      { app_id: 'acme/mac-tool', app_name: 'MacTool', version: 'v3' },
+    ];
+    render(<FavoritesView {...base} apps={[linuxApp]} watchNotifications={alerts} />);
+    const panel = () => document.querySelector('.watch-releases-panel') as HTMLElement;
+    expect(within(panel()).getByText('你关注的 LinuxTool 发布了 v2')).toBeTruthy();
+    expect(within(panel()).queryByText('你关注的 MacTool 发布了 v3')).toBeNull();
+    expect(within(panel()).getByText('1')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('搜索应用或仓库...'), { target: { value: 'nothing' } });
+    expect(panel()).toBeNull();
   });
 });

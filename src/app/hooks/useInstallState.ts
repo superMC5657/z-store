@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, ViewType } from '../../types';
 import { tauriApi, UNVERIFIED_ASSET_MARKER } from '../../services/api';
+import { normalizeId } from '../../services/normalizeId';
 
 /** 无校验资产待确认状态：D3 门禁拒绝后挂起，待用户在警示弹窗显式确认后重试。 */
 interface UnverifiedInstallPrompt {
@@ -15,6 +16,8 @@ interface UseInstallStateParams {
   apps: AppSummary[];
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
+  /** 卸载或取消管理成功后回调（入参为调用方传入的原始 id），供调用方清理该应用的残留更新项。 */
+  onAppRemoved?: (id: string) => void;
 }
 
 export function useInstallState({
@@ -22,6 +25,7 @@ export function useInstallState({
   apps,
   showToast,
   t,
+  onAppRemoved,
 }: UseInstallStateParams) {
   const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
@@ -41,7 +45,8 @@ export function useInstallState({
     setInstallingAppIds((prev) => new Set(prev).add(id));
     try {
       const installed = await tauriApi.installApp(id, assetName, customInstallDir, allowUnverified);
-      setInstalledApps((prev) => [...prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()), installed]);
+      const key = normalizeId(id);
+      setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), installed]);
       showToast(t('toast.install_success', { name: installed.app_name }), 'success');
     } catch (err) {
       const errStr = String(err);
@@ -78,7 +83,8 @@ export function useInstallState({
 
   // 启动应用
   const handleLaunchApp = async (id: string) => {
-    const app = installedApps.find((a) => a.app_id === id);
+    const key = normalizeId(id);
+    const app = installedApps.find((a) => normalizeId(a.app_id) === key);
     const appName = app ? app.app_name : id;
     try {
       await tauriApi.launchApp(id);
@@ -90,10 +96,12 @@ export function useInstallState({
 
   // 取消管理应用（从 ZStore 列表中移除，保留本地文件完好）
   const handleUnmanageApp = async (id: string) => {
-    const app = installedApps.find((a) => a.app_id === id);
+    const key = normalizeId(id);
+    const app = installedApps.find((a) => normalizeId(a.app_id) === key);
     const appName = app?.app_name || id;
     await tauriApi.unmanageApp(id);
-    setInstalledApps((prev) => prev.filter((a) => a.app_id !== id));
+    setInstalledApps((prev) => prev.filter((a) => normalizeId(a.app_id) !== key));
+    onAppRemoved?.(id);
     showToast(t('toast.unmanage_success', { name: appName }), 'info');
   };
 
@@ -118,14 +126,16 @@ export function useInstallState({
   // 卸载应用（触发官方卸载器 -> 等待完成 -> 校验移除 -> 从列表删除）
   const handleUninstallApp = async (id: string) => {
     if (uninstallingAppIds.has(id)) return;
-    const app = installedApps.find((a) => a.app_id.toLowerCase() === id.toLowerCase());
-    const appName = app?.app_name || apps.find((a) => a.id.toLowerCase() === id.toLowerCase())?.name || id;
+    const key = normalizeId(id);
+    const app = installedApps.find((a) => normalizeId(a.app_id) === key);
+    const appName = app?.app_name || apps.find((a) => normalizeId(a.id) === key)?.name || id;
 
     setUninstallingAppIds((prev) => new Set(prev).add(id));
     try {
       await tauriApi.uninstallApp(id);
       // 精准增量从本地管理列表中移除
-      setInstalledApps((prev) => prev.filter((a) => a.app_id.toLowerCase() !== id.toLowerCase()));
+      setInstalledApps((prev) => prev.filter((a) => normalizeId(a.app_id) !== key));
+      onAppRemoved?.(id);
       showToast(t('toast.uninstall_success', { name: appName }), 'success');
     } catch (err) {
       const errStr = String(err);

@@ -664,7 +664,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
                 <span>{loadingMore ? t('search.online_loading_more') : t('search.online_armed_more')}</span>
                 <ChevronsDown size={15} aria-hidden="true" />
               </div>
-              <div className="online-armed-sub">{t('search.online_armed_hint', { count: rows.length })}</div>
+              <div className="online-armed-sub">{t('search.online_armed_hint', { count: filteredRows.length })}</div>
               <div className="feed-more-row online-armed-btn">
                 <button
                   type="button"
@@ -679,7 +679,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
             </div>
           ) : filteredRows.length > 0 ? (
             <div data-testid="starred-end" className="feed-end">
-              {t('favorites.starred_end', { count: rows.length })}
+              {t('favorites.starred_end', { count: filteredRows.length })}
             </div>
           ) : null}
         </>

@@ -1,6 +1,6 @@
 # Issue 05: 我的应用与收藏/关注页面的角标计数、页内搜索联动、隐藏/未收录平台过滤及空态对齐
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01, 02
 
 ## Summary

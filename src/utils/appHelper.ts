@@ -423,3 +423,17 @@ export function resolveExternalHomepageUrl(homepage: unknown, repoUrl: string): 
   }
   return trimmed.replace(/^https?:/i, (scheme) => scheme.toLowerCase());
 }
+
+/**
+ * 官方主页标签文案（详情标签栏与待收录预览卡共用）：`https://www.example.com/docs/?a=1#x` → `example.com/docs`。
+ * 纯文本裁剪而非 `new URL`，草稿中尚不合法的输入照常展示，非 ASCII 域名也不会被转成 punycode。
+ */
+export function formatHomepageDisplay(url: string | null | undefined): string {
+  if (typeof url !== 'string') return '';
+  return url
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/[?#].*$/, '')
+    .replace(/^www\./i, '')
+    .replace(/\/+$/, '');
+}

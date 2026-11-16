@@ -107,7 +107,7 @@ describe('baseline: category one-dimension behavior (survives convergence)', () 
     });
     const { container } = renderCategories([DEV_WIN, DEV_IOS, MEDIA_IOS]);
     openCategory(container, '开发工具');
-    expect(mockGetCategoryApps).toHaveBeenCalledWith('dev', 1, 20);
+    expect(mockGetCategoryApps).toHaveBeenCalledWith('dev', 1, 20, expect.any(Array));
     await screen.findByText('a-dev-win');
     expect(screen.getByText('a-dev-ios')).toBeTruthy();
     expect(screen.queryByText('a-media-ios')).toBeNull();
@@ -219,11 +219,11 @@ describe('CategoriesView: paginated detail via get_category_apps', () => {
     openCategory(container, '开发工具');
     await screen.findByText('c-dev-0');
     expect(screen.queryByText('c-dev-20')).toBeNull();
-    expect(mockGetCategoryApps).toHaveBeenCalledWith('dev', 1, 20);
+    expect(mockGetCategoryApps).toHaveBeenCalledWith('dev', 1, 20, expect.any(Array));
     await waitFor(() => expect(ioCallback).not.toBeNull());
     intersectSentinel();
     await screen.findByText('c-dev-24');
-    expect(mockGetCategoryApps).toHaveBeenCalledWith('dev', 2, 20);
+    expect(mockGetCategoryApps).toHaveBeenCalledWith('dev', 2, 20, expect.any(Array));
     // 25 行各一次，去重追加成立。
     for (let i = 0; i < 25; i += 1) {
       expect(screen.getAllByText(`c-dev-${i}`)).toHaveLength(1);
@@ -264,6 +264,66 @@ describe('CategoriesView: paginated detail via get_category_apps', () => {
     const { container } = renderCategories([alias]);
     openCategory(container, '开发工具');
     await screen.findByText('alias-1');
+  });
+
+  it('子页标题角标首帧即显示该分类平台筛选后总数，不随翻页跳变', async () => {
+    const all = Array.from({ length: 25 }, (_, i) => devRow(i));
+    let resolvePage: (v: unknown) => void = () => {};
+    mockGetCategoryApps.mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePage = resolve; }),
+    );
+    const { container } = renderCategories(all);
+    const devCard = Array.from(container.querySelectorAll('.app-card')).find((c) =>
+      c.textContent?.includes('开发工具'),
+    );
+    expect(devCard?.textContent).toContain('25 款可用');
+    openCategory(container, '开发工具');
+    const badge = () => container.querySelector('.section-title .count-badge')?.textContent;
+    expect(badge()).toBe('25');
+    await act(async () => {
+      resolvePage({ items: all.slice(0, 20), total: 25, has_more: true });
+    });
+    await screen.findByText('c-dev-0');
+    expect(badge()).toBe('25');
+  });
+
+  it('向 getCategoryApps 传入平台预过滤后的 allowedIds', () => {
+    const { container } = renderCategories([DEV_IOS, MEDIA_IOS]);
+    openCategory(container, '开发工具');
+    expect(mockGetCategoryApps).toHaveBeenCalledWith('dev', 1, 20, ['a-dev-ios', 'a-media-ios']);
+  });
+
+  it('进入子页上报该分类全平台分布，返回大厅上报 null', async () => {
+    const onDisplayPlatformCounts = vi.fn();
+    const { container } = renderCategories([DEV_IOS], {
+      allApps: [DEV_WIN, DEV_IOS, MEDIA_IOS],
+      onDisplayPlatformCounts,
+    });
+    openCategory(container, '开发工具');
+    expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
+      windows: 1,
+      macos: 0,
+      linux: 0,
+      ios: 1,
+      android: 0,
+      other: 0,
+    });
+    fireEvent.click(screen.getByText('返回分类'));
+    expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith(null);
+  });
+
+  it('has_more 时渲染「加载更多」按钮，点击请求第 2 页', async () => {
+    const all = Array.from({ length: 25 }, (_, i) => devRow(i));
+    mockGetCategoryApps
+      .mockResolvedValueOnce({ items: all.slice(0, 20), total: 25, has_more: true })
+      .mockResolvedValueOnce({ items: all.slice(20), total: 25, has_more: false });
+    const { container } = renderCategories(all);
+    openCategory(container, '开发工具');
+    const loadMore = await screen.findByRole('button', { name: '加载更多' });
+    fireEvent.click(loadMore);
+    expect(mockGetCategoryApps).toHaveBeenLastCalledWith('dev', 2, 20, expect.any(Array));
+    await screen.findByText('c-dev-24');
+    expect(screen.queryByRole('button', { name: '加载更多' })).toBeNull();
   });
 
   it('Bento 大厅渲染代表作图标坞（保留 fallback iconBg）与仅统计分类内应用的光谱条', () => {

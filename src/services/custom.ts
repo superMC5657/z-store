@@ -39,6 +39,8 @@ export interface DraftItem {
   /** 后端真值透传，表单不编辑。 */
   stars?: number;
   forks?: number;
+  /** 后端只读投影的入库日 `YYYY-MM-DD`；`itemToWire` 不写回（ADR-0021 §2.4）。 */
+  added_at?: string;
 }
 
 /** 草稿条目（领域形状）：status 已归一到 `DraftStatus`。 */
@@ -76,6 +78,8 @@ export interface DraftItemWire {
   publishers: string[];
   platforms: string[];
   identifiers: Record<string, string[]>;
+  /** 后端只读投影，读取时可能携带；保存 payload 永不包含。 */
+  added_at?: string | null;
 }
 
 /** 后端 `custom_apps` 行（线格式）：与 Rust `CustomAppEntry` 同形。 */
@@ -134,11 +138,24 @@ function itemFromWire(wire: DraftItemWire): DraftItem {
   };
 }
 
-/** 后端行 → 领域条目（视图与 App 状态一律持有此形状）。 */
+/** epoch 秒 → UTC `YYYY-MM-DD`；非正或非有限数返回 `undefined`。 */
+export function formatUtcYmd(epochSecs?: number): string | undefined {
+  if (typeof epochSecs !== 'number' || !Number.isFinite(epochSecs) || epochSecs <= 0) {
+    return undefined;
+  }
+  return new Date(epochSecs * 1000).toISOString().slice(0, 10);
+}
+
+/** 后端行 → 领域条目（视图与 App 状态一律持有此形状）；`added_at` 优先取 item 投影，缺省由 `created_at` 推导。 */
 export function entryFromWire(wire: DraftEntryWire): DraftEntry {
+  const item = itemFromWire(wire.item);
+  const explicitAddedAt =
+    typeof wire.item.added_at === 'string' ? wire.item.added_at.trim() : '';
+  const addedAt = explicitAddedAt || formatUtcYmd(wire.created_at);
+  if (addedAt) item.added_at = addedAt;
   return {
     id: wire.id,
-    item: itemFromWire(wire.item),
+    item,
     status: draftStatusFromWire(wire.status),
     pr_url: wire.pr_url ?? null,
     archived: wire.archived,
@@ -212,6 +229,7 @@ export function itemToSummary(
     forge_host: 'github.com',
     homepage: item.homepage || null,
     platforms: [...(item.platforms ?? [])],
+    ...(item.added_at ? { added_at: item.added_at } : {}),
     ...(hasCollectionRecord ? { source: 'local' as const } : {}),
     status,
     ...(archived === undefined ? {} : { archived }),

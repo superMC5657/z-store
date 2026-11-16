@@ -11,7 +11,8 @@ import { buildCatalogLookup } from '../manage/manageModel';
 
 interface WatchReleasesPanelProps {
   notifications: WatchUpdatedPayload[];
-  apps: AppSummary[];
+  /** 图标查表用的未过平台全集，避免平台筛选后提醒行丢图。 */
+  apps: readonly AppSummary[];
   onOpenDetail?: (id: string) => void;
   /** 确认提醒：后端记下已确认版本，可在规则管理「关注已读」恢复。 */
   onDismiss?: (appId: string) => void;

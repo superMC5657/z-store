@@ -107,3 +107,54 @@ describe('useCustomApps：写入—重拉序列', () => {
     expect(mocks.listCustomApps).toHaveBeenCalledTimes(1);
   });
 });
+
+type CustomAppsHook = ReturnType<typeof useCustomApps>;
+
+describe('useCustomApps：落盘后目录同步广播', () => {
+  it.each<[string, (h: CustomAppsHook) => Promise<void>]>([
+    ['handleRevertCollectedApp', (h) => h.handleRevertCollectedApp('acme/atlas')],
+    ['handleDeleteCustomApp', (h) => h.handleDeleteCustomApp('acme/atlas')],
+    ['handleCollectLocalApp', (h) => h.handleCollectLocalApp('acme/atlas')],
+    ['handleWithdrawSubmitted', (h) => h.handleWithdrawSubmitted('acme/atlas')],
+    [
+      'handleMarkCustomSubmitted',
+      (h) => h.handleMarkCustomSubmitted('acme/atlas', 'https://github.com/acme/atlas/pull/1'),
+    ],
+  ])('%s 重拉完成后派发 zstore:catalog-synced', async (_name, run) => {
+    const { rendered } = renderCustomApps();
+    await waitFor(() => expect(mocks.listCustomApps).toHaveBeenCalledTimes(1));
+    let reloadsAtSync = -1;
+    const synced = vi.fn(() => {
+      reloadsAtSync = mocks.listCustomApps.mock.calls.length;
+    });
+    window.addEventListener('zstore:catalog-synced', synced);
+    try {
+      await act(async () => {
+        await run(rendered.result.current);
+      });
+    } finally {
+      window.removeEventListener('zstore:catalog-synced', synced);
+    }
+    expect(synced).toHaveBeenCalledTimes(1);
+    // 广播时重拉已完成：订阅方据此刷新的目录与 customApps 同代。
+    expect(reloadsAtSync).toBe(2);
+  });
+
+  it('写入失败不广播目录同步', async () => {
+    const { rendered } = renderCustomApps();
+    await waitFor(() => expect(mocks.listCustomApps).toHaveBeenCalledTimes(1));
+    mocks.deleteCustomApp.mockRejectedValueOnce(new Error('nope'));
+    const synced = vi.fn();
+    window.addEventListener('zstore:catalog-synced', synced);
+    try {
+      await act(async () => {
+        await expect(rendered.result.current.handleDeleteCustomApp('acme/atlas')).rejects.toThrow(
+          'nope',
+        );
+      });
+    } finally {
+      window.removeEventListener('zstore:catalog-synced', synced);
+    }
+    expect(synced).not.toHaveBeenCalled();
+  });
+});

@@ -100,6 +100,30 @@ describe('ipc args naming (camelCase)', () => {
     vi.restoreAllMocks();
   });
 
+  it('分类/最新入库 allowedIds 原样透传（含空数组），省略时不带键；matched_ids 透出', async () => {
+    vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd: string, args = {}) => {
+      captured.push({ cmd, args: { ...(args as Record<string, unknown>) } });
+      return { items: [], total: 0, has_more: false, matched_ids: ['a/b'] } as never;
+    });
+    const cat = await catalog.getCategoryApps('dev', 1, 20, ['a/b', 'c/d']);
+    await catalog.getCategoryApps('dev', 1, 20, []);
+    await catalog.getCategoryApps('dev', 1, 20);
+    const latest = await catalog.getLatestCatalogApps(7, 1, 20, []);
+    await catalog.getLatestCatalogApps(7, 1, 20);
+
+    expect(captured.map((c) => c.args.allowedIds)).toEqual([
+      ['a/b', 'c/d'],
+      [],
+      undefined,
+      [],
+      undefined,
+    ]);
+    expect('allowedIds' in captured[2].args).toBe(false);
+    expect('allowedIds' in captured[4].args).toBe(false);
+    expect(cat.matched_ids).toEqual(['a/b']);
+    expect(latest.matched_ids).toEqual(['a/b']);
+  });
+
   function expectAllCamel() {
     expect(captured.length).toBeGreaterThan(0);
     for (const { cmd, args } of captured) {
@@ -134,6 +158,8 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.getCategoryApps('dev', 1, 20));
     await swallow(catalog.getLatestCatalogApps(30, 1, 20));
     await swallow(catalog.getLatestCatalogApps({ minDays: 7, maxDays: 30 }, 1, 20));
+    await swallow(catalog.getCategoryApps('dev', 1, 20, ['o/r']));
+    await swallow(catalog.getLatestCatalogApps(30, 1, 20, []));
     await swallow(catalog.importMatchedApps([]));
     await swallow(catalog.recordSearchQuery('q'));
     await swallow(catalog.removeSearchQuery('q'));

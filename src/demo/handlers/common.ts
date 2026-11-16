@@ -30,6 +30,13 @@ export function argNum(a: InvokeArgs, ...keys: string[]): number | undefined {
 
 export const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+export const DAY_SECS = 86400;
+
+/** 秒级时间戳（与后端 `now_secs` 同口径）。 */
+export function nowSecs(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
 // demo 未知 key 兜底：仅 dev 告警，未知 key 逐个 console.error，不抛错、不改现有取值行为。
 export function warnUnknownArgs(
   allowedKeys: readonly string[],

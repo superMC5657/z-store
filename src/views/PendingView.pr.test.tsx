@@ -81,7 +81,7 @@ describe('PendingView one-click Issue submit', () => {
       />,
     );
     // 已收录未提交归 collected 分组：先切 tab 再选中
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     // 选中草稿进入编辑态
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -111,7 +111,7 @@ describe('PendingView one-click Issue submit', () => {
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -136,7 +136,7 @@ describe('PendingView one-click Issue submit', () => {
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -162,8 +162,7 @@ describe('PendingView one-click Issue submit', () => {
         ]}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
-    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     const link = screen.getByText('https://github.com/x/y/pull/1').closest('a');
     expect(link?.getAttribute('href')).toBe('https://github.com/x/y/pull/1');
     expect(link?.getAttribute('target')).toBe('_blank');
@@ -177,7 +176,7 @@ describe('PendingView one-click Issue submit', () => {
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('Local Library'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     expect(screen.getByText('Submit Issue')).toBeTruthy();
   });
@@ -204,7 +203,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     const revertBtn = screen.getByTestId('pending-revert-to-draft');
     const submitBtn = screen.getByTestId('pending-submit-pr');
@@ -227,7 +226,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     const revertBtn = screen.getByTestId('pending-revert-to-draft');
     // 首点仅置确认态，不翻态
@@ -261,7 +260,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
@@ -287,7 +286,7 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
@@ -421,7 +420,7 @@ describe('move-in placeholder license (draft-lenient, submit-strict)', () => {
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     // 富卡分支：只展 AppCard 黄标，无参数表单输入
     expect(document.querySelector('.app-card .verified-badge-local')).toBeTruthy();
@@ -466,7 +465,7 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
     );
     // 故意不传 onGetLicenseAllowlist：非 Tauri 单测环境默认拉取失败，
     // 提交必须提示重试且不开页不标记，绝不回退写死名单。
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -528,7 +527,7 @@ describe('PendingView top tabs sync activeGroup and submitted', () => {
     fireEvent.click(screen.getByText('o/draft'));
     expect(screen.getByTestId('pending-collect-local')).toBeTruthy();
     // 切到本地收录：选中重置，右侧回空态，不展错配表单
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
     expect(screen.getByText('选择或新建草稿')).toBeTruthy();
@@ -551,8 +550,7 @@ describe('PendingView top tabs sync activeGroup and submitted', () => {
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
-    fireEvent.click(screen.getByTestId('pending-segment-submitted'));
+    fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     // 已提交仅展 Issue 链接（列表与详情各一次，同文案双节点），无重复提交/退回/收录
     expect(screen.getAllByText('https://github.com/x/y/pull/9').length).toBeGreaterThanOrEqual(1);
@@ -581,7 +579,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -604,7 +602,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -639,7 +637,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -678,7 +676,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -707,7 +705,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -737,7 +735,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 
@@ -769,7 +767,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
         onGetLicenseAllowlist={gateProvider}
       />,
     );
-    fireEvent.click(screen.getByText('本地收录'));
+    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
 

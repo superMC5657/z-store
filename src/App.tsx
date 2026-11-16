@@ -130,7 +130,6 @@ export const App: React.FC = () => {
   const {
     customApps,
     customAppEntries,
-    pendingCount,
     localLibrarySummaries,
     handleSaveCustomApp,
     handleDeleteCustomApp,
@@ -171,6 +170,12 @@ export const App: React.FC = () => {
     return out;
   }, [customApps, movedInIds]);
 
+  // 卸载/取消管理成功即剔除该应用的残留更新项（ID 归一比较）。
+  const handleInstalledAppRemoved = useCallback((id: string) => {
+    const key = normalizeId(id);
+    setUpdates((prev) => prev.filter((u) => normalizeId(u.app_id) !== key));
+  }, []);
+
   // 1. 安装管理 Hook
   const {
     installedApps,
@@ -191,6 +196,7 @@ export const App: React.FC = () => {
     apps,
     showToast,
     t,
+    onAppRemoved: handleInstalledAppRemoved,
   });
 
   // 安装请求收口：以选项对象承接弹窗上下文（确认无校验资产后原样重试），避免位置参数膨胀。
@@ -303,10 +309,22 @@ export const App: React.FC = () => {
     t,
   });
 
+  // 目录重拉（初始拉取 / zstore:catalog-synced）写 apps 时，顶栏有搜索词则只刷新全量基线，
+  // 不用全量目录冲掉用户正在查看的搜索结果；函数式更新（图标/平台补丁）照常透传。
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
+  const setAppsUnlessSearching = useCallback<React.Dispatch<React.SetStateAction<AppSummary[]>>>(
+    (next) => {
+      if (typeof next !== 'function' && searchQueryRef.current.trim()) return;
+      setApps(next);
+    },
+    [],
+  );
+
   // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready/subscribeIconWrites +
   // 关注/更新流/OAuth + 进入「我的应用」读更新快照 + 视图切换日志）
   useAppSubscriptions({
-    setApps,
+    setApps: setAppsUnlessSearching,
     setFullCatalogApps,
     setOnlineApps,
     setRecentlyViewedApps,
@@ -339,14 +357,25 @@ export const App: React.FC = () => {
 
   // 6. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
   const {
-    platformFilteredApps,
+    catalogPlatformFilteredApps,
+    fullMergedCatalogApps,
+    searchPlatformFilteredApps,
     platformFilteredOnlineApps,
     platformFilteredRecentApps,
+    allFavoritesPoolApps,
     favoritesViewApps,
+    platformFilteredFavoriteCount,
+    pendingFilteredCount,
     filteredInstalledApps,
     filteredUpdates,
+    installedPlatformRows,
+    countVisibleUpdatable,
     handleResetPlatformFilter,
+    handleInstalledPlatformCounts,
     handleTrendsPlatformCounts,
+    handlePendingPlatformCounts,
+    handleLatestPlatformCounts,
+    handleCategoryPlatformCounts,
     handleStarredPlatformCounts,
     sidebarPlatformCounts,
     installedIds,
@@ -372,6 +401,8 @@ export const App: React.FC = () => {
     customApps: localLibrarySummaries,
     searchQuery,
     fullCatalogApps,
+    favoriteIds,
+    pendingEntries: customAppEntries,
   });
 
   // 侧栏「我的应用」角标：与页内「有更新」筛选签同一口径（selectUpdatableInstalled）
@@ -400,11 +431,13 @@ export const App: React.FC = () => {
     setInstalledApps,
     setUpdateRules,
     setApps,
+    setFullCatalogApps,
     setIsCheckingUpdates,
     setUpdateCheckProgress,
     searchQuery,
     showToast,
     t,
+    countVisibleUpdatable,
   });
 
   // 「我的应用」检查更新：联网检查的同时重读本地已装列表（零网络），页面只保留这一个刷新入口。
@@ -622,14 +655,14 @@ export const App: React.FC = () => {
           currentView={currentView}
           onSelectView={navigate}
           updatesCount={updatableInstalledCount}
-          favoritesCount={favoriteIds.size}
+          favoritesCount={platformFilteredFavoriteCount}
           onOpenAccount={handleOpenAccountSettings}
           isCollapsed={isSidebarCollapsed}
           selectedPlatforms={selectedPlatforms}
           onTogglePlatform={handleTogglePlatform}
           onResetPlatforms={handleResetPlatformFilter}
           platformCounts={sidebarPlatformCounts}
-          pendingCount={pendingCount}
+          pendingCount={pendingFilteredCount}
         />
 
         {/* 主内容显示区域 */}
@@ -637,7 +670,7 @@ export const App: React.FC = () => {
           {currentView === 'home' && (
             // 搜索双段空态：本地段与在线段都为空时才走整页空态（保留在线搜索入口）；
             // 任一段有结果即进 HomeView 上下分段展示（本地在上、在线在下）。
-            searchQuery.trim() && platformFilteredApps.length === 0 && platformFilteredOnlineApps.length === 0 ? (
+            searchQuery.trim() && searchPlatformFilteredApps.length === 0 && platformFilteredOnlineApps.length === 0 ? (
               <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
                 <EmptyState
                   icon={<Search size={40} strokeWidth={1.5} />}
@@ -674,7 +707,7 @@ export const App: React.FC = () => {
               </div>
             ) : searchQuery.trim() ? (
               <SearchResultsView
-                apps={platformFilteredApps}
+                apps={searchPlatformFilteredApps}
                 platformResolvedOtherIds={platformResolvedOtherIds}
                 installedIds={installedIds}
                 installingIds={installingAppIds}
@@ -700,7 +733,7 @@ export const App: React.FC = () => {
               />
             ) : (
               <FeaturedView
-                apps={platformFilteredApps}
+                apps={catalogPlatformFilteredApps}
                 platformResolvedOtherIds={platformResolvedOtherIds}
                 installedIds={installedIds}
                 installingIds={installingAppIds}
@@ -724,7 +757,7 @@ export const App: React.FC = () => {
 
           {currentView === 'trends' && (
             <TrendsView
-              apps={platformFilteredApps}
+              apps={catalogPlatformFilteredApps}
               allApps={mergedAppsForJoins}
               selectedPlatforms={selectedPlatforms}
               platformResolvedOtherIds={platformResolvedOtherIds}
@@ -746,7 +779,7 @@ export const App: React.FC = () => {
 
           {currentView === 'latest' && (
             <LatestView
-              apps={platformFilteredApps}
+              apps={catalogPlatformFilteredApps}
               platformResolvedOtherIds={platformResolvedOtherIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
@@ -759,12 +792,14 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
               onNavigateCategories={() => navigate('categories')}
+              allApps={fullMergedCatalogApps}
+              onDisplayPlatformCounts={handleLatestPlatformCounts}
             />
           )}
 
           {currentView === 'categories' && (
             <CategoriesView
-              apps={platformFilteredApps}
+              apps={catalogPlatformFilteredApps}
               platformResolvedOtherIds={platformResolvedOtherIds}
               installedIds={installedIds}
               installingIds={installingAppIds}
@@ -777,6 +812,8 @@ export const App: React.FC = () => {
               onToggleWatch={handleToggleWatch}
               onResetPlatformFilter={handleResetPlatformFilter}
               initialCategory={categoryFocus}
+              allApps={fullMergedCatalogApps}
+              onDisplayPlatformCounts={handleCategoryPlatformCounts}
             />
           )}
 
@@ -792,12 +829,16 @@ export const App: React.FC = () => {
               onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
               onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}
               onNotify={(message, type) => showToast(message, type ?? 'info')}
+              selectedPlatforms={selectedPlatforms}
+              onResetPlatformFilter={handleResetPlatformFilter}
+              onDisplayPlatformCounts={handlePendingPlatformCounts}
             />
           )}
 
           {currentView === 'favorites' && (
             <FavoritesView
               apps={favoritesViewApps}
+              allApps={allFavoritesPoolApps}
               selectedPlatforms={selectedPlatforms}
               platformResolvedOtherIds={platformResolvedOtherIds}
               onConfirmPlatformOtherIds={confirmPlatformOtherIds}
@@ -827,7 +868,7 @@ export const App: React.FC = () => {
               focusUpdates={focusMyAppsUpdates}
               onFocusConsumed={() => setFocusMyAppsUpdates(false)}
               installedApps={filteredInstalledApps}
-              apps={platformFilteredApps}
+              apps={catalogPlatformFilteredApps}
               uninstallingAppIds={uninstallingAppIds}
               updates={filteredUpdates}
               isChecking={isCheckingUpdates}
@@ -848,6 +889,11 @@ export const App: React.FC = () => {
               onOpenRules={() => setIsRulesModalOpen(true)}
               loadError={installLoadError}
               onRetryLoad={loadInstalledApps}
+              totalInstalledCount={installedApps.length}
+              installedPlatformRows={installedPlatformRows}
+              platformResolvedOtherIds={platformResolvedOtherIds}
+              onResetPlatformFilter={handleResetPlatformFilter}
+              onDisplayPlatformCounts={handleInstalledPlatformCounts}
             />
           )}
 

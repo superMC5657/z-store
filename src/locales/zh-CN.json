@@ -38,7 +38,7 @@
       "categories": "分类",
       "pending": "待收录",
       "installed": "我的应用",
-      "favorites": "收藏",
+      "favorites": "星标",
       "settings": "设置"
     }
   },
@@ -242,6 +242,7 @@
     "added_at_badge": "收录于 {{date}}",
     "list_loading": "正在加载…",
     "list_error": "加载失败，请重试",
+    "load_more": "加载更多",
     "retry": "重试"
   },
   "categories": {
@@ -255,6 +256,7 @@
     "category_empty_for_platform": "当前平台下暂无应用。",
     "list_loading": "正在加载…",
     "list_error": "分类列表加载失败，稍后重试。",
+    "load_more": "加载更多",
     "retry": "重试",
     "cat_dev_name": "开发工具",
     "cat_dev_desc": "IDE, 编辑器, 调试台, 版本控制",
@@ -309,8 +311,6 @@
     "fix_errors": "表单尚有未通过的校验项，请修正后再保存",
     "empty_title": "暂无待收录草稿",
     "empty_desc": "暂存草稿，完善后可提交收录。",
-    "group_empty_title": "该分组暂无草稿",
-    "group_empty_desc": "暂无该状态草稿。",
     "pick_hint_title": "选择或新建草稿",
     "pick_hint_desc": "从左侧选择草稿，或点击新建。",
     "archived_badge": "已转正归档",
@@ -333,24 +333,32 @@
     "identifiers_hint": "每行 platform=标识1, 标识2 (如 windows=app.exe)",
     "groups": {
       "draft": "草稿",
-      "library": "本地收录",
-      "archived": "已归档"
-    },
-    "segments": {
-      "all": "全部",
       "to_submit": "待提交",
       "submitted": "已提交",
-      "empty_title": {
-        "all": "暂无应用",
-        "to_submit": "暂无待提交应用",
-        "submitted": "暂无已提交应用"
+      "archived": "已归档",
+      "library": "本地收录"
+    },
+    "group_empty": {
+      "draft": {
+        "title": "暂无草稿",
+        "desc": "新建草稿后显示在此。"
       },
-      "empty_desc": {
-        "all": "收录草稿或提交 Issue 后显示在此。",
-        "to_submit": "已收录未提交的应用显示在此。",
-        "submitted": "已提交等待收录的应用显示在此。"
+      "to_submit": {
+        "title": "暂无待提交应用",
+        "desc": "已收录未提交的应用显示在此。"
+      },
+      "submitted": {
+        "title": "暂无已提交应用",
+        "desc": "已提交等待收录的应用显示在此。"
+      },
+      "archived": {
+        "title": "暂无已归档应用",
+        "desc": "已被正式收录的应用显示在此。"
       }
     },
+    "platform_empty_title": "当前平台下暂无条目",
+    "platform_empty_desc": "该分组的条目均不支持所选设备平台。",
+    "platform_empty_reset": "显示全部平台",
     "fields": {
       "id": "应用标识 id",
       "name": "应用名称",
@@ -476,6 +484,9 @@
     "no_match_title": "没有匹配的已安装应用",
     "no_match_desc": "尝试调整筛选条件或清空搜索关键词。",
     "reset_filters": "重置筛选",
+    "filter_empty_title": "当前平台下暂无已安装应用",
+    "filter_empty_desc": "本机已安装的应用都不在所选设备平台内，可重置筛选查看全部。",
+    "reset_device_filter": "重置筛选",
     "version_unknown": "版本未知",
     "update_available": "有更新",
     "copy_path_tooltip": "点击复制安装路径",
@@ -608,9 +619,12 @@
     "no_match_fav_desc": "换个关键词试试，或清空搜索查看全部。",
     "empty_watch_title": "还没有关注任何应用",
     "empty_watch_desc": "关注应用可在发布新版本时收到提醒。",
-    "watch_not_in_catalog": "关注的应用暂未收录",
     "no_match_watch": "没有匹配的关注应用",
     "no_match_watch_desc": "换个关键词试试，或清空搜索查看全部。",
+    "fav_filter_empty_title": "当前平台下暂无收藏应用",
+    "watch_filter_empty_title": "当前平台下暂无关注应用",
+    "filter_empty_desc": "所选设备平台下没有匹配项，可重置筛选查看全部。",
+    "clear_search": "清空搜索",
     "sync_starred_title": "GitHub Star",
     "logged_in_as": "已登录: @{{user}}",
     "sync_starred_desc": "查看任意 GitHub 用户的 Star 项目，留空或填自己的用户名即查看登录账号（含私有 Star）。",
@@ -639,7 +653,7 @@
     "dismissed_at": "确认于: {{date}}",
     "tab_watch_short": "关注已读",
     "badge_watch_read": "已读 {{version}}",
-    "restore_watch_notice_success": "已恢复 {{id}} 关注提醒，可在收藏 · 关注中查看",
+    "restore_watch_notice_success": "已恢复 {{id}} 关注提醒，可在星标 · 关注中查看",
     "title": "规则管理",
     "add_rule": "新建规则",
     "collapse_add": "收起",
@@ -722,14 +736,13 @@
     "close_aria": "关闭详情弹窗",
     "owner_profile_title": "查看开发者 {{owner}}",
     "repo_open_title": "在浏览器中查看开源仓库",
-    "homepage_link": "官方主页",
+    "homepage_aria": "官方主页 {{domain}}",
     "homepage_open_title": "访问官方主页: {{url}}",
     "latest_release": "最新发布 {{version}}",
     "issue_link_title": "提交反馈",
     "issue_link": "问题反馈",
     "issue_feedback_title": "【反馈】{{name}} {{version}}",
     "issue_feedback_body": "## 环境\n- ZStore 客户端版本：桌面端\n- 应用版本：{{version}}\n- 系统：{{platform}}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n",
-    "supported_ends": "支持端:",
     "forge_codeberg": "Codeberg 源",
     "forge_gitea": "Gitea 源",
     "size_label": "大小 {{size}}",
@@ -764,6 +777,7 @@
       "selected_file_download_only": "已选文件 · {{os}} {{arch}}（仅下载）",
       "recommended_version": "推荐版本 · {{os}} {{arch}}",
       "download_version": "下载版本 · {{os}} {{arch}}",
+      "platform_all": "全平台",
       "latest_package": "{{name}} 最新版本",
       "downloading": "正在下载...",
       "hash_verified": "哈希校验通过",

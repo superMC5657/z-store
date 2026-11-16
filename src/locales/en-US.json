@@ -38,7 +38,7 @@
       "categories": "Categories",
       "pending": "Pending",
       "installed": "My Apps",
-      "favorites": "Favorites",
+      "favorites": "Starred",
       "settings": "Settings"
     }
   },
@@ -242,6 +242,7 @@
     "added_at_badge": "Added {{date}}",
     "list_loading": "Loading…",
     "list_error": "Failed to load. Please retry.",
+    "load_more": "Load more",
     "retry": "Retry"
   },
   "categories": {
@@ -255,6 +256,7 @@
     "category_empty_for_platform": "No apps match current platform.",
     "list_loading": "Loading…",
     "list_error": "Failed to load category apps. Please retry later.",
+    "load_more": "Load more",
     "retry": "Retry",
     "cat_dev_name": "Development",
     "cat_dev_desc": "IDEs, editors, terminals, and version control",
@@ -309,8 +311,6 @@
     "fix_errors": "Some fields failed validation. Fix them before saving.",
     "empty_title": "No Drafts",
     "empty_desc": "Stash drafts and submit when ready.",
-    "group_empty_title": "No drafts in this group",
-    "group_empty_desc": "No drafts in this group.",
     "pick_hint_title": "Select or New Draft",
     "pick_hint_desc": "Select a draft from left or create new.",
     "archived_badge": "Graduated",
@@ -332,25 +332,33 @@
     },
     "identifiers_hint": "One per line: platform=id1, id2 (e.g. windows=app.exe)",
     "groups": {
-      "draft": "Draft",
-      "library": "Local Library",
-      "archived": "Archived"
-    },
-    "segments": {
-      "all": "All",
-      "to_submit": "To Submit",
+      "draft": "Drafts",
+      "to_submit": "Ready to Submit",
       "submitted": "Submitted",
-      "empty_title": {
-        "all": "No apps",
-        "to_submit": "No apps to submit",
-        "submitted": "No submitted apps"
+      "archived": "Archived",
+      "library": "Local Library"
+    },
+    "group_empty": {
+      "draft": {
+        "title": "No drafts",
+        "desc": "New drafts appear here."
       },
-      "empty_desc": {
-        "all": "Apps appear here after collection or Issue submission.",
-        "to_submit": "Collected apps awaiting submission appear here.",
-        "submitted": "Submitted apps awaiting acceptance appear here."
+      "to_submit": {
+        "title": "No apps to submit",
+        "desc": "Collected apps awaiting submission appear here."
+      },
+      "submitted": {
+        "title": "No submitted apps",
+        "desc": "Submitted apps awaiting acceptance appear here."
+      },
+      "archived": {
+        "title": "No archived apps",
+        "desc": "Apps accepted into the catalog appear here."
       }
     },
+    "platform_empty_title": "Nothing for the selected platforms",
+    "platform_empty_desc": "No entries in this group support the selected device platforms.",
+    "platform_empty_reset": "Show all platforms",
     "fields": {
       "id": "App ID",
       "name": "Name",
@@ -476,6 +484,9 @@
     "no_match_title": "No matching installed apps",
     "no_match_desc": "Try adjusting your filter or clearing the search query.",
     "reset_filters": "Reset Filters",
+    "filter_empty_title": "No installed apps for these platforms",
+    "filter_empty_desc": "None of your installed apps match the selected device platforms. Reset the filter to see them all.",
+    "reset_device_filter": "Reset Filter",
     "version_unknown": "Unknown version",
     "update_available": "Update available",
     "copy_path_tooltip": "Click to copy install path",
@@ -608,9 +619,12 @@
     "no_match_fav_desc": "Try different keywords or clear search.",
     "empty_watch_title": "Not watching any apps yet",
     "empty_watch_desc": "Watch apps to get update notifications.",
-    "watch_not_in_catalog": "Watched apps are not cataloged",
     "no_match_watch": "No matching watched apps",
     "no_match_watch_desc": "Try different keywords or clear search.",
+    "fav_filter_empty_title": "No favorites for these platforms",
+    "watch_filter_empty_title": "No watched apps for these platforms",
+    "filter_empty_desc": "Nothing matches the selected device platforms. Reset the filter to see them all.",
+    "clear_search": "Clear Search",
     "sync_starred_title": "GitHub Stars",
     "logged_in_as": "Signed in as: @{{user}}",
     "sync_starred_desc": "Browse any GitHub user's starred repos. Leave it empty or use your own username to include private stars.",
@@ -639,7 +653,7 @@
     "dismissed_at": "Seen on: {{date}}",
     "tab_watch_short": "Seen alerts",
     "badge_watch_read": "Seen {{version}}",
-    "restore_watch_notice_success": "Restored the watch alert for {{id}}; see Favorites · Watched",
+    "restore_watch_notice_success": "Restored the watch alert for {{id}}; see Starred · Watched",
     "title": "Rules",
     "add_rule": "New Rule",
     "collapse_add": "Collapse",
@@ -722,14 +736,13 @@
     "close_aria": "Close detail dialog",
     "owner_profile_title": "View developer {{owner}}",
     "repo_open_title": "View the open-source repo in your browser",
-    "homepage_link": "Homepage",
+    "homepage_aria": "Homepage {{domain}}",
     "homepage_open_title": "Open official homepage: {{url}}",
     "latest_release": "Latest release {{version}}",
     "issue_link_title": "Report Issue",
     "issue_link": "Report an Issue",
     "issue_feedback_title": "[Feedback] {{name}} {{version}}",
     "issue_feedback_body": "## Environment\n- ZStore client version: Desktop\n- App version: {{version}}\n- OS: {{platform}}\n\n## Problem description\n\n## Reproduction steps\n1. \n2. \n",
-    "supported_ends": "Supported on:",
     "forge_codeberg": "Codeberg source",
     "forge_gitea": "Gitea source",
     "size_label": "Size {{size}}",
@@ -764,6 +777,7 @@
       "selected_file_download_only": "Selected file · {{os}} {{arch}} (download only)",
       "recommended_version": "Recommended · {{os}} {{arch}}",
       "download_version": "Download · {{os}} {{arch}}",
+      "platform_all": "All platforms",
       "latest_package": "{{name}} latest release",
       "downloading": "Downloading...",
       "hash_verified": "Hash verified",

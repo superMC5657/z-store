@@ -3,9 +3,11 @@ import type {
   AppSummary,
   InstalledApp,
   UpdateItem,
+  UpdateRule,
 } from '../types';
 import catalogRaw from '../../catalog.json';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
+import { DEMO_TREND_SNAPSHOT, type DemoTrendRow } from './trendSnapshot';
 
 interface CatalogRaw {
   id: string;
@@ -145,71 +147,49 @@ export function summaryToInstalled(s: AppSummary): InstalledApp {
   };
 }
 
-/** 末段数字 +1（`1.5.1` → `1.5.2`、`v1.18.2` → `v1.18.3`）；无数字时追加 `-next`。 */
-function bumpDemoVersion(version: string): string {
-  const m = version.match(/^(.*?)(\d+)(\D*)$/);
-  if (!m) return `${version}-next`;
-  return `${m[1]}${Number(m[2]) + 1}${m[3]}`;
+/** 与后端 `should_include_update` 同口径：锁定不提示；跳过的版本恰为最新版不提示；隐藏照常产出。 */
+function shouldIncludeUpdate(current: string, latest: string, rule: UpdateRule | undefined): boolean {
+  if (rule?.is_frozen) return false;
+  const bare = (v: string): string => v.replace(/^v+/, '').trim();
+  if (rule?.skipped_version != null && bare(rule.skipped_version) === bare(latest)) return false;
+  return current !== latest;
 }
 
-/** 演示更新：与真实后端一致，只为已安装应用产出更新项（取首个已装应用，目标版本为其下一补丁版）。 */
-export function buildDemoUpdates(installed: InstalledApp[]): UpdateItem[] {
-  const current = installed[0];
-  if (!current) return [];
-  const summary = summaries.find((s) => s.id.toLowerCase() === current.app_id.toLowerCase());
-  return [
-    {
-      app_id: current.app_id,
-      app_name: summary?.name ?? current.app_name,
-      current_version: current.version,
-      latest_version: bumpDemoVersion(current.version),
-      changelog: `### Demo release
-- Update for ${summary?.name ?? current.app_name} — the desktop app applies it for real.`,
-      icon: summary?.icon ?? current.icon,
-      icon_bg: summary?.icon_bg ?? current.icon_bg,
-    },
-  ];
+/** 演示更新：已装版本落后于目录版本、且未被更新规则拦下的应用产出更新项（只覆盖已安装应用）。 */
+export function buildDemoUpdates(installed: InstalledApp[], rules: readonly UpdateRule[]): UpdateItem[] {
+  const ruleById = new Map(rules.map((r) => [r.app_id.toLowerCase(), r]));
+  const out: UpdateItem[] = [];
+  for (const item of installed) {
+    const summary = summaries.find((s) => s.id.toLowerCase() === item.app_id.toLowerCase());
+    if (!summary) continue;
+    if (!shouldIncludeUpdate(item.version, summary.latest_version, ruleById.get(summary.id.toLowerCase()))) continue;
+    out.push({
+      app_id: item.app_id,
+      app_name: summary.name,
+      current_version: item.version,
+      latest_version: summary.latest_version,
+      changelog: `### ${summary.latest_version}
+- Bug fixes and performance improvements.
+- Updated dependencies and refreshed translations.
+- See the project release page for the full changelog.`,
+      icon: summary.icon,
+      icon_bg: summary.icon_bg,
+    });
+  }
+  return out;
 }
 
-interface DemoExternalTrend {
-  owner: string;
-  repo: string;
-  desc: string;
-  lang: string;
-  stars: number;
-  forks: number;
-  change: number;
-  gain: number;
-  cat: string;
-  catn: string;
-}
-
-const DEMO_EXTERNAL_TRENDS: readonly DemoExternalTrend[] = [
-  { owner: 'facebook', repo: 'react', desc: 'The library for web and native user interfaces.', lang: 'JavaScript', stars: 229000, forks: 48200, change: 2400, gain: 277, cat: 'dev', catn: '开发工具' },
-  { owner: 'vuejs', repo: 'vue', desc: 'A progressive, incrementally-adoptable JavaScript framework.', lang: 'JavaScript', stars: 207000, forks: 34800, change: 2342, gain: 890, cat: 'dev', catn: '开发工具' },
-  { owner: 'tensorflow', repo: 'tensorflow', desc: 'An open source machine learning framework for everyone.', lang: 'C++', stars: 187000, forks: 75000, change: 2243, gain: 1503, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'Significant-Gravitas', repo: 'AutoGPT', desc: 'An experimental open-source attempt to make GPT-4 fully autonomous.', lang: 'Python', stars: 178000, forks: 47000, change: 2144, gain: 616, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'microsoft', repo: 'vscode', desc: 'Visual Studio Code.', lang: 'TypeScript', stars: 177000, forks: 31000, change: 2045, gain: 1229, cat: 'dev', catn: '开发工具' },
-  { owner: 'ollama', repo: 'ollama', desc: 'Get up and running with large language models.', lang: 'Go', stars: 135000, forks: 11000, change: 1946, gain: 342, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'vercel', repo: 'next.js', desc: 'The React Framework for the Web.', lang: 'TypeScript', stars: 129000, forks: 29600, change: 1847, gain: 955, cat: 'dev', catn: '开发工具' },
-  { owner: 'golang', repo: 'go', desc: 'The Go programming language.', lang: 'Go', stars: 129000, forks: 18000, change: 1748, gain: 1568, cat: 'dev', catn: '开发工具' },
-  { owner: 'n8n-io', repo: 'n8n', desc: 'Fair-code workflow automation for technical teams.', lang: 'TypeScript', stars: 118000, forks: 32000, change: 1649, gain: 681, cat: 'dev', catn: '开发工具' },
-  { owner: 'kubernetes', repo: 'kubernetes', desc: 'Production-grade container scheduling and management.', lang: 'Go', stars: 116000, forks: 43000, change: 1550, gain: 1294, cat: 'dev', catn: '开发工具' },
-  { owner: 'microsoft', repo: 'TypeScript', desc: 'TypeScript is a superset of JavaScript that compiles to clean JavaScript output.', lang: 'TypeScript', stars: 105000, forks: 13300, change: 1451, gain: 407, cat: 'dev', catn: '开发工具' },
-  { owner: 'langchain-ai', repo: 'langchain', desc: 'Build context-aware reasoning applications with LLMs.', lang: 'Python', stars: 105000, forks: 17000, change: 1393, gain: 1020, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'rust-lang', repo: 'rust', desc: 'Empowering everyone to build reliable and efficient software.', lang: 'Rust', stars: 102000, forks: 13400, change: 1294, gain: 1633, cat: 'dev', catn: '开发工具' },
-  { owner: 'excalidraw', repo: 'excalidraw', desc: 'Virtual whiteboard for sketching hand-drawn like diagrams.', lang: 'TypeScript', stars: 100000, forks: 11000, change: 1195, gain: 746, cat: 'dev', catn: '开发工具' },
-  { owner: 'shadcn-ui', repo: 'ui', desc: 'Beautifully designed copy-paste React components.', lang: 'TypeScript', stars: 95000, forks: 7000, change: 1096, gain: 1359, cat: 'dev', catn: '开发工具' },
-  { owner: 'oven-sh', repo: 'bun', desc: 'Incredibly fast JavaScript runtime, bundler, test runner, and package manager.', lang: 'Zig', stars: 92000, forks: 4000, change: 997, gain: 472, cat: 'dev', catn: '开发工具' },
-  { owner: 'tauri-apps', repo: 'tauri', desc: 'Build smaller, faster, and more secure desktop and mobile applications.', lang: 'Rust', stars: 91000, forks: 3000, change: 898, gain: 1085, cat: 'dev', catn: '开发工具' },
-  { owner: 'pytorch', repo: 'pytorch', desc: 'Tensors and dynamic neural networks in Python with strong GPU acceleration.', lang: 'C++', stars: 90000, forks: 25000, change: 799, gain: 198, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'sveltejs', repo: 'svelte', desc: 'Cybernetically enhanced web apps.', lang: 'JavaScript', stars: 84000, forks: 4300, change: 700, gain: 811, cat: 'dev', catn: '开发工具' },
-  { owner: 'comfyanonymous', repo: 'ComfyUI', desc: 'A powerful and modular diffusion-model GUI with a graph interface.', lang: 'Python', stars: 83000, forks: 9000, change: 601, gain: 1424, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'ggerganov', repo: 'llama.cpp', desc: 'LLM inference in C/C++.', lang: 'C++', stars: 82000, forks: 12000, change: 502, gain: 537, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'openai', repo: 'whisper', desc: 'Robust speech recognition via large-scale weak supervision.', lang: 'Python', stars: 78000, forks: 20000, change: 444, gain: 1150, cat: 'ai', catn: 'AI 工具' },
-  { owner: 'immich-app', repo: 'immich', desc: 'High performance self-hosted photo and video management solution.', lang: 'TypeScript', stars: 70000, forks: 4000, change: 345, gain: 263, cat: 'dev', catn: '开发工具' },
-  { owner: 'astral-sh', repo: 'uv', desc: 'An extremely fast Python package and project manager, written in Rust.', lang: 'Rust', stars: 55000, forks: 3000, change: 246, gain: 876, cat: 'dev', catn: '开发工具' },
-];
+/** 趋势榜快照（trendSnapshot.ts）三个周期去重后的全部仓库（同一仓库多榜同上时取日榜那份）。 */
+const DEMO_EXTERNAL_TRENDS: ReadonlyMap<string, DemoTrendRow> = (() => {
+  const byId = new Map<string, DemoTrendRow>();
+  for (const since of ['daily', 'weekly', 'monthly'] as const) {
+    for (const t of DEMO_TREND_SNAPSHOT[since]) {
+      const id = `${t.owner}/${t.repo}`.toLowerCase();
+      if (!byId.has(id)) byId.set(id, t);
+    }
+  }
+  return byId;
+})();
 
 function escapeTrendHtml(raw: string): string {
   return raw
@@ -232,44 +212,39 @@ function demoTrendingSince(url: string): DemoTrendSince {
   return token === 'weekly' || token === 'monthly' ? token : 'daily';
 }
 
-function demoFallbackGradient(cat: string): string {
-  if (cat === 'ai') return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
-  return DEFAULT_ICON_BG;
-}
-
-export function demoExternalFallback(t: DemoExternalTrend): AppSummary {
+/** 非目录趋势仓库的卡片：分类统一记为「开发编程」（与 catalog.json 的 `dev` 同名）。 */
+export function demoExternalFallback(t: DemoTrendRow): AppSummary {
   return {
     id: `${t.owner}/${t.repo}`.toLowerCase(),
     name: t.repo,
     description_en: t.desc,
     owner: t.owner,
     repo: t.repo,
-    icon: '',
-    icon_bg: demoFallbackGradient(t.cat),
+    icon: t.icon,
+    icon_bg: DEFAULT_ICON_BG,
     description: t.desc,
     stars: t.stars,
     forks: t.forks,
     license: 'MIT',
     latest_version: 'latest',
-    category: t.cat,
-    category_name: t.catn,
+    category: 'dev',
+    category_name: '开发编程',
     is_verified: false,
     forge: 'github',
     forge_host: 'github.com',
     homepage: null,
-    platforms: ['windows'],
+    platforms: [...t.platforms],
   };
 }
 
-export function findExternalTrend(owner: string, repo: string): DemoExternalTrend | undefined {
-  const o = owner.toLowerCase();
-  const r = repo.toLowerCase();
-  return DEMO_EXTERNAL_TRENDS.find((t) => t.owner.toLowerCase() === o && t.repo.toLowerCase() === r);
+export function findExternalTrend(owner: string, repo: string): DemoTrendRow | undefined {
+  return DEMO_EXTERNAL_TRENDS.get(`${owner}/${repo}`.toLowerCase());
 }
 
 function buildDemoTrendingHtml(url: string): string {
-  const gainSuffix = DEMO_TREND_SINCE_SUFFIX[demoTrendingSince(url)];
-  const top = DEMO_EXTERNAL_TRENDS.slice(0, 20);
+  const since = demoTrendingSince(url);
+  const gainSuffix = DEMO_TREND_SINCE_SUFFIX[since];
+  const top = DEMO_TREND_SNAPSHOT[since];
   const articles = top.map((t) => {
     const path = `${demoTrendPathSegment(t.owner)}/${demoTrendPathSegment(t.repo)}`;
     const desc = escapeTrendHtml(t.desc);
@@ -290,19 +265,20 @@ function buildDemoTrendingHtml(url: string): string {
 }
 
 function buildDemoDoforceJson(): string {
-  const items = DEMO_EXTERNAL_TRENDS.slice(2, 22).map((t) => ({
+  const items = DEMO_TREND_SNAPSHOT.daily.map((t) => ({
     repo: `/${t.owner}/${t.repo}`,
     desc: t.desc,
     lang: t.lang,
     stars: t.stars,
     forks: t.forks,
-    change: t.change,
+    change: t.gain,
   }));
   return JSON.stringify(items);
 }
 
+/** 搜索兜底源取周榜，与 doforce（日榜）区分开。 */
 function buildDemoGitHubSearchJson(): string {
-  const items = DEMO_EXTERNAL_TRENDS.slice(4, 24).map((t) => ({
+  const items = DEMO_TREND_SNAPSHOT.weekly.map((t) => ({
     full_name: `${t.owner}/${t.repo}`,
     stargazers_count: t.stars,
     forks_count: t.forks,

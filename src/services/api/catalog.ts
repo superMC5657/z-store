@@ -322,19 +322,37 @@ export async function fetchOrCacheAssetUrl(url: string, appId: string): Promise<
  */
 export const CATEGORY_APPS_PER_PAGE = 20;
 
+/**
+ * 分类页/最新入库页回包归一：`{ items, total, has_more }`，后端带 `matched_ids` 时透出。
+ */
+function toFilteredFeedResult(raw: HomeFeedRaw): HomeFeedResult {
+  const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
+  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
+  const result: HomeFeedResult = { items, total, has_more: raw?.has_more === true };
+  const matched = raw?.matched_ids;
+  if (Array.isArray(matched) && matched.every((id) => typeof id === 'string')) {
+    result.matched_ids = matched;
+  }
+  return result;
+}
+
+/**
+ * 类别页分页。`allowedIds` 为当前平台筛选允许的 ID：给出时（含空数组=平台全不选）后端先过滤再分页，
+ * 省略时不过滤；回包 `matched_ids` 为过滤前该分类全部 ID。
+ */
 export async function getCategoryApps(
   category: string,
   page?: number,
   perPage?: number,
+  allowedIds?: readonly string[],
 ): Promise<HomeFeedResult> {
   const args: Record<string, unknown> = { category };
   if (page !== undefined && page !== null) args.page = page;
   if (perPage !== undefined && perPage !== null) args.perPage = perPage;
-  // 类别页分页与发现页同形 `{ items, total, has_more }`（请求 key camel，经 command rename 桥接；回包字段 snake，serde 不动）。
+  if (allowedIds !== undefined) args.allowedIds = [...allowedIds];
+  // 请求 key camel，经 command rename 桥接；回包字段 snake，serde 不动。
   const raw = await tauriInvoke<HomeFeedRaw>(CMD.getCategoryApps, args);
-  const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
-  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
-  return { items, total, has_more: raw?.has_more === true };
+  return toFilteredFeedResult(raw);
 }
 
 /** 最新入库应用分页默认页大小：与发现页/类别页对齐（20/页）。 */
@@ -346,10 +364,12 @@ export interface LatestAppsWindow {
   sinceDays?: number;
 }
 
+/** 最新入库分页；`allowedIds` 语义同 `getCategoryApps`，`matched_ids` 为过滤前该时间窗全部 ID。 */
 export async function getLatestCatalogApps(
   windowOrSince?: number | LatestAppsWindow,
   page?: number,
   perPage?: number,
+  allowedIds?: readonly string[],
 ): Promise<HomeFeedResult> {
   const args: Record<string, unknown> = {};
   if (typeof windowOrSince === 'number') {
@@ -368,10 +388,9 @@ export async function getLatestCatalogApps(
   }
   if (page !== undefined && page !== null) args.page = page;
   if (perPage !== undefined && perPage !== null) args.perPage = perPage;
+  if (allowedIds !== undefined) args.allowedIds = [...allowedIds];
   const raw = await tauriInvoke<HomeFeedRaw>(CMD.getLatestCatalogApps, args);
-  const items = Array.isArray(raw?.items) ? (raw as { items: AppSummary[] }).items : [];
-  const total = typeof raw?.total === 'number' && Number.isFinite(raw.total) ? raw.total : items.length;
-  return { items, total, has_more: raw?.has_more === true };
+  return toFilteredFeedResult(raw);
 }
 
 export async function scanAndMatchLocalApps(): Promise<AppMatchResult[]> {

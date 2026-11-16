@@ -113,7 +113,7 @@ const RELEASE_V2 = '你关注的 owner/watched-app 发布了 v2.0.0';
 
 /** 进入收藏页「关注」签（签名带关注总数角标）。 */
 async function openWatchedTab() {
-  fireEvent.click(screen.getByRole('button', { name: /^收藏/ }));
+  fireEvent.click(screen.getByRole('button', { name: /^星标/ }));
   fireEvent.click(await screen.findByRole('tab', { name: /^关注/ }));
 }
 

@@ -164,7 +164,7 @@ describe('App StarredFeed move-in suppression with active search & local aliases
     });
 
     // 切换到「收藏」→「Star 同步」并查看登录账号的 Star 列表。
-    fireEvent.click(await screen.findByText('收藏'));
+    fireEvent.click(await screen.findByText('星标'));
 
     fireEvent.click(await screen.findByText('Star 同步'));
     fireEvent.click(await screen.findByRole('button', { name: '查看' }));

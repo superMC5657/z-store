@@ -1,7 +1,7 @@
 /**
  * useSearchState 回归：
  *
- * - 本地搜索路由：结果落 setApps；非 home/trends/categories 视图跳回 home；
+ * - 本地搜索路由：结果落 setApps；非空搜索词在任意非 home 视图跳回 home；
  * - 换词草稿态：handleSearchDraft 立即同步新词、置本地搜索中并清空上一轮在线残留；
  * - stale 守卫：旧词迟到的本地/在线回包不覆盖新词（seq 串号丢弃）；
  * - 同词去重：本地已完成或在线结果集时 handleSearchChange 同词早退；冷启动在途连点不重复发包；
@@ -96,7 +96,7 @@ beforeEach(() => {
 });
 
 describe('useSearchState：本地搜索路由', () => {
-  it('非 home/trends/categories 视图搜索后跳回 home；home/trends/categories 保持原视图', async () => {
+  it('任意非 home 视图输入非空搜索词后跳回 home；home 保持原视图', async () => {
     for (const view of ['installed', 'home', 'trends', 'categories'] as const) {
       const { rendered, deps } = renderSearch(view);
       mocks.searchApps.mockResolvedValue([makeApp('acme/atlas')]);
@@ -104,11 +104,31 @@ describe('useSearchState：本地搜索路由', () => {
         await rendered.result.current.handleSearchChange('atlas');
       });
       expect(deps.setApps).toHaveBeenCalledWith([expect.objectContaining({ id: 'acme/atlas' })]);
-      if (view === 'installed') {
-        expect(deps.navigate).toHaveBeenCalledWith('home');
-      } else {
+      if (view === 'home') {
         expect(deps.navigate).not.toHaveBeenCalled();
+      } else {
+        expect(deps.navigate).toHaveBeenCalledWith('home');
       }
+    }
+  });
+
+  it('清空搜索词留在当前视图', async () => {
+    const { rendered, deps } = renderSearch('categories');
+    mocks.searchApps.mockResolvedValue([makeApp('acme/atlas')]);
+    await act(async () => {
+      await rendered.result.current.handleSearchChange('');
+    });
+    expect(deps.navigate).not.toHaveBeenCalled();
+  });
+
+  it('在线提交：trends / categories 视图同样跳回 home', async () => {
+    for (const view of ['trends', 'categories'] as const) {
+      const { rendered, deps } = renderSearch(view);
+      mocks.searchApps.mockResolvedValue([makeApp('acme/atlas')]);
+      await act(async () => {
+        await rendered.result.current.handleSearchSubmit('atlas');
+      });
+      expect(deps.navigate).toHaveBeenCalledWith('home');
     }
   });
 

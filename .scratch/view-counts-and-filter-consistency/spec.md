@@ -1,6 +1,6 @@
 # Feature Spec: 多视图应用数量显示与筛选口径全局对齐（View Counts & Filter Consistency）
 
-> 状态：Draft（Ready for Implementation）
+> 状态：Implemented
 > 关联契约：`CONTEXT.md`（双维目录筛选、最新入库、本地库、我的应用、收藏标记）、`docs/count-display.md`（数量显示规范）、ADR-0010（规范应用标识）、ADR-0017（本地自维护草稿 overlay）、ADR-0021（最新入库独立视图）、ADR-0022（我的应用合并已安装与更新视图）。
 
 ---

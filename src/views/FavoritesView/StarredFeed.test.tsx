@@ -417,6 +417,8 @@ describe('StarredFeed', () => {
     expect(screen.getByText('WinApp')).toBeTruthy();
     expect(screen.getByText('LoadingApp')).toBeTruthy();
     expect(screen.queryByText('MacApp')).toBeNull();
+    // 底部叙述计数取平台过滤后的行数（2），而非已加载全量（3）。
+    expect(screen.getByTestId('starred-end').textContent).toContain('2 个应用');
     expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
       windows: 1,
       macos: 1,
@@ -443,6 +445,22 @@ describe('StarredFeed', () => {
     // 卸载清空上报计数（回落收录库口径）。
     unmount();
     expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith(null);
+  });
+
+  it('load-more hint counts only rows that pass the platform filter', async () => {
+    vi.spyOn(tauriApi, 'listGithubStarred').mockResolvedValue({
+      rows: [
+        makeApp({ id: 'acme/win-a', name: 'WinA', platforms: ['windows'] }),
+        makeApp({ id: 'acme/mac-b', name: 'MacB', platforms: ['macos'] }),
+        makeApp({ id: 'acme/mac-c', name: 'MacC', platforms: ['macos'] }),
+      ],
+      has_more: true,
+    });
+    render(<StarredFeed {...baseProps} selectedPlatforms={new Set(['windows'])} />);
+    await queryAs('octocat');
+    await screen.findByText('WinA');
+    const hint = document.querySelector('.online-armed-sub')?.textContent ?? '';
+    expect(hint).toBe(i18n.t('search.online_armed_hint', { count: 1 }));
   });
 
   describe('L1/L2 cache and SWR sync', () => {

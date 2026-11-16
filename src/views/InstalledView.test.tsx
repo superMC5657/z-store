@@ -6,6 +6,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import i18n from '../i18n';
 import { InstalledView } from './InstalledView';
 import type { InstalledApp, UpdateItem, UpdateRule } from '../types';
+import {
+  buildRulesMap,
+  buildUpdatesMap,
+  inferInstalledFallbackPlatforms,
+  selectUpdatableInstalled,
+} from './manage/manageModel';
+import {
+  resolveInstalledPlatformRows,
+  selectPlatformFilteredInstalled,
+  selectPlatformFilteredUpdates,
+} from '../app/selectors';
+import { makeApp } from './test-utils/filterFixture';
 
 (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
@@ -294,5 +306,166 @@ describe('InstalledView redesigned workbench', () => {
     expect(screen.getByRole('tab', { name: '有更新 1' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.queryByText('scrcpy')).toBeNull();
     expect(onFocusConsumed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('InstalledView counts follow the in-page search and platform filter', () => {
+  const LIST: InstalledApp[] = [
+    ...INSTALLED_LIST,
+    { ...INSTALLED_LIST[0], app_id: 'neo/neo-frozen', app_name: 'NeoFrozen', install_path: '' },
+    { ...INSTALLED_LIST[0], app_id: 'neo/neo-hidden', app_name: 'NeoHidden', install_path: '' },
+  ];
+  const LIST_RULES: UpdateRule[] = [
+    ...RULES,
+    { app_id: 'neo/neo-frozen', is_frozen: true, is_hidden: false, updated_at: 1 },
+    { app_id: 'neo/neo-hidden', is_frozen: false, is_hidden: true, updated_at: 1 },
+  ];
+  const LIST_UPDATES: UpdateItem[] = [
+    UPDATES[0],
+    { ...UPDATES[0], app_id: 'genymobile/scrcpy', app_name: 'scrcpy' },
+    { ...UPDATES[0], app_id: 'neo/neo-frozen', app_name: 'NeoFrozen' },
+  ];
+
+  it('every tab badge equals the rows shown when that tab is picked, with and without a search term', () => {
+    const { container } = render(
+      <InstalledView
+        installedApps={LIST}
+        updateRules={LIST_RULES}
+        updates={LIST_UPDATES}
+        onLaunch={() => {}}
+        onUninstall={() => {}}
+      />,
+    );
+    const rowCount = () => container.querySelectorAll('.installed-list-row').length;
+    const check = (expected: Record<string, number>) => {
+      for (const [label, count] of Object.entries(expected)) {
+        const tab = screen.getByRole('tab', { name: `${label} ${count}` });
+        fireEvent.click(tab);
+        expect(rowCount()).toBe(count);
+      }
+    };
+
+    check({ 全部: 3, 有更新: 1, 已锁定: 2, 已隐藏: 2 });
+
+    fireEvent.change(screen.getByPlaceholderText('筛选名称、仓库或路径...'), { target: { value: 'neo' } });
+    check({ 全部: 2, 有更新: 1, 已锁定: 1, 已隐藏: 1 });
+  });
+
+  it('shows a platform-filter empty state with a reset action when every installed app is filtered out', () => {
+    const onReset = vi.fn();
+    render(
+      <InstalledView
+        installedApps={[]}
+        totalInstalledCount={5}
+        onResetPlatformFilter={onReset}
+        onScanSystemApps={() => {}}
+        onLaunch={() => {}}
+        onUninstall={() => {}}
+      />,
+    );
+    expect(screen.queryByText('暂未安装任何应用')).toBeNull();
+    expect(screen.getByPlaceholderText('筛选名称、仓库或路径...')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: '全部 0' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重置筛选' }));
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the platform spread of non-hidden or hidden installed apps to the sidebar', () => {
+    const onCounts = vi.fn();
+    const { unmount } = render(
+      <InstalledView
+        installedApps={INSTALLED_LIST}
+        installedPlatformRows={[
+          { id: 'neovim/neovim', platforms: ['windows', 'linux'] },
+          { id: 'genymobile/scrcpy', platforms: ['windows'] },
+          { id: 'alex/alpha', platforms: ['macos'] },
+        ]}
+        updateRules={RULES}
+        onDisplayPlatformCounts={onCounts}
+        onLaunch={() => {}}
+        onUninstall={() => {}}
+      />,
+    );
+    expect(onCounts).toHaveBeenLastCalledWith({ windows: 2, macos: 0, linux: 1, ios: 0, android: 0, other: 0 });
+    fireEvent.click(screen.getByRole('tab', { name: /^已隐藏/ }));
+    expect(onCounts).toHaveBeenLastCalledWith({ windows: 0, macos: 1, linux: 0, ios: 0, android: 0, other: 0 });
+    unmount();
+    expect(onCounts).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe('installed platform filter covers apps outside the catalog', () => {
+  const installed = (app_id: string, install_method: string): InstalledApp => ({
+    ...INSTALLED_LIST[0],
+    app_id,
+    app_name: app_id,
+    install_method,
+  });
+  const cataloged = { ...makeApp({ id: 'acme/linux-tool', name: 'LinuxTool', platforms: ['linux'] }) };
+  const hiddenCard = { ...makeApp({ id: 'acme/hidden-mac', name: 'HiddenMac', platforms: ['macos'] }) };
+  const apps = [
+    installed('acme/linux-tool', 'portable_tarball'),
+    installed('ACME/Hidden-Mac', 'portable_zip'),
+    installed('ghost/uncataloged', 'msi'),
+  ];
+  const rows = resolveInstalledPlatformRows(
+    apps,
+    new Map([['acme/linux-tool', cataloged]]),
+    new Map([['acme/hidden-mac', hiddenCard]]),
+    'windows',
+  );
+
+  it('resolves platforms from catalog, then hydrated card, then install method', () => {
+    expect(rows).toEqual([
+      { id: 'acme/linux-tool', platforms: ['linux'] },
+      { id: 'ACME/Hidden-Mac', platforms: ['macos'] },
+      { id: 'ghost/uncataloged', platforms: ['windows'] },
+    ]);
+  });
+
+  it.each<[string[], string[]]>([
+    [[], []],
+    [['android'], []],
+    [['windows'], ['ghost/uncataloged']],
+    [['macos', 'linux'], ['acme/linux-tool', 'ACME/Hidden-Mac']],
+  ])('selected %j keeps %j', (selected, expected) => {
+    const out = selectPlatformFilteredInstalled(apps, rows, new Set(selected), new Set());
+    expect(out.map((a) => a.app_id)).toEqual(expected);
+    const updates = apps.map((a) => ({ ...UPDATES[0], app_id: a.app_id }));
+    const outUpdates = selectPlatformFilteredUpdates(updates, rows, new Set(selected), new Set());
+    expect(outUpdates.map((u) => u.app_id)).toEqual(expected);
+  });
+});
+
+describe('manageModel installed counting rules', () => {
+  it('selectUpdatableInstalled skips frozen and hidden apps', () => {
+    const updates: UpdateItem[] = INSTALLED_LIST.map((a) => ({
+      app_id: a.app_id,
+      app_name: a.app_name,
+      current_version: '1',
+      latest_version: '2',
+      changelog: '',
+    }));
+    const out = selectUpdatableInstalled(INSTALLED_LIST, buildRulesMap(RULES), buildUpdatesMap(updates));
+    expect(out.map((u) => u.app_id)).toEqual(['neovim/neovim']);
+  });
+
+  it.each([
+    ['msi', ['windows']],
+    ['setup_exe', ['windows']],
+    ['winget', ['windows']],
+    ['dmg', ['macos']],
+    ['pkg', ['macos']],
+    ['deb', ['linux']],
+    ['rpm', ['linux']],
+    ['appimage', ['linux']],
+    ['portable_zip', ['linux']],
+    [undefined, ['linux']],
+  ])('inferInstalledFallbackPlatforms(%s) on a linux host → %j', (method, expected) => {
+    expect(inferInstalledFallbackPlatforms(method, 'linux')).toEqual(expected);
+  });
+
+  it('inferInstalledFallbackPlatforms defaults unknown methods to windows', () => {
+    expect(inferInstalledFallbackPlatforms('scanned')).toEqual(['windows']);
   });
 });

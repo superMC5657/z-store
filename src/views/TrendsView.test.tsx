@@ -726,6 +726,23 @@ describe('TrendsView 平台过滤与榜单口径计数', () => {
       });
     });
   });
+
+  it('上报榜单分布不随平台勾选变化：0/6 全不选时仍按全榜单计数', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}`, platforms: ['windows'] })),
+    );
+    const onDisplayPlatformCounts = vi.fn();
+    const { container } = renderBoard({ selectedPlatforms: new Set<string>(), onDisplayPlatformCounts });
+    await clickTrendsRefresh();
+    await waitFor(() => {
+      const calls = onDisplayPlatformCounts.mock.calls;
+      const last = calls[calls.length - 1]?.[0];
+      expect(last?.windows).toBe(3);
+    });
+    // 主区仍被筛空
+    expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
+  });
 });
 
 describe('TrendsView 榜单选项卡记忆（zstore.trends.opts）', () => {

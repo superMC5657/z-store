@@ -195,7 +195,7 @@ export function useSearchState({
         localInFlightQueryRef.current === trimmed ||
         (trimmed === onlineQueryRef.current && (isOnlineResultSetRef.current || isSearchingOnlineRef.current)))
     ) {
-      if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+      if (currentView !== 'home') {
         navigate('home');
       }
       return;
@@ -213,7 +213,7 @@ export function useSearchState({
       if (guardFreshSearch(seq)) return;
       localCompletedQueryRef.current = trimmed;
       setApps(results);
-      if (trimmed && currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+      if (trimmed && currentView !== 'home') {
         navigate('home');
       }
     } catch (err) {
@@ -268,7 +268,7 @@ export function useSearchState({
           if (guardFreshSearch(seq)) return;
           localCompletedQueryRef.current = q;
           setApps(freshLocal);
-          if (currentView !== 'home' && currentView !== 'trends' && currentView !== 'categories') {
+          if (currentView !== 'home') {
             navigate('home');
           }
         } catch (err) {

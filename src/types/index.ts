@@ -152,8 +152,8 @@ export const VIEW_TYPES = [
   'categories',
   'trends',
   'pending',
-  'installed',
   'favorites',
+  'installed',
   'settings',
 ] as const;
 

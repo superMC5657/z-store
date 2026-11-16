@@ -126,10 +126,9 @@ export function handleEnrichTrendRepos(a: InvokeArgs): (AppSummary | null)[] {
       lang: 'TypeScript',
       stars: 0,
       forks: 0,
-      change: 0,
       gain: 0,
-      cat: 'dev',
-      catn: '开发工具',
+      icon: '',
+      platforms: ['windows'],
     });
   });
 }
@@ -145,7 +144,31 @@ export function handleGetPlatformsLite(a: InvokeArgs): PlatformsLiteResult {
       is_stale: null,
     };
   }
+  // 快照里的趋势仓库：平台是离线探测结果，按缓存命中返回（空 = 确认无二进制发布），
+  // 前端据此立即落定，而不是一直占位到 settle 兜底。其余未知仓库仍是「待探测」。
+  const slash = id.indexOf('/');
+  const ext = slash > 0 ? findExternalTrend(id.slice(0, slash), id.slice(slash + 1)) : undefined;
+  if (ext) return { id, platforms: [...ext.platforms], is_stale: false, from_cache: true };
   return { id, platforms: [], is_stale: true, from_cache: false };
+}
+
+/** 已确认图标：目录应用取目录图标，趋势快照仓库取离线探测图标；都没有即 null（前端落 L5）。 */
+export function handleGetConfirmedIconsBatch(a: InvokeArgs): (string | null)[] {
+  warnUnknownArgs(['ids'], a, 'handleGetConfirmedIconsBatch');
+  const ids = Array.isArray(a['ids']) ? (a['ids'] as unknown[]) : [];
+  return ids.map((raw) => {
+    const id = typeof raw === 'string' ? raw : '';
+    const slash = id.indexOf('/');
+    const icon = findSummary(id)?.icon
+      ?? (slash > 0 ? findExternalTrend(id.slice(0, slash), id.slice(slash + 1))?.icon : undefined);
+    return icon ? icon : null;
+  });
+}
+
+/** 演示站没有磁盘缓存：原样返回远端地址（与后端取缓存失败时的回落一致）。 */
+export function handleFetchOrCacheAssetUrl(a: InvokeArgs): string {
+  warnUnknownArgs(['appId', 'url'], a, 'handleFetchOrCacheAssetUrl');
+  return argStr(a, 'url');
 }
 
 export function handleGetAppDetails(a: InvokeArgs): AppDetail {
@@ -253,16 +276,31 @@ export function handleGetOrFetchIcon(a: InvokeArgs): string {
   return findSummary(appId)?.icon ?? '';
 }
 
-export function handleGetCategoryApps(a: InvokeArgs): {
+type FilteredFeedPage = {
   items: AppSummary[];
   total: number;
   has_more: boolean;
-} {
-  // Mock 分页与 Rust `get_category_apps` 同形 `{ items, total, has_more }`；
-  // 过滤语义不变（仅 `category` 相等），默认第 1 页 20 条、钳制 1-50。
-  const category = argStr(a, 'category').toLowerCase();
-  if (!category) return { items: [], total: 0, has_more: false };
-  const matched = summaries.filter((s) => s.category.toLowerCase() === category);
+  matched_ids: string[];
+};
+
+/**
+ * 与 Rust `paginate_with_allowed_ids` 同语义：`matched_ids` 为过滤前全部 ID；
+ * `allowedIds` 为数组时（含空数组）按小写 trim 集合过滤后再分页，非数组即不过滤。
+ * 默认第 1 页 20 条、`perPage` 钳制 1-50。
+ */
+function paginateWithAllowedIds(matched: AppSummary[], a: InvokeArgs): FilteredFeedPage {
+  const matched_ids = matched.map((s) => s.id);
+  const rawAllowed = a['allowedIds'];
+  let filtered = matched;
+  if (Array.isArray(rawAllowed)) {
+    const allowed = new Set(
+      rawAllowed
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim().toLowerCase())
+        .filter((id) => id !== ''),
+    );
+    filtered = matched.filter((s) => allowed.has(s.id.toLowerCase()));
+  }
   const rawPer = argNum(a, 'perPage');
   const rawPage = argNum(a, 'page');
   const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
@@ -271,15 +309,30 @@ export function handleGetCategoryApps(a: InvokeArgs): {
       ? 1
       : Math.floor(rawPage);
   const start = (page - 1) * perPage;
-  const items = matched.slice(start, start + perPage);
-  return { items, total: matched.length, has_more: start + items.length < matched.length };
+  const items = filtered.slice(start, start + perPage);
+  return {
+    items,
+    total: filtered.length,
+    has_more: start + items.length < filtered.length,
+    matched_ids,
+  };
 }
 
-export function handleGetLatestCatalogApps(a: InvokeArgs): {
-  items: AppSummary[];
-  total: number;
-  has_more: boolean;
-} {
+export function handleGetCategoryApps(a: InvokeArgs): FilteredFeedPage {
+  // Mock 与 Rust `get_category_apps` 同形；分类过滤仅 `category` 相等。
+  warnUnknownArgs(['category', 'page', 'perPage', 'allowedIds'], a, 'handleGetCategoryApps');
+  const category = argStr(a, 'category').toLowerCase();
+  if (!category) return { items: [], total: 0, has_more: false, matched_ids: [] };
+  const matched = summaries.filter((s) => s.category.toLowerCase() === category);
+  return paginateWithAllowedIds(matched, a);
+}
+
+export function handleGetLatestCatalogApps(a: InvokeArgs): FilteredFeedPage {
+  warnUnknownArgs(
+    ['sinceDays', 'minDays', 'maxDays', 'page', 'perPage', 'allowedIds'],
+    a,
+    'handleGetLatestCatalogApps',
+  );
   const rawMin = argNum(a, 'minDays');
   const rawMax = argNum(a, 'maxDays');
   const rawSince = argNum(a, 'sinceDays');
@@ -341,16 +394,7 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): {
     return x.id.localeCompare(y.id);
   });
 
-  const rawPer = argNum(a, 'perPage');
-  const rawPage = argNum(a, 'page');
-  const perPage = rawPer === undefined ? 20 : Math.min(50, Math.max(1, Math.floor(rawPer)));
-  const page =
-    rawPage === undefined || !Number.isFinite(rawPage) || Math.floor(rawPage) < 1
-      ? 1
-      : Math.floor(rawPage);
-  const start = (page - 1) * perPage;
-  const items = matched.slice(start, start + perPage);
-  return { items, total: matched.length, has_more: start + items.length < matched.length };
+  return paginateWithAllowedIds(matched, a);
 }
 
 export function handleScanAndMatchLocalApps(): AppMatchResult[] {

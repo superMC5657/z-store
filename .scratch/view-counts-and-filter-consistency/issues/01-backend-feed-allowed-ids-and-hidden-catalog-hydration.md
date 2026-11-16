@@ -1,6 +1,6 @@
 # Issue 01: 后端 Feed `allowedIds` 预过滤分页与隐藏目录批量水合补齐
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: none
 
 ## Summary
