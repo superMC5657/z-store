@@ -37,6 +37,7 @@
 - **领域短标签 `[tag]`**（`z_log::domain_tag` 统一映射）：
   - `app`：启动横幅、配置/DB 异常、Panic、用户数据导入、深链解析失败
   - `catalog`：清单同步、自定义源审计、License Gate 审计
+  - `launchpad`：开源广场清单同步、快照降级、条目规范校验与讨论区通道
   - `search`：在线搜索与直查
   - `detail`：应用详情、Multi-Forge、`platforms-lite` 失败降级、Star 列表分页（`starred page ok/stale`）
   - `trends`：抓榜失败 / 429 限流 / 截断 / enrich 部分缺席汇总；doforce 经系统代理回退的抓取带 `via=proxy`（成功记一行 `fetch ok`）

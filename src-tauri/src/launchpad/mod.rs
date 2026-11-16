@@ -8,7 +8,7 @@ pub mod models;
 pub use models::{
     LaunchpadDiscussionAuthor, LaunchpadDiscussionComment, LaunchpadDiscussionDetail,
     LaunchpadEntry, LaunchpadFeedResponse, LaunchpadMaker, LaunchpadUpvoteResult,
-    RawLaunchpadItem, RawLaunchpadManifest, RawLaunchpadPin,
+    LaunchpadVoteMode, RawLaunchpadItem, RawLaunchpadManifest, RawLaunchpadPin,
 };
 
 use models::non_empty;
@@ -97,18 +97,29 @@ pub fn validate_manifest_strict(manifest: &RawLaunchpadManifest) -> Result<(), S
     Ok(())
 }
 
+fn admit_unique_id(seen: &mut HashSet<String>, raw_id: &str) -> Option<String> {
+    let Some(id) = canonical_id(raw_id) else {
+        log::debug!(
+            target: "launchpad",
+            "skip invalid id: {}",
+            crate::log_support::short_reason(raw_id)
+        );
+        return None;
+    };
+    if !seen.insert(id.clone()) {
+        log::debug!(target: "launchpad", "skip duplicate id: {}", id);
+        return None;
+    }
+    Some(id)
+}
+
 /// 规整清单：`id` 归一、剥离 `data:` 图标、丢弃非法与重复条目，返回可安全落盘的副本。
 pub fn sanitize_manifest(mut manifest: RawLaunchpadManifest) -> RawLaunchpadManifest {
     let mut seen = HashSet::new();
     manifest.items.retain_mut(|item| {
-        let Some(id) = canonical_id(&item.id) else {
-            log::debug!(target: "launchpad", "skip invalid id: {}", crate::log_support::short_reason(&item.id));
+        let Some(id) = admit_unique_id(&mut seen, &item.id) else {
             return false;
         };
-        if !seen.insert(id.clone()) {
-            log::debug!(target: "launchpad", "skip duplicate id: {}", id);
-            return false;
-        }
         item.id = id;
         item.icon = sanitize_icon(&item.icon);
         item.maker.avatar_url = sanitize_icon(&item.maker.avatar_url);
@@ -124,17 +135,13 @@ pub fn partition_spotlight_and_recent(
     manifest: &RawLaunchpadManifest,
     now_secs: i64,
 ) -> (Vec<LaunchpadEntry>, Vec<LaunchpadEntry>) {
+    let mut seen = HashSet::new();
     let mut by_id: HashMap<String, &RawLaunchpadItem> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for item in &manifest.items {
-        let Some(id) = canonical_id(&item.id) else {
-            log::debug!(target: "launchpad", "skip invalid id: {}", crate::log_support::short_reason(&item.id));
+        let Some(id) = admit_unique_id(&mut seen, &item.id) else {
             continue;
         };
-        if by_id.contains_key(&id) {
-            log::debug!(target: "launchpad", "skip duplicate id: {}", id);
-            continue;
-        }
         by_id.insert(id.clone(), item);
         order.push(id);
     }

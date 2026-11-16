@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildBatchQuery,
+  collectStats,
   computeDelta,
   fetchGithubStats,
   refreshManifest,
@@ -111,4 +112,25 @@ test('批量 GraphQL 只用变量绑定并按 25 个一批分组', async () => {
   assert.equal(calls.length, 2);
   assert.equal(Object.keys(stats).length, 27);
   assert.deepEqual(stats['o/r26'], { stars: 1, forks: 0, latest_version: 'v1', discussion_comments_count: 3, discussion_upvotes: 2 });
+});
+
+test('GitLab 条目刷新同时拉取 stars / forks / latest_version', async () => {
+  const gl = makeItem({
+    id: 'gitlab:group/sub/tool',
+    forge: 'gitlab',
+    forge_host: 'gitlab.com',
+    owner: 'group/sub',
+    repo: 'tool',
+  });
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(url);
+    if (url.endsWith('/releases/permalink/latest')) {
+      return { ok: true, status: 200, json: async () => ({ tag_name: 'v2.4.0' }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ star_count: 88, forks_count: 9 }) };
+  };
+  const stats = await collectStats([gl], { fetchImpl });
+  assert.deepEqual(stats[gl.id], { stars: 88, forks: 9, latest_version: 'v2.4.0' });
+  assert.ok(urls.some((u) => u.endsWith('/api/v4/projects/group%2Fsub%2Ftool/releases/permalink/latest')));
 });

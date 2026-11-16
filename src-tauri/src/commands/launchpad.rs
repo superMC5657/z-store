@@ -275,12 +275,16 @@ pub async fn get_launchpad_discussion(
     let cursor = cursor.filter(|c| !c.trim().is_empty());
     if let Some(token) = state.active_github_token() {
         return gd::fetch_discussion_authed(
-            &client,
-            crate::github::GITHUB_API_BASE,
-            &token,
-            &owner,
-            &repo,
-            number,
+            gd::DiscussionClient {
+                client: &client,
+                api_base: crate::github::GITHUB_API_BASE,
+                token: &token,
+            },
+            gd::DiscussionRef {
+                owner: &owner,
+                repo: &repo,
+                number,
+            },
             cursor.as_deref(),
         )
         .await
@@ -318,13 +322,18 @@ pub async fn add_launchpad_comment(
     let token = require_token(&state, "请先登录 GitHub 账号后再发表评论")?;
     let (owner, repo) = gd::validate_discussion_repo(&discussion_repo)?;
     let number = gd::validate_discussion_number(discussion_number)?;
+    let http = crate::shared_http_client();
     let comment = gd::add_comment(
-        &crate::shared_http_client(),
-        crate::github::GITHUB_API_BASE,
-        &token,
-        &owner,
-        &repo,
-        number,
+        gd::DiscussionClient {
+            client: &http,
+            api_base: crate::github::GITHUB_API_BASE,
+            token: &token,
+        },
+        gd::DiscussionRef {
+            owner: &owner,
+            repo: &repo,
+            number,
+        },
         discussion_id.as_deref(),
         &body,
         reply_to_id.as_deref(),
@@ -350,13 +359,18 @@ pub async fn toggle_launchpad_upvote(
     let token = require_token(&state, "请先登录 GitHub 账号后再顶帖")?;
     let (owner, repo) = gd::validate_discussion_repo(&discussion_repo)?;
     let number = gd::validate_discussion_number(discussion_number)?;
+    let http = crate::shared_http_client();
     let result = gd::toggle_upvote(
-        &crate::shared_http_client(),
-        crate::github::GITHUB_API_BASE,
-        &token,
-        &owner,
-        &repo,
-        number,
+        gd::DiscussionClient {
+            client: &http,
+            api_base: crate::github::GITHUB_API_BASE,
+            token: &token,
+        },
+        gd::DiscussionRef {
+            owner: &owner,
+            repo: &repo,
+            number,
+        },
         subject_id.as_deref(),
         currently_upvoted,
     )

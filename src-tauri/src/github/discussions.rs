@@ -6,10 +6,26 @@
 use crate::db::Database;
 use crate::launchpad::{
     LaunchpadDiscussionAuthor, LaunchpadDiscussionComment, LaunchpadDiscussionDetail,
-    LaunchpadUpvoteResult,
+    LaunchpadUpvoteResult, LaunchpadVoteMode,
 };
 use serde_json::{json, Value};
 use std::sync::Mutex;
+
+/// 已登录 GitHub GraphQL 调用上下文。
+#[derive(Debug, Clone, Copy)]
+pub struct DiscussionClient<'a> {
+    pub client: &'a reqwest::Client,
+    pub api_base: &'a str,
+    pub token: &'a str,
+}
+
+/// 讨论目标坐标（已校验的双段 GitHub `owner/repo` + 讨论编号）。
+#[derive(Debug, Clone, Copy)]
+pub struct DiscussionRef<'a> {
+    pub owner: &'a str,
+    pub repo: &'a str,
+    pub number: u64,
+}
 
 /// 评论正文字符上限。
 pub const COMMENT_MAX_CHARS: usize = 10_000;
@@ -150,6 +166,8 @@ pub enum GqlError {
     Unauthorized,
     /// `FORBIDDEN` / "Resource not accessible by integration"：顶帖回退 Reaction。
     Forbidden(String),
+    /// 分类未开投票或 `UNPROCESSABLE`：顶帖回退 Reaction。
+    UpvoteUnavailable(String),
     InsufficientScopes,
     Other(String),
 }
@@ -159,6 +177,7 @@ impl GqlError {
         match self {
             GqlError::Unauthorized => "GitHub 授权已失效 (401)，请重新登录".to_string(),
             GqlError::Forbidden(m) => format!("GitHub 拒绝了该操作: {}", m),
+            GqlError::UpvoteUnavailable(m) => format!("当前讨论不支持投票: {}", m),
             GqlError::InsufficientScopes => {
                 "当前 GitHub 授权缺少所需权限，请在设置中重新登录".to_string()
             }
@@ -177,11 +196,16 @@ pub fn map_graphql_response(body: &Value) -> Result<&Value, GqlError> {
                 .and_then(|m| m.as_str())
                 .unwrap_or("GraphQL 请求失败")
                 .to_string();
+            let lower = message.to_ascii_lowercase();
             return Err(match kind {
                 "INSUFFICIENT_SCOPES" => GqlError::InsufficientScopes,
                 "FORBIDDEN" => GqlError::Forbidden(message),
                 _ if message.contains("Resource not accessible by integration") => {
                     GqlError::Forbidden(message)
+                }
+                "UNPROCESSABLE" => GqlError::UpvoteUnavailable(message),
+                _ if lower.contains("upvote") || lower.contains("voting") => {
+                    GqlError::UpvoteUnavailable(message)
                 }
                 _ => GqlError::Other(message),
             });
@@ -193,20 +217,19 @@ pub fn map_graphql_response(body: &Value) -> Result<&Value, GqlError> {
 }
 
 async fn graphql_post(
-    client: &reqwest::Client,
-    api_base: &str,
-    token: &str,
+    ctx: DiscussionClient<'_>,
     query: &str,
     variables: Value,
     op: &str,
 ) -> Result<Value, GqlError> {
     let headers = crate::forge::http::api_headers(
         crate::forge::http::GITHUB_ACCEPT_VALUE,
-        Some(token),
+        Some(ctx.token),
         crate::forge::http::AuthScheme::Bearer,
     );
-    let resp = client
-        .post(format!("{}/graphql", api_base.trim_end_matches('/')))
+    let resp = ctx
+        .client
+        .post(format!("{}/graphql", ctx.api_base.trim_end_matches('/')))
         .headers(headers)
         .json(&json!({ "query": query, "variables": variables }))
         .send()
@@ -235,30 +258,30 @@ async fn graphql_post(
     map_graphql_response(&body).cloned()
 }
 
-fn s(v: &Value, key: &str) -> String {
+fn str_field(v: &Value, key: &str) -> String {
     v.get(key)
         .and_then(|x| x.as_str())
         .unwrap_or_default()
         .to_string()
 }
 
-fn u(v: &Value, key: &str) -> u64 {
+fn u64_field(v: &Value, key: &str) -> u64 {
     v.get(key).and_then(|x| x.as_u64()).unwrap_or(0)
 }
 
-fn b(v: &Value, key: &str) -> bool {
+fn bool_field(v: &Value, key: &str) -> bool {
     v.get(key).and_then(|x| x.as_bool()).unwrap_or(false)
 }
 
 fn gql_author(v: &Value) -> Option<LaunchpadDiscussionAuthor> {
     let a = v.get("author").filter(|a| a.is_object())?;
-    let login = s(a, "login");
+    let login = str_field(a, "login");
     if login.is_empty() {
         return None;
     }
     Some(LaunchpadDiscussionAuthor {
-        avatar_url: crate::launchpad::sanitize_icon(&s(a, "avatarUrl")),
-        html_url: s(a, "url"),
+        avatar_url: crate::launchpad::sanitize_icon(&str_field(a, "avatarUrl")),
+        html_url: str_field(a, "url"),
         login,
     })
 }
@@ -271,13 +294,13 @@ fn gql_comment(node: &Value) -> LaunchpadDiscussionComment {
         .map(|arr| arr.iter().map(gql_comment).collect())
         .unwrap_or_default();
     LaunchpadDiscussionComment {
-        id: s(node, "id"),
-        body: s(node, "body"),
-        created_at: s(node, "createdAt"),
-        author_association: s(node, "authorAssociation"),
+        id: str_field(node, "id"),
+        body: str_field(node, "body"),
+        created_at: str_field(node, "createdAt"),
+        author_association: str_field(node, "authorAssociation"),
         author: gql_author(node),
-        upvote_count: u(node, "upvoteCount"),
-        viewer_has_upvoted: b(node, "viewerHasUpvoted"),
+        upvote_count: u64_field(node, "upvoteCount"),
+        viewer_has_upvoted: bool_field(node, "viewerHasUpvoted"),
         replies,
     }
 }
@@ -294,8 +317,8 @@ fn thumbs_up(subject: &Value) -> (u64, bool) {
         })
         .map(|g| {
             (
-                g.get("reactors").map(|r| u(r, "totalCount")).unwrap_or(0),
-                b(g, "viewerHasReacted"),
+                g.get("reactors").map(|r| u64_field(r, "totalCount")).unwrap_or(0),
+                bool_field(g, "viewerHasReacted"),
             )
         })
         .unwrap_or((0, false))
@@ -308,33 +331,36 @@ pub fn parse_graphql_discussion(data: &Value) -> Result<LaunchpadDiscussionDetai
         .and_then(|r| r.get("discussion"))
         .filter(|d| d.is_object())
         .ok_or_else(|| "讨论不存在或无权访问".to_string())?;
-    let can_upvote = b(d, "viewerCanUpvote");
+    let can_upvote = bool_field(d, "viewerCanUpvote");
     let (upvote_count, viewer_has_upvoted) = if can_upvote {
-        (u(d, "upvoteCount"), b(d, "viewerHasUpvoted"))
+        (u64_field(d, "upvoteCount"), bool_field(d, "viewerHasUpvoted"))
     } else {
         thumbs_up(d)
     };
     let comments = d.get("comments").cloned().unwrap_or(Value::Null);
     let page = comments.get("pageInfo").cloned().unwrap_or(Value::Null);
-    let locked = b(d, "locked");
+    let locked = bool_field(d, "locked");
     Ok(LaunchpadDiscussionDetail {
-        id: s(d, "id"),
-        number: u(d, "number"),
-        title: s(d, "title"),
-        body: s(d, "body"),
-        url: s(d, "url"),
-        created_at: s(d, "createdAt"),
+        id: str_field(d, "id"),
+        number: u64_field(d, "number"),
+        title: str_field(d, "title"),
+        body: str_field(d, "body"),
+        url: str_field(d, "url"),
+        created_at: str_field(d, "createdAt"),
         locked,
-        closed: b(d, "closed"),
+        closed: bool_field(d, "closed"),
         author: gql_author(d),
-        category_name: d.get("category").map(|c| s(c, "name")).unwrap_or_default(),
+        category_name: d
+            .get("category")
+            .map(|c| str_field(c, "name"))
+            .unwrap_or_default(),
         upvote_count,
         viewer_has_upvoted,
-        viewer_can_upvote: true,
+        viewer_can_upvote: can_upvote,
         viewer_can_comment: !locked,
         auth_required_for_write: false,
-        comments_total: u(&comments, "totalCount"),
-        has_next_page: b(&page, "hasNextPage"),
+        comments_total: u64_field(&comments, "totalCount"),
+        has_next_page: bool_field(&page, "hasNextPage"),
         end_cursor: page
             .get("endCursor")
             .and_then(|c| c.as_str())
@@ -357,45 +383,47 @@ pub fn parse_added_comment(data: &Value) -> Result<LaunchpadDiscussionComment, S
         .ok_or_else(|| "发表评论失败：响应缺少评论实体".to_string())
 }
 
-/// 顶帖变更响应 → 结果；`mode` 为 `upvote` 或 `reaction`。
+/// 顶帖变更响应 → 结果。
 pub fn parse_vote_result(
     data: &Value,
     mutation: &str,
-    mode: &str,
+    mode: LaunchpadVoteMode,
 ) -> Result<LaunchpadUpvoteResult, String> {
     let subject = data
         .get(mutation)
         .and_then(|r| r.get("subject"))
         .filter(|s| s.is_object())
         .ok_or_else(|| "顶帖失败：响应缺少目标实体".to_string())?;
-    let (count, has) = if mode == "reaction" {
-        thumbs_up(subject)
-    } else {
-        (u(subject, "upvoteCount"), b(subject, "viewerHasUpvoted"))
+    let (count, has) = match mode {
+        LaunchpadVoteMode::Reaction => thumbs_up(subject),
+        LaunchpadVoteMode::Upvote => (
+            u64_field(subject, "upvoteCount"),
+            bool_field(subject, "viewerHasUpvoted"),
+        ),
     };
     Ok(LaunchpadUpvoteResult {
-        subject_id: s(subject, "id"),
+        subject_id: str_field(subject, "id"),
         upvote_count: count,
         viewer_has_upvoted: has,
-        mode: mode.to_string(),
+        mode,
     })
 }
 
 fn rest_author(v: &Value) -> Option<LaunchpadDiscussionAuthor> {
     let a = v.get("user").filter(|a| a.is_object())?;
-    let login = s(a, "login");
+    let login = str_field(a, "login");
     if login.is_empty() {
         return None;
     }
     Some(LaunchpadDiscussionAuthor {
-        avatar_url: crate::launchpad::sanitize_icon(&s(a, "avatar_url")),
-        html_url: s(a, "html_url"),
+        avatar_url: crate::launchpad::sanitize_icon(&str_field(a, "avatar_url")),
+        html_url: str_field(a, "html_url"),
         login,
     })
 }
 
 fn rest_plus_one(v: &Value) -> u64 {
-    v.get("reactions").map(|r| u(r, "+1")).unwrap_or(0)
+    v.get("reactions").map(|r| u64_field(r, "+1")).unwrap_or(0)
 }
 
 /// 结构化降级空壳：带确定性网页地址，前端可引导登录或跳浏览器。
@@ -428,33 +456,36 @@ pub fn parse_rest_discussion(
         .unwrap_or_default()
         .iter()
         .map(|c| LaunchpadDiscussionComment {
-            id: s(c, "node_id"),
-            body: s(c, "body"),
-            created_at: s(c, "created_at"),
-            author_association: s(c, "author_association"),
+            id: str_field(c, "node_id"),
+            body: str_field(c, "body"),
+            created_at: str_field(c, "created_at"),
+            author_association: str_field(c, "author_association"),
             author: rest_author(c),
             upvote_count: rest_plus_one(c),
             viewer_has_upvoted: false,
             replies: Vec::new(),
         })
         .collect();
-    let url = s(&d, "html_url");
-    let total = u(&d, "comments").max(comments.len() as u64);
+    let url = str_field(&d, "html_url");
+    let total = u64_field(&d, "comments").max(comments.len() as u64);
     Ok(LaunchpadDiscussionDetail {
-        id: s(&d, "node_id"),
+        id: str_field(&d, "node_id"),
         number: d.get("number").and_then(|n| n.as_u64()).unwrap_or(number),
-        title: s(&d, "title"),
-        body: s(&d, "body"),
+        title: str_field(&d, "title"),
+        body: str_field(&d, "body"),
         url: if url.is_empty() {
             discussion_html_url(owner, repo, number)
         } else {
             url
         },
-        created_at: s(&d, "created_at"),
-        locked: b(&d, "locked"),
-        closed: s(&d, "state") == "closed",
+        created_at: str_field(&d, "created_at"),
+        locked: bool_field(&d, "locked"),
+        closed: str_field(&d, "state") == "closed",
         author: rest_author(&d),
-        category_name: d.get("category").map(|c| s(c, "name")).unwrap_or_default(),
+        category_name: d
+            .get("category")
+            .map(|c| str_field(c, "name"))
+            .unwrap_or_default(),
         upvote_count: d
             .get("upvote_count")
             .and_then(|n| n.as_u64())
@@ -473,20 +504,19 @@ pub fn parse_rest_discussion(
 
 /// 已登录读取：单次 GraphQL 取回主帖、顶帖态与一页评论（含二级回复）。
 pub async fn fetch_discussion_authed(
-    client: &reqwest::Client,
-    api_base: &str,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    number: u64,
+    ctx: DiscussionClient<'_>,
+    target: DiscussionRef<'_>,
     cursor: Option<&str>,
 ) -> Result<LaunchpadDiscussionDetail, GqlError> {
     let data = graphql_post(
-        client,
-        api_base,
-        token,
+        ctx,
         DISCUSSION_QUERY,
-        json!({ "owner": owner, "repo": repo, "number": number, "cursor": cursor }),
+        json!({
+            "owner": target.owner,
+            "repo": target.repo,
+            "number": target.number,
+            "cursor": cursor
+        }),
         "launchpad_discussion",
     )
     .await?;
@@ -587,19 +617,13 @@ pub async fn fetch_discussion_anonymous(
 
 /// 解析讨论节点 ID（并带回锁帖与可顶帖状态）。
 async fn resolve_discussion_node(
-    client: &reqwest::Client,
-    api_base: &str,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    number: u64,
+    ctx: DiscussionClient<'_>,
+    target: DiscussionRef<'_>,
 ) -> Result<(String, bool, bool), GqlError> {
     let data = graphql_post(
-        client,
-        api_base,
-        token,
+        ctx,
         DISCUSSION_ID_QUERY,
-        json!({ "owner": owner, "repo": repo, "number": number }),
+        json!({ "owner": target.owner, "repo": target.repo, "number": target.number }),
         "launchpad_discussion_id",
     )
     .await?;
@@ -608,11 +632,11 @@ async fn resolve_discussion_node(
         .and_then(|r| r.get("discussion"))
         .filter(|d| d.is_object())
         .ok_or_else(|| GqlError::Other("讨论不存在或无权访问".to_string()))?;
-    let id = s(d, "id");
+    let id = str_field(d, "id");
     if id.is_empty() {
         return Err(GqlError::Other("讨论不存在或无权访问".to_string()));
     }
-    Ok((id, b(d, "locked"), b(d, "viewerCanUpvote")))
+    Ok((id, bool_field(d, "locked"), bool_field(d, "viewerCanUpvote")))
 }
 
 /// 校验评论正文：去首尾空白后非空且不超过 `COMMENT_MAX_CHARS` 字符。
@@ -634,14 +658,9 @@ fn non_empty_id(v: Option<&str>) -> Option<String> {
 }
 
 /// 发表评论或回复（缺 `discussion_id` 时先查节点 ID 并检查锁帖）。
-#[allow(clippy::too_many_arguments)]
 pub async fn add_comment(
-    client: &reqwest::Client,
-    api_base: &str,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    number: u64,
+    ctx: DiscussionClient<'_>,
+    target: DiscussionRef<'_>,
     discussion_id: Option<&str>,
     body: &str,
     reply_to_id: Option<&str>,
@@ -650,10 +669,9 @@ pub async fn add_comment(
     let discussion_id = match non_empty_id(discussion_id) {
         Some(id) => id,
         None => {
-            let (id, locked, _) =
-                resolve_discussion_node(client, api_base, token, owner, repo, number)
-                    .await
-                    .map_err(GqlError::into_message)?;
+            let (id, locked, _) = resolve_discussion_node(ctx, target)
+                .await
+                .map_err(GqlError::into_message)?;
             if locked {
                 return Err("该讨论已被维护者锁定，无法发表评论".to_string());
             }
@@ -661,9 +679,7 @@ pub async fn add_comment(
         }
     };
     let data = graphql_post(
-        client,
-        api_base,
-        token,
+        ctx,
         ADD_COMMENT_MUTATION,
         json!({
             "discussionId": discussion_id,
@@ -678,23 +694,19 @@ pub async fn add_comment(
 }
 
 async fn vote_once(
-    client: &reqwest::Client,
-    api_base: &str,
-    token: &str,
+    ctx: DiscussionClient<'_>,
     subject_id: &str,
     currently_upvoted: bool,
-    mode: &str,
+    mode: LaunchpadVoteMode,
 ) -> Result<LaunchpadUpvoteResult, GqlError> {
     let (query, mutation) = match (mode, currently_upvoted) {
-        ("reaction", false) => (ADD_REACTION_MUTATION, "addReaction"),
-        ("reaction", true) => (REMOVE_REACTION_MUTATION, "removeReaction"),
-        (_, false) => (ADD_UPVOTE_MUTATION, "addUpvote"),
-        (_, true) => (REMOVE_UPVOTE_MUTATION, "removeUpvote"),
+        (LaunchpadVoteMode::Reaction, false) => (ADD_REACTION_MUTATION, "addReaction"),
+        (LaunchpadVoteMode::Reaction, true) => (REMOVE_REACTION_MUTATION, "removeReaction"),
+        (LaunchpadVoteMode::Upvote, false) => (ADD_UPVOTE_MUTATION, "addUpvote"),
+        (LaunchpadVoteMode::Upvote, true) => (REMOVE_UPVOTE_MUTATION, "removeUpvote"),
     };
     let data = graphql_post(
-        client,
-        api_base,
-        token,
+        ctx,
         query,
         json!({ "subjectId": subject_id }),
         "launchpad_vote",
@@ -704,35 +716,30 @@ async fn vote_once(
 }
 
 /// 双模顶帖：优先原生 `addUpvote`/`removeUpvote`；预检 `viewerCanUpvote == false`
-/// 或变更返回 `FORBIDDEN` 时回退 👍 Reaction。
-#[allow(clippy::too_many_arguments)]
+/// 或变更返回 `FORBIDDEN` / 分类不支持投票时回退 👍 Reaction。
 pub async fn toggle_upvote(
-    client: &reqwest::Client,
-    api_base: &str,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    number: u64,
+    ctx: DiscussionClient<'_>,
+    target: DiscussionRef<'_>,
     subject_id: Option<&str>,
     currently_upvoted: bool,
 ) -> Result<LaunchpadUpvoteResult, String> {
     let (subject, can_upvote) = match non_empty_id(subject_id) {
         Some(id) => (id, true),
         None => {
-            let (id, _, can) = resolve_discussion_node(client, api_base, token, owner, repo, number)
+            let (id, _, can) = resolve_discussion_node(ctx, target)
                 .await
                 .map_err(GqlError::into_message)?;
             (id, can)
         }
     };
     if can_upvote {
-        match vote_once(client, api_base, token, &subject, currently_upvoted, "upvote").await {
+        match vote_once(ctx, &subject, currently_upvoted, LaunchpadVoteMode::Upvote).await {
             Ok(r) => return Ok(r),
-            Err(GqlError::Forbidden(_)) => {}
+            Err(GqlError::Forbidden(_) | GqlError::UpvoteUnavailable(_)) => {}
             Err(e) => return Err(e.into_message()),
         }
     }
-    vote_once(client, api_base, token, &subject, currently_upvoted, "reaction")
+    vote_once(ctx, &subject, currently_upvoted, LaunchpadVoteMode::Reaction)
         .await
         .map_err(GqlError::into_message)
 }

@@ -249,11 +249,19 @@ pub struct LaunchpadDiscussionDetail {
     pub is_stale: bool,
 }
 
-/// `toggle_launchpad_upvote` 响应：`mode` 为 `upvote`（原生顶帖）或 `reaction`（👍 兜底）。
+/// 顶帖实现通道：`upvote`（原生 Discussion Upvote）或 `reaction`（👍 Reaction 兜底）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LaunchpadVoteMode {
+    Upvote,
+    Reaction,
+}
+
+/// `toggle_launchpad_upvote` 响应。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LaunchpadUpvoteResult {
     pub subject_id: String,
     pub upvote_count: u64,
     pub viewer_has_upvoted: bool,
-    pub mode: String,
+    pub mode: LaunchpadVoteMode,
 }

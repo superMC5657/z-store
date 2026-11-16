@@ -145,11 +145,18 @@ export async function fetchGithubStats(items, { token, fetchImpl }) {
   return out;
 }
 
-async function fetchOtherForgeStats(item, { fetchImpl }) {
+export async function fetchOtherForgeStats(item, { fetchImpl }) {
   if (item.forge === 'gitlab') {
     const enc = encodeURIComponent(`${item.owner}/${item.repo}`);
-    const repo = await rest(`https://${item.forge_host}/api/v4/projects/${enc}`, { fetchImpl, allow404: true });
-    return repo ? { stars: repo.star_count, forks: repo.forks_count } : null;
+    const base = `https://${item.forge_host}/api/v4/projects/${enc}`;
+    const repo = await rest(base, { fetchImpl, allow404: true });
+    if (!repo) return null;
+    const release = await rest(`${base}/releases/permalink/latest`, { fetchImpl, allow404: true });
+    return {
+      stars: repo.star_count,
+      forks: repo.forks_count,
+      latest_version: release?.tag_name,
+    };
   }
   const base = `https://${item.forge_host}/api/v1/repos/${item.owner}/${item.repo}`;
   const repo = await rest(base, { fetchImpl, allow404: true });

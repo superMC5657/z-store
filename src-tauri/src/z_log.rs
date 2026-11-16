@@ -66,6 +66,9 @@ pub fn domain_tag(target: &str) -> &str {
         | "commands::catalog_custom"
         | "github::catalog_service"
         | "db::custom_apps" => "catalog",
+        "launchpad" | "commands::launchpad" | "db::launchpad" | "github::discussions" => {
+            "launchpad"
+        }
         "search" | "commands::catalog_search" | "github::search" => "search",
         "detail"
         | "commands::catalog_detail"

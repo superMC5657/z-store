@@ -100,6 +100,7 @@ fn locked_discussion_disables_commenting_and_reaction_count_used_without_upvote(
     let d = parse_graphql_discussion(&sample_graphql(false, true)).unwrap();
     assert!(d.locked);
     assert!(!d.viewer_can_comment);
+    assert!(!d.viewer_can_upvote);
     assert_eq!((d.upvote_count, d.viewer_has_upvoted), (5, false));
 }
 
@@ -111,6 +112,8 @@ fn graphql_error_mapping() {
     assert!(matches!(map_graphql_response(&forbidden), Err(GqlError::Forbidden(_))));
     let integ = json!({ "errors": [{ "message": "Resource not accessible by integration" }] });
     assert!(matches!(map_graphql_response(&integ), Err(GqlError::Forbidden(_))));
+    let unprocessable = json!({ "errors": [{ "type": "UNPROCESSABLE", "message": "Upvoting is disabled" }] });
+    assert!(matches!(map_graphql_response(&unprocessable), Err(GqlError::UpvoteUnavailable(_))));
     let other = json!({ "errors": [{ "type": "NOT_FOUND", "message": "gone" }] });
     assert_eq!(
         map_graphql_response(&other).unwrap_err(),
@@ -123,13 +126,13 @@ fn graphql_error_mapping() {
 #[test]
 fn vote_results_parse_for_both_modes() {
     let up = json!({ "addUpvote": { "subject": { "id": "D_1", "upvoteCount": 13, "viewerHasUpvoted": true } } });
-    let r = parse_vote_result(&up, "addUpvote", "upvote").unwrap();
-    assert_eq!((r.upvote_count, r.viewer_has_upvoted, r.mode.as_str()), (13, true, "upvote"));
+    let r = parse_vote_result(&up, "addUpvote", LaunchpadVoteMode::Upvote).unwrap();
+    assert_eq!((r.upvote_count, r.viewer_has_upvoted, r.mode), (13, true, LaunchpadVoteMode::Upvote));
     let re = json!({ "addReaction": { "subject": { "id": "D_1", "reactionGroups": [
         { "content": "THUMBS_UP", "viewerHasReacted": true, "reactors": { "totalCount": 6 } }
     ] } } });
-    let r = parse_vote_result(&re, "addReaction", "reaction").unwrap();
-    assert_eq!((r.upvote_count, r.viewer_has_upvoted, r.mode.as_str()), (6, true, "reaction"));
+    let r = parse_vote_result(&re, "addReaction", LaunchpadVoteMode::Reaction).unwrap();
+    assert_eq!((r.upvote_count, r.viewer_has_upvoted, r.mode), (6, true, LaunchpadVoteMode::Reaction));
 }
 
 #[test]
@@ -154,14 +157,47 @@ async fn forbidden_upvote_falls_back_to_thumbs_up_reaction() {
         }
     })
     .await;
-    let r = toggle_upvote(&client(), &server.base, "tok", "o", "r", 7, Some("D_1"), false)
-        .await
-        .unwrap();
-    assert_eq!(r.mode, "reaction");
+    let http = client();
+    let r = toggle_upvote(
+        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
+        DiscussionRef { owner: "o", repo: "r", number: 7 },
+        Some("D_1"),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.mode, LaunchpadVoteMode::Reaction);
     assert_eq!((r.upvote_count, r.viewer_has_upvoted), (4, true));
     assert_eq!(server.hits(), 2);
     let first = &server.requests()[0];
     assert!(first.to_ascii_lowercase().contains("authorization: bearer tok"));
+}
+
+#[tokio::test]
+async fn unprocessable_upvote_with_subject_falls_back_to_thumbs_up_reaction() {
+    let server = serve(|req| {
+        if req.contains("addUpvote") {
+            Reply::ok(r#"{"errors":[{"type":"UNPROCESSABLE","message":"Category does not support upvotes"}]}"#)
+        } else if req.contains("addReaction") {
+            Reply::ok(
+                r#"{"data":{"addReaction":{"subject":{"id":"D_1","reactionGroups":[{"content":"THUMBS_UP","viewerHasReacted":true,"reactors":{"totalCount":2}}]}}}}"#,
+            )
+        } else {
+            Reply::status("500 Internal Server Error")
+        }
+    })
+    .await;
+    let http = client();
+    let r = toggle_upvote(
+        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
+        DiscussionRef { owner: "o", repo: "r", number: 7 },
+        Some("D_1"),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.mode, LaunchpadVoteMode::Reaction);
+    assert_eq!((r.upvote_count, r.viewer_has_upvoted), (2, true));
 }
 
 #[tokio::test]
@@ -178,11 +214,17 @@ async fn preflight_without_subject_uses_reaction_when_upvote_unavailable() {
         }
     })
     .await;
-    let r = toggle_upvote(&client(), &server.base, "tok", "o", "r", 9, None, true)
-        .await
-        .unwrap();
+    let http = client();
+    let r = toggle_upvote(
+        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
+        DiscussionRef { owner: "o", repo: "r", number: 9 },
+        None,
+        true,
+    )
+    .await
+    .unwrap();
     assert_eq!(r.subject_id, "D_9");
-    assert_eq!(r.mode, "reaction");
+    assert_eq!(r.mode, LaunchpadVoteMode::Reaction);
     assert!(!r.viewer_has_upvoted);
 }
 
@@ -194,9 +236,16 @@ async fn add_comment_on_locked_discussion_is_refused() {
         )
     })
     .await;
-    let err = add_comment(&client(), &server.base, "tok", "o", "r", 1, None, "hi", None)
-        .await
-        .unwrap_err();
+    let http = client();
+    let err = add_comment(
+        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
+        DiscussionRef { owner: "o", repo: "r", number: 1 },
+        None,
+        "hi",
+        None,
+    )
+    .await
+    .unwrap_err();
     assert!(err.contains("锁定"));
     assert_eq!(server.hits(), 1);
 }
