@@ -43,22 +43,6 @@
   max-width: 70%;
 }
 
-.hero-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background: var(--brand-subtle);
-  color: var(--brand-primary);
-  border: 1px solid var(--border-nav-active);
-  border-radius: var(--radius-xs);
-  font-size: var(--font-xs);
-  font-weight: 510;
-  letter-spacing: -0.011em;
-  margin-bottom: 8px;
-  box-shadow: none;
-}
-
 .hero-title {
   font-size: var(--font-xl);
   font-weight: 590;
@@ -75,14 +59,6 @@
   margin-bottom: 14px;
   max-width: 65ch;
   letter-spacing: -0.011em;
-}
-
-.hero-tags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
 }
 
 .hero-actions {
@@ -120,45 +96,5 @@
 }
 
 .hero-banner:hover .hero-icon-card {
-  transform: none;
-}
-
-/* 官方认证徽标 */
-.hero-verified-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
-  font-size: var(--font-xs);
-  font-weight: 510;
-  white-space: nowrap;
-  user-select: none;
-  cursor: default;
-  background: var(--badge-verified-bg);
-  border: 1px solid var(--badge-verified-border);
-  color: var(--badge-verified-color);
-  box-shadow: none;
-}
-
-.hero-verified-badge svg {
-  flex-shrink: 0;
-}
-
-/* 本地收录 hero 徽标（橘黄，verified 蓝不动）：浅色 #F59E0B，深色 #D97706。 */
-.hero-verified-badge.hero-local-badge {
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.2);
-  color: #F59E0B;
-}
-
-[data-theme="dark"] .hero-verified-badge.hero-local-badge {
-  background: rgba(245, 158, 11, 0.14);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: #D97706;
-}
-
-.hero-banner:hover .hero-verified-badge {
   transform: none;
 }

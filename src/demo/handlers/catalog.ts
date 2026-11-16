@@ -16,7 +16,6 @@ import {
   toDetail,
 } from '../fixtures';
 import {
-  clearRecentViewTimes,
   getDemoSettingsSaved,
   getRecentIds,
   getRecentViewTimes,
@@ -466,14 +465,6 @@ export function handleGetRecentlyViewedApps(): AppSummary[] {
     }
   }
   return out;
-}
-
-export function handleClearViewHistory(): null {
-  setRecentIds([]);
-  clearRecentViewTimes();
-  lsSet(LS.recentViews, []);
-  lsSet(LS.recentViewTimes, {});
-  return null;
 }
 
 export function handleSyncCatalog(): SyncCatalogResult {

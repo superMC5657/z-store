@@ -166,7 +166,6 @@
     "import_failed": "Failed to import backup: {{error}}"
   },
   "zlog": {
-    "title": "Diagnostic Logs",
     "export": "Export Logs",
     "exporting": "Exporting...",
     "open_folder": "Open Folder",
@@ -468,7 +467,6 @@
     "unmanage": "Unmanage",
     "unmanage_tooltip": "Unmanage (keeps local files and data)",
     "installed_date": "Installed on {{date}}",
-    "path_prefix": "Path: {{path}}",
     "copy": "Copy",
     "copied": "✓ Copied",
     "title_label": "My Apps",
@@ -526,11 +524,7 @@
     "hero_title": "Picked for you today",
     "hero_title_editorial": "Today's picks",
     "ready_open": "Open",
-    "all": "All Featured",
-    "all_for_you": "All Featured · Sorted for you",
     "feed_loading": "Loading…",
-    "feed_load_more": "More",
-    "feed_end": "Reached the end · {{count}} apps",
     "recent": "Continue browsing",
     "clear_recent": "Clear history",
     "status": {

@@ -20,7 +20,7 @@ const MAX_ENTRIES = 120;
 /** `data:` 字符总量上限（约 48MB）：单图可达 5MB × base64 膨胀，仅按条数限不住内存。 */
 const MAX_TOTAL_CHARS = 48 * 1024 * 1024;
 /** README / 更新日志图片解析并发上限。 */
-export const ASSET_RESOLVE_CONCURRENCY = 4;
+const ASSET_RESOLVE_CONCURRENCY = 4;
 /** 渐进回填节流：避免每张图都整块重设 innerHTML。 */
 const FLUSH_THROTTLE_MS = 200;
 
@@ -36,7 +36,7 @@ function isHttpUrl(url: string): boolean {
 }
 
 /** 动态徽章：每次请求内容可能不同，与后端 `is_dynamic_asset_url` 同口径，保持直连。 */
-export function isDynamicAssetUrl(url: string): boolean {
+function isDynamicAssetUrl(url: string): boolean {
   const lower = url.toLowerCase();
   return (
     lower.includes('shields') ||
@@ -47,7 +47,7 @@ export function isDynamicAssetUrl(url: string): boolean {
 }
 
 /** 可经后端缓存的远端图片候选。 */
-export function isCacheableAssetUrl(url: string): boolean {
+function isCacheableAssetUrl(url: string): boolean {
   const t = url.trim();
   return isHttpUrl(t) && !isDynamicAssetUrl(t);
 }

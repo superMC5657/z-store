@@ -8,7 +8,6 @@ import {
 } from './cache';
 import {
   compareStarsGainedDesc,
-  filterNewReposFallback,
   sortByHealthyScore,
 } from './parse';
 import {
@@ -21,7 +20,7 @@ import {
 import { makeTrendRepo, makeEnrichedApp } from '../../views/test-utils/trendFixture';
 import { makeApp } from '../../views/test-utils/filterFixture';
 
-describe('Phase1B C1：match 需 owner 佐证，跨 owner 永不命中', () => {
+describe('matchCatalogApp：需 owner 佐证，跨 owner 永不命中', () => {
   beforeEach(() => clearTrendEnrichCache());
 
   it('同 repo 名不同 owner 永不命中', () => {
@@ -82,12 +81,6 @@ describe('排序：undefined 恒沉底，tie 按 id 升序', () => {
     const r2 = makeTrendRepo({ id: 'acme/a', stars: 100, starsGained: 10, forks: 5 });
     expect(sortByHealthyScore([r1, r2]).map((r) => r.id)).toEqual(['acme/a', 'acme/b']);
   });
-
-  it('new-fallback：undefined 沉底', () => {
-    const ghost = makeTrendRepo({ id: 'acme/ghost', stars: 50, starsGained: undefined, forks: 2 });
-    const str = makeTrendRepo({ id: 'acme/str', stars: 800, starsGained: 1234, forks: 30 });
-    expect(filterNewReposFallback([ghost, str]).map((r) => r.id)).toEqual(['acme/str', 'acme/ghost']);
-  });
 });
 
 describe('key 归一读写一致', () => {
@@ -112,7 +105,7 @@ describe('key 归一读写一致', () => {
   });
 });
 
-describe('Phase1B C5（SWR）：已确认 loading 进盘直展，未确认永不进盘，data: URI 永不进 payload', () => {
+describe('SWR：已确认 loading 进盘直展，未确认永不进盘，data: URI 永不进 payload', () => {
   beforeEach(() => {
     clearTrendsCache();
     vi.restoreAllMocks();

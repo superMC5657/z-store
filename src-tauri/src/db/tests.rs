@@ -240,9 +240,6 @@ fn test_search_and_view_history_crud() {
 
     let app_ids = db.get_recently_viewed_app_ids().unwrap();
     assert_eq!(app_ids, vec!["rustdesk", "vlc"]);
-
-    db.clear_view_history().unwrap();
-    assert!(db.get_recently_viewed_app_ids().unwrap().is_empty());
 }
 
 #[test]

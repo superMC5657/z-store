@@ -21,7 +21,7 @@ export const SEARCH_LIST_TTL_MS = 30 * 60 * 1000;
 /** 每个命名空间至多 50 条。 */
 export const SEARCH_LIST_MAX_ENTRIES_PER_NAMESPACE = 50;
 /** L2 快照前端预检上限 32 KiB（后端硬上限 64 KiB）。 */
-export const SEARCH_LIST_DB_MAX_BYTES = 32 * 1024;
+const SEARCH_LIST_DB_MAX_BYTES = 32 * 1024;
 
 const DEFAULT_NAMESPACE = 'search';
 
@@ -33,7 +33,7 @@ interface SearchListIndexEntry {
 }
 
 /** 搜索列表键：归一词 + 页码 + 页大小，可选命名空间。 */
-export interface SearchListKey {
+interface SearchListKey {
   query: string;
   page: number;
   perPage: number;
@@ -41,7 +41,7 @@ export interface SearchListKey {
 }
 
 /** 带新鲜度的命中结果（`rows` 由 `ids` 经卡片表解析）。 */
-export interface SearchListCacheHit {
+interface SearchListCacheHit {
   rows: AppSummary[];
   ids: string[];
   hasMore: boolean;
@@ -87,7 +87,7 @@ function gcCardStore(): void {
 }
 
 /** 归一搜索词：trim + 小写 + 连续空白（含全角/换行）压单空格；空串调用方拒绝写。 */
-export function normalizeSearchQuery(query: string): string {
+function normalizeSearchQuery(query: string): string {
   if (typeof query !== 'string') return '';
   return query.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -184,12 +184,7 @@ export function readSearchListCacheEntry(key: SearchListKey): SearchListCacheHit
   };
 }
 
-/** 读列表缓存（不区分新鲜度）。 */
-export function readSearchListCache(key: SearchListKey): AppSummary[] | undefined {
-  return readSearchListCacheEntry(key)?.rows;
-}
-
-export interface WriteSearchListOptions {
+interface WriteSearchListOptions {
   /** 缺省按「本页行数 ≥ 页大小」推断。 */
   hasMore?: boolean;
   /** 本页含私有仓库（登出时清除）。 */
@@ -239,14 +234,6 @@ export function writeSearchListCache(
     evicted = true;
   }
   if (evicted) gcCardStore();
-}
-
-/** 后台重验确认内容未变时续期：`at` 刷新为当前时刻（未命中即无操作）。 */
-export function touchSearchListCache(key: SearchListKey): void {
-  const { norm } = sanitizeSearchListKey(key);
-  if (!norm) return;
-  const hit = bucketFor(namespaceOf(key.namespace), false)?.get(buildSearchListCacheKey(key));
-  if (hit) hit.at = Date.now();
 }
 
 /** sweep 过期。 */
@@ -355,7 +342,7 @@ export function patchSearchListCacheRows(
 }
 
 /** L2 快照信封（`search_list_cache.payload_json`）。 */
-export interface SearchListIndexEnvelope {
+interface SearchListIndexEnvelope {
   v: 2;
   ids: string[];
   hasMore: boolean;
@@ -393,7 +380,7 @@ function parseSearchListEnvelope(json: string): SearchListIndexEnvelope | undefi
   return { v: 2, ids, hasMore: env.hasMore === true };
 }
 
-export interface SearchListDbHit {
+interface SearchListDbHit {
   ids: string[];
   hasMore: boolean;
   /** 快照含私有仓库：回填 L1 时须带上，否则登出清不掉。 */

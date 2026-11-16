@@ -1315,8 +1315,7 @@ impl AppScanner {
                 }
             }
         }
-        // 同步检查裸名对应的 desktop 名（如 vlc → vlc.desktop；原 config.target_executables
-        // 派生已由 `linux_candidate_names` 并入 bare，此处直接按 bare 补齐精确文件名，避免漏检）
+        // 同步检查裸名对应的 desktop 名（如 vlc → vlc.desktop，由 `linux_candidate_names` 并入 bare，此处按 bare 补齐精确文件名）
         for base in bare_tokens {
             let b = base.to_lowercase();
             let stem = b.strip_suffix(".exe").unwrap_or(&b);

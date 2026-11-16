@@ -139,7 +139,7 @@ function itemFromWire(wire: DraftItemWire): DraftItem {
 }
 
 /** epoch 秒 → UTC `YYYY-MM-DD`；非正或非有限数返回 `undefined`。 */
-export function formatUtcYmd(epochSecs?: number): string | undefined {
+function formatUtcYmd(epochSecs?: number): string | undefined {
   if (typeof epochSecs !== 'number' || !Number.isFinite(epochSecs) || epochSecs <= 0) {
     return undefined;
   }

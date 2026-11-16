@@ -239,12 +239,6 @@ fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
     }
 }
 
-#[tauri::command]
-pub fn clear_view_history(state: State<'_, AppState>) -> crate::AppResult<()> {
-    let db = state.db()?;
-    Ok(db.clear_view_history()?)
-}
-
 // ---------- 关注订阅 ----------
 
 #[tauri::command(rename_all = "camelCase")]

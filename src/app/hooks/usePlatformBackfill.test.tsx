@@ -33,7 +33,7 @@ import { useState } from 'react';
 import { useListPlatformBackfill, usePlatformBackfill } from './usePlatformBackfill';
 import {
   clearSearchListCache,
-  readSearchListCache,
+  readSearchListCacheEntry,
   writeSearchListCache,
 } from '../../services/search/searchListCache';
 import { clearTrendEnrichCache } from '../../services/trends/enrich';
@@ -292,7 +292,7 @@ describe('usePlatformBackfill：首绘回填与 settle 超时', () => {
       rendered.result.current.lazyBackfillPlatforms(rows, 0, true);
     });
 
-    expect(readSearchListCache({ query: 'empty', page: 1, perPage: 20 })?.[0].platforms).toEqual(['macos']);
+    expect(readSearchListCacheEntry({ query: 'empty', page: 1, perPage: 20 })?.rows[0].platforms).toEqual(['macos']);
   });
 });
 

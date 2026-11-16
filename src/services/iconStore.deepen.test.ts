@@ -17,7 +17,6 @@ import {
   __resetIconWriteSubscribersForTests,
   __setIconDataCacheForTests,
   admitIconHit,
-  clearBufferedIcon,
   getBufferedIcon,
   isIconPersistedOrQueued,
   patchIconMirror,
@@ -45,21 +44,6 @@ describe('deepen icon-write seam behind single interface', () => {
       const res = admitIconHit({ id: 'o/r', icon: '', level: 5, patch: () => {} });
       expect(res.accepted).toBe(true);
       expect(res.reason).toBe('level5-badge');
-      expect(getBufferedIcon('o/r')).toBeUndefined();
-      expect(seen).toEqual([{ targets: ['o/r'], icon: '', level: 5 }]);
-    } finally {
-      unsub();
-    }
-  });
-
-  it('clearBufferedIcon 直接清零亦通知（防富卡 stale）', () => {
-    const seen: { targets: string[]; icon: string; level?: number }[] = [];
-    const unsub = subscribeIconWrites((h) => seen.push(h));
-    try {
-      const seed = admitIconHit({ id: 'o/r', icon: REAL, level: 2, via: 'm2' });
-      expect(seed.accepted).toBe(true);
-      seen.length = 0;
-      clearBufferedIcon('o/r');
       expect(getBufferedIcon('o/r')).toBeUndefined();
       expect(seen).toEqual([{ targets: ['o/r'], icon: '', level: 5 }]);
     } finally {

@@ -38,8 +38,7 @@
   flex-shrink: 0;
 }
 
-.flyout-item,
-.menu-item-fluent {
+.flyout-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -60,14 +59,12 @@
   user-select: none;
 }
 
-.flyout-item:hover,
-.menu-item-fluent:hover {
+.flyout-item:hover {
   background: var(--bg-acrylic-hover);
   border-color: transparent;
 }
 
-.flyout-item:active,
-.menu-item-fluent:active {
+.flyout-item:active {
   background: var(--border-subtle);
 }
 

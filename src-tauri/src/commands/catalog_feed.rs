@@ -138,11 +138,6 @@ pub fn save_interest_seeds(
     Ok(())
 }
 
-#[tauri::command]
-pub fn get_interest_seeds(state: State<'_, AppState>) -> crate::AppResult<Vec<String>> {
-    Ok(state.db()?.get_interest_seeds()?)
-}
-
 /// 精选页「不感兴趣」（`scope = "app"`，`target` 为应用标识）或「少推这类」（`scope = "category"`，`target` 为分类 key）。
 /// 「少推这类」从某张卡片发起时附带 `appId`，该卡片同时记一条应用级反馈。
 #[tauri::command(rename_all = "camelCase")]

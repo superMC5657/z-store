@@ -1,4 +1,4 @@
-//! `app_details` 持久化 DAO：应用深度详情表（替代原 `app_details_cache`）。
+//! `app_details` 持久化 DAO：应用深度详情表。
 //!
 //! 承载 Release 资产列表、README Markdown、多语言 README 变体、Changelog、
 //! TTL `cached_at` 及未收录应用富卡兜底所需的概要字段。
@@ -137,15 +137,6 @@ impl Database {
             return Ok(Some(detail));
         }
         Ok(None)
-    }
-
-    /// 读取全部已落盘应用详情。
-    pub fn get_all_app_details(&self) -> Result<Vec<(String, AppDetail)>> {
-        let sql = format!("SELECT {} FROM app_details", SELECT_DETAIL_COLS);
-        self.query_vec(&sql, [], |row| {
-            let detail = row_to_app_detail(row)?;
-            Ok((detail.core.id.clone(), detail))
-        })
     }
 
     /// 刷新 `app_details.cached_at` 时间戳（304 命中零开销延长保鲜期）。

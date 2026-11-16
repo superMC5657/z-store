@@ -35,22 +35,6 @@
   transform: none !important;
 }
 
-.fluent-list-row.has-expanded-content {
-  flex-direction: column !important;
-  align-items: stretch !important;
-  justify-content: center !important;
-  gap: 0 !important;
-}
-
-.fluent-list-row.has-expanded-content > .fluent-list-row-main {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: var(--list-row-gap) !important;
-  width: 100% !important;
-}
-
 .fluent-list-row:hover,
 .installed-list-row:hover,
 .app-card.fluent-list-row:hover {

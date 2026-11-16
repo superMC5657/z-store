@@ -1,7 +1,7 @@
 /**
  * enrich 缓存与合并契约：
  * - takeFreshEnrichEntry：force→缺席→平台→确认→TTL 分支；
- * - enrichTrendReposFresh：与 forceRefresh:true 等价；
+ * - enrichTrendRepos(forceRefresh: true)：跳缓存直取；
  * - fillMissingFromPrev：空/占位回退；
  * - mergeIconSticky：data: 单口。
  */
@@ -10,7 +10,6 @@ import {
   clearTrendConfirmedOtherCache,
   clearTrendEnrichCache,
   enrichTrendRepos,
-  enrichTrendReposFresh,
   takeFreshEnrichEntry,
   markTrendConfirmedOther,
   fillMissingFromPrev,
@@ -130,8 +129,8 @@ describe('takeFreshEnrichEntry 分支', () => {
   });
 });
 
-describe('enrichTrendReposFresh 等价', () => {
-  it('与 forceRefresh:true 同语义（跳缓存直取并透传 force）', async () => {
+describe('enrichTrendRepos forceRefresh', () => {
+  it('forceRefresh:true 跳缓存直取并透传 force', async () => {
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',
@@ -146,12 +145,6 @@ describe('enrichTrendReposFresh 等价', () => {
       })),
     );
     const repos = [makeTrendRepo({ id: 'acme/atlas' })];
-    const viaWrapper = await enrichTrendReposFresh(repos);
-    expect(backend).toHaveBeenCalledTimes(1);
-    expect(backend.mock.calls[0]?.[1]).toBe(true);
-    expect(viaWrapper.get('acme/atlas')?.description).toBe('fresh-force-true');
-
-    backend.mockClear();
     const viaFlag = await enrichTrendRepos(repos, { forceRefresh: true });
     expect(backend).toHaveBeenCalledTimes(1);
     expect(backend.mock.calls[0]?.[1]).toBe(true);

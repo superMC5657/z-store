@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AppSummary } from '../../types';
-import { clearSearchListCache, readSearchListCache, writeSearchListCache } from '../search/searchListCache';
+import { clearSearchListCache, readSearchListCacheEntry, writeSearchListCache } from '../search/searchListCache';
 import {
   STARRED_CACHE_NAMESPACE,
   getLastQueryMemory,
@@ -35,7 +35,7 @@ describe('noteStarredLogin', () => {
     noteStarredLogin('alice');
     expect(getQueryMemory('@me:alice')).toBeDefined();
     expect(isNetworkSynced('@me:alice')).toBe(true);
-    expect(readSearchListCache(pageKey('@me:alice'))).toBeDefined();
+    expect(readSearchListCacheEntry(pageKey('@me:alice'))).toBeDefined();
   });
 
   it('logout clears every @me entry and keeps public ones', () => {
@@ -46,10 +46,10 @@ describe('noteStarredLogin', () => {
     expect(getQueryMemory('@me:alice')).toBeUndefined();
     expect(getLastQueryMemory()).toBeUndefined();
     expect(isNetworkSynced('@me:alice')).toBe(false);
-    expect(readSearchListCache(pageKey('@me:alice'))).toBeUndefined();
+    expect(readSearchListCacheEntry(pageKey('@me:alice'))).toBeUndefined();
     expect(getQueryMemory('octocat')).toBeDefined();
     expect(isNetworkSynced('octocat')).toBe(true);
-    expect(readSearchListCache(pageKey('octocat'))).toBeDefined();
+    expect(readSearchListCacheEntry(pageKey('octocat'))).toBeDefined();
   });
 
   it('switching accounts clears the previous account', () => {
@@ -76,9 +76,9 @@ describe('logout clears private data across caches', () => {
 
     forgetPrivateStarredQueries();
 
-    expect(readSearchListCache(pageKey(selfQueryKey('alice')))).toBeUndefined();
-    expect(readSearchListCache({ query: 'mine', page: 1, perPage: 20 })).toBeUndefined();
-    expect(readSearchListCache({ query: 'pub', page: 1, perPage: 20 })?.[0].id).toBe('pub/tool');
+    expect(readSearchListCacheEntry(pageKey(selfQueryKey('alice')))).toBeUndefined();
+    expect(readSearchListCacheEntry({ query: 'mine', page: 1, perPage: 20 })).toBeUndefined();
+    expect(readSearchListCacheEntry({ query: 'pub', page: 1, perPage: 20 })?.rows[0].id).toBe('pub/tool');
     expect(peekFreshRepoCard('me/secret')).toBeUndefined();
     expect(peekFreshRepoCard('pub/tool')).toBeDefined();
   });

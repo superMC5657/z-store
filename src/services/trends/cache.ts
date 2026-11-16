@@ -19,9 +19,6 @@ const TREND_DB_DAILY_TTL_MS = 60 * 60 * 1000;
 export const DOFORCE_RETRY_MAX_WAIT_MS = 60_000;
 /** 429 响应未携带可用 `Retry-After` / `retry_after_ms` 时的默认等待。 */
 export const DOFORCE_RETRY_DEFAULT_WAIT_MS = 5_000;
-export const TRENDING_TIMEOUT_MS = 10_000; // github.com/trending HTML 抓取 10s 熔断
-export const DOFORCE_TIMEOUT_MS = 10_000; // doforce API 10s 熔断（Rust 侧执行）
-export const GITHUB_SEARCH_TIMEOUT_MS = 10_000; // GitHub Search 主源 10s 熔断
 
 /** 榜缓存一级内存至多 200 条，写时 FIFO 删最旧。 */
 export const TRENDS_CACHE_MAX_ENTRIES = 200;

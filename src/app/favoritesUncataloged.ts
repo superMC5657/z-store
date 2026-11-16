@@ -123,26 +123,14 @@ export function markFavoriteUncatalogedRow(summary: AppSummary): AppSummary {
 }
 
 /**
- * 按记录打标（记录驱动口；与强制未收录口 `markFavoriteUncatalogedRow` 及缓存命中
- * 构造口 `favoriteSummaryFromCached` 区分）：
- * - `isCataloged=true` → 显式 `is_cataloged: true`（已收录徽标 + 真实分类保留，
- *   分类原样不动）；
+ * 按记录打标：
+ * - `isCataloged=true` → 显式 `is_cataloged: true`（已收录徽标 + 真实分类保留）；
  * - `isCataloged=false` → 未收录标记（空分类兜底 external）。
- * 记录缺席时调用方按未收录计（`?? false`），目录 `apps` 列表仅作结构去重/驱逐
- * 补充，永不覆盖记录标记。
+ * 记录缺席时调用方按未收录计（`?? false`），目录 `apps` 列表仅作结构去重/驱逐补充，永不覆盖记录标记。
  */
 export function markFavoriteRowByRecord(summary: AppSummary, isCataloged: boolean): AppSummary {
   if (isCataloged) return { ...summary, is_cataloged: true };
   return markFavoriteUncatalogedRow(summary);
-}
-
-/**
- * 缓存批量回填富卡行：后端 `get_cached_app_details_batch` 已做
- * `detail→summary` 投影（图标/平台/描述自带，零网络），此处按记录标记
- * （记录优先，缺席即未收录）。形状异常（无 id）由调用方跳过。
- */
-export function favoriteSummaryFromCached(hit: AppSummary, isCataloged = false): AppSummary {
-  return markFavoriteRowByRecord(hit, isCataloged);
 }
 
 /**

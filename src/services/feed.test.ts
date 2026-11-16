@@ -32,7 +32,7 @@ function makeApp(id: string, stars: number): AppSummary {
   };
 }
 
-describe('feed FNV-1a 64 对齐（C4：后端哈希不动，前端 BigInt 复刻）', () => {
+describe('feed FNV-1a 64 对齐（前后端哈希逐位一致）', () => {
   // Golden：后端 src-tauri/src/github/catalog_feed_score.rs::fnv1a64_with_seed
   // h = OFFSET(0xcbf29ce484222325) ^ seed 起步，UTF-8 字节迭代，雪崩 h>>33 单乘法，除数 2^64。
   // 以下 hex/jitter 由后端同式独立算出，前端 BigInt 实现必须逐位一致。

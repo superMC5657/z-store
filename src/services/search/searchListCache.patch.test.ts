@@ -23,10 +23,8 @@ import {
   clearSearchListCacheNamespace,
   findInSearchListCache,
   readSearchListCacheEntry,
-  touchSearchListCache,
   patchSearchListCacheIcon,
   patchSearchListCacheRows,
-  readSearchListCache,
   subscribeSearchListCachePatches,
   writeSearchListCache,
 } from './searchListCache';
@@ -68,25 +66,25 @@ describe('patchSearchListCacheIcon', () => {
 
     patchSearchListCacheIcon('o/r', REAL);
 
-    expect(readSearchListCache({ query: 'q', page: 1, perPage: 12 })?.[0].icon).toBe(REAL);
-    expect(readSearchListCache({ query: 'q', page: 2, perPage: 12 })?.[0].icon).toBe(REAL);
+    expect(readSearchListCacheEntry({ query: 'q', page: 1, perPage: 12 })?.rows[0].icon).toBe(REAL);
+    expect(readSearchListCacheEntry({ query: 'q', page: 2, perPage: 12 })?.rows[0].icon).toBe(REAL);
     // 同条目他行不动。
-    expect(readSearchListCache({ query: 'q', page: 1, perPage: 12 })?.[1].icon).toBe('');
+    expect(readSearchListCacheEntry({ query: 'q', page: 1, perPage: 12 })?.rows[1].icon).toBe('');
     // 未知 id 无操作（不抛错、不改行）。
     patchSearchListCacheIcon('o/missing', REAL);
-    expect(readSearchListCache({ query: 'q', page: 2, perPage: 12 })?.[1].icon).toBe('');
+    expect(readSearchListCacheEntry({ query: 'q', page: 2, perPage: 12 })?.rows[1].icon).toBe('');
   });
 
   it('大小写归一命中（`O/R` 写透 `o/r` 行）', () => {
     writeSearchListCache({ query: 'q', page: 1, perPage: 12 }, [row('o/r', '')]);
     patchSearchListCacheIcon('O/R', REAL);
-    expect(readSearchListCache({ query: 'q', page: 1, perPage: 12 })?.[0].icon).toBe(REAL);
+    expect(readSearchListCacheEntry({ query: 'q', page: 1, perPage: 12 })?.rows[0].icon).toBe(REAL);
   });
 
   it('L5 显式空写透（旧实图行即徽章，不复活）', () => {
     writeSearchListCache({ query: 'q', page: 1, perPage: 12 }, [row('o/r', REAL)]);
     patchSearchListCacheIcon('o/r', '');
-    expect(readSearchListCache({ query: 'q', page: 1, perPage: 12 })?.[0].icon).toBe('');
+    expect(readSearchListCacheEntry({ query: 'q', page: 1, perPage: 12 })?.rows[0].icon).toBe('');
   });
 
   it('patchSearchListCacheRows 同步写透缓存并通知活跃订阅者', () => {
@@ -99,7 +97,7 @@ describe('patchSearchListCacheIcon', () => {
     patchSearchListCacheRows(patcher);
 
     expect(
-      readSearchListCache({ namespace: 'starred', query: 'u', page: 1, perPage: 20 })?.[0].platforms,
+      readSearchListCacheEntry({ namespace: 'starred', query: 'u', page: 1, perPage: 20 })?.rows[0].platforms,
     ).toEqual(['linux']);
     expect(listener).toHaveBeenCalledTimes(1);
 
@@ -129,16 +127,16 @@ describe('namespace buckets and freshness tiers', () => {
       ]);
     }
     for (let p = 1; p <= 5; p += 1) {
-      expect(readSearchListCache({ query: 'q', page: p, perPage: 20 })).toBeDefined();
+      expect(readSearchListCacheEntry({ query: 'q', page: p, perPage: 20 })).toBeDefined();
     }
     for (let p = 1; p <= 10; p += 1) {
       expect(
-        readSearchListCache({ namespace: 'starred', query: 'alice', page: p, perPage: 20 }),
+        readSearchListCacheEntry({ namespace: 'starred', query: 'alice', page: p, perPage: 20 }),
       ).toBeUndefined();
     }
     for (let p = 11; p <= 60; p += 1) {
       expect(
-        readSearchListCache({ namespace: 'starred', query: 'alice', page: p, perPage: 20 }),
+        readSearchListCacheEntry({ namespace: 'starred', query: 'alice', page: p, perPage: 20 }),
       ).toBeDefined();
     }
     expect(SEARCH_LIST_MAX_ENTRIES_PER_NAMESPACE).toBe(50);
@@ -157,9 +155,6 @@ describe('namespace buckets and freshness tiers', () => {
       const stale = readSearchListCacheEntry(key);
       expect(stale?.isFresh).toBe(false);
       expect(stale?.rows).toHaveLength(1);
-      // 续期后回到新鲜。
-      touchSearchListCache(key);
-      expect(readSearchListCacheEntry(key)?.isFresh).toBe(true);
       vi.setSystemTime(Date.now() + SEARCH_LIST_TTL_MS);
       expect(readSearchListCacheEntry(key)).toBeUndefined();
 
@@ -181,15 +176,15 @@ describe('namespace buckets and freshness tiers', () => {
     writeSearchListCache({ query: '@me:alice', page: 1, perPage: 20 }, [row('o/3', '')]);
     clearSearchListCacheNamespace('starred', '@me:');
     expect(
-      readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: 20 }),
+      readSearchListCacheEntry({ namespace: 'starred', query: '@me:alice', page: 1, perPage: 20 }),
     ).toBeUndefined();
     expect(
-      readSearchListCache({ namespace: 'starred', query: 'torvalds', page: 1, perPage: 20 }),
+      readSearchListCacheEntry({ namespace: 'starred', query: 'torvalds', page: 1, perPage: 20 }),
     ).toBeDefined();
-    expect(readSearchListCache({ query: '@me:alice', page: 1, perPage: 20 })).toBeDefined();
+    expect(readSearchListCacheEntry({ query: '@me:alice', page: 1, perPage: 20 })).toBeDefined();
     clearSearchListCacheNamespace('starred');
     expect(
-      readSearchListCache({ namespace: 'starred', query: 'torvalds', page: 1, perPage: 20 }),
+      readSearchListCacheEntry({ namespace: 'starred', query: 'torvalds', page: 1, perPage: 20 }),
     ).toBeUndefined();
   });
 
@@ -224,8 +219,8 @@ describe('slim id index', () => {
     writeSearchListCache({ query: 'mine', page: 1, perPage: 12 }, [row('me/secret', '')], { hasPrivate: true });
     writeSearchListCache({ query: 'pub', page: 1, perPage: 12 }, [row('o/r', '')]);
     clearPrivateSearchListCacheEntries();
-    expect(readSearchListCache({ query: 'mine', page: 1, perPage: 12 })).toBeUndefined();
-    expect(readSearchListCache({ query: 'pub', page: 1, perPage: 12 })?.[0].id).toBe('o/r');
+    expect(readSearchListCacheEntry({ query: 'mine', page: 1, perPage: 12 })).toBeUndefined();
+    expect(readSearchListCacheEntry({ query: 'pub', page: 1, perPage: 12 })?.rows[0].id).toBe('o/r');
     expect(findInSearchListCache('me/secret')).toBeUndefined();
   });
 });

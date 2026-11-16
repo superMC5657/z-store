@@ -1,7 +1,7 @@
 import type { AppDetail, AppSummary, TrendRepo } from '../../types';
 import { tauriApi } from '../api';
 import { admitIconHit, resolveIconWithBuffer } from '../iconStore';
-import { normalizeId, normalizeIdSet } from '../normalizeId';
+import { normalizeId } from '../normalizeId';
 
 /** enrich 派生缓存 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
 export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -43,10 +43,9 @@ function writeLoose(obj: object, key: string, value: unknown): void {
 
 /**
  * 收录态标注剥离：`source` / `status` / `is_cataloged` 是后端按当前目录产物盖章的运行时标注，
- * 随本地收录变更（收录/退回/转正）即时变化，永不进共享富卡池与 L2 落盘，避免旧标注滞留。
- * 渲染侧按当前目录重新标注。
+ * 随本地收录变更即时变化，不写入共享富卡池与 L2 落盘，渲染侧按当前目录重新标注。
  */
-export function stripCatalogAnnotations(summary: AppSummary): AppSummary {
+function stripCatalogAnnotations(summary: AppSummary): AppSummary {
   if (
     summary.source === undefined &&
     summary.status === undefined &&
@@ -80,7 +79,6 @@ export function markTrendConfirmedOther(key: string): void {
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms)) return;
   putTrendConfirmedOtherEntry(k, Date.now());
-  emitTrendConfirmedOtherChanged('mark', [k]);
 }
 
 /** 批量标记已确认 Other（空键/已具平台逐项跳过）。 */
@@ -96,8 +94,7 @@ export function markTrendConfirmedOthers(keys: readonly string[]): void {
 export function unmarkTrendConfirmedOther(key: string): void {
   const k = normalizeId(key);
   if (!k) return;
-  const removed = trendConfirmedOtherCache.delete(k);
-  if (removed) emitTrendConfirmedOtherChanged('unmark', [k]);
+  trendConfirmedOtherCache.delete(k);
 }
 
 /** 批量移除已确认标记。 */
@@ -110,53 +107,15 @@ export function unmarkTrendConfirmedOthers(keys: readonly string[]): void {
 }
 
 /**
- * 已确认 Other 变更订阅（榜缓存写透联动钩子）：
- * - 仅显式 mark/unmark（含具平台驱逐删标记）触发；读路径 hydrate/sweep/过期清理不触发（读不写盘）；
- * - 订阅方（如 TrendsView）据此节流写透同榜 key；loading 语义不动（未确认 loading 永不进内存/落库）。
- */
-type TrendConfirmedOtherChangeKind = 'mark' | 'unmark';
-type TrendConfirmedOtherListener = (
-  kind: TrendConfirmedOtherChangeKind,
-  keys: readonly string[],
-) => void;
-const trendConfirmedOtherListeners = new Set<TrendConfirmedOtherListener>();
-
-export function subscribeTrendConfirmedOtherChanges(fn: TrendConfirmedOtherListener): () => void {
-  trendConfirmedOtherListeners.add(fn);
-  return () => {
-    trendConfirmedOtherListeners.delete(fn);
-  };
-}
-
-function emitTrendConfirmedOtherChanged(
-  kind: TrendConfirmedOtherChangeKind,
-  keys: readonly string[],
-): void {
-  if (trendConfirmedOtherListeners.size === 0) return;
-  const normalized: string[] = normalizeIdSet(keys);
-  if (normalized.length === 0) return;
-  for (const fn of [...trendConfirmedOtherListeners]) {
-    try {
-      fn(kind, normalized);
-    } catch {
-      // 订阅失败不影响标记本身
-    }
-  }
-}
-
-/**
- * loading 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
- * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透（内存与盘所见即所得）；
- * TTL 过期清理为读路径，不 emit（不写放大）。
+ * 判断该键是否为新鲜（12h 内）已确认 Other。
+ * 若缓存已到达具平台条目，同步清理确认标记并返回 false。
  */
 export function isTrendConfirmedOtherFresh(key: string): boolean {
   const k = normalizeId(key);
   if (!k) return false;
   const cur = trendEnrichCache.get(k);
   if (cur && hasConcretePlatforms(cur.data.platforms)) {
-    if (trendConfirmedOtherCache.delete(k)) {
-      emitTrendConfirmedOtherChanged('unmark', [k]);
-    }
+    trendConfirmedOtherCache.delete(k);
     return false;
   }
   const ts = trendConfirmedOtherCache.get(k);
@@ -170,15 +129,11 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
 }
 
 /**
- * loading 当次有效永不缓存；Other 共享需确认（lite/详情确认标记）。
- * View 侧不直调此函数。
- * 可选传入 repos 时仅返回仍属本榜的键（坐标键 + id 键，小写）。
- * 现状：具平台驱逐删标记走与 mark/unmark 同一 emit，触发写透；过期清理不 emit。
+ * 导出当前新鲜（12h 内）已确认 Other 键列表；可选传入 repos 时仅返回属本榜的键。
  */
 export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
   const now = Date.now();
   const fresh = new Set<string>();
-  const evicted: string[] = [];
   for (const [k, ts] of trendConfirmedOtherCache) {
     const elapsed = now - ts;
     if (elapsed < 0 || elapsed >= TREND_CONFIRMED_OTHER_TTL_MS) {
@@ -188,13 +143,9 @@ export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
     const cur = trendEnrichCache.get(k);
     if (cur && hasConcretePlatforms(cur.data.platforms)) {
       trendConfirmedOtherCache.delete(k);
-      evicted.push(k);
       continue;
     }
     fresh.add(k);
-  }
-  if (evicted.length > 0) {
-    emitTrendConfirmedOtherChanged('unmark', evicted);
   }
   const out = [...fresh];
   if (!repos || repos.length === 0) return out;
@@ -269,12 +220,9 @@ function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppS
   const timestamp = cur ? Math.max(cur.timestamp, entry.timestamp) : entry.timestamp;
   if (trendEnrichCache.has(k)) trendEnrichCache.delete(k);
   trendEnrichCache.set(k, { timestamp, data });
-  // 具平台到达即覆盖升级： concrete 入库同步移除已确认 Other 标记（loading 永不覆盖具平台的另一半）。
-  // 现状：驱逐删标记走与 mark/unmark 同一 emit，触发写透（调用方不另行写透，不双写）。
+  // 具平台到达即移除已确认 Other 标记。
   if (hasConcretePlatforms(data.platforms)) {
-    if (trendConfirmedOtherCache.delete(k)) {
-      emitTrendConfirmedOtherChanged('unmark', [k]);
-    }
+    trendConfirmedOtherCache.delete(k);
   }
   while (trendEnrichCache.size > TREND_ENRICH_CACHE_MAX_ENTRIES) {
     const oldest = trendEnrichCache.keys().next().value as string | undefined;
@@ -591,13 +539,6 @@ export async function enrichTrendRepos(
   opts?: { forceRefresh?: boolean },
 ): Promise<Map<string, AppSummary>> {
   return enrichTrendReposCore(repos, opts?.forceRefresh === true);
-}
-
-/**
- * 刷新链显式入口（无布尔 flag）：跳过 12h 内存命中整批直取并透传后端 `force_refresh`。
- */
-export async function enrichTrendReposFresh(repos: TrendRepo[]): Promise<Map<string, AppSummary>> {
-  return enrichTrendReposCore(repos, true);
 }
 
 /**

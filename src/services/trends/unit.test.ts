@@ -11,9 +11,6 @@ import {
   DOFORCE_CACHE_TTL_MS,
   DOFORCE_RETRY_DEFAULT_WAIT_MS,
   DOFORCE_RETRY_MAX_WAIT_MS,
-  DOFORCE_TIMEOUT_MS,
-  GITHUB_SEARCH_TIMEOUT_MS,
-  TRENDING_TIMEOUT_MS,
   buildTrendsCacheKey,
   clearTrendsCache,
   trendsBoardTtlMs,
@@ -26,13 +23,10 @@ import {
 import {
   classifyTrendsError,
   doforceRetryDelayMs,
-  filterNewReposFallback,
-  growthRatio,
   healthyScore,
   parseCompactNumber,
   parseRetryAfterMs,
   parseTrendingHtml,
-  rankByGrowthRatio,
   sortByHealthyScore,
 } from './parse';
 import {
@@ -49,12 +43,9 @@ function abortError(): Error {
   return err;
 }
 
-describe('trends 缓存与超时常量契约', () => {
-  it('CACHE_TTL_MS 保持 5 分钟，主源熔断均为 10s', () => {
+describe('trends 缓存常量契约', () => {
+  it('CACHE_TTL_MS 保持 5 分钟', () => {
     expect(CACHE_TTL_MS).toBe(5 * 60 * 1000);
-    expect(TRENDING_TIMEOUT_MS).toBe(10_000);
-    expect(DOFORCE_TIMEOUT_MS).toBe(10_000);
-    expect(GITHUB_SEARCH_TIMEOUT_MS).toBe(10_000);
   });
 
   it('按榜 TTL：日榜 1h，周/月/新榜 12h', () => {
@@ -134,22 +125,13 @@ describe('trends parse 纯函数契约', () => {
     expect(classifyTrendsError(new Error('boom'), 500)).toBe('unavailable');
   });
 
-  it('增速比与 rising / healthy / new 排序公式', () => {
-    const [atlas, dune, beacon, comet] = boardFixture();
-    expect(growthRatio(comet)).toBeCloseTo(380 / 20);
-    expect(growthRatio(beacon)).toBeCloseTo(1400 / 100);
-    expect(growthRatio(dune)).toBeCloseTo(2500 / 6500);
-    expect(growthRatio(atlas)).toBeCloseTo(120 / 11880);
+  it('healthy 排序公式', () => {
+    const [, dune] = boardFixture();
     expect(healthyScore(dune)).toBe(100 + 2500);
 
     const fixture = boardFixture();
-    const rising = repoIds(rankByGrowthRatio(fixture));
     const healthy = repoIds(sortByHealthyScore(fixture));
-    const fresh = repoIds(filterNewReposFallback(fixture));
-    expect(rising).toEqual(['acme/comet', 'acme/beacon', 'acme/dune', 'acme/atlas']);
     expect(healthy).toEqual(['acme/dune', 'acme/beacon', 'acme/atlas', 'acme/comet']);
-    expect(fresh).toEqual(['acme/beacon', 'acme/comet']);
-    expect(new Set([rising, healthy, fresh].map((o) => o.join(','))).size).toBe(3);
   });
 });
 

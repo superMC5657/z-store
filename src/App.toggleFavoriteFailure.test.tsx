@@ -1,5 +1,5 @@
 /**
- * 收藏切换失败路径测试（Issue 04）。
+ * 收藏切换失败路径测试。
  *
  * 锁定契约：`tauriApi.toggleFavorite` reject 时，
  * - 错误经 Toast 呈现（收藏切换失败），不产生 unhandled rejection；

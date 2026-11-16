@@ -205,18 +205,7 @@ export function mapGitHubSearchItem(item: Record<string, unknown>): TrendRepo | 
   };
 }
 
-/** 增速比 = starsGained / max(1, stars - starsGained)。 */
-export function growthRatio(repo: TrendRepo): number {
-  const gained = repo.starsGained ?? 0;
-  return gained / Math.max(1, repo.stars - gained);
-}
-
-/**
- * 排序沉底契约：starsGained 降序比较器（SSOT）。
- * - undefined 恒沉底（缺增量绝不冒充 0 参与排名）；
- * - 双 defined 按数值降序；
- * - tie 按 id 升序（确定性，与后端 ranker 同口径）。
- */
+/** 排序比较器：starsGained 降序（undefined 沉底，tie 按 id 升序，与后端同口径）。 */
 export function compareStarsGainedDesc(a: TrendRepo, b: TrendRepo): number {
   const ag = a.starsGained;
   const bg = b.starsGained;
@@ -229,15 +218,6 @@ export function compareStarsGainedDesc(a: TrendRepo, b: TrendRepo): number {
   if (bUndef) return -1;
   if (bg !== ag) return (bg as number) - (ag as number);
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-}
-
-/** 按增速比降序（纯函数，tie 按 id 升序）。 */
-export function rankByGrowthRatio(repos: TrendRepo[]): TrendRepo[] {
-  return [...repos].sort((a, b) => {
-    const diff = growthRatio(b) - growthRatio(a);
-    if (diff !== 0) return diff;
-    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  });
 }
 
 /**
@@ -255,22 +235,6 @@ export function sortByHealthyScore(repos: TrendRepo[]): TrendRepo[] {
     if (diff !== 0) return diff;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
-}
-
-/** new 榜客户端兜底阈值（显式调用，非隐式 fallback）。 */
-const NEW_FALLBACK_MAX_STARS = 2000;
-const NEW_FALLBACK_MAX_FORKS = 500;
-
-/**
- * new 榜客户端兜底视图（纯函数，显式调用，非隐式 fallback）：
- * `stars<2000 && forks<500` 启发式近似“新仓”，组内按 starsGained 降序
- *（undefined 恒沉底，tie 按 id 升序；缺失绝不回退总量）。
- * `fetchTrendsResult('new')` 远端失败时直接返回 error，不做隐式复用。
- */
-export function filterNewReposFallback(repos: TrendRepo[]): TrendRepo[] {
-  return repos
-    .filter((r) => r.stars < NEW_FALLBACK_MAX_STARS && (r.forks ?? 0) < NEW_FALLBACK_MAX_FORKS)
-    .sort(compareStarsGainedDesc);
 }
 
 /**

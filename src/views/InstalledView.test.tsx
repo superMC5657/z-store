@@ -1,5 +1,5 @@
 /**
- * InstalledView 重构交互与契约测试（Issue 04 & 05）。
+ * InstalledView 交互与契约测试。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -92,7 +92,7 @@ describe('InstalledView redesigned workbench', () => {
     expect(primaryButtons.length).toBe(1);
     expect(primaryButtons[0].textContent).toContain('检查更新');
 
-    // 顶栏最后一个按钮为「检查更新」；本地刷新并入检查更新，不再单列
+    // 顶栏最后一个按钮为「检查更新」；不单列「刷新」按钮
     const headerButtons = container.querySelectorAll('.manage-actions-cluster button');
     expect(headerButtons[headerButtons.length - 1].textContent).toContain('检查更新');
     expect(screen.queryByRole('button', { name: /^刷新$/ })).toBeNull();
@@ -200,7 +200,7 @@ describe('InstalledView redesigned workbench', () => {
     expect(screen.getByRole('button', { name: '更新' })).toBeTruthy();
     expect(screen.getAllByRole('button', { name: '启动' }).length).toBe(2);
 
-    // 「全部更新」在顶栏末尾并占主色，检查更新降为次级；不再有更新横幅
+    // 「全部更新」在顶栏末尾并占主色，检查更新为次级，不渲染顶部更新横幅
     const primaryButtons = container.querySelectorAll('button.btn-primary');
     expect(primaryButtons.length).toBe(1);
     expect(primaryButtons[0].textContent).toBe('全部更新');
@@ -279,7 +279,7 @@ describe('InstalledView redesigned workbench', () => {
     expect(container.querySelector('.manage-path-head')?.textContent).toBe('C:\\Program Files\\Neovim\\bin\\');
     expect(container.querySelector('.manage-path-tail')?.textContent).toBe('nvim.exe');
 
-    // 行内不再常驻「卸载」，入口在更多菜单
+    // 行内不展示「卸载」，入口在更多菜单
     expect(screen.queryByRole('button', { name: '卸载' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
     fireEvent.click(screen.getByText('卸载'));

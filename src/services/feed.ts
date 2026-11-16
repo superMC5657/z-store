@@ -1,12 +1,9 @@
 import type { AppSummary } from '../types';
 
 /**
- * 精选页主流 feed 纯函数模块（后端 `get_home_feed` 不可用时的前端回退排序）。
- *
- * 约定：
- * - `rankFeed` 只对调用方传入的数组排序（精选页传入已滤掉 hero 与货架的剩余应用），不在内部挑 hero；
- * - 算法可插拔：`feedScorers` 按策略导出打分器，`rankFeed` 支持第 4 个可选
- *   `scorer` 参数覆盖内置策略。
+ * Feed 排序与画像变更订阅模块：
+ * - `rankFeed` / `hashSeeded01` / `starsForksBase` 提供与后端 `catalog_feed_score` 同量级的确定性打分排序（供 Demo mock 复用）；
+ * - `subscribeAffinityUpdated` 订阅后端 `zstore://affinity-updated` 与本地 `zstore:affinity-updated` 事件。
  */
 
 export type FeedStrategy = 'balanced' | 'stars' | 'fresh';
@@ -168,11 +165,4 @@ export function rankFeed(
       return a.app.id < b.app.id ? -1 : a.app.id > b.app.id ? 1 : 0;
     })
     .map((x) => x.app);
-}
-
-/** 本地分页切片：与后端 `get_home_feed(limit, offset)` 语义对齐（offset 起 limit 个）。 */
-export function sliceFeed<T>(ranked: T[], offset: number, limit: number): T[] {
-  const start = Math.max(0, Math.floor(offset) || 0);
-  const len = Math.max(0, Math.floor(limit) || 0);
-  return ranked.slice(start, start + len);
 }

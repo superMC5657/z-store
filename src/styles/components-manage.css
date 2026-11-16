@@ -658,14 +658,6 @@
   cursor: not-allowed;
 }
 
-.manage-chevron-rotate {
-  transition: transform 0.16s var(--ease-smooth);
-}
-
-.manage-chevron-rotate.is-expanded {
-  transform: rotate(180deg);
-}
-
 /* ==========================================================================
    6. 更新日志抽屉 & 流式检测进度条
    ========================================================================== */
@@ -883,7 +875,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .manage-chevron-rotate,
   .manage-progress-fill {
     transition: none;
   }

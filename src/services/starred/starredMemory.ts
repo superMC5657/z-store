@@ -12,7 +12,7 @@ import {
 /** 分页缓存命名空间。 */
 export const STARRED_CACHE_NAMESPACE = 'starred';
 /** 查自己（含私有 Star）的查询键前缀，后接小写登录名。 */
-export const PRIVATE_QUERY_PREFIX = '@me:';
+const PRIVATE_QUERY_PREFIX = '@me:';
 
 /** 一次查询：`username` 缺省即查登录账号（`/user/starred`，含私有 Star）；`input` 为当时输入框原文。 */
 export interface StarredTarget {

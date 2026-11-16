@@ -19,7 +19,7 @@ export function categoryName(t: TFunction, category: string): string {
   return getCategoryLabel(category, category, t);
 }
 
-export function formatReason(
+function formatReason(
   t: TFunction,
   reason: FeaturedReason,
   appById: ReadonlyMap<string, AppSummary>,

@@ -37,7 +37,6 @@ import {
 import { handlePluginCommand } from './handlers/plugins';
 import {
   handleClearSearchHistory,
-  handleClearViewHistory,
   handleEnrichTrendRepos,
   handleGetAppDetails,
   handleGetCachedAppDetailsBatch,
@@ -69,7 +68,6 @@ import {
   handleClearFeedFeedback,
   handleDismissFeatured,
   handleGetFeaturedPage,
-  handleGetInterestSeeds,
   handleSaveInterestSeeds,
 } from './handlers/featured';
 import {
@@ -282,8 +280,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetFeaturedPage(a);
     case 'save_interest_seeds':
       return handleSaveInterestSeeds(a);
-    case 'get_interest_seeds':
-      return handleGetInterestSeeds();
     case 'dismiss_featured':
       return handleDismissFeatured(a);
     case 'clear_feed_feedback':
@@ -308,8 +304,6 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleRecordAppView(a);
     case 'get_recently_viewed_apps':
       return handleGetRecentlyViewedApps();
-    case 'clear_view_history':
-      return handleClearViewHistory();
     case 'sync_catalog':
       return handleSyncCatalog();
     case 'get_or_fetch_icon':

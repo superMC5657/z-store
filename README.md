@@ -37,8 +37,8 @@
 - **离线秒开与种子兜底**：客户端启动优先读取本地 `catalog.json` 种子清单，保证零网络延迟立即可用。
 - **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，同步源可自定义（填写非官方源属破坏性替换）。清单同步为直连通道，不套加速前缀；加速前缀只改写安装包下载 URL。
 - **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览。资产面（我的应用、收藏）只在显式手动刷新时做 ETag 轻量探查并写 `update_results`，其余时间读本地快照；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用。
-- **发现流分页与搜索翻页**：发现 Feed 首屏 20、触底续 20 无限滑（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=20`、钳制 1–50，满页即 `hasMore` 续拉下一页。
-- **首页排序锁定**：首页固定 `balanced + seed 7`，无排序切换工具条。
+- **精选推荐货架**：精选页由后端按本地亲和度画像状态（`off` / `cold` / `warm` / `rich`）组装推荐货架，附带可解释推荐理由，并按本地日期种子每日轮换（详见 [ADR-0023](docs/adr/0023-featured-page-explainable-local-recommendation.md) 与 [ADR-0024](docs/adr/0024-affinity-scoring-v2-and-shelf-sampling.md)）。
+- **分类与搜索翻页**：分类页与最新入库页首屏 20 条、触底续拉 20 条（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=20`、钳制 1–50，满页即可加载下一页。
 - **最新入库时效视图**：以清单 `added_at` 收录时间为轴的「最新入库」独立视图，支持最近一周/一月/一季度时效过滤并由近及远倒排展示（详见 [ADR-0021](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)）。
 
 ### 2. 🦊 多托管平台与多设备平台双维筛选
@@ -52,7 +52,7 @@
 
 ### 4. 📝 待收录草稿与本地自维护库 (Pending & Self-maintained Catalog)
 - **本地草稿收录**：远端清单未收录的开源应用可在应用内创建草稿，本地先生效进入「待收录」视图，与远端目录全局合并展示（`showCustom` 开关，详见 [ADR-0017](docs/adr/0017-custom-apps-overlay.md)）。
-- **本地库与归档分段**：草稿按「草稿 / 本地收录 / 已归档」分段管理，本地收录行与远端同权重可搜可装。
+- **四段流转管理**：草稿按「草稿 / 待提交 / 已提交 / 已归档」四个平级 Tab 管理，本地收录与已提交行与远端同权重可搜可装。
 - **预填 Issue 链路**：草稿一键生成清单仓库的单条 Issue 预填 URL（标题带 canonical id、正文含关键字段与完整 JSON），与协议门禁（`license_gate`）协同校验，浏览器确认后提交、由维护者转为 PR 收录。
 - **转正闭环**：清单同步成功后按远端 id 集合自动退役命中草稿并提示转正，本地草稿与远端收录无缝衔接。
 
@@ -82,8 +82,8 @@
 - **下载加速代理**：针对 Release 二进制大文件下载拼接加速前缀（默认 `https://gh-proxy.com`），支持在设置中心配置与单键测速。
 - **系统代理与 TUN 截获**：客户端发出的 HTTP 请求天然受系统代理及本地代理工具（如 Clash / v2ray / TUN 模式）透明捕获，无需在应用内繁琐配置本地代理 IP/端口；Windows 启动时自探测注册表系统代理无缝衔接。
 
-### 10. ⚙️ 设置中心 5 组架构
-- 设置中心规范分为 5 个业务分组：`外观与个性化`、`更新与规则`、`存储与安装`、`网络与数据`（GitHub 账号卡片位于该组，锚点 `#settings-account`）、`数据管理与备份`。
+### 10. ⚙️ 设置中心 6 组架构
+- 设置中心规范分为 6 个业务分组：`外观`、`更新与规则`、`存储与安装`、`网络`（GitHub 账号卡片位于该组，锚点 `#settings-account`）、`用户画像`（本地隐私数据看板位于该组，锚点 `#settings-affinity`）、`数据与备份`。
 - 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
 - **数据备份范围**：备份覆盖 13 个设置项（`components/DataBackupRow.tsx::buildBackupSettings` 的 12 个显式字段 + `showCustom` 自维护 overlay 开关；导入侧白名单 `userdata/mod.rs::IMPORT_SETTINGS_ALLOWLIST` 同时支持 `show_custom` 与 `showCustom` 两种键名），`github_token` 凭据键刻意排除，永不经备份文件流转。
 - **更新频率选项**：设置页提供“启动时检测”与“仅手动检查”；「我的应用」属资产面（`MANUAL_ONLY_NETWORK`），启动时不自动触网，实际生效路径为手动检查。
@@ -161,6 +161,11 @@ pnpm tauri build
 - [ADR-0020: 令牌本地明文存储的风险接受](docs/adr/0020-token-plaintext-risk-acceptance.md)
 - [ADR-0021: 最新入库独立视图与收录时间倒排](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)
 - [ADR-0022: 「我的应用」合并已安装与更新视图](docs/adr/0022-my-apps-merges-installed-and-updates.md)
+- [ADR-0023: 精选页改为可解释的本地推荐货架](docs/adr/0023-featured-page-explainable-local-recommendation.md)
+- [ADR-0024: 亲和度画像 v2 与货架采样](docs/adr/0024-affinity-scoring-v2-and-shelf-sampling.md)
+- [ADR-0025: 运行期动态系统代理与通用资产缓存收口](docs/adr/0025-dynamic-system-proxy-and-asset-cache-convergence.md)
+- [ADR-0026: 搜索 / Star 列表缓存与富卡链路收敛](docs/adr/0026-search-starred-cache-and-enrich-convergence.md)
+- [ADR-0027: 单仓富卡独立缓存与瘦 id 列表索引](docs/adr/0027-isolated-repo-card-cache-and-slim-id-list-indexes.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---

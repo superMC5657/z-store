@@ -298,11 +298,6 @@
   font-weight: 510;
 }
 
-.app-tag-license {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: var(--font-xs);
-}
-
 .app-tag-locked {
   background: var(--brand-subtle);
   color: var(--brand-primary);

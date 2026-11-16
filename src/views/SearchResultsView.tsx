@@ -18,7 +18,7 @@ import {
 import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
 
 /** 本地段每次展开的条数（与在线翻页 `per_page` 一致）。 */
-export const SEARCH_LOCAL_PAGE = 20;
+const SEARCH_LOCAL_PAGE = 20;
 
 interface SearchResultsViewProps extends ViewAppActions {
   /** 本地段结果（App 已做平台过滤，保序）。 */

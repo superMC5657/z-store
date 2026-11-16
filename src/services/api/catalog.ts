@@ -102,11 +102,6 @@ export async function saveInterestSeeds(categories: readonly string[]): Promise<
   await tauriInvoke<void>(CMD.saveInterestSeeds, { categories: [...categories] });
 }
 
-export async function getInterestSeeds(): Promise<string[]> {
-  const raw = await tauriInvoke<string[] | null>(CMD.getInterestSeeds);
-  return Array.isArray(raw) ? raw : [];
-}
-
 /** `scope === 'category'` 时可带上发起操作的卡片 `appId`，后端连带屏蔽该卡片。 */
 export async function dismissFeatured(target: string, scope: FeedbackScope, appId?: string): Promise<void> {
   await tauriInvoke<void>(CMD.dismissFeatured, appId ? { target, scope, appId } : { target, scope });
@@ -423,10 +418,6 @@ export async function recordAppView(appId: string): Promise<void> {
 
 export async function getRecentlyViewedApps(): Promise<AppSummary[]> {
   return tauriInvoke<AppSummary[]>(CMD.getRecentlyViewedApps);
-}
-
-export async function clearViewHistory(): Promise<void> {
-  return tauriInvoke<void>(CMD.clearViewHistory);
 }
 
 export async function syncCatalog(force?: boolean): Promise<SyncCatalogResult> {

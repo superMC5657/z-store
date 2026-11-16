@@ -13,7 +13,6 @@ import { PLATFORM_IDS } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import {
   buildRecordCatalogedMap,
-  favoriteSummaryFromCached,
   favoriteSummaryFromDetail,
   isFavoritePlaceholderRow,
   makeFavoritePlaceholderSummary,
@@ -225,7 +224,7 @@ describe('uncataloged join keeps rows and full-set counts', () => {
   });
 });
 
-describe('favoriteSummaryFromCached (batch cache join marking)', () => {
+describe('markFavoriteRowByRecord (batch cache join marking)', () => {
   it('Some 命中保留富卡字段并补 is_cataloged=false', () => {
     const hit = {
       id: 'o/rich',
@@ -235,7 +234,7 @@ describe('favoriteSummaryFromCached (batch cache join marking)', () => {
       category: 'dev',
       category_name: '开发工具',
     } as AppSummary;
-    const row = favoriteSummaryFromCached(hit);
+    const row = markFavoriteRowByRecord(hit, false);
     expect(row.name).toBe('Rich');
     expect(row.description).toBe('rich desc');
     expect(row.stars).toBe(42);
@@ -244,7 +243,7 @@ describe('favoriteSummaryFromCached (batch cache join marking)', () => {
   });
 
   it('空分类兜底 external，实分类保留（与 favoriteSummaryFromDetail 同口径）', () => {
-    const fallback = favoriteSummaryFromCached({ id: 'o/x', category: '', category_name: '' } as AppSummary);
+    const fallback = markFavoriteRowByRecord({ id: 'o/x', category: '', category_name: '' } as AppSummary, false);
     expect(fallback.category).toBe('external');
     expect(fallback.is_cataloged).toBe(false);
     const kept = markFavoriteUncatalogedRow({ id: 'o/y', category: 'system', category_name: '系统' } as AppSummary);
@@ -259,7 +258,7 @@ describe('favoriteSummaryFromCached (batch cache join marking)', () => {
       category: 'dev',
       category_name: '开发工具',
     } as AppSummary;
-    const row = favoriteSummaryFromCached(hit, true);
+    const row = markFavoriteRowByRecord(hit, true);
     expect(row.category).toBe('dev');
     expect(row.is_cataloged).toBe(true);
     expect(markFavoriteRowByRecord(hit, false).is_cataloged).toBe(false);

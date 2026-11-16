@@ -166,7 +166,6 @@
     "import_failed": "导入失败: {{error}}"
   },
   "zlog": {
-    "title": "诊断日志",
     "export": "导出日志",
     "exporting": "正在导出...",
     "open_folder": "打开目录",
@@ -468,7 +467,6 @@
     "unmanage": "取消管理",
     "unmanage_tooltip": "取消管理（保留本地数据）",
     "installed_date": "安装于 {{date}}",
-    "path_prefix": "路径: {{path}}",
     "copy": "复制",
     "copied": "✓ 已复制",
     "title_label": "我的应用",
@@ -526,11 +524,7 @@
     "hero_title": "今日为你",
     "hero_title_editorial": "今日精选",
     "ready_open": "打开",
-    "all": "全部精选",
-    "all_for_you": "全部精选 · 按你的偏好排序",
     "feed_loading": "正在加载…",
-    "feed_load_more": "加载更多",
-    "feed_end": "到底了 · 共 {{count}} 个",
     "recent": "继续查看",
     "clear_recent": "清空浏览记录",
     "status": {

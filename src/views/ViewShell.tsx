@@ -12,7 +12,7 @@ import type { AppSummary } from '../types';
  * - `.filter-empty-reset` 空状态按钮
  *
  * 约束：后端字段不动，只涉及前端展示层。`viewClass` 保持各 View
- * 原有的 CSS 类名不变，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
+ * 的根 CSS 类名，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
  */
 
 /** 各内容 View 共用的应用网格 Props（Home / Categories / Favorites / Trends 对齐）。 */
@@ -52,7 +52,7 @@ export function resolvePlatformReset(onReset?: () => void): () => void {
 }
 
 interface ViewShellProps {
-  /** 各 View 原有的根类名（如 `home-view`），`view-entrance` 由壳统一追加。 */
+  /** 各 View 的根类名（如 `home-view`），`view-entrance` 由壳统一追加。 */
   viewClass: string;
   children: React.ReactNode;
 }

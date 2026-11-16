@@ -45,7 +45,7 @@ import {
 import {
   clearPrivateSearchListCacheEntries,
   clearSearchListCache,
-  readSearchListCache,
+  readSearchListCacheEntry,
 } from '../../services/search/searchListCache';
 import { clearTrendEnrichCache } from '../../services/trends/enrich';
 import { isSharedRepoConfirmedOther, recordSharedRepoPlatforms } from '../../services/repoEnrichCache';
@@ -364,7 +364,7 @@ describe('useSearchState：用户选择在线搜索', () => {
     expect(deps.lazyBackfillPlatforms).toHaveBeenCalled();
     expect(deps.showToast).toHaveBeenCalledWith(expect.any(String), 'success');
     // 搜索列表缓存写入（薄：只存行）。
-    expect(readSearchListCache({ query: 'netword', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })?.length).toBe(
+    expect(readSearchListCacheEntry({ query: 'netword', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })?.rows.length).toBe(
       ONLINE_SEARCH_PER_PAGE,
     );
   });
@@ -383,7 +383,7 @@ describe('useSearchState：用户选择在线搜索', () => {
     });
 
     expect(rendered.result.current.onlineApps?.map((a) => a.id)).toEqual(['online/stale-app']);
-    expect(readSearchListCache({ query: 'staleword', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })).toBeUndefined();
+    expect(readSearchListCacheEntry({ query: 'staleword', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })).toBeUndefined();
   });
 
   it('在线空结果：保持本地列表 + info 提示', async () => {
@@ -654,9 +654,9 @@ describe('useSearchState：L2 search_list_cache 冷启动水合与写盘', () =>
       await rendered.result.current.handleSearchSubmit('alpha');
     });
     const key = { query: 'alpha', page: 1, perPage: ONLINE_SEARCH_PER_PAGE };
-    expect(readSearchListCache(key)?.map((a) => a.id)).toEqual(ids);
+    expect(readSearchListCacheEntry(key)?.rows.map((a) => a.id)).toEqual(ids);
     clearPrivateSearchListCacheEntries();
-    expect(readSearchListCache(key)).toBeUndefined();
+    expect(readSearchListCacheEntry(key)).toBeUndefined();
   });
 
   it('L2 超 5min：先展示快照，再后台 searchAppsOnline(forceRefresh=false) 静默重验', async () => {
@@ -706,7 +706,7 @@ describe('useSearchState：L2 search_list_cache 冷启动水合与写盘', () =>
     expect(normQuery).toBe('private');
     expect(JSON.parse(payload)).toEqual({ v: 2, ids: rows.map((r) => r.id), hasMore: true });
     expect(hasPrivate).toBe(true);
-    expect(readSearchListCache({ query: 'private', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })).toHaveLength(
+    expect(readSearchListCacheEntry({ query: 'private', page: 1, perPage: ONLINE_SEARCH_PER_PAGE })?.rows).toHaveLength(
       ONLINE_SEARCH_PER_PAGE,
     );
     expect(isSharedRepoConfirmedOther('acme/r1')).toBe(true);

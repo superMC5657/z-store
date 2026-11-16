@@ -225,19 +225,8 @@ impl WideEvent {
         }
     }
 
-    pub fn timed(tag: &'static str, action: impl Into<String>) -> Self {
-        let mut ev = Self::new(tag, action);
-        ev.started = Some(std::time::Instant::now());
-        ev
-    }
-
     pub fn with_started(mut self, started: std::time::Instant) -> Self {
         self.started = Some(started);
-        self
-    }
-
-    pub fn set_action(&mut self, action: impl Into<String>) -> &mut Self {
-        self.action = action.into();
         self
     }
 

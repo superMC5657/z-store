@@ -1,10 +1,7 @@
 /**
  * 已确认 Other 回归 + loading 永不持久化：
- * loading 空平台永不持久化（不进 trendEnrichCache 内存，不落库），只活当次 out 渲染；
- * 只有具平台才进缓存（12h/500 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
- * - fresh 不自动确认，需 lite/详情确认标记才为 Other；
- * - concrete 到场驱逐确认；stale 到期重验；
- * - 无内存条目时 L2 确认标记仍有效（L2 confirmedOther 输入）。
+ * loading 空平台不进已落定快照，只活当次 out 渲染；
+ * 只有具平台或已确认 Other 才进落定快照（12h / 600 FIFO）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -18,8 +15,6 @@ import {
   markTrendConfirmedOthers,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
-  subscribeTrendConfirmedOtherChanges,
-  unmarkTrendConfirmedOther,
   upsertTrendEnrichFromDetail,
 } from './enrich';
 import { tauriApi } from '../api';
@@ -234,38 +229,6 @@ describe('已确认 loading 进内存（Other 写透联动）', () => {
     const healed = await enrichTrendRepos([makeTrendRepo({ id: 'acme/atlas' })]);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(healed.get('acme/atlas')?.platforms).toEqual(['windows']);
-  });
-});
-
-describe('已确认变更订阅（写透联动钩子）', () => {
-  it('mark/unmark 触发订阅，hydrate/sweep 不触发', () => {
-    const events: Array<{ kind: string; keys: readonly string[] }> = [];
-    const unsubscribe = subscribeTrendConfirmedOtherChanges((kind, keys) => {
-      events.push({ kind, keys });
-    });
-    try {
-      markTrendConfirmedOther('acme/atlas');
-      expect(events).toHaveLength(1);
-      expect(events[0]?.kind).toBe('mark');
-      expect(events[0]?.keys).toEqual(['acme/atlas']);
-      // 读路径 hydrate 不触发
-      putTrendEnrichMemory({
-        'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
-      });
-      markConfirmedOthersFreshNow(['acme/beacon']);
-      expect(events).toHaveLength(1);
-      unmarkTrendConfirmedOther('acme/atlas');
-      expect(events).toHaveLength(2);
-      expect(events[1]?.kind).toBe('unmark');
-      // 空键/重复 unmark 不触发
-      unmarkTrendConfirmedOther('acme/atlas');
-      unmarkTrendConfirmedOther('  ');
-      expect(events).toHaveLength(2);
-    } finally {
-      unsubscribe();
-    }
-    markTrendConfirmedOther('acme/atlas');
-    expect(events).toHaveLength(2);
   });
 });
 

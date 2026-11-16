@@ -14,7 +14,7 @@ import { tauriApi } from '../../services/api';
 import {
   clearSearchListCache,
   patchSearchListCacheRows,
-  readSearchListCache,
+  readSearchListCacheEntry,
 } from '../../services/search/searchListCache';
 import { __resetIconStoreForTests, admitIconHit } from '../../services/iconStore';
 import { clearTrendEnrichCache } from '../../services/trends/enrich';
@@ -249,7 +249,7 @@ describe('StarredFeed', () => {
     await waitFor(() => {
       expect(screen.getByTitle('获取 DesktopApp')).toBeTruthy();
     });
-    expect(readSearchListCache({ namespace: 'starred', query: 'octocat', page: 1, perPage: STARRED_PER_PAGE })?.[0].platforms).toEqual([
+    expect(readSearchListCacheEntry({ namespace: 'starred', query: 'octocat', page: 1, perPage: STARRED_PER_PAGE })?.rows[0].platforms).toEqual([
       'windows',
       'linux',
     ]);
@@ -544,7 +544,7 @@ describe('StarredFeed', () => {
       await screen.findByText('new-2');
       expect(screen.queryByText('old-0')).toBeNull();
       expect(
-        readSearchListCache({ namespace: 'starred', query: 'octocat', page: 1, perPage: STARRED_PER_PAGE })?.map(
+        readSearchListCacheEntry({ namespace: 'starred', query: 'octocat', page: 1, perPage: STARRED_PER_PAGE })?.rows.map(
           (r) => r.id,
         ),
       ).toEqual(['new/app-0', 'new/app-1', 'new/app-2']);
@@ -602,7 +602,7 @@ describe('StarredFeed', () => {
       await queryAs('');
       await screen.findByText('mine-0');
       expect(
-        readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
+        readSearchListCacheEntry({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
       ).toBeDefined();
 
       expect(peekFreshRepoCard('mine/app-0')).toBeDefined();
@@ -610,7 +610,7 @@ describe('StarredFeed', () => {
       view.rerender(<StarredFeed {...baseProps} oauthUser={null} />);
       expect(screen.queryByText('mine-0')).toBeNull();
       expect(
-        readSearchListCache({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
+        readSearchListCacheEntry({ namespace: 'starred', query: '@me:alice', page: 1, perPage: STARRED_PER_PAGE }),
       ).toBeUndefined();
       expect(peekFreshRepoCard('mine/app-0')).toBeUndefined();
     });

@@ -1,5 +1,5 @@
 /**
- * 顶层 ErrorBoundary 测试（Issue 06）。
+ * 顶层 ErrorBoundary 测试。
  *
  * 锁定契约：
  * - 正常子树原样渲染；

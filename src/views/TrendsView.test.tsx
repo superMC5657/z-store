@@ -1217,7 +1217,7 @@ describe('图标唯一通道：icon-ready → admitIconHit（无窗口总线）'
       expect(card.querySelector('img.app-icon-image')).toBeTruthy();
     });
 
-    // 旧总线事件已无订阅：dispatch 后行内图标保持不动（不跟随、不裂图）
+    // 未订阅 `zstore:icon-changed` 窗口事件：dispatch 后行内图标保持不动（不跟随、不裂图）
     window.dispatchEvent(
       new CustomEvent('zstore:icon-changed', { detail: { appId: 'acme/atlas', icon: '' } }),
     );

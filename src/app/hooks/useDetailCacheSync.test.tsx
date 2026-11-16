@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import {
   clearSearchListCache,
-  readSearchListCache,
+  readSearchListCacheEntry,
   writeSearchListCache,
 } from '../../services/search/searchListCache';
 import {
@@ -580,7 +580,7 @@ describe('useDetailCacheSync：图标三态', () => {
       );
     });
 
-    const searchRows = readSearchListCache({ query: 'atlas', page: 1, perPage: 20 });
+    const searchRows = readSearchListCacheEntry({ query: 'atlas', page: 1, perPage: 20 })?.rows;
     expect(searchRows?.[0]?.stars).toBe(888);
     expect(searchRows?.[0]?.latest_version).toBe('v3.2.1');
     expect(searchRows?.[0]?.description).toBe('updated detail desc');

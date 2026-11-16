@@ -23,15 +23,14 @@
  * L5 显式徽章（用户切空，`icon:'' + level:5`）为唯一允许的空覆盖：经 `admitIconHit`
  * 清记忆 + `patch('')` + 读侧扇出；被动空壳（无 level 5）仍直接丢弃。
  * 读侧扇出（`subscribeIconWrites`）：`admitIconHit` 受理后通知订阅者（App 四列表/趋势镜像），
- * 写口仍唯一，不复活窗口总线。`clearBufferedIcon` 亦经同一扇出（直接清零亦通知，防富卡 stale；
- * `applyBadgeHit` 内走批量单事件，直接调用走单键事件）。
+ * 写口仍唯一，不复活窗口总线。
  */
 import type { AppSummary } from '../types';
 import { normalizeId, normalizeIdSet } from './normalizeId';
 import { getOrFetchIcon } from './api/catalog';
 
 /** 空图标判定 SSOT（读透适配统一用此件，不各自 `trim()===''` 散写）。 */
-export function isEmptyIcon(icon: unknown): boolean {
+function isEmptyIcon(icon: unknown): boolean {
   return typeof icon !== 'string' || icon.trim() === '';
 }
 
@@ -238,7 +237,7 @@ function normalizeIconKey(key: unknown): string {
  * 旧图标非空 + 回填图标空 → 沿用旧图标；其余一律采用回填值。
  * 空值经 `isEmptyIcon` SSOT，不自立 `trim()===''` 规则。
  */
-export function preferNonEmptyIcon(
+function preferNonEmptyIcon(
   cur: AppSummary | undefined,
   incoming: AppSummary,
 ): AppSummary {
@@ -324,11 +323,9 @@ const iconPendingPromises = new Map<string, Promise<string>>();
 /**
  * 店内内存有界口径：`iconLevelById`/`iconById`/`iconDataCache` 与
  * 预热态 `iconPreloadQueue`/`iconPendingAliases`/`iconPendingPromises`/
- * `iconPreloadBackoffUntil` 一律钳在 200 条。数值与榜缓存 `TRENDS_CACHE_MAX_ENTRIES`
- * 同口径——榜缓存 200 计榜单粒度、图标面 200 计应用粒度，同一长会话跨榜浏览的应用量级相当。
+ * `iconPreloadBackoffUntil` 一律钳在 600 条（与共享富卡池 `TREND_ENRICH_CACHE_MAX_ENTRIES` 同量级）。
  * `iconDataCache` 淘汰的已落盘条目按 M2 语义经 `get_or_fetch_icon` 重读自愈
- * （落盘命中不走网络），与榜缓存 L1 淘汰回落 L2 落盘同型。写时 FIFO 删最旧
- * （`writeTrendsCache` 同型；图标无刷新写序需求，已存在覆盖写不重排）。
+ * （落盘命中不走网络），写时 FIFO 删最旧（已存在覆盖写不重排）。
  * 预热三态另在完成时即时删除（成功/失败都清 pending 与别名），上限只兜极端突发。
  */
 export const ICON_STORE_MAX_ENTRIES = 600;
@@ -1125,21 +1122,4 @@ function deleteBufferedIcon(key: string): void {
   if (!k) return;
   iconById.delete(k);
   iconLevelById.delete(k);
-}
-
-/** L5 显式清零：用户手动切到空徽章时清掉该键缓冲（含 level 记忆），
- * 否则后续 `assemble/sticky` 经缓冲回读会复活旧图。常规 L5 一律走
- * `admitIconHit({ icon:'', level:5 })`（批量扇出）；直接调此亦经同一读侧扇出
- * （单键 `''/5` 事件：清零必须通知列表/镜像，防富卡 stale）。
- * 订阅回调只做读侧合并，不得再调写口（防递归）。 */
-export function clearBufferedIcon(key: string): void {
-  const k = normalizeId(key);
-  if (!k) return;
-  deleteBufferedIcon(k);
-  try {
-    invalidateIconCache(k);
-  } catch {
-    // 失效失败不阻塞扇出
-  }
-  notifyIconWrites([k], '', 5);
 }

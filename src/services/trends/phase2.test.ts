@@ -35,7 +35,7 @@ function bigRepo(id: string, padLen: number): TrendRepo {
   return r;
 }
 
-describe('Phase2治理：内存有界 FIFO', () => {
+describe('内存有界 FIFO', () => {
   beforeEach(() => {
     clearTrendsCache();
     clearTrendEnrichCache();
@@ -82,7 +82,7 @@ describe('Phase2治理：内存有界 FIFO', () => {
   });
 });
 
-describe('Phase2治理：时钟钳制 + L2 抖动', () => {
+describe('时钟钳制 + L2 抖动', () => {
   beforeEach(() => {
     clearTrendsCache();
     vi.restoreAllMocks();
@@ -126,7 +126,7 @@ describe('Phase2治理：时钟钳制 + L2 抖动', () => {
   });
 });
 
-describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
+describe('字节上限 + dataURI 永不进 payload', () => {
   beforeEach(() => {
     clearTrendsCache();
     vi.restoreAllMocks();
@@ -176,7 +176,7 @@ describe('Phase2治理：字节上限 + dataURI 永不进 payload', () => {
   });
 });
 
-describe('Phase2治理：单批量 40 上限', () => {
+describe('单批量 40 上限', () => {
   beforeEach(() => {
     clearTrendsCache();
     clearTrendEnrichCache();
@@ -222,7 +222,7 @@ describe('Phase2治理：单批量 40 上限', () => {
   });
 });
 
-describe('Phase2治理：429 retry_after_ms 透传', () => {
+describe('429 retry_after_ms 透传', () => {
   it('retry_after_ms 毫秒直值优先兑现', () => {
     expect(doforceRetryDelayMs(new Error('trends: upstream status 429 retry_after_ms=3000'))).toBe(3000);
     expect(doforceRetryDelayMs(new Error('trends: upstream status 429 retry-after-ms: 2500'))).toBe(2500);
@@ -237,7 +237,7 @@ describe('Phase2治理：429 retry_after_ms 透传', () => {
   });
 });
 
-describe('Phase2治理：hashSeeded01 canonical 数值锁定', () => {
+describe('hashSeeded01 canonical 数值锁定', () => {
   it('hashSeeded01 含大小写归一', () => {
     expect(hashSeeded01('a/b', 0)).toBe(hashSeeded01('A/B', 0));
     expect(hashSeeded01('acme/atlas', 0)).toBe(0.19098578839770444);

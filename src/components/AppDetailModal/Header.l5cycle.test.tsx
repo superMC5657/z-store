@@ -36,7 +36,6 @@ const hooks = vi.hoisted(() => ({
   })),
   fetchStarredStatus: vi.fn(async (_id: string) => false),
   admitIconHit: vi.fn(),
-  clearBufferedIcon: vi.fn(),
 }));
 
 vi.mock('../../services/api', () => {
@@ -62,7 +61,6 @@ vi.mock('../../services/iconStore', async (importOriginal) => {
   return {
     ...mod,
     admitIconHit: (...a: Parameters<typeof mod.admitIconHit>) => hooks.admitIconHit(...a),
-    clearBufferedIcon: (...a: Parameters<typeof mod.clearBufferedIcon>) => hooks.clearBufferedIcon(...a),
   };
 });
 

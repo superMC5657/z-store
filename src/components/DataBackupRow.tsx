@@ -17,7 +17,7 @@ import { useTransientFeedback } from './useTransientFeedback';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-export function formatLocalStamp(date: Date = new Date()): string {
+function formatLocalStamp(date: Date = new Date()): string {
   return (
     `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}` +
     `-${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`
@@ -176,7 +176,7 @@ export async function exportUserDataBackup(t: TFunction): Promise<string | null>
   return t('backup.export_success', { fav: favorites.length, watch: watched.length, path });
 }
 
-export async function importUserDataBackup(file: File, t: TFunction): Promise<string> {
+async function importUserDataBackup(file: File, t: TFunction): Promise<string> {
   const text = await file.text();
   const counts = await tauriApi.importUserData(text);
   // 备份含草稿恢复：custom_apps 经 saveCustomApp 逐条 upsert（best-effort，不阻塞主导入）。
@@ -213,7 +213,7 @@ export async function exportDiagnosticLogs(t: TFunction): Promise<string | null>
   return t('zlog.export_success', { path });
 }
 
-export async function openDiagnosticLogFolder(): Promise<void> {
+async function openDiagnosticLogFolder(): Promise<void> {
   const dir = await tauriApi.getLogDir();
   await tauriApi.openFolder(dir);
 }

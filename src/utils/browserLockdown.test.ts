@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  getNativeWindowOpen,
   isBlockedShortcut,
   initBrowserLockdown,
   resolveFallbackOpener,
@@ -170,8 +169,6 @@ describe('browserLockdown', () => {
       initBrowserLockdown((url) => tauriApi.openUrl(url));
       // 劫持版同步返回 null
       expect(window.open('https://example.com/hijacked')).toBeNull();
-      const native = getNativeWindowOpen();
-      expect(typeof native).toBe('function');
       const fallback = resolveFallbackOpener();
       expect(typeof fallback).toBe('function');
       // 兜底返回的是原生而非劫持版

@@ -127,10 +127,6 @@ export function setRecentViewTime(id: string, ts: number): void {
   recentViewTimes = { ...recentViewTimes, [id.toLowerCase()]: ts };
 }
 
-export function clearRecentViewTimes(): void {
-  recentViewTimes = {};
-}
-
 export function getInstalledApps(): InstalledApp[] {
   return installedApps;
 }

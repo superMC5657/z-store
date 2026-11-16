@@ -1,5 +1,5 @@
 /**
- * 桌面原生化锁闭（第二轮去浏览器化）：
+ * 桌面原生化锁闭：
  * 关闭右键、缩放、查找、浏览器历史导航、另存为、打印、源码、调试器等浏览器默认行为。
  *
  * 拦截范围：
@@ -24,19 +24,6 @@
 
 let isInitialized = false;
 let openExternalHandler: ((url: string) => unknown) | null = null;
-
-/**
- * 劫持前捕获的原生 `window.open`（fallback 专用，绕过劫持直达浏览器）：
- * 劫持版 `window.open` 同步返回 null，直接调用必被拦截，所以必须在覆写前一次性捕获
- * 原生 opener 并同步到 `window.__ZSTORE_NATIVE_OPEN__`，兜底经该全局键绕过劫持直达
- * 浏览器；非劫持（未初始化/单测桩）时用当前 `window.open` 本体即可。
- */
-let cachedNativeOpen: typeof window.open | null = null;
-
-/** 读取劫持前捕获的原生 opener（未初始化时为 null）。 */
-export function getNativeWindowOpen(): typeof window.open | null {
-  return cachedNativeOpen;
-}
 
 /** 解析绕过劫持的原生 opener（优先 `__ZSTORE_NATIVE_OPEN__` / `__ZSTORE_DEMO_NATIVE_OPEN__`）。 */
 export function resolveFallbackOpener(): typeof window.open | null {
@@ -203,19 +190,11 @@ export function initBrowserLockdown(openExternal?: (url: string) => unknown): vo
     window.print = () => {};
   }
 
-  // 8. window.open 劫持转走 tauriApi.openUrl（Spec §5 最小集：劫持前缓存原生 open +
-  // 兜底同步返回 null；window.open 同步无处抛错，生产需 await/检查的调用方请直调
-  // tauriApi.openUrl，勿经 window.open；此处仅兜底吞错防未处理 rejection；并发连调
-  // 均透传 tauriApi，不在生产加锁，去重/幂等由调用方负责，行为由单测锁定）。
-  // 原生 opener 已在覆写前捕获（见顶部 cachedNativeOpen 注释），供兜底绕过劫持直达浏览器。
+  // 8. window.open 劫持转走 tauriApi.openUrl；覆写前将原生 opener 存入 `__ZSTORE_NATIVE_OPEN__` 供兜底绕过劫持直达浏览器。
   try {
-    if (!cachedNativeOpen && typeof window.open === 'function') {
-      cachedNativeOpen = window.open.bind(window);
-      try {
-        (window as unknown as Record<string, unknown>).__ZSTORE_NATIVE_OPEN__ = cachedNativeOpen;
-      } catch {
-        /* 忽略 */
-      }
+    const w = window as unknown as Record<string, unknown>;
+    if (typeof w.__ZSTORE_NATIVE_OPEN__ !== 'function' && typeof window.open === 'function') {
+      w.__ZSTORE_NATIVE_OPEN__ = window.open.bind(window);
     }
   } catch {
     /* 忽略 */

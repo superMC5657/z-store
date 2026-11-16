@@ -21,8 +21,7 @@ interface UseUpdateActionsParams {
 }
 
 /**
- * 更新规则动作簇（C3 自 App.tsx 抽出，原 L1119-1260：单项更新/
- * 跳过版本/锁定/隐藏/清除跳过/切换锁定隐藏/批量升级/手动检查）。
+ * 更新规则动作簇：单项更新、跳过版本、锁定、隐藏、清除跳过、切换锁定/隐藏、批量升级与手动检查。
  */
 export function useUpdateActions({
   updates,

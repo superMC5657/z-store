@@ -76,9 +76,8 @@ function releaseMountCtx(ctx: MountCtx): void {
 }
 
 /**
- * 挂载订阅守卫（C3 统一口径）：`tauriApi.onX` 一律经此登记——挂载期收 unlisten
- * 入清理表，迟到（已卸载）即时解绑，订阅失败静默吞掉。消除 4 处
- * `isMounted/unlistenFn` 重复样板，语义与原内联代码一致。
+ * 挂载订阅守卫：`tauriApi.onX` 一律经此登记——挂载期收集 unlisten
+ * 入清理表，卸载后才 resolve 的订阅立即解绑，订阅失败静默忽略。
  */
 function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
   promise.then((unlisten) => {
@@ -95,8 +94,7 @@ function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
 }
 
 /**
- * 应用级订阅总线（C3 自 App.tsx 抽出，原 L193-305 + L316-438，以及
- * 进入「我的应用」读更新快照与视图切换日志，见文件末尾两个 effect）。
+ * 应用级订阅总线（含进入「我的应用」读更新快照与视图切换日志，见文件末尾两个 effect）。
  *
  * - 初始拉取 + `zstore:catalog-synced` +
  *   `onIconReady`（回声窗内首个回声立期望，`admitIconHit` sole 写；双订阅正交门控，

@@ -269,24 +269,6 @@
   gap: 4px;
 }
 
-.installed-actions-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.installed-actions-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.installed-actions-group.compact .installed-actions-right {
-  gap: 4px;
-}
-
 /* 统一动作按钮 */
 .installed-action-btn {
   height: 28px !important;
@@ -360,32 +342,6 @@
   min-width: 26px !important;
   max-width: 26px !important;
   padding: 0 !important;
-}
-
-/* 卸载/危险按钮弱化 - 纯净 Ghost 样式 + 中性红 subtle hover */
-.btn-installed-uninstall {
-  background: transparent !important;
-  color: var(--text-tertiary) !important;
-  border: 1px solid transparent !important;
-  padding: 0 8px !important;
-  transition: background 0.12s cubic-bezier(0.16, 1, 0.3, 1),
-              color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.12s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.12s cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
-
-.btn-installed-uninstall:hover {
-  background: var(--status-danger-bg) !important;
-  color: var(--status-danger) !important;
-  border-color: rgba(239, 68, 68, 0.25) !important;
-}
-
-.btn-installed-uninstall:active {
-  transform: scale(0.97) !important;
-}
-
-.btn-installed-uninstall.compact {
-  padding: 0 6px !important;
 }
 
 /* 确认二次操作状态按钮 - 中性红 subtle / 中性黄 subtle */

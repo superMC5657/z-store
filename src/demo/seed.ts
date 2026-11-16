@@ -304,7 +304,7 @@ const SEED_CUSTOM_APPS: readonly SeedCustomApp[] = [
 ];
 
 /** 已提交行的 `pr_url`：指向清单仓库里按该应用 id 检索的 Issue 列表（演示站没有真实 Issue 编号）。 */
-export function seedSubmittedIssueUrl(id: string): string {
+function seedSubmittedIssueUrl(id: string): string {
   return `${CATALOG_REPO_ISSUES}?q=${encodeURIComponent(`is:issue ${id}`)}`;
 }
 

@@ -1,7 +1,7 @@
 import React from 'react';
 
 /** 把路径拆成目录段（含末尾分隔符）与文件名段；没有分隔符时整段算文件名。 */
-export function splitPathForDisplay(path: string): { head: string; tail: string } {
+function splitPathForDisplay(path: string): { head: string; tail: string } {
   const cut = Math.max(path.lastIndexOf('\\'), path.lastIndexOf('/'));
   if (cut < 0) return { head: '', tail: path };
   return { head: path.slice(0, cut + 1), tail: path.slice(cut + 1) };

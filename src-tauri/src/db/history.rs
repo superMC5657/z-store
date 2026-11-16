@@ -188,9 +188,4 @@ impl Database {
             .map(|(id, _)| id)
             .collect())
     }
-
-    pub fn clear_view_history(&self) -> Result<()> {
-        self.exec_write("DELETE FROM view_history", [])?;
-        Ok(())
-    }
 }

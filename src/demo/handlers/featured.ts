@@ -151,10 +151,6 @@ export function handleSaveInterestSeeds(a: InvokeArgs): null {
   return null;
 }
 
-export function handleGetInterestSeeds(): string[] {
-  return [...interestSeeds];
-}
-
 export function handleDismissFeatured(a: InvokeArgs): null {
   warnUnknownArgs(['target', 'scope', 'appId'], a, 'handleDismissFeatured');
   const target = argStr(a, 'target').toLowerCase();
