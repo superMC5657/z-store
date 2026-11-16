@@ -3,7 +3,7 @@
 //! 断言只看纯打分与指派（`CatalogMatchIndex::assign`），不受本机磁盘内容影响。
 
 use super::matcher::CatalogMatchIndex;
-use super::ScannedRawApp;
+use super::{ConfidenceTier, ScannedRawApp};
 use crate::github::CatalogItem;
 
 fn real_catalog() -> Vec<CatalogItem> {
@@ -41,7 +41,11 @@ fn assign_ids(
                 scanned[a.scanned_index].display_name.clone(),
                 a.catalog.id.clone(),
                 a.confidence(),
-                a.reasons().join(","),
+                a.reasons()
+                    .iter()
+                    .map(|r| r.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
             )
         })
         .collect()
@@ -197,7 +201,7 @@ fn adversarial_non_catalog_apps_produce_zero_false_positives() {
 fn curated_real_world_installed_variants_recall_accurately() {
     let catalog = real_catalog();
     let local = r"C:\Users\admin\AppData\Local";
-    let cases: Vec<(ScannedRawApp, &str, Option<&str>)> = vec![
+    let cases: Vec<(ScannedRawApp, &str, Option<ConfidenceTier>)> = vec![
         (
             app(
                 "Microsoft Visual Studio Code (User)",
@@ -207,7 +211,7 @@ fn curated_real_world_installed_variants_recall_accurately() {
                 Some(&format!(r"{local}\Programs\Microsoft VS Code\Code.exe")),
             ),
             "microsoft/vscode",
-            Some("high"),
+            Some(ConfidenceTier::High),
         ),
         (
             app(
@@ -218,7 +222,7 @@ fn curated_real_world_installed_variants_recall_accurately() {
                 Some(&format!(r"{local}\Programs\VSCodium\VSCodium.exe")),
             ),
             "vscodium/vscodium",
-            Some("high"),
+            Some(ConfidenceTier::High),
         ),
         (
             app(
@@ -229,7 +233,7 @@ fn curated_real_world_installed_variants_recall_accurately() {
                 Some(r"C:\Program Files\Notepad++\notepad++.exe"),
             ),
             "notepad-plus-plus/notepad-plus-plus",
-            Some("high"),
+            Some(ConfidenceTier::High),
         ),
         (
             app(
@@ -240,7 +244,7 @@ fn curated_real_world_installed_variants_recall_accurately() {
                 Some(r"C:\Program Files\NotepadNext\NotepadNext.exe"),
             ),
             "dail8859/notepadnext",
-            Some("high"),
+            Some(ConfidenceTier::High),
         ),
         (
             app("Motrix 1.8.18", "1.8.18", Some("Dr_rOot"), None, None),
@@ -267,7 +271,7 @@ fn curated_real_world_installed_variants_recall_accurately() {
                 Some(r"C:\Program Files\VideoLAN\VLC\vlc.exe,0"),
             ),
             "videolan/vlc",
-            Some("high"),
+            Some(ConfidenceTier::High),
         ),
         (
             app(
@@ -278,7 +282,7 @@ fn curated_real_world_installed_variants_recall_accurately() {
                 Some(r"C:\Program Files\RustDesk\rustdesk.exe"),
             ),
             "rustdesk/rustdesk",
-            Some("high"),
+            Some(ConfidenceTier::High),
         ),
         (
             app(
@@ -329,13 +333,7 @@ fn curated_real_world_installed_variants_recall_accurately() {
             });
         assert_eq!(hit.1, *expected_id, "{}: {hit:?}", fixture.display_name);
         if let Some(tier) = expected_tier {
-            let actual = if hit.2 >= super::matcher::TIER_HIGH_CONFIDENCE_THRESHOLD {
-                "high"
-            } else if hit.2 >= super::matcher::TIER_MEDIUM_CONFIDENCE_THRESHOLD {
-                "medium"
-            } else {
-                "low"
-            };
+            let actual = ConfidenceTier::from_score(hit.2);
             assert_eq!(actual, *tier, "{}: {hit:?}", fixture.display_name);
         }
     }

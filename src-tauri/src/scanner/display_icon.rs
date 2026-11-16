@@ -62,16 +62,24 @@ impl AppScanner {
         {
             return Some(path);
         }
-        // Linux：接受无扩展名的绝对路径可执行文件（如 /usr/bin/motrix、/opt/Motrix/motrix）。
+        // Linux / macOS：接受无扩展名的绝对路径可执行文件（如 /usr/bin/motrix、
+        // /Applications/Foo.app/Contents/MacOS/Foo）及 `.app` bundle 路径。
         // 仅接受 Unix 绝对路径，避免把 `C:\App\*.dll` 误判。
-        if cfg!(target_os = "linux") && unquoted.starts_with('/') && !unquoted.contains(',') {
-            // 排除明显的非可执行资源后缀；无扩展名或 .bin/.run/.AppImage 均放行
-            // （存在性由调用方校验，此处只做形状过滤）。
+        let is_mac_bundle_path = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+            || unquoted.contains(".app/Contents/MacOS/");
+        if (cfg!(any(target_os = "linux", target_os = "macos")) || is_mac_bundle_path)
+            && unquoted.starts_with('/')
+            && !unquoted.contains(',')
+        {
+            // 排除明显的非可执行资源后缀（存在性由调用方校验，此处只做形状过滤）。
             let lower = unquoted.to_lowercase();
             let blocked = lower.ends_with(".dll")
                 || lower.ends_with(".so")
                 || lower.ends_with(".pak")
                 || lower.ends_with(".bin.2")
+                || lower.ends_with(".icns")
                 || lower.contains("package cache")
                 || lower.contains("windows\\installer");
             if !blocked {
@@ -193,6 +201,30 @@ impl AppScanner {
             }
         }
 
+        // 2b. macOS `.app` bundle：检查 `Contents/MacOS` 内的配置目标或唯一可执行文件
+        if dir
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("app"))
+        {
+            let macos_dir = dir.join("Contents").join("MacOS");
+            if macos_dir.is_dir() {
+                if let Some(found) = Self::find_target_in(&macos_dir, config) {
+                    return Some(found);
+                }
+                if let Ok(entries) = std::fs::read_dir(&macos_dir) {
+                    let mut files: Vec<PathBuf> = entries
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.is_file() && !Self::is_installer_or_cache_path(p))
+                        .collect();
+                    files.sort();
+                    if files.len() == 1 {
+                        return Some(files[0].to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+
         // 3. 一级子目录：Squirrel `app-<ver>` 按版本降序优先，其余子目录随后
         let mut squirrel_dirs: Vec<(Vec<u64>, PathBuf)> = Vec::new();
         let mut other_dirs: Vec<PathBuf> = Vec::new();
@@ -274,8 +306,8 @@ impl AppScanner {
             .map(|p| p.to_string_lossy().to_string())
     }
 
-    /// Linux 可执行位判定（`chmod +x` 任一执行位）。非 Unix 平台恒返回 false（仅供 linux 分支调用）。
-    #[cfg(any(target_os = "linux", test))]
+    /// Unix 可执行位判定（`chmod +x` 任一执行位）。非 Unix 平台恒返回 false。
+    #[cfg(any(target_os = "linux", target_os = "macos", test))]
     pub fn has_exec_permission(p: &Path) -> bool {
         #[cfg(unix)]
         {

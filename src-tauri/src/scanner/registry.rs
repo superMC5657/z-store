@@ -1,3 +1,4 @@
+use super::types::SourceKind;
 use super::version::normalize_path;
 use super::{AppScanner, ScanConfig, ScannedRawApp};
 use std::path::Path;
@@ -149,7 +150,6 @@ pub fn uninstall_string_parent_dir(raw: &str) -> Option<String> {
     if HOSTS.contains(&file_name)
         || lower.contains("\\windows\\system32")
         || lower.contains("\\windows\\syswow64")
-        || lower.contains("\\windows\\installer")
         || AppScanner::is_cache_or_temp_directory(std::path::Path::new(&normalized))
     {
         return None;
@@ -303,7 +303,7 @@ pub fn scan_scoop_apps_in_dir(apps_dir: &Path) -> Vec<ScannedRawApp> {
             uninstall_string: None,
             installed_at: AppScanner::detect_path_installed_at(&current_str),
             registry_key: Some(slug),
-            source_kind: Some("scoop".to_string()),
+            source_kind: Some(SourceKind::Scoop),
         });
     }
     out
@@ -439,7 +439,7 @@ impl AppScanner {
                 uninstall_string: None,
                 installed_at: Self::detect_path_installed_at(&target_str),
                 registry_key: None,
-                source_kind: Some("shortcut".to_string()),
+                source_kind: Some(SourceKind::Shortcut),
             });
         }
         out
@@ -544,7 +544,7 @@ impl AppScanner {
                     uninstall_string,
                     installed_at,
                     registry_key: registry_key_label(&key_name),
-                    source_kind: Some("registry".to_string()),
+                    source_kind: Some(SourceKind::Registry),
                 };
 
                 let dedup_key = format!("{}::{}", lower_name, display_version);

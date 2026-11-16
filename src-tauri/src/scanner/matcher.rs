@@ -2,7 +2,9 @@
 //! 安装目录段、发布者词元），对每个系统应用只给召回到的候选打分；名称按词元边界、
 //! 路径按路径段边界比对，杜绝裸子串误配。打分完成后全局按分数一对一指派。
 
-use super::types::is_installer_asset_identifier;
+use super::types::{
+    is_installer_asset_identifier, ConfidenceTier, MatchReason, MIN_QUALIFIED_SCORE,
+};
 use super::version::same_version;
 use super::{AppMatchResult, AppScanner, ScannedRawApp};
 use crate::github::CatalogItem;
@@ -32,21 +34,6 @@ pub const SCORE_PUBLISHER_MATCH: f32 = 0.22;
 pub const SCORE_VERSION_MATCH: f32 = 0.05;
 /// 收录项是某上游的衍生版（Fork），而本机证据里没有它的变体词
 pub const PENALTY_VARIANT_MISMATCH: f32 = 0.35;
-
-/// 置信度分级阈值常量
-pub const MIN_QUALIFIED_SCORE: f32 = 0.45;
-pub const TIER_HIGH_CONFIDENCE_THRESHOLD: f32 = 0.70;
-pub const TIER_MEDIUM_CONFIDENCE_THRESHOLD: f32 = 0.55;
-
-/// 匹配依据编码（前端按此映射文案）
-pub const REASON_EXACT_NAME: &str = "exact_name";
-pub const REASON_PREFIX_NAME: &str = "prefix_name";
-pub const REASON_ALIAS: &str = "alias";
-pub const REASON_EXECUTABLE: &str = "executable";
-pub const REASON_BUNDLE_ID: &str = "bundle_id";
-pub const REASON_INSTALL_DIR: &str = "install_dir";
-pub const REASON_PUBLISHER: &str = "publisher";
-pub const REASON_VERSION: &str = "version";
 
 /// 别名里的闭源竞品名：商店搜索用它把用户引到开源替代品，但它不是该应用本身。
 const PROPRIETARY_COMPETITOR_BLOCKLIST: &[&str] = &[
@@ -372,9 +359,9 @@ fn starts_with_tokens(tokens: &[String], prefix: &[String]) -> bool {
     !prefix.is_empty() && tokens.len() > prefix.len() && tokens[..prefix.len()] == *prefix
 }
 
-/// `needle` 是否作为连续整词元序列出现在 `tokens` 中段（不含开头）。
+/// `needle` 是否作为完整多词元序列（至少 2 个词）出现在 `tokens` 中段（不含开头）。
 fn contains_tokens_inside(tokens: &[String], needle: &[String]) -> bool {
-    !needle.is_empty()
+    needle.len() >= 2
         && tokens.len() > needle.len()
         && tokens.windows(needle.len()).skip(1).any(|w| w == needle)
 }
@@ -414,7 +401,7 @@ struct PairScore {
     has_curated_exe: bool,
     has_exact_name: bool,
     name_len: usize,
-    reasons: Vec<&'static str>,
+    reasons: Vec<MatchReason>,
 }
 
 /// 本机条目的预归一化形态。
@@ -633,7 +620,7 @@ impl<'a> IndexedEntry<'a> {
         &self,
         view: &ScannedView,
         stripped: Option<&[String]>,
-    ) -> (f32, Option<&'static str>, usize, bool) {
+    ) -> (f32, Option<MatchReason>, usize, bool) {
         let stripped_pair = stripped.map(|t| (t.join(" "), t.concat()));
         let candidates = std::iter::once((view.title_key.as_str(), view.title_compact.as_str()))
             .chain(
@@ -660,7 +647,7 @@ impl<'a> IndexedEntry<'a> {
                 } else {
                     SCORE_SHORT_NAME_MATCH
                 };
-                return (score, Some(REASON_EXACT_NAME), len, true);
+                return (score, Some(MatchReason::ExactName), len, true);
             }
         }
 
@@ -690,7 +677,7 @@ impl<'a> IndexedEntry<'a> {
             }
         }
         if best.0 > 0.0 {
-            return (best.0, Some(REASON_PREFIX_NAME), best.1, false);
+            return (best.0, Some(MatchReason::PrefixName), best.1, false);
         }
 
         if self.safe_alias_compacts.iter().any(|a| {
@@ -698,7 +685,7 @@ impl<'a> IndexedEntry<'a> {
         }) {
             return (
                 SCORE_ALIAS_MATCH,
-                Some(REASON_ALIAS),
+                Some(MatchReason::Alias),
                 view.title_compact.chars().count(),
                 false,
             );
@@ -707,10 +694,10 @@ impl<'a> IndexedEntry<'a> {
     }
 
     /// 主程序 / 应用包标识维度：(分值, 依据, 是否精校主程序命中)。
-    fn executable_score(&self, view: &ScannedView) -> (f32, Option<&'static str>, bool) {
+    fn executable_score(&self, view: &ScannedView) -> (f32, Option<MatchReason>, bool) {
         let generic = |s: &str| GENERIC_EXE_STEMS.contains(&s);
-        let mut best: (f32, Option<&'static str>, bool) = (0.0, None, false);
-        let mut consider = |score: f32, reason: &'static str, curated: bool| {
+        let mut best: (f32, Option<MatchReason>, bool) = (0.0, None, false);
+        let mut consider = |score: f32, reason: MatchReason, curated: bool| {
             if score > best.0 {
                 best = (score, Some(reason), curated);
             }
@@ -718,12 +705,12 @@ impl<'a> IndexedEntry<'a> {
         for stem in &view.exe_stems {
             if self.curated_exe_stems.contains(stem) {
                 if generic(stem) {
-                    consider(SCORE_WEAK_EXECUTABLE, REASON_EXECUTABLE, false);
+                    consider(SCORE_WEAK_EXECUTABLE, MatchReason::Executable, false);
                 } else {
-                    consider(SCORE_CURATED_EXECUTABLE, REASON_EXECUTABLE, true);
+                    consider(SCORE_CURATED_EXECUTABLE, MatchReason::Executable, true);
                 }
             } else if self.repo_exe_stems.contains(stem) && !generic(stem) {
-                consider(SCORE_WEAK_EXECUTABLE, REASON_EXECUTABLE, false);
+                consider(SCORE_WEAK_EXECUTABLE, MatchReason::Executable, false);
             }
         }
         if let Some(key) = view.key_lower.as_deref() {
@@ -731,7 +718,7 @@ impl<'a> IndexedEntry<'a> {
                 && !generic(key)
                 && self.bundle_ids.iter().any(|b| b == key)
             {
-                consider(SCORE_CURATED_EXECUTABLE, REASON_BUNDLE_ID, true);
+                consider(SCORE_CURATED_EXECUTABLE, MatchReason::BundleId, true);
             }
         }
         best
@@ -789,11 +776,11 @@ impl<'a> IndexedEntry<'a> {
             }))
         .then(|| &view.title_tokens[1..]);
 
-        let mut reasons: Vec<&'static str> = Vec::new();
+        let mut reasons: Vec<MatchReason> = Vec::new();
         let (exe_score, exe_reason, curated) = self.executable_score(view);
         let (name_score, name_reason, name_len, exact) = self.name_score(view, stripped);
         let dir_hit = self.install_dir_hit(view);
-        let bundle_hit = exe_reason == Some(REASON_BUNDLE_ID);
+        let bundle_hit = exe_reason == Some(MatchReason::BundleId);
         let mut publisher = self.publisher_hit(view);
 
         let mut exe_score = exe_score;
@@ -823,18 +810,18 @@ impl<'a> IndexedEntry<'a> {
             } else {
                 SCORE_INSTALL_DIR_MATCH
             };
-            reasons.push(REASON_INSTALL_DIR);
+            reasons.push(MatchReason::InstallDir);
         }
         if publisher {
             score += SCORE_PUBLISHER_MATCH;
-            reasons.push(REASON_PUBLISHER);
+            reasons.push(MatchReason::Publisher);
         }
         if (name_score > 0.0 || exe_score > 0.0) && !scanned.display_version.trim().is_empty() {
             let v = scanned.display_version.trim();
             let bare = v.strip_prefix(['v', 'V']).unwrap_or(v);
             if same_version(v, &self.cat.default_version) && !TRIVIAL_VERSIONS.contains(&bare) {
                 score += SCORE_VERSION_MATCH;
-                reasons.push(REASON_VERSION);
+                reasons.push(MatchReason::Version);
             }
         }
 
@@ -991,7 +978,7 @@ impl Assignment<'_> {
         self.score.score
     }
 
-    pub fn reasons(&self) -> &[&'static str] {
+    pub fn reasons(&self) -> &[MatchReason] {
         &self.score.reasons
     }
 }
@@ -1077,13 +1064,7 @@ impl AppScanner {
 
     fn build_result(scanned: &ScannedRawApp, cat: &CatalogItem, pair: PairScore) -> AppMatchResult {
         let confidence = pair.score;
-        let tier = if confidence >= TIER_HIGH_CONFIDENCE_THRESHOLD {
-            "high"
-        } else if confidence >= TIER_MEDIUM_CONFIDENCE_THRESHOLD {
-            "medium"
-        } else {
-            "low"
-        };
+        let tier = ConfidenceTier::from_score(confidence);
 
         let resolved_exe = Self::resolve_executable_path(
             scanned.install_location.as_deref(),
@@ -1123,9 +1104,9 @@ impl AppScanner {
             local_version,
             catalog_version: cat.default_version.clone(),
             confidence,
-            confidence_tier: tier.to_string(),
+            confidence_tier: tier,
             resolved_executable_path: resolved_exe,
-            match_reasons: pair.reasons.iter().map(|r| r.to_string()).collect(),
+            match_reasons: pair.reasons,
         }
     }
 

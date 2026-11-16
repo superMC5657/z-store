@@ -50,7 +50,7 @@ fn two_segment_versions_compare_against_pe_three_segment() {
     assert!(is_version_newer("10.37.0", "10.38"));
     assert!(!is_version_newer("10.38", "10.37.0"));
     assert!(is_version_newer("v0.15", "v0.16"));
-    // 带 `-` 的复合标签不补段，保持原有不可解析语义
+    // 带 `-` 的复合标签不补段，按不可解析处理
     assert!(!is_version_newer("1.0.0", "v26.02-v1.5.7-R2"));
 }
 

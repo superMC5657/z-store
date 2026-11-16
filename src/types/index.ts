@@ -304,6 +304,42 @@ export interface SyncCatalogResult {
   message: string;
 }
 
+export type ScanSourceKind =
+  | 'registry'
+  | 'scoop'
+  | 'shortcut'
+  | 'desktop'
+  | 'appimage'
+  | 'macos_app';
+
+export type ConfidenceTier = 'high' | 'medium' | 'low';
+
+export const HIGH_CONFIDENCE_THRESHOLD = 0.7;
+export const MEDIUM_CONFIDENCE_THRESHOLD = 0.55;
+
+export function confidenceTierForScore(confidence: number): ConfidenceTier {
+  if (confidence >= HIGH_CONFIDENCE_THRESHOLD) return 'high';
+  if (confidence >= MEDIUM_CONFIDENCE_THRESHOLD) return 'medium';
+  return 'low';
+}
+
+export const MATCH_REASONS = [
+  'exact_name',
+  'prefix_name',
+  'alias',
+  'executable',
+  'bundle_id',
+  'install_dir',
+  'publisher',
+  'version',
+] as const;
+
+export type MatchReason = (typeof MATCH_REASONS)[number];
+
+export function isKnownMatchReason(reason: string): reason is MatchReason {
+  return (MATCH_REASONS as readonly string[]).includes(reason);
+}
+
 interface ScannedRawApp {
   display_name: string;
   display_version: string;
@@ -313,7 +349,7 @@ interface ScannedRawApp {
   uninstall_string?: string;
   installed_at?: number;
   registry_key?: string;
-  source_kind?: string;
+  source_kind?: ScanSourceKind;
 }
 
 export interface AppMatchResult {
@@ -328,9 +364,9 @@ export interface AppMatchResult {
   local_version: string;
   catalog_version: string;
   confidence: number;
-  confidence_tier: 'high' | 'medium' | 'low';
+  confidence_tier: ConfidenceTier;
   resolved_executable_path?: string;
-  match_reasons?: string[];
+  match_reasons?: (MatchReason | (string & {}))[];
 }
 
 export interface ImportAppRequest {
