@@ -1,6 +1,6 @@
 # Feature Spec: 存量应用管理匹配引擎 v2 —— 内存倒排索引、词/路径边界防误报与多源跨平台发现（Local App Matcher v2）
 
-> 状态：Draft
+> 状态：Implemented（见 docs/adr/0028-inverted-index-and-boundary-safe-local-app-matching.md）
 > 关联契约：`CONTEXT.md`（§35 存量应用管理、§13 多端应用标识符、§24 已安装应用、§25 我的应用、§44 规范应用标识；D1–D4 核心边界）、ADR-0009（独立生态清单仓库解耦）、ADR-0010（规范应用标识）、ADR-0022（「我的应用」合并已安装与更新视图）、`docs/count-display.md`（数量显示规范）。
 
 ---

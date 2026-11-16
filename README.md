@@ -47,8 +47,8 @@
 - **双维交叉筛选**：分类中心支持按设备平台（全部设备 / Windows / Android / macOS / Linux / iOS）与功能分类（系统实用、开发工具、影音视听等 10 大分类）实时双维交叉过滤。
 
 ### 3. 🔍 存量已安装应用外部导入与管理 (External App Management)
-- 深度扫描 Windows 系统已安装软件（注册表 `Uninstall` 项与系统目录），提取软件名称、版本与安装路径。
-- 基于倒排索引与启发式置信度打分算法（支持别名匹配与特征指纹），智能识别本地已装的开源软件（如 VLC、OBS、VS Code、Git 等），一键导入管理并接管自动更新。
+- 多源扫描已安装软件：Windows 注册表 `Uninstall` 项、Scoop 与开始菜单快捷方式（含绿色软件），Linux `.desktop` / AppImage（按 dpkg/rpm 反查真实版本），macOS `/Applications` 应用包，提取名称、版本、发布者与主程序路径。
+- 内存倒排索引召回候选，按整词元与路径段边界多信号打分（主程序、名称、安装目录、发布者），过滤竞品别名并守住衍生版边界，识别本地已装的开源软件（如 VLC、OBS、VS Code、Notepad++ 等）；确认弹窗展示本机原名与匹配依据，一键导入管理并接管自动更新。
 
 ### 4. 📝 待收录草稿与本地自维护库 (Pending & Self-maintained Catalog)
 - **本地草稿收录**：远端清单未收录的开源应用可在应用内创建草稿，本地先生效进入「待收录」视图，与远端目录全局合并展示（`showCustom` 开关，详见 [ADR-0017](docs/adr/0017-custom-apps-overlay.md)）。
@@ -166,6 +166,7 @@ pnpm tauri build
 - [ADR-0025: 运行期动态系统代理与通用资产缓存收口](docs/adr/0025-dynamic-system-proxy-and-asset-cache-convergence.md)
 - [ADR-0026: 搜索 / Star 列表缓存与富卡链路收敛](docs/adr/0026-search-starred-cache-and-enrich-convergence.md)
 - [ADR-0027: 单仓富卡独立缓存与瘦 id 列表索引](docs/adr/0027-isolated-repo-card-cache-and-slim-id-list-indexes.md)
+- [ADR-0028: 存量应用匹配引擎——多源发现、倒排索引与边界安全打分](docs/adr/0028-inverted-index-and-boundary-safe-local-app-matching.md)
 - [协作规范与 Agent 指南](AGENTS.md)
 
 ---

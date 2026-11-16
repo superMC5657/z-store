@@ -1,6 +1,6 @@
 # Issue 05: Real-Catalog Adversarial & Recall Evaluation Suite, ADR-0028, Domain Docs Sync & Full Regression Gates
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01, 02, 03, 04
 
 ## Summary
