@@ -372,3 +372,80 @@ fn inverted_index_matches_full_catalog_in_bounded_time() {
         "full-catalog match took {elapsed:?}"
     );
 }
+
+#[test]
+fn variant_guard_requires_whole_token_evidence() {
+    let catalog = real_catalog();
+    // 路径里 `zhang` / `trevor` 含 `ng` / `rev` 子串，但不是变体词证据
+    let upstream = vec![
+        app(
+            "GoldenDict",
+            "1.5.0",
+            None,
+            Some(r"C:\Users\zhang\AppData\Local\GoldenDict"),
+            Some(r"C:\Users\zhang\AppData\Local\GoldenDict\GoldenDict.exe"),
+        ),
+        app(
+            "Clash Verge",
+            "1.3.8",
+            None,
+            Some(r"C:\Users\trevor\AppData\Local\Clash Verge"),
+            Some(r"C:\Users\trevor\AppData\Local\Clash Verge\clash-verge.exe"),
+        ),
+    ];
+    let matches = assign_ids(&upstream, &catalog);
+    assert!(
+        matches
+            .iter()
+            .all(|(_, id, ..)| id != "xiaoyifang/goldendict-ng"
+                && id != "clash-verge-rev/clash-verge-rev"),
+        "variant entry matched without whole-token evidence: {matches:#?}"
+    );
+
+    let variants = vec![
+        (
+            app(
+                "GoldenDict-ng",
+                "24.09.0",
+                None,
+                Some(r"C:\Program Files\GoldenDict-ng"),
+                Some(r"C:\Program Files\GoldenDict-ng\goldendict.exe"),
+            ),
+            "xiaoyifang/goldendict-ng",
+        ),
+        (
+            app(
+                "7-Zip ZS 24.07 (x64)",
+                "24.07",
+                Some("Tino Reichardt"),
+                Some(r"C:\Program Files\7-Zip-Zstandard"),
+                Some(r"C:\Program Files\7-Zip-Zstandard\7zFM.exe"),
+            ),
+            "mcmilk/7-zip-zstd",
+        ),
+        (
+            app(
+                "NotepadNext",
+                "0.7",
+                None,
+                Some(r"C:\Program Files\NotepadNext"),
+                Some(r"C:\Program Files\NotepadNext\NotepadNext.exe"),
+            ),
+            "dail8859/notepadnext",
+        ),
+    ];
+    let scanned: Vec<ScannedRawApp> = variants.iter().map(|(a, _)| a.clone()).collect();
+    let matches = assign_ids(&scanned, &catalog);
+    for (fixture, expected_id) in &variants {
+        let hit = matches
+            .iter()
+            .find(|(name, ..)| *name == fixture.display_name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} was not matched; all: {matches:#?}",
+                    fixture.display_name
+                )
+            });
+        assert_eq!(hit.1, *expected_id, "{hit:?}");
+    }
+}

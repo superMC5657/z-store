@@ -185,10 +185,10 @@ const PUBLISHER_NOISE: &[&str] = &[
     "org",
 ];
 
-/// 衍生版变体词，及本机证据中视为同义的写法。
+/// 衍生版变体词，及本机证据中视为同义的词元（整词比较）。
 const VARIANT_QUALIFIERS: &[(&str, &[&str])] = &[
-    ("zstd", &["zstd", "zstandard", " zs"]),
-    ("zstandard", &["zstd", "zstandard", " zs"]),
+    ("zstd", &["zstd", "zstandard", "zs"]),
+    ("zstandard", &["zstd", "zstandard", "zs"]),
     ("rev", &["rev"]),
     ("nyanpasu", &["nyanpasu"]),
     ("next", &["next"]),
@@ -428,7 +428,8 @@ struct ScannedView {
     exe_stems: Vec<String>,
     dir_segments: Vec<String>,
     publisher_tokens: Vec<String>,
-    evidence_text: String,
+    /// 名称、包标识、安装路径与图标路径的全部词元（变体词佐证用）
+    evidence_tokens: HashSet<String>,
 }
 
 impl ScannedView {
@@ -484,13 +485,16 @@ impl ScannedView {
             .as_deref()
             .map(|k| k.trim().to_lowercase())
             .filter(|k| !k.is_empty());
-        let evidence_text = format!(
-            " {} {} {} {} ",
-            title,
-            key_lower.as_deref().unwrap_or(""),
-            loc.as_deref().unwrap_or("").to_lowercase(),
-            icon.as_deref().unwrap_or("").to_lowercase()
-        );
+        let evidence_tokens: HashSet<String> = [
+            Some(title.as_str()),
+            key_lower.as_deref(),
+            loc.as_deref(),
+            icon.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .flat_map(tokenize_words)
+        .collect();
 
         Self {
             title_key: title_tokens.join(" "),
@@ -508,7 +512,7 @@ impl ScannedView {
             exe_stems,
             dir_segments,
             publisher_tokens,
-            evidence_text,
+            evidence_tokens,
         }
     }
 }
@@ -757,11 +761,20 @@ impl<'a> IndexedEntry<'a> {
             })
     }
 
-    /// 收录项带变体词，而本机名称、包标识与路径里都没有。
+    /// 收录项带变体词，而本机名称、包标识与路径的词元里都没有。
+    /// 本机证据中出现收录项的紧凑全名（`NotepadNext.exe`）也算带上了变体词。
     fn variant_mismatch(&self, view: &ScannedView) -> bool {
+        if self.variant_markers.is_empty()
+            || view
+                .evidence_tokens
+                .iter()
+                .any(|t| self.exact_compacts.contains(t))
+        {
+            return false;
+        }
         self.variant_markers
             .iter()
-            .any(|markers| !markers.iter().any(|m| view.evidence_text.contains(m)))
+            .any(|markers| !markers.iter().any(|m| view.evidence_tokens.contains(*m)))
     }
 
     fn score(&self, view: &ScannedView, scanned: &ScannedRawApp) -> PairScore {
