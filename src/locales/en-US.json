@@ -960,7 +960,23 @@
     "cancel": "Cancel",
     "import_btn": "Add",
     "importing": "Adding...",
-    "import_failed": "Import failed: {{error}}"
+    "import_failed": "Import failed: {{error}}",
+    "detected_name": "Installed as: {{name}}",
+    "detected_publisher": "Publisher: {{publisher}}",
+    "low_confidence_hint": "Low confidence, verify path",
+    "confidence_high": "High confidence",
+    "confidence_medium": "Medium confidence",
+    "confidence_low": "Low confidence",
+    "reasons": {
+      "exact_name": "Exact name",
+      "prefix_name": "Similar name",
+      "alias": "Alias match",
+      "executable": "Binary match",
+      "bundle_id": "Bundle ID",
+      "install_dir": "Folder match",
+      "publisher": "Publisher",
+      "version": "Same version"
+    }
   },
   "search": {
     "local_results": "Local",

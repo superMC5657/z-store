@@ -1,6 +1,6 @@
 # Issue 04: Import Modal Local-Name Explainability, Match Reason Tags, 3-Tier Confidence UX & Demo Alignment
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 03
 
 ## Summary

@@ -312,6 +312,8 @@ interface ScannedRawApp {
   display_icon?: string;
   uninstall_string?: string;
   installed_at?: number;
+  registry_key?: string;
+  source_kind?: string;
 }
 
 export interface AppMatchResult {
@@ -328,6 +330,7 @@ export interface AppMatchResult {
   confidence: number;
   confidence_tier: 'high' | 'medium' | 'low';
   resolved_executable_path?: string;
+  match_reasons?: string[];
 }
 
 export interface ImportAppRequest {

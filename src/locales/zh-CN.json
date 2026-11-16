@@ -960,7 +960,23 @@
     "cancel": "取消",
     "import_btn": "添加",
     "importing": "正在添加...",
-    "import_failed": "导入失败: {{error}}"
+    "import_failed": "导入失败: {{error}}",
+    "detected_name": "本机名称: {{name}}",
+    "detected_publisher": "发布者: {{publisher}}",
+    "low_confidence_hint": "低置信度，请核对路径",
+    "confidence_high": "高置信度",
+    "confidence_medium": "中等置信度",
+    "confidence_low": "低置信度",
+    "reasons": {
+      "exact_name": "名称精确",
+      "prefix_name": "名称近似",
+      "alias": "别名匹配",
+      "executable": "主程序命中",
+      "bundle_id": "包标识命中",
+      "install_dir": "目录命中",
+      "publisher": "发布者一致",
+      "version": "版本吻合"
+    }
   },
   "search": {
     "local_results": "本地结果",

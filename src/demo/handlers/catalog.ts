@@ -4,6 +4,7 @@ import type {
   AppMatchResult,
   AppSummary,
   HydratedRepoCard,
+  ImportAppRequest,
   SearchListCacheEntry,
   SyncCatalogResult,
 } from '../../types';
@@ -17,6 +18,7 @@ import {
 } from '../fixtures';
 import {
   getDemoSettingsSaved,
+  getInstalledApps,
   getRecentIds,
   getRecentViewTimes,
   getSearchHistory,
@@ -25,6 +27,7 @@ import {
   lsSet,
   setRecentIds,
   setRecentViewTime,
+  setInstalledApps,
   setSearchHistory,
 } from '../demoState';
 import { argNum, argStr, warnUnknownArgs, type InvokeArgs, rankSummariesForFeed } from './common';
@@ -396,12 +399,154 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): FilteredFeedPage {
   return paginateWithAllowedIds(matched, a);
 }
 
-export function handleScanAndMatchLocalApps(): AppMatchResult[] {
-  return [];
+/** 演示扫描样例：本机原名、版本、路径与匹配依据均按真实安装形态编写。 */
+interface DemoScanSample {
+  id: string;
+  displayName: string;
+  version: string;
+  publisher?: string;
+  location: string;
+  executable?: string;
+  confidence: number;
+  reasons: string[];
 }
 
-export function handleImportMatchedApps(): number {
-  return 0;
+const DEMO_SCAN_SAMPLES: readonly DemoScanSample[] = [
+  {
+    id: 'microsoft/vscode',
+    displayName: 'Microsoft Visual Studio Code (User)',
+    version: '1.92.0',
+    publisher: 'Microsoft Corporation',
+    location: 'C:\\Users\\Demo\\AppData\\Local\\Programs\\Microsoft VS Code',
+    executable: 'C:\\Users\\Demo\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe',
+    confidence: 1,
+    reasons: ['exact_name', 'executable', 'publisher'],
+  },
+  {
+    id: 'obsproject/obs-studio',
+    displayName: 'OBS Studio',
+    version: '30.2.3',
+    publisher: 'OBS Project',
+    location: 'C:\\Program Files\\obs-studio',
+    executable: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe',
+    confidence: 1,
+    reasons: ['exact_name', 'executable', 'install_dir', 'publisher'],
+  },
+  {
+    id: 'notepad-plus-plus/notepad-plus-plus',
+    displayName: 'Notepad++ (64-bit x64)',
+    version: '8.6.9',
+    publisher: 'Notepad++ Team',
+    location: 'C:\\Program Files\\Notepad++',
+    executable: 'C:\\Program Files\\Notepad++\\notepad++.exe',
+    confidence: 1,
+    reasons: ['exact_name', 'executable'],
+  },
+  {
+    id: 'vscodium/vscodium',
+    displayName: 'VSCodium (User)',
+    version: '1.92.0',
+    location: 'C:\\Users\\Demo\\AppData\\Local\\Programs\\VSCodium',
+    executable: 'C:\\Users\\Demo\\AppData\\Local\\Programs\\VSCodium\\VSCodium.exe',
+    confidence: 1,
+    reasons: ['exact_name', 'executable', 'install_dir'],
+  },
+  {
+    id: 'desktop/desktop',
+    displayName: 'GitHub Desktop',
+    version: '3.4.8',
+    publisher: 'GitHub, Inc.',
+    location: 'C:\\Users\\Demo\\AppData\\Local\\GitHubDesktop',
+    executable: 'C:\\Users\\Demo\\AppData\\Local\\GitHubDesktop\\app-3.4.8\\GitHubDesktop.exe',
+    confidence: 0.62,
+    reasons: ['exact_name', 'version'],
+  },
+  {
+    id: 'siyuan-note/siyuan',
+    displayName: '思源笔记',
+    version: '3.1.0',
+    location: 'D:\\SiYuan',
+    executable: 'D:\\SiYuan\\SiYuan.exe',
+    confidence: 0.48,
+    reasons: ['executable'],
+  },
+];
+
+function demoTier(confidence: number): AppMatchResult['confidence_tier'] {
+  if (confidence >= 0.7) return 'high';
+  if (confidence >= 0.55) return 'medium';
+  return 'low';
+}
+
+/** 与后端同口径：已纳管的应用不再出现在扫描结果里；每个置信度档位最多取两条。 */
+export function handleScanAndMatchLocalApps(): AppMatchResult[] {
+  const managed = new Set(getInstalledApps().map((i) => i.app_id.toLowerCase()));
+  const perTier: Record<string, number> = {};
+  const out: AppMatchResult[] = [];
+  for (const sample of DEMO_SCAN_SAMPLES) {
+    const s = findSummary(sample.id);
+    if (!s || managed.has(s.id.toLowerCase())) continue;
+    const tier = demoTier(sample.confidence);
+    if ((perTier[tier] ?? 0) >= 2) continue;
+    perTier[tier] = (perTier[tier] ?? 0) + 1;
+    out.push({
+      scanned: {
+        display_name: sample.displayName,
+        display_version: sample.version,
+        publisher: sample.publisher,
+        install_location: sample.location,
+        display_icon: sample.executable,
+        source_kind: 'registry',
+      },
+      catalog_id: s.id,
+      name: s.name,
+      owner: s.owner,
+      repo: s.repo,
+      icon: s.icon,
+      icon_bg: s.icon_bg,
+      description: s.description,
+      local_version: sample.version,
+      catalog_version: s.latest_version,
+      confidence: sample.confidence,
+      confidence_tier: tier,
+      resolved_executable_path: sample.executable,
+      match_reasons: sample.reasons,
+    });
+  }
+  return out;
+}
+
+/** 把选中的扫描结果写入演示「我的应用」（同 id 已存在则跳过），返回新增数量。 */
+export function handleImportMatchedApps(a: InvokeArgs): number {
+  warnUnknownArgs(['apps'], a, 'handleImportMatchedApps');
+  const raw = a['apps'];
+  const requests = Array.isArray(raw) ? (raw as ImportAppRequest[]) : [];
+  const list = [...getInstalledApps()];
+  const now = Math.floor(Date.now() / 1000);
+  let imported = 0;
+  for (const req of requests) {
+    if (typeof req?.app_id !== 'string') continue;
+    const s = findSummary(req.app_id);
+    const id = s?.id ?? req.app_id;
+    if (list.some((i) => i.app_id.toLowerCase() === id.toLowerCase())) continue;
+    list.push({
+      app_id: id,
+      app_name: req.app_name || s?.name || id,
+      version: req.version ?? '',
+      installed_at: req.installed_at ?? now,
+      install_method: 'system_import',
+      install_path: req.install_path ?? '',
+      asset_name: '',
+      asset_sha256: '',
+      uninstall_command: req.uninstall_command,
+      icon: s?.icon,
+      icon_bg: s?.icon_bg,
+    });
+    imported += 1;
+  }
+  setInstalledApps(list);
+  lsSet(LS.installed, list);
+  return imported;
 }
 
 export function handleRecordSearchQuery(a: InvokeArgs): null {

@@ -18,7 +18,9 @@ import {
   parseLicenseGate,
   resetCustomAppsCache,
 } from './customApps';
+import { handleImportMatchedApps, handleScanAndMatchLocalApps } from './catalog';
 import {
+  handleGetInstalledApps,
   handleGetUpdateRules,
   handleSetAppFrozen,
   handleSetAppHidden,
@@ -148,5 +150,35 @@ describe('watch notifications mock', () => {
     expect(getWatchSet().has(first.app_id)).toBe(true);
     handleUnwatchApp({ appId: first.app_id });
     expect(handleGetWatchNotifications().some((n) => n.app_id === first.app_id)).toBe(false);
+  });
+});
+
+describe('local app scan mock', () => {
+  it('offers only unmanaged apps across tiers and imports them into my apps', () => {
+    const installedIds = new Set(handleGetInstalledApps().map((i) => i.app_id.toLowerCase()));
+    const scanned = handleScanAndMatchLocalApps();
+    expect(scanned.length).toBeGreaterThan(0);
+    expect(scanned.some((m) => installedIds.has(m.catalog_id.toLowerCase()))).toBe(false);
+    expect(new Set(scanned.map((m) => m.confidence_tier))).toEqual(new Set(['high', 'medium', 'low']));
+    expect(scanned.every((m) => (m.match_reasons ?? []).length > 0)).toBe(true);
+
+    const high = scanned.filter((m) => m.confidence_tier === 'high');
+    const requests = high.map((m) => ({
+      app_id: m.catalog_id,
+      app_name: m.name,
+      version: m.local_version,
+      install_path: m.resolved_executable_path,
+    }));
+    expect(handleImportMatchedApps({ apps: requests })).toBe(high.length);
+    // 重复导入不新增
+    expect(handleImportMatchedApps({ apps: requests })).toBe(0);
+
+    const after = handleGetInstalledApps();
+    for (const m of high) {
+      const row = after.find((i) => i.app_id === m.catalog_id);
+      expect(row?.install_method).toBe('system_import');
+    }
+    const rescanned = handleScanAndMatchLocalApps().map((m) => m.catalog_id);
+    expect(rescanned.some((id) => high.some((m) => m.catalog_id === id))).toBe(false);
   });
 });

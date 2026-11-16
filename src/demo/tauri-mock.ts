@@ -291,7 +291,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     case 'scan_and_match_local_apps':
       return handleScanAndMatchLocalApps();
     case 'import_matched_apps':
-      return handleImportMatchedApps();
+      return handleImportMatchedApps(a);
     case 'record_search_query':
       return handleRecordSearchQuery(a);
     case 'get_search_history':

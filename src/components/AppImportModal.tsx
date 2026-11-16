@@ -17,6 +17,61 @@ import { AppIconFrame } from './AppIconFrame';
 import { stripVersionPrefix } from '../utils/appHelper';
 import { useTranslation } from 'react-i18next';
 
+/** 默认勾选门槛：与后端高置信度阈值一致。 */
+const HIGH_CONFIDENCE = 0.7;
+/** 每行最多展示的匹配依据数。 */
+const MAX_REASON_TAGS = 3;
+const KNOWN_REASONS = [
+  'exact_name',
+  'prefix_name',
+  'alias',
+  'executable',
+  'bundle_id',
+  'install_dir',
+  'publisher',
+  'version',
+] as const;
+type MatchReason = (typeof KNOWN_REASONS)[number];
+
+function isKnownReason(r: string): r is MatchReason {
+  return (KNOWN_REASONS as readonly string[]).includes(r);
+}
+
+function isHighConfidence(r: AppMatchResult): boolean {
+  return r.confidence_tier === 'high' || r.confidence >= HIGH_CONFIDENCE;
+}
+
+const TIER_BADGE_STYLE: Record<AppMatchResult['confidence_tier'], React.CSSProperties> = {
+  high: {
+    background: 'var(--status-success-bg)',
+    color: 'var(--status-success)',
+    border: '1px solid var(--status-success-bg)',
+  },
+  medium: {
+    background: 'var(--bg-acrylic-hover)',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border-subtle)',
+  },
+  low: {
+    background: 'var(--status-warning-bg)',
+    color: 'var(--status-warning)',
+    border: '1px solid var(--status-warning-bg)',
+  },
+};
+
+const TIER_ICON: Record<AppMatchResult['confidence_tier'], typeof ShieldCheck> = {
+  high: ShieldCheck,
+  medium: Sparkles,
+  low: AlertTriangle,
+};
+
+/** 本机检测名与收录名不同（忽略大小写与首尾空白）时返回本机名。 */
+function detectedNameOf(item: AppMatchResult): string | null {
+  const local = item.scanned.display_name?.trim() ?? '';
+  if (!local || local.toLowerCase() === item.name.trim().toLowerCase()) return null;
+  return local;
+}
+
 interface AppImportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -47,11 +102,9 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
       .then((results) => {
         if (!isMounted) return;
         setMatches(results);
-        // 默认选中置信度大于等于 0.60 的匹配项
+        // 只默认勾选高置信度；中、低置信度须用户核对后手动勾选
         const initialSelected = new Set(
-          results
-            .filter((r) => r.confidence >= 0.6)
-            .map((r) => r.catalog_id)
+          results.filter(isHighConfidence).map((r) => r.catalog_id)
         );
         setSelectedIds(initialSelected);
       })
@@ -277,7 +330,13 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {matches.map((item) => {
                 const isSelected = selectedIds.has(item.catalog_id);
-                const isHigh = item.confidence_tier === 'high';
+                const tier = TIER_BADGE_STYLE[item.confidence_tier] ? item.confidence_tier : 'low';
+                const TierIcon = TIER_ICON[tier];
+                const detectedName = detectedNameOf(item);
+                const publisher = item.scanned.publisher?.trim();
+                const reasons = (item.match_reasons ?? [])
+                  .filter(isKnownReason)
+                  .slice(0, MAX_REASON_TAGS);
                 return (
                   <div
                     key={item.catalog_id}
@@ -317,23 +376,64 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
                           {item.name}
                         </span>
                         <span
+                          data-tier={tier}
+                          title={t(`import_modal.confidence_${tier}`)}
                           style={{
                             fontSize: 'var(--font-xs)',
                             padding: '2px 6px',
                             borderRadius: 'var(--radius-xs)',
-                            background: isHigh ? 'var(--status-success-bg)' : 'var(--brand-subtle)',
-                            color: isHigh ? 'var(--status-success)' : 'var(--brand-primary)',
-                            border: `1px solid ${isHigh ? 'rgba(76, 183, 130, 0.3)' : 'var(--border-nav-active)'}`,
+                            ...TIER_BADGE_STYLE[tier],
                             fontWeight: 510,
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '3px',
                           }}
                         >
-                          {isHigh ? <ShieldCheck size={11} /> : <Sparkles size={11} />}
+                          <TierIcon size={11} strokeWidth={1.5} />
                           <span>{t('import_modal.match_rate', { rate: Math.round(item.confidence * 100) })}</span>
                         </span>
+                        {tier === 'low' && (
+                          <span style={{ fontSize: 'var(--font-xs)', color: 'var(--status-warning)' }}>
+                            {t('import_modal.low_confidence_hint')}
+                          </span>
+                        )}
                       </div>
+
+                      {(detectedName || publisher || reasons.length > 0) && (
+                        <div
+                          style={{
+                            fontSize: 'var(--font-sm)',
+                            color: 'var(--text-secondary)',
+                            marginTop: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          {detectedName && <span>{t('import_modal.detected_name', { name: detectedName })}</span>}
+                          {publisher && (
+                            <span style={{ color: 'var(--text-tertiary)' }}>
+                              {t('import_modal.detected_publisher', { publisher })}
+                            </span>
+                          )}
+                          {reasons.map((r) => (
+                            <span
+                              key={r}
+                              data-reason={r}
+                              style={{
+                                fontSize: 'var(--font-xs)',
+                                padding: '1px 6px',
+                                borderRadius: 'var(--radius-xs)',
+                                border: '1px solid var(--border-subtle)',
+                                color: 'var(--text-tertiary)',
+                              }}
+                            >
+                              {t(`import_modal.reasons.${r}`)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
 
                       <div
                         style={{
