@@ -1,10 +1,12 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    // docs/launchpad-repo-kit 是外部数据仓的脚手架，其 node:test 单测由该仓自行运行。
+    exclude: [...configDefaults.exclude, 'docs/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

@@ -1,6 +1,6 @@
 # Issue 06: 外部 `z-store-launchpad` 数据仓脚手架、`launchpad.json` Schema 与结构化投稿 Issue Form
 
-Status: ready-for-agent
+Status: done
 Blocked by: none
 
 ## Summary

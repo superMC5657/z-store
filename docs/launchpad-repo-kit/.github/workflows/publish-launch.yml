@@ -1,0 +1,59 @@
+name: Publish Launchpad launch
+
+# 维护者打准入标签 → 复检 → 置顶坑位保护 → 复用或创建 Discussion → 写 launchpad.json →
+# 推送 main → 回复传播物料包并关闭 Issue。所有写 launchpad.json 的工作流共享同一并发组串行执行。
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  discussions: write
+
+concurrency:
+  group: launchpad-json-write
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      contains(fromJSON('["approved","pinned-7d","pinned-14d","pinned-30d","featured-7d"]'), github.event.label.name) &&
+      contains(github.event.issue.labels.*.name, 'launchpad-submission')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      LABEL: ${{ github.event.label.name }}
+      SENDER: ${{ github.event.sender.login }}
+      REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RESULT_FILE: ${{ runner.temp }}/publish-result.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Sync latest manifest
+        run: git pull --rebase origin main
+      - name: Prepare launch
+        run: node scripts/publish-launch.mjs prepare --result "$RESULT_FILE"
+      - name: Validate manifest
+        run: node scripts/validate-launchpad.mjs
+      - name: Commit and push
+        run: |
+          if git diff --quiet -- launchpad.json; then
+            echo "launchpad.json 无变更，跳过提交"
+            exit 0
+          fi
+          git config user.name "zstore-launchpad-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add launchpad.json
+          git commit -m "launch: issue #$ISSUE_NUMBER ($LABEL)"
+          git push origin HEAD:main
+      - name: Announce
+        run: node scripts/publish-launch.mjs announce --result "$RESULT_FILE"

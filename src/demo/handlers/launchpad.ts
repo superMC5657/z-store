@@ -36,19 +36,19 @@ interface DemoSeed {
 const SPOTLIGHT: DemoSeed[] = [
   {
     id: 'acme/hyper-term', name: 'HyperTerm', description: 'GPU 加速的跨平台终端', description_en: 'GPU-accelerated cross-platform terminal',
-    category: 'dev', category_name: '开发工具', license: 'MIT', version: 'v0.4.2', platforms: ['windows', 'macos', 'linux'],
+    category: 'dev', category_name: '开发编程', license: 'MIT', version: 'v0.4.2', platforms: ['windows', 'macos', 'linux'],
     stars: 420, delta: 135, note: '重写了 WebGPU 渲染管线，万行滚动依旧丝滑。', note_en: 'Rewrote the WebGPU renderer — 10k-line scrollback stays silky.',
     daysAgo: 3, number: 101, comments: 18, upvotes: 64,
   },
   {
     id: 'linus-dev/noteflow', name: 'NoteFlow', description: '纯本地双向链接笔记', description_en: 'Local-first bidirectional note taking',
-    category: 'office', category_name: '办公效率', license: 'GPL-3.0', version: 'v1.1.0', platforms: ['windows', 'linux'],
+    category: 'office', category_name: '办公协同', license: 'GPL-3.0', version: 'v1.1.0', platforms: ['windows', 'linux'],
     stars: 180, delta: 42, note: '纯本地双向链接笔记，数据永远只在你的磁盘上。', note_en: 'Local-first linked notes — your data never leaves your disk.',
     daysAgo: 2, number: 102, comments: 9, upvotes: 29,
   },
   {
     id: 'codeberg:pixel-forge/palette', name: 'Palette', forge: 'codeberg', description: '为像素画师打造的调色板管理器', description_en: 'Palette manager for pixel artists',
-    category: 'graphics', category_name: '图形设计', license: 'MPL-2.0', version: 'v2.0.0', platforms: ['windows', 'macos', 'linux'],
+    category: 'graphics', category_name: '图形创作', license: 'MPL-2.0', version: 'v2.0.0', platforms: ['windows', 'macos', 'linux'],
     stars: 96, delta: 21, note: '一键从任意图片提取调色板并导出到 Aseprite。', note_en: 'Extract palettes from any image and export straight to Aseprite.',
     daysAgo: 5, number: 103, comments: 4, upvotes: 17,
   },
@@ -57,7 +57,7 @@ const SPOTLIGHT: DemoSeed[] = [
 const RECENT: DemoSeed[] = [
   {
     id: 'quietbyte/clipnest', name: 'ClipNest', description: '剪贴板历史与片段管理', description_en: 'Clipboard history and snippets',
-    category: 'system', category_name: '系统工具', license: 'Apache-2.0', version: 'v0.9.1', platforms: ['windows', 'macos'],
+    category: 'system', category_name: '系统实用', license: 'Apache-2.0', version: 'v0.9.1', platforms: ['windows', 'macos'],
     stars: 75, delta: 30, note: '支持正则搜索的剪贴板历史，零联网。', note_en: 'Clipboard history with regex search, fully offline.',
     daysAgo: 1, number: 104, comments: 3, upvotes: 12,
   },
@@ -75,19 +75,19 @@ const RECENT: DemoSeed[] = [
   },
   {
     id: 'sora-labs/beatgrid', name: 'BeatGrid', description: '本地音乐库 BPM 分析与整理', description_en: 'BPM analysis for local music libraries',
-    category: 'media', category_name: '影音娱乐', license: 'MIT', version: 'v0.2.3', platforms: ['windows', 'macos', 'linux'],
+    category: 'media', category_name: '影音播放', license: 'MIT', version: 'v0.2.3', platforms: ['windows', 'macos', 'linux'],
     stars: 128, delta: 64, note: '为 DJ 准备的本地曲库 BPM 与调性批量分析。', note_en: 'Batch BPM and key analysis for DJs’ local libraries.',
     daysAgo: 8, number: 107, comments: 11, upvotes: 25,
   },
   {
     id: 'vaultwise/keyring-lite', name: 'Keyring Lite', description: '离线 TOTP 两步验证器', description_en: 'Offline TOTP authenticator',
-    category: 'security', category_name: '安全隐私', license: 'BSD-3-Clause', version: 'v1.0.0', platforms: ['windows', 'macos', 'linux', 'ios'],
+    category: 'security', category_name: '安全加密', license: 'BSD-3-Clause', version: 'v1.0.0', platforms: ['windows', 'macos', 'linux', 'ios'],
     stars: 260, delta: 4, note: '离线 TOTP 验证器，加密备份到你自己的存储。', note_en: 'Offline TOTP with encrypted backups to your own storage.',
     daysAgo: 12, number: 108, comments: 2, upvotes: 6,
   },
   {
     id: 'tinyrogue/dungeon-dash', name: 'Dungeon Dash', description: '像素风 Roguelike 小游戏', description_en: 'Pixel-art roguelike',
-    category: 'games', category_name: '游戏娱乐', license: 'GPL-3.0', version: 'v0.1.0', platforms: ['windows', 'linux'],
+    category: 'games', category_name: '休闲游戏', license: 'GPL-3.0', version: 'v0.1.0', platforms: ['windows', 'linux'],
     stars: 33, delta: 15, note: '一局五分钟的像素地牢冒险，关卡全部程序生成。', note_en: 'Five-minute pixel dungeon runs with procedural levels.',
     daysAgo: 0, number: 109, comments: 5, upvotes: 14,
   },

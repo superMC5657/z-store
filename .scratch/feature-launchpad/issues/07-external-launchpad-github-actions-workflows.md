@@ -1,6 +1,6 @@
 # Issue 07: 外部 `z-store-launchpad` 自动预审、打标一键上架与每日置顶过期降级 GitHub Actions 工作流
 
-Status: ready-for-agent
+Status: done
 Blocked by: 06
 
 ## Summary

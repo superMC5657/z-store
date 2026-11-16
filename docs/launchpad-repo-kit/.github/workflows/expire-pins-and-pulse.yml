@@ -1,0 +1,44 @@
+name: Expire pins and refresh pulse
+
+# 每日撤下到期置顶并刷新 Star / 讨论热度与 7 日涨星；仅在实质变化时提交一次。
+
+on:
+  schedule:
+    - cron: '15 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: launchpad-json-write
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Refresh manifest
+        id: refresh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/refresh-pulse-and-pins.mjs
+      - name: Validate manifest
+        run: node scripts/validate-launchpad.mjs
+      - name: Commit and push
+        if: steps.refresh.outputs.changed == 'true'
+        run: |
+          git config user.name "zstore-launchpad-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add launchpad.json state/stars-history.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "chore: expire pins and refresh pulse"
+          git pull --rebase origin main
+          git push origin HEAD:main

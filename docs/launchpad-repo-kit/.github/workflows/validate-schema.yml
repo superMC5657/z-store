@@ -1,0 +1,25 @@
+name: Validate schema
+
+# PR / Push 清单格式门禁：launchpad.json 校验 + 全部脚本单测。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate launchpad.json
+        run: node scripts/validate-launchpad.mjs
+      - name: Script tests
+        run: node --test scripts/*.test.mjs

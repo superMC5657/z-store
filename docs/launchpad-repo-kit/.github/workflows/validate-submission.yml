@@ -1,0 +1,34 @@
+name: Validate Launchpad submission
+
+# 投稿自动体检：仓库公开 / 非归档 / OSI 协议 / Release 安装包 → 幂等预览评论 + validated / needs-changes 标签。
+# Issue 正文只经环境变量传给脚本，绝不插值进 shell。
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: launchpad-validate-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    if: contains(github.event.issue.labels.*.name, 'launchpad-submission') && github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify submission
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-submission.mjs --post

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/superMC5657/z-store-launchpad/main/schema/launchpad.schema.json",
+  "title": "ZStore Launchpad manifest",
+  "description": "开源广场静态清单（version 1）。跨字段不变量（id 推导、pinned 引用、OSI 协议名单）由 scripts/validate-launchpad.mjs 校验。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "generated_at", "discussions_repo", "pinned", "items"],
+  "properties": {
+    "version": { "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "discussions_repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+    "pinned": {
+      "type": "array",
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/pin" }
+    },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "pin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pin_until", "pin_tier", "pin_order"],
+      "properties": {
+        "id": { "type": "string" },
+        "pin_until": { "type": "string", "format": "date-time" },
+        "pin_tier": { "enum": ["sponsor", "featured"] },
+        "pin_order": { "type": "integer", "minimum": 1, "maximum": 4 }
+      }
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "name", "owner", "repo", "forge", "forge_host", "icon", "icon_bg", "description",
+        "maker_note", "maker", "category", "category_name", "license", "latest_version", "platforms",
+        "stars", "stars_7d_delta", "forks", "launched_at", "discussion_repo", "discussion_number",
+        "discussion_url", "discussion_comments_count", "discussion_upvotes"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^([a-z0-9_.-]+/[a-z0-9_.-]+|(codeberg|gitea|gitlab|github):([a-z0-9.-]+/)?[a-z0-9_.-]+/[a-z0-9_.-]+)$"
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "owner": { "type": "string", "minLength": 1 },
+        "repo": { "type": "string", "minLength": 1 },
+        "forge": { "enum": ["github", "codeberg", "gitea", "gitlab"] },
+        "forge_host": { "type": "string", "minLength": 1 },
+        "icon": { "type": "string", "pattern": "^(|https://\\S+)$" },
+        "icon_bg": { "type": "string" },
+        "description": { "type": "string", "minLength": 1 },
+        "description_en": { "type": "string" },
+        "maker_note": { "type": "string", "minLength": 1, "maxLength": 140, "pattern": "^[^\\r\\n]*$" },
+        "maker_note_en": { "type": "string" },
+        "maker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["login", "avatar_url", "html_url"],
+          "properties": {
+            "login": { "type": "string", "minLength": 1 },
+            "name": { "type": "string" },
+            "avatar_url": { "type": "string", "pattern": "^https://" },
+            "html_url": { "type": "string", "pattern": "^https://" }
+          }
+        },
+        "category": { "enum": ["dev", "system", "network", "media", "security", "graphics", "office", "reading", "ops", "games"] },
+        "category_name": { "type": "string" },
+        "license": { "type": "string", "minLength": 1 },
+        "latest_version": { "type": "string", "minLength": 1 },
+        "latest_release_at": { "type": "string", "format": "date-time" },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["windows", "macos", "linux", "android", "ios"] }
+        },
+        "homepage": { "type": "string" },
+        "stars": { "$ref": "#/$defs/count" },
+        "stars_7d_delta": { "$ref": "#/$defs/count" },
+        "forks": { "$ref": "#/$defs/count" },
+        "launched_at": { "type": "string", "format": "date-time" },
+        "discussion_repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "discussion_number": { "type": "integer", "minimum": 1 },
+        "discussion_node_id": { "type": "string" },
+        "discussion_url": { "type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/discussions/\\d+$" },
+        "discussion_comments_count": { "$ref": "#/$defs/count" },
+        "discussion_upvotes": { "$ref": "#/$defs/count" }
+      }
+    }
+  }
+}
