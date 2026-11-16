@@ -19,6 +19,8 @@ pub struct ProjectConfig {
     pub catalog: CatalogConfig,
     #[serde(default)]
     pub license_gate: LicenseGateConfig,
+    #[serde(default)]
+    pub launchpad: LaunchpadConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -238,6 +240,48 @@ impl Default for CatalogConfig {
         Self {
             local_path: default_local_path(),
             default_source_url: default_source_url(),
+        }
+    }
+}
+
+/// 开源广场（Launchpad）独立静态清单与投稿入口：与 `[catalog]` 物理隔离，
+/// 清单只进 `launchpad_feed_cache`，永不写入 `catalog_apps` / `custom_apps`。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LaunchpadConfig {
+    #[serde(default = "default_launchpad_source_url")]
+    pub default_source_url: String,
+    #[serde(default = "default_launchpad_discussions_repo")]
+    pub discussions_repo: String,
+    #[serde(default = "default_launchpad_submit_issue_url")]
+    pub submit_issue_url: String,
+    #[serde(default = "default_launchpad_submit_web_url")]
+    pub submit_web_url: String,
+}
+
+fn default_launchpad_source_url() -> String {
+    "https://raw.githubusercontent.com/superMC5657/z-store-launchpad/main/launchpad.json".to_string()
+}
+
+fn default_launchpad_discussions_repo() -> String {
+    "superMC5657/z-store-launchpad".to_string()
+}
+
+fn default_launchpad_submit_issue_url() -> String {
+    "https://github.com/superMC5657/z-store-launchpad/issues/new?template=submit-launchpad.yml"
+        .to_string()
+}
+
+fn default_launchpad_submit_web_url() -> String {
+    "https://z-store.org/launchpad/submit".to_string()
+}
+
+impl Default for LaunchpadConfig {
+    fn default() -> Self {
+        Self {
+            default_source_url: default_launchpad_source_url(),
+            discussions_repo: default_launchpad_discussions_repo(),
+            submit_issue_url: default_launchpad_submit_issue_url(),
+            submit_web_url: default_launchpad_submit_web_url(),
         }
     }
 }
@@ -563,6 +607,7 @@ impl Default for ProjectConfig {
                 oauth: OauthConfig::default(),
                 catalog: CatalogConfig::default(),
                 license_gate: LicenseGateConfig::default(),
+                launchpad: LaunchpadConfig::default(),
             }
         });
         if let Err(msg) = validate_embedded_license_gate(&cfg.license_gate) {
@@ -942,6 +987,7 @@ mod tests {
             oauth: OauthConfig::default(),
             catalog: CatalogConfig::default(),
             license_gate: LicenseGateConfig::default(),
+            launchpad: LaunchpadConfig::default(),
         };
         assert_eq!(baseline.runtime.strict_errors, cfg!(debug_assertions));
         assert_eq!(embedded.cache, baseline.cache);
@@ -950,6 +996,7 @@ mod tests {
         assert_eq!(embedded.oauth, baseline.oauth);
         assert_eq!(embedded.catalog, baseline.catalog);
         assert_eq!(embedded.license_gate, baseline.license_gate);
+        assert_eq!(embedded.launchpad, baseline.launchpad);
     }
 
     #[test]
@@ -965,6 +1012,7 @@ mod tests {
             "oauth",
             "catalog",
             "license_gate",
+            "launchpad",
         ] {
             assert!(
                 doc.get(section).is_some_and(|v| v.is_table()),

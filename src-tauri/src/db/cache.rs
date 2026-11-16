@@ -65,6 +65,7 @@ impl Database {
         let _ = self.purge_cataloged_repo_cards();
         let _ = self.prune_repo_card_cache(super::REPO_CARD_CACHE_MAX_ROWS);
         let _ = self.prune_search_list_cache(now_secs());
+        let _ = self.prune_launchpad_feed_cache(now_secs());
         Ok((etag_deleted, detail_deleted))
     }
 

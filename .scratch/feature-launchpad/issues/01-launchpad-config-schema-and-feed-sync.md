@@ -1,6 +1,6 @@
 # Issue 01: 开源广场配置段、SQLite 隔离快照表与 `get_launchpad_feed` 同步引擎
 
-Status: ready-for-agent
+Status: done
 Blocked by: none
 
 ## Summary

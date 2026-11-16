@@ -8,6 +8,7 @@ pub mod forge;
 pub mod github;
 pub mod icons;
 pub mod installer;
+pub mod launchpad;
 pub mod log_support;
 pub mod mirror;
 pub mod models;

@@ -60,6 +60,9 @@ fn select_gen_lane(ctx: &crate::icons::IconFetchCtx) -> (&'static AtomicU64, u64
         crate::icons::IconFetchCtx::Search { gen, .. } => (&SEARCH_GEN, *gen),
         crate::icons::IconFetchCtx::Trend { gen, .. } => (&BOARD_GEN, *gen),
         crate::icons::IconFetchCtx::Starred { gen } => (&STARRED_GEN, *gen),
+        crate::icons::IconFetchCtx::Launchpad { gen } => {
+            (&crate::commands::launchpad::LAUNCHPAD_ICON_GEN, *gen)
+        }
     }
 }
 
@@ -152,7 +155,7 @@ fn merge_stream_hit(
 /// `icons::fetch_icons_stream` 的命中回调（搜索/趋势同一口）。
 /// 世代防串由 `save_and_emit` 内合并新鲜度 + emit 前检查执行（计数器经 `ctx` 选择）。
 /// `via`=live|m2 透传（core探测一律live，M2回填走m2不占level）。
-async fn emit_icon_job(
+pub(crate) async fn emit_icon_job(
     handle: AppHandle,
     job: crate::icons::IconFetchJob,
     url: String,

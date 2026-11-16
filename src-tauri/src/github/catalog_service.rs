@@ -216,7 +216,7 @@ impl CatalogService {
     }
 
     /// 清单 Client 构造（无 Token，独立连接池参数）；`extra_hosts` 追加 per-client `no_proxy`。
-    fn build_catalog_client(
+    pub(crate) fn build_catalog_client(
         snap: &crate::proxy::ProxySnapshot,
         extra_hosts: &[String],
     ) -> Result<reqwest::Client, String> {

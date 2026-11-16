@@ -48,3 +48,13 @@ default_source_url = "https://raw.githubusercontent.com/superMC5657/z-store-cata
 enabled = true
 # 许可名单（默认与 OSI 全量名单同序同值；可配子集收窄范围，归一口径与校验侧一致）
 allowed = ["MIT", "ISC", "APACHE-2.0", "APACHE-1.1", "GPL-2.0", "GPL-2.0-ONLY", "GPL-2.0-OR-LATER", "GPL-3.0", "GPL-3.0-ONLY", "GPL-3.0-OR-LATER", "LGPL-2.0", "LGPL-2.0-ONLY", "LGPL-2.0-OR-LATER", "LGPL-2.1", "LGPL-2.1-ONLY", "LGPL-2.1-OR-LATER", "LGPL-3.0", "LGPL-3.0-ONLY", "LGPL-3.0-OR-LATER", "AGPL-3.0", "AGPL-3.0-ONLY", "AGPL-3.0-OR-LATER", "BSD-2-CLAUSE", "BSD-3-CLAUSE", "MPL-2.0", "MPL-1.1", "MPL-1.0", "MS-PL", "MS-RL", "UNLICENSE", "ZLIB", "ARTISTIC-2.0", "EPL-1.0", "EPL-2.0", "CDDL-1.0", "OSL-3.0", "AFL-3.0"]
+
+[launchpad]
+# 开源广场静态清单默认同步地址（指向独立数据仓 z-store-launchpad）
+default_source_url = "https://raw.githubusercontent.com/superMC5657/z-store-launchpad/main/launchpad.json"
+# 集中托管新品社区讨论的默认 GitHub 仓库坐标（owner/repo）
+discussions_repo = "superMC5657/z-store-launchpad"
+# 作者提交作品预填 GitHub Issue Form 地址
+submit_issue_url = "https://github.com/superMC5657/z-store-launchpad/issues/new?template=submit-launchpad.yml"
+# 官网开源广场投稿说明页地址
+submit_web_url = "https://z-store.org/launchpad/submit"

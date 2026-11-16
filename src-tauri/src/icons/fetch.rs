@@ -74,14 +74,15 @@ impl RepoCoord {
     }
 }
 
-/// 补探上下文：搜索 `Search`、趋势 `Trend` 与收藏页 Star 列表 `Starred` 共用
-/// （世代防串由调用方按 `gen` 执行，三者各有独立世代计数器）。
+/// 补探上下文：搜索 `Search`、趋势 `Trend`、收藏页 Star 列表 `Starred` 与开源广场 `Launchpad` 共用
+/// （世代防串由调用方按 `gen` 执行，各有独立世代计数器）。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum IconFetchCtx {
     Search { search_id: String, gen: u64 },
     Trend { board: String, gen: u64 },
     Starred { gen: u64 },
+    Launchpad { gen: u64 },
 }
 
 /// 图标就绪事件载荷（`zstore://icon-ready`）。

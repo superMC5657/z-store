@@ -7,6 +7,7 @@ pub mod details;
 pub mod etag;
 pub mod history;
 pub mod icon_cycle;
+pub mod launchpad;
 pub mod repo_cards;
 pub mod rules;
 pub mod schema;

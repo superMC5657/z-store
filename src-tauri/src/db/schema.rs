@@ -3,7 +3,7 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 7;
+const CURRENT_USER_VERSION: i64 = 8;
 
 /// 判定历史 `["windows"]` 记录是否属于 macOS 包体错判（`app_details` 缓存含 `.app.zip`/`.app.tar.*` 等 macOS 资产，
 /// 或 `identifiers` 明确配置了 `macos` 标识且无 `windows` 标识），命中则就地纠正 `platforms`。
@@ -306,6 +306,14 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_search_list_cache_query ON search_list_cache(norm_query);
 
+            -- 开源广场静态清单二级快照（与 catalog_apps / custom_apps 物理隔离，见 ADR-0029）
+            CREATE TABLE IF NOT EXISTS launchpad_feed_cache (
+                source_url TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL DEFAULT 0,
+                cached_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS asset_cache (
                 url TEXT PRIMARY KEY,
                 hash TEXT NOT NULL,
@@ -445,6 +453,7 @@ impl Database {
                 4 => self.migrate_v4_to_v5()?,
                 5 => self.migrate_v5_to_v6()?,
                 6 => self.migrate_v6_to_v7()?,
+                7 => self.migrate_v7_to_v8()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -522,6 +531,18 @@ impl Database {
         self.conn.execute_batch(
             "DELETE FROM trend_board_cache;
              DELETE FROM starred_feed_cache;",
+        )
+    }
+
+    /// v7 → v8：开源广场清单独立快照表 `launchpad_feed_cache`（幂等建表，基底 DDL 已同步声明）。
+    fn migrate_v7_to_v8(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS launchpad_feed_cache (
+                source_url TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                payload_bytes INTEGER NOT NULL DEFAULT 0,
+                cached_at INTEGER NOT NULL
+            );",
         )
     }
 
