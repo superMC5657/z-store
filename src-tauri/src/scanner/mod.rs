@@ -1,6 +1,8 @@
 pub mod display_icon;
 pub mod executable;
 pub mod lnk_target;
+#[cfg(any(target_os = "macos", test))]
+pub mod macos;
 pub mod matcher;
 pub mod registry;
 pub mod types;
@@ -24,9 +26,12 @@ impl AppScanner {
         {
             Self::scan_linux_desktop()
         }
-        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+        #[cfg(target_os = "macos")]
         {
-            // 预留 macOS 等平台
+            Self::scan_macos_apps()
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+        {
             Vec::new()
         }
     }

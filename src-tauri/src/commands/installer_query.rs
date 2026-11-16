@@ -73,12 +73,19 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
         }
 
         // 自愈已导入本地应用的真实安装时间（导入路径只盖当前时刻，此处按可执行文件反查纠正）
+        // Windows 复用本轮已枚举的注册表条目，不按应用逐个重扫注册表
         if app.install_method == "system_import" {
-            if let Some(real_time) = crate::scanner::AppScanner::resolve_app_installed_at(
-                &app.app_name,
-                &app.app_id,
-                &app.install_path,
-            ) {
+            let detected = if cfg!(target_os = "windows") {
+                let entries = registry_entries
+                    .get_or_insert_with(crate::scanner::AppScanner::scan_system_apps);
+                crate::scanner::AppScanner::detect_installed_at_from_entries(
+                    entries,
+                    &app.install_path,
+                )
+            } else {
+                crate::scanner::AppScanner::detect_path_installed_at(&app.install_path)
+            };
+            if let Some(real_time) = detected {
                 if real_time != app.installed_at && real_time > 0 {
                     app.installed_at = real_time;
                     app_changed = true;

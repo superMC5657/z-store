@@ -1,6 +1,6 @@
 # Issue 02: Multi-Source System Discovery (Windows Scoop/Shortcuts/Registry Merge, Linux Real Package Versions, macOS `.app` Bundles) & Registry Snapshot Reuse
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 ## Summary

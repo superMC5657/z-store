@@ -34,7 +34,7 @@ pub fn same_version(a: &str, b: &str) -> bool {
 }
 
 /// 比较、匹配路径用的形态：统一分隔符、去引号与末尾分隔符、忽略大小写。
-fn normalize_path(raw: &str) -> String {
+pub(crate) fn normalize_path(raw: &str) -> String {
     unquote_path(raw)
         .replace('/', "\\")
         .trim_end_matches('\\')
@@ -144,6 +144,17 @@ impl AppScanner {
             })
             .max_by_key(|(rank, _)| *rank)
             .map(|(_, e)| e)
+    }
+
+    /// 已导入应用的安装时间：取已枚举注册表条目中所属条目的 `installed_at`，
+    /// 找不到时回退主程序/安装目录的文件系统时间（不重新枚举注册表）。
+    pub fn detect_installed_at_from_entries(
+        entries: &[ScannedRawApp],
+        install_path: &str,
+    ) -> Option<i64> {
+        Self::find_registry_entry_for_path(entries, install_path)
+            .and_then(|e| e.installed_at)
+            .or_else(|| Self::detect_path_installed_at(install_path))
     }
 
     /// 已导入应用的当前本地版本：须先找到其注册表条目（与导入同源），找不到则返回 None 保持原值，

@@ -99,6 +99,7 @@ fn test_match_apps_high_confidence() {
             display_icon: Some(r"C:\Program Files\VideoLAN\VLC\vlc.exe,0".to_string()),
             uninstall_string: Some(r"C:\Program Files\VideoLAN\VLC\uninstall.exe".to_string()),
             installed_at: None,
+            ..Default::default()
         },
         ScannedRawApp {
             display_name: "OBS Studio".to_string(),
@@ -108,6 +109,7 @@ fn test_match_apps_high_confidence() {
             display_icon: None,
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
     ];
 
@@ -140,6 +142,7 @@ fn test_match_apps_unrelated_filtered() {
         display_icon: None,
         uninstall_string: None,
         installed_at: None,
+        ..Default::default()
     }];
 
     let results = AppScanner::match_apps(&scanned, &catalog);
@@ -185,6 +188,7 @@ fn test_match_expanded_apps_from_catalog() {
             display_icon: Some(r#""E:\Program Files\qBittorrent\qbittorrent.exe",0"#.to_string()),
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
         ScannedRawApp {
             display_name: "Motrix 1.8.19".to_string(),
@@ -194,6 +198,7 @@ fn test_match_expanded_apps_from_catalog() {
             display_icon: Some(r#"E:\Program Files\Motrix\Motrix.exe,0"#.to_string()),
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
         ScannedRawApp {
             display_name: "Playnite".to_string(),
@@ -205,6 +210,7 @@ fn test_match_expanded_apps_from_catalog() {
             ),
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
         ScannedRawApp {
             display_name: "Telegram Desktop".to_string(),
@@ -214,6 +220,7 @@ fn test_match_expanded_apps_from_catalog() {
             display_icon: Some(r#"E:\Program Files\Telegram Desktop\Telegram.exe"#.to_string()),
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
     ];
 
@@ -688,6 +695,7 @@ fn test_match_unmanaged_filters_managed_with_canonical_healing_and_no_fabricatio
             display_icon: None,
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
         ScannedRawApp {
             display_name: "RustDesk".to_string(),
@@ -697,6 +705,7 @@ fn test_match_unmanaged_filters_managed_with_canonical_healing_and_no_fabricatio
             display_icon: None,
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
         ScannedRawApp {
             display_name: " utterly-unrelated-thing ".to_string(),
@@ -706,6 +715,7 @@ fn test_match_unmanaged_filters_managed_with_canonical_healing_and_no_fabricatio
             display_icon: None,
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
     ];
     // 大小写漂移行 `RustDesk/RustDesk` 经 canonical 归一识别为已纳管并剔除
@@ -726,6 +736,7 @@ fn test_import_path_prefers_executable_then_install_location() {
             display_icon: Some("/opt/icons/wt.ico".to_string()),
             uninstall_string: None,
             installed_at: None,
+            ..Default::default()
         },
         catalog_id: "microsoft/terminal".to_string(),
         name: "Windows Terminal".to_string(),
@@ -778,6 +789,7 @@ fn registry_entry(version: &str, location: Option<&str>, icon: Option<&str>) -> 
         display_icon: icon.map(str::to_string),
         uninstall_string: None,
         installed_at: None,
+        ..Default::default()
     }
 }
 
@@ -878,6 +890,205 @@ fn test_read_exe_version_reads_system_executable() {
     );
     assert_eq!(
         AppScanner::read_exe_version(r"Z:\definitely\missing.exe"),
+        None
+    );
+}
+
+#[test]
+fn desktop_entry_ignores_spec_version_and_action_sections() {
+    use super::executable::parse_desktop_entry_content;
+    let content = "[Desktop Entry]\nVersion=1.0\nType=Application\nName=Motrix\nX-AppImage-Version=2.4.1\nExec=/opt/Motrix/motrix %U\nIcon=motrix\n\n[Desktop Action new-window]\nName=New Window\nExec=/usr/bin/other --new\n";
+    let parsed = parse_desktop_entry_content("motrix", content).expect("parsed");
+    assert_eq!(parsed.name, "Motrix");
+    assert_eq!(parsed.version, "2.4.1");
+    assert_eq!(parsed.exec_bin.as_deref(), Some("/opt/Motrix/motrix"));
+
+    let no_appimage = "[Desktop Entry]\nVersion=1.0\nType=Application\nName=VLC\n";
+    assert_eq!(
+        parse_desktop_entry_content("org.videolan.VLC", no_appimage)
+            .unwrap()
+            .version,
+        ""
+    );
+    assert!(
+        parse_desktop_entry_content("x", "[Desktop Entry]\nName=X\nNoDisplay=true\n").is_none()
+    );
+    assert!(parse_desktop_entry_content("x", "[Desktop Entry]\nName=X\nType=Link\n").is_none());
+}
+
+#[test]
+fn distro_package_versions_reduce_to_upstream() {
+    use super::executable::{
+        clean_distro_package_version as clean, parse_appimage_stem, parse_dpkg_search_output,
+        parse_dpkg_versions,
+    };
+    assert_eq!(clean("1:3.0.21-1build2"), "3.0.21");
+    assert_eq!(clean("3.0.21-1ubuntu2"), "3.0.21");
+    assert_eq!(clean("2.40.0-1.fc40"), "2.40.0");
+    assert_eq!(clean("1.2.3+dfsg-2deb12u1"), "1.2.3");
+    assert_eq!(clean("5.4"), "5.4");
+
+    let owners = parse_dpkg_search_output(
+        "vlc-bin:amd64: /usr/bin/vlc\ndiversion by x from: /usr/bin/y\ngit: /usr/bin/git\n",
+    );
+    assert_eq!(
+        owners.get("/usr/bin/vlc").map(String::as_str),
+        Some("vlc-bin")
+    );
+    assert_eq!(owners.get("/usr/bin/git").map(String::as_str), Some("git"));
+    let versions = parse_dpkg_versions("vlc-bin\t3.0.21-1\ngit\t1:2.43.0-1ubuntu7\n");
+    assert_eq!(
+        versions.get("git").map(String::as_str),
+        Some("1:2.43.0-1ubuntu7")
+    );
+
+    assert_eq!(
+        parse_appimage_stem("Motrix-1.8.19-x86_64"),
+        ("Motrix".to_string(), "1.8.19".to_string())
+    );
+    assert_eq!(
+        parse_appimage_stem("Obsidian_v1.6.7_arm64"),
+        ("Obsidian".to_string(), "1.6.7".to_string())
+    );
+    assert_eq!(
+        parse_appimage_stem("tool"),
+        ("tool".to_string(), String::new())
+    );
+}
+
+#[test]
+fn scoop_layout_produces_scoop_entries() {
+    use super::registry::scan_scoop_apps_in_dir;
+    let temp_dir = temp_test_dir(".test_scoop_");
+    let apps = temp_dir.path().join("apps");
+    let current = apps.join("ripgrep").join("current");
+    std::fs::create_dir_all(&current).unwrap();
+    std::fs::write(current.join("rg.exe"), b"dummy").unwrap();
+    std::fs::write(
+        current.join("manifest.json"),
+        r#"{"version":"14.1.0","homepage":"https://github.com/BurntSushi/ripgrep","bin":"rg.exe"}"#,
+    )
+    .unwrap();
+    let gui = apps.join("notepadplusplus").join("current");
+    std::fs::create_dir_all(&gui).unwrap();
+    std::fs::write(gui.join("notepad++.exe"), b"dummy").unwrap();
+    std::fs::write(
+        gui.join("manifest.json"),
+        r#"{"version":"8.6.9","bin":[["notepad++.exe","npp"]],"shortcuts":[["notepad++.exe","Notepad++"]]}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(apps.join("scoop").join("current")).unwrap();
+
+    let found = scan_scoop_apps_in_dir(&apps);
+    assert_eq!(found.len(), 2);
+    let npp = &found[0];
+    assert_eq!(npp.display_name, "Notepad++");
+    assert_eq!(npp.registry_key.as_deref(), Some("notepadplusplus"));
+    let rg = &found[1];
+    assert_eq!(rg.display_name, "ripgrep");
+    assert_eq!(rg.display_version, "14.1.0");
+    assert_eq!(rg.source_kind.as_deref(), Some("scoop"));
+    assert!(rg.display_icon.as_deref().unwrap().ends_with("rg.exe"));
+    assert!(rg.install_location.as_deref().unwrap().ends_with("current"));
+}
+
+#[test]
+fn wix_components_and_uninstall_strings_stay_on_their_own_app() {
+    use super::registry::{match_wix_component_location, uninstall_string_parent_dir};
+    let mut comps = std::collections::BTreeMap::new();
+    comps.insert("core".to_string(), r"C:\Core".to_string());
+    comps.insert("sdk".to_string(), r"C:\SDK".to_string());
+    comps.insert(
+        "wireshark core".to_string(),
+        r"C:\Program Files\Wireshark".to_string(),
+    );
+    assert_eq!(match_wix_component_location("Core Temp", &comps), None);
+    assert_eq!(match_wix_component_location("SDK Tools", &comps), None);
+    assert_eq!(match_wix_component_location("PicGo", &comps), None);
+    assert_eq!(
+        match_wix_component_location("Wireshark", &comps).as_deref(),
+        Some(r"C:\Program Files\Wireshark")
+    );
+    assert_eq!(
+        match_wix_component_location("core", &comps).as_deref(),
+        Some(r"C:\Core")
+    );
+
+    assert_eq!(
+        uninstall_string_parent_dir(r#""D:\Apps\PicGo\Uninstall PicGo.exe" /allusers"#).as_deref(),
+        Some(r"D:\Apps\PicGo")
+    );
+    assert_eq!(
+        uninstall_string_parent_dir(r"C:\Program Files\Foo Bar\uninst.exe /S").as_deref(),
+        Some(r"C:\Program Files\Foo Bar")
+    );
+    assert_eq!(
+        uninstall_string_parent_dir("MsiExec.exe /X{12345678-1234-1234-1234-123456789012}"),
+        None
+    );
+    assert_eq!(
+        uninstall_string_parent_dir(r"C:\Windows\System32\rundll32.exe foo.dll,Uninstall"),
+        None
+    );
+    assert_eq!(
+        uninstall_string_parent_dir(r"C:\Program Files\uninst.exe"),
+        None
+    );
+    assert_eq!(uninstall_string_parent_dir(r"C:\uninst.exe"), None);
+}
+
+#[test]
+fn registry_key_labels_skip_guids_and_inno_suffix() {
+    use super::registry::registry_key_label as label;
+    assert_eq!(label("VSCode_is1").as_deref(), Some("VSCode"));
+    assert_eq!(label("VideoLAN.VLC").as_deref(), Some("VideoLAN.VLC"));
+    assert_eq!(label("{6F320B93-EE3C-4826-85E0-ADF79F8D4C61}"), None);
+    assert_eq!(label("{6F320B93-EE3C-4826-85E0-ADF79F8D4C61}_is1"), None);
+    assert_eq!(label("  "), None);
+}
+
+#[test]
+fn registry_merge_fills_missing_fields_only() {
+    use super::registry::merge_missing_fields;
+    let mut a = ScannedRawApp {
+        display_name: "App".into(),
+        display_version: "1.2".into(),
+        publisher: Some("Org".into()),
+        ..Default::default()
+    };
+    merge_missing_fields(
+        &mut a,
+        ScannedRawApp {
+            display_name: "App".into(),
+            display_version: "1.2".into(),
+            publisher: Some("Other".into()),
+            install_location: Some(r"C:\App".into()),
+            registry_key: Some("App".into()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(a.publisher.as_deref(), Some("Org"));
+    assert_eq!(a.install_location.as_deref(), Some(r"C:\App"));
+    assert_eq!(a.registry_key.as_deref(), Some("App"));
+}
+
+#[test]
+fn installed_at_is_read_from_cached_entries() {
+    let entries = vec![ScannedRawApp {
+        display_name: "Motrix".into(),
+        install_location: Some(r"Z:\definitely\missing\Motrix".into()),
+        installed_at: Some(1_700_000_000),
+        ..Default::default()
+    }];
+    assert_eq!(
+        AppScanner::detect_installed_at_from_entries(
+            &entries,
+            r"Z:\definitely\missing\Motrix\Motrix.exe"
+        ),
+        Some(1_700_000_000)
+    );
+    assert_eq!(
+        AppScanner::detect_installed_at_from_entries(&entries, r"Z:\elsewhere\x.exe"),
         None
     );
 }

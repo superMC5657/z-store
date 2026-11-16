@@ -1,7 +1,7 @@
 use crate::github::CatalogItem;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScannedRawApp {
     pub display_name: String,
     pub display_version: String,
@@ -11,6 +11,13 @@ pub struct ScannedRawApp {
     pub uninstall_string: Option<String>,
     #[serde(default)]
     pub installed_at: Option<i64>,
+    /// 系统侧的应用包标识：注册表卸载子键名（去 `_is1`，GUID 键不记）、Scoop 应用名、
+    /// Linux `.desktop` 文件名、macOS `CFBundleIdentifier`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_key: Option<String>,
+    /// 发现来源：`registry`、`scoop`、`shortcut`、`desktop`、`appimage`、`macos_app`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

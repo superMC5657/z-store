@@ -1,6 +1,8 @@
-use super::AppScanner;
+use super::version::normalize_path;
+use super::{AppScanner, ScanConfig, ScannedRawApp};
+use std::path::Path;
 #[cfg(target_os = "windows")]
-use super::ScannedRawApp;
+use std::path::PathBuf;
 
 /// 解析注册表中的 InstallDate 字符串（常见格式 YYYYMMDD 或 YYYY-MM-DD / YYYY/MM/DD）转换为 Unix 秒时间戳
 pub fn parse_install_date_to_unix(s: &str) -> Option<i64> {
@@ -90,15 +92,370 @@ pub fn get_reg_key_last_write_time(key: &winreg::RegKey) -> Option<i64> {
     None
 }
 
+/// 注册表卸载子键名作为应用包标识：去尾随 `_is1`，纯 `{GUID}` 键名不记。
+pub fn registry_key_label(key_name: &str) -> Option<String> {
+    let trimmed = key_name.trim();
+    let base = if trimmed.to_lowercase().ends_with("_is1") {
+        &trimmed[..trimmed.len() - 4]
+    } else {
+        trimmed
+    };
+    let base = base.trim();
+    if base.is_empty() || (base.starts_with('{') && base.ends_with('}')) {
+        return None;
+    }
+    Some(base.to_string())
+}
+
+/// 从 UninstallString 取出可执行文件路径（引号包裹取引号内；否则截到 `.exe` 末尾；
+/// 再否则截到首个 ` /` 或 ` -` 参数前）。
+fn uninstall_executable(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        return rest.find('"').map(|end| rest[..end].trim().to_string());
+    }
+    let lower = trimmed.to_lowercase();
+    if let Some(idx) = lower.find(".exe") {
+        return Some(trimmed[..idx + 4].to_string());
+    }
+    let cut = [" /", " -"]
+        .iter()
+        .filter_map(|sep| trimmed.find(sep))
+        .min()
+        .unwrap_or(trimmed.len());
+    let exe = trimmed[..cut].trim();
+    (!exe.is_empty()).then(|| exe.to_string())
+}
+
+/// UninstallString 所在目录（纯字符串推导，不触盘）：系统卸载宿主（msiexec、rundll32、
+/// cmd、powershell）、系统目录、缓存目录，以及盘符根与顶层 `Program Files` 一律拒绝。
+pub fn uninstall_string_parent_dir(raw: &str) -> Option<String> {
+    let exe = uninstall_executable(raw)?;
+    let normalized = exe.replace('/', "\\");
+    let lower = normalized.to_lowercase();
+    let file_name = lower.rsplit('\\').next().unwrap_or(&lower);
+    const HOSTS: &[&str] = &[
+        "msiexec",
+        "msiexec.exe",
+        "rundll32",
+        "rundll32.exe",
+        "cmd",
+        "cmd.exe",
+        "powershell",
+        "powershell.exe",
+        "pwsh",
+        "pwsh.exe",
+    ];
+    if HOSTS.contains(&file_name)
+        || lower.contains("\\windows\\system32")
+        || lower.contains("\\windows\\syswow64")
+        || lower.contains("\\windows\\installer")
+        || AppScanner::is_cache_or_temp_directory(std::path::Path::new(&normalized))
+    {
+        return None;
+    }
+    let (parent, _) = normalized.rsplit_once('\\')?;
+    let segments: Vec<&str> = parent.split('\\').filter(|s| !s.is_empty()).collect();
+    let too_shallow = segments.len() <= 1
+        || (segments.len() == 2 && segments[1].to_lowercase().starts_with("program files"));
+    (!too_shallow).then(|| parent.to_string())
+}
+
+/// 由 UninstallString 推导安装目录，且该目录须在磁盘上存在。
+pub fn infer_install_dir_from_uninstall_string(raw: &str) -> Option<String> {
+    uninstall_string_parent_dir(raw).filter(|dir| std::path::Path::new(dir).is_dir())
+}
+
+/// WiX Burn 引导包的安装目录回填：组件名与应用名完全相同，或在词边界上互为前缀
+/// （双方均不短于 6 个字符），短组件名（`Core`、`SDK`）不会串到无关应用。
+pub fn match_wix_component_location(
+    app_name: &str,
+    components: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    let app = app_name.trim().to_lowercase();
+    if app.is_empty() {
+        return None;
+    }
+    if let Some(loc) = components.get(&app) {
+        return Some(loc.clone());
+    }
+    components
+        .iter()
+        .find(|(comp, _)| {
+            comp.chars().count() >= 6
+                && app.chars().count() >= 6
+                && (app.starts_with(&format!("{comp} ")) || comp.starts_with(&format!("{app} ")))
+        })
+        .map(|(_, loc)| loc.clone())
+}
+
+/// 新条目补全已有条目缺失的字段（同名同版本出现在多个注册表根时合并）。
+pub fn merge_missing_fields(existing: &mut ScannedRawApp, incoming: ScannedRawApp) {
+    fn fill<T>(slot: &mut Option<T>, value: Option<T>) {
+        if slot.is_none() {
+            *slot = value;
+        }
+    }
+    fill(&mut existing.publisher, incoming.publisher);
+    fill(&mut existing.install_location, incoming.install_location);
+    fill(&mut existing.display_icon, incoming.display_icon);
+    fill(&mut existing.uninstall_string, incoming.uninstall_string);
+    fill(&mut existing.installed_at, incoming.installed_at);
+    fill(&mut existing.registry_key, incoming.registry_key);
+    fill(&mut existing.source_kind, incoming.source_kind);
+}
+
+/// 目标路径是否已被已有条目覆盖：位于某条目的安装目录内，或等于其 DisplayIcon 主程序。
+pub fn is_path_covered(target: &str, existing: &[ScannedRawApp]) -> bool {
+    let t = normalize_path(target);
+    if t.is_empty() {
+        return false;
+    }
+    existing.iter().any(|e| {
+        let by_loc = e
+            .install_location
+            .as_deref()
+            .map(normalize_path)
+            .filter(|l| !l.is_empty())
+            .is_some_and(|l| t == l || t.starts_with(&format!("{l}\\")));
+        let by_icon = e
+            .display_icon
+            .as_deref()
+            .and_then(AppScanner::clean_display_icon)
+            .is_some_and(|icon| normalize_path(&icon.to_string_lossy()) == t);
+        by_loc || by_icon
+    })
+}
+
+/// Scoop `manifest.json` 中 `bin` / `shortcuts` 字段给出的首个 `.exe` 相对路径。
+fn scoop_manifest_exe(manifest: &serde_json::Value) -> Option<String> {
+    let first_str = |v: &serde_json::Value| -> Option<String> {
+        match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            serde_json::Value::Array(a) => a.first().and_then(|x| x.as_str()).map(str::to_string),
+            _ => None,
+        }
+    };
+    let shortcut = manifest
+        .get("shortcuts")
+        .and_then(|s| s.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(first_str);
+    let bins: Vec<String> = match manifest.get("bin") {
+        Some(serde_json::Value::String(s)) => vec![s.clone()],
+        Some(serde_json::Value::Array(a)) => a.iter().filter_map(first_str).collect(),
+        _ => Vec::new(),
+    };
+    shortcut
+        .chain(bins)
+        .find(|p| p.to_lowercase().ends_with(".exe"))
+}
+
+/// 扫描一个 Scoop `apps` 目录：每个 `<slug>/current/manifest.json` 生成一条记录。
+pub fn scan_scoop_apps_in_dir(apps_dir: &Path) -> Vec<ScannedRawApp> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(apps_dir) else {
+        return out;
+    };
+    let mut slugs: Vec<_> = entries.flatten().collect();
+    slugs.sort_by_key(|e| e.file_name());
+    for entry in slugs {
+        let slug = entry.file_name().to_string_lossy().to_string();
+        if slug.eq_ignore_ascii_case("scoop") {
+            continue;
+        }
+        let current = entry.path().join("current");
+        let Ok(text) = std::fs::read_to_string(current.join("manifest.json")) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let version = manifest
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let display_name = manifest
+            .get("shortcuts")
+            .and_then(|s| s.as_array())
+            .and_then(|a| a.first())
+            .and_then(|s| s.as_array())
+            .and_then(|pair| pair.get(1))
+            .and_then(|l| l.as_str())
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map_or_else(|| slug.clone(), str::to_string);
+        let exe = scoop_manifest_exe(&manifest)
+            .map(|rel| current.join(rel.replace('\\', std::path::MAIN_SEPARATOR_STR)))
+            .filter(|p| p.is_file())
+            .map(|p| p.to_string_lossy().to_string())
+            .or_else(|| AppScanner::find_exe_in_directory(&current, &ScanConfig::from(&slug)));
+        let current_str = current.to_string_lossy().to_string();
+        out.push(ScannedRawApp {
+            display_name,
+            display_version: version,
+            publisher: None,
+            install_location: Some(current_str.clone()),
+            display_icon: exe,
+            uninstall_string: None,
+            installed_at: AppScanner::detect_path_installed_at(&current_str),
+            registry_key: Some(slug),
+            source_kind: Some("scoop".to_string()),
+        });
+    }
+    out
+}
+
+/// 开始菜单快捷方式文件名中表示非主程序入口的词。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn is_auxiliary_shortcut_name(lower_name: &str) -> bool {
+    ["uninstall", "卸载", "readme", "help", "website", "manual"]
+        .iter()
+        .any(|w| lower_name.contains(w))
+}
+
 impl AppScanner {
+    /// Windows 系统已安装应用：三棵卸载注册表根合并 + Scoop + 未登记注册表的开始菜单快捷方式。
     #[cfg(target_os = "windows")]
     pub(crate) fn scan_windows_registry() -> Vec<ScannedRawApp> {
-        use std::collections::HashSet;
+        let mut apps = Self::scan_uninstall_registry();
+        for root in Self::scoop_app_roots() {
+            for app in scan_scoop_apps_in_dir(&root) {
+                let covered = app
+                    .install_location
+                    .as_deref()
+                    .is_some_and(|loc| is_path_covered(loc, &apps));
+                if !covered {
+                    apps.push(app);
+                }
+            }
+        }
+        let shortcuts = Self::scan_unregistered_shortcuts(&apps);
+        apps.extend(shortcuts);
+        apps
+    }
+
+    #[cfg(target_os = "windows")]
+    fn scoop_app_roots() -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = Vec::new();
+        let candidates = [
+            std::env::var("SCOOP")
+                .ok()
+                .map(|s| PathBuf::from(s).join("apps")),
+            std::env::var("USERPROFILE")
+                .ok()
+                .map(|s| PathBuf::from(s).join("scoop").join("apps")),
+            std::env::var("SCOOP_GLOBAL")
+                .ok()
+                .map(|s| PathBuf::from(s).join("apps")),
+            std::env::var("ProgramData")
+                .ok()
+                .map(|s| PathBuf::from(s).join("scoop").join("apps")),
+        ];
+        for c in candidates.into_iter().flatten() {
+            let key = normalize_path(&c.to_string_lossy());
+            if c.is_dir()
+                && !roots
+                    .iter()
+                    .any(|r| normalize_path(&r.to_string_lossy()) == key)
+            {
+                roots.push(c);
+            }
+        }
+        roots
+    }
+
+    /// 开始菜单 `.lnk`（根 + 一级子目录）中未被注册表/Scoop 覆盖的绿色软件。
+    #[cfg(target_os = "windows")]
+    fn scan_unregistered_shortcuts(existing: &[ScannedRawApp]) -> Vec<ScannedRawApp> {
+        let roots = [
+            std::env::var("APPDATA")
+                .ok()
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs")),
+            std::env::var("ProgramData")
+                .ok()
+                .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs")),
+        ];
+        let mut lnks: Vec<PathBuf> = Vec::new();
+        for root in roots.into_iter().flatten() {
+            let Ok(entries) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    if let Ok(sub) = std::fs::read_dir(&p) {
+                        lnks.extend(sub.flatten().map(|e| e.path()));
+                    }
+                } else {
+                    lnks.push(p);
+                }
+            }
+        }
+
+        let mut out: Vec<ScannedRawApp> = Vec::new();
+        for lnk in lnks {
+            if !lnk
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
+            {
+                continue;
+            }
+            let stem = lnk
+                .file_stem()
+                .map(|s| s.to_string_lossy().trim().to_string())
+                .unwrap_or_default();
+            if stem.is_empty() || is_auxiliary_shortcut_name(&stem.to_lowercase()) {
+                continue;
+            }
+            let Some(target) = Self::resolve_lnk_target(&lnk) else {
+                continue;
+            };
+            if !target
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("exe"))
+                || !Self::is_valid_app_executable(&target, &[])
+            {
+                continue;
+            }
+            let target_str = target.to_string_lossy().to_string();
+            if is_path_covered(&target_str, existing) || is_path_covered(&target_str, &out) {
+                continue;
+            }
+            let lower = target_str.to_lowercase();
+            if lower.contains(":\\windows\\") {
+                continue;
+            }
+            let parent = target.parent().map(|p| p.to_string_lossy().to_string());
+            out.push(ScannedRawApp {
+                display_name: stem,
+                display_version: Self::read_exe_version(&target_str).unwrap_or_default(),
+                publisher: None,
+                install_location: parent,
+                display_icon: Some(target_str.clone()),
+                uninstall_string: None,
+                installed_at: Self::detect_path_installed_at(&target_str),
+                registry_key: None,
+                source_kind: Some("shortcut".to_string()),
+            });
+        }
+        out
+    }
+
+    /// 三棵卸载注册表根：同名同版本条目合并字段，缺 InstallLocation 时由 UninstallString
+    /// 或 WiX 子组件回填。
+    #[cfg(target_os = "windows")]
+    fn scan_uninstall_registry() -> Vec<ScannedRawApp> {
+        use std::collections::{BTreeMap, HashMap};
         use winreg::enums::*;
         use winreg::RegKey;
 
-        let mut scanned_list = Vec::new();
-        let mut seen_names = HashSet::new();
+        let mut scanned_list: Vec<ScannedRawApp> = Vec::new();
+        let mut index_by_key: HashMap<String, usize> = HashMap::new();
+        let mut component_locations: BTreeMap<String, String> = BTreeMap::new();
 
         let targets = [
             (
@@ -115,143 +472,96 @@ impl AppScanner {
             ),
         ];
 
-        let mut component_locations: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
+        let read = |key: &RegKey, name: &str| -> Option<String> {
+            key.get_value::<String, _>(name)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
 
         for (hive, subpath) in targets {
             let root = RegKey::predef(hive);
-            if let Ok(uninstall_key) = root.open_subkey(subpath) {
-                for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
-                    if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
-                        // 1. 系统组件或子更新：提取可能存在的实际安装路径（如 WiX MSI 载荷），然后忽略条目本身
-                        if let Ok(sys_comp) = app_key.get_value::<u32, _>("SystemComponent") {
-                            if sys_comp == 1 {
-                                if let Ok(disp) = app_key.get_value::<String, _>("DisplayName") {
-                                    if let Ok(loc) =
-                                        app_key.get_value::<String, _>("InstallLocation")
-                                    {
-                                        let trimmed_loc = loc.trim().trim_matches('"').to_string();
-                                        if !trimmed_loc.is_empty()
-                                            && std::path::Path::new(&trimmed_loc).exists()
-                                        {
-                                            component_locations
-                                                .insert(disp.trim().to_lowercase(), trimmed_loc);
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
+            let Ok(uninstall_key) = root.open_subkey(subpath) else {
+                continue;
+            };
+            for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
+                let Ok(app_key) = uninstall_key.open_subkey(&key_name) else {
+                    continue;
+                };
+                // 系统组件或子更新：记下可能存在的实际安装路径（如 WiX MSI 载荷），然后忽略条目本身
+                if app_key.get_value::<u32, _>("SystemComponent").ok() == Some(1) {
+                    if let (Some(disp), Some(loc)) = (
+                        read(&app_key, "DisplayName"),
+                        read(&app_key, "InstallLocation"),
+                    ) {
+                        let loc = loc.trim_matches('"').to_string();
+                        if Path::new(&loc).exists() {
+                            component_locations.insert(disp.to_lowercase(), loc);
                         }
-                        if let Ok(parent) = app_key.get_value::<String, _>("ParentKeyName") {
-                            if !parent.trim().is_empty() {
-                                continue;
-                            }
-                        }
+                    }
+                    continue;
+                }
+                if read(&app_key, "ParentKeyName").is_some() {
+                    continue;
+                }
+                let Some(display_name) = read(&app_key, "DisplayName") else {
+                    continue;
+                };
 
-                        // 2. 提取 DisplayName
-                        let display_name: String =
-                            match app_key.get_value::<String, _>("DisplayName") {
-                                Ok(name) => {
-                                    let trimmed = name.trim().to_string();
-                                    if trimmed.is_empty() {
-                                        continue;
-                                    }
-                                    trimmed
-                                }
-                                Err(_) => continue,
-                            };
+                // 过滤系统更新、补丁与 VC++ 依赖噪声
+                let lower_name = display_name.to_lowercase();
+                if lower_name.starts_with("kb")
+                    && lower_name[2..].chars().all(|c| c.is_ascii_digit())
+                {
+                    continue;
+                }
+                if lower_name.contains("security update")
+                    || lower_name.contains("update for windows")
+                    || lower_name.contains("update for microsoft")
+                    || lower_name.contains("redistributable")
+                {
+                    continue;
+                }
 
-                        // 3. 过滤系统更新、补丁与 VC++ 依赖噪声
-                        let lower_name = display_name.to_lowercase();
-                        if lower_name.starts_with("kb")
-                            && lower_name[2..].chars().all(|c| c.is_ascii_digit())
-                        {
-                            continue;
-                        }
-                        if lower_name.contains("security update")
-                            || lower_name.contains("update for windows")
-                            || lower_name.contains("update for microsoft")
-                            || lower_name.contains("redistributable")
-                        {
-                            continue;
-                        }
+                let display_version = read(&app_key, "DisplayVersion").unwrap_or_default();
+                let uninstall_string = read(&app_key, "UninstallString");
+                let install_location = read(&app_key, "InstallLocation").or_else(|| {
+                    uninstall_string
+                        .as_deref()
+                        .and_then(infer_install_dir_from_uninstall_string)
+                });
+                let installed_at = read(&app_key, "InstallDate")
+                    .as_deref()
+                    .and_then(parse_install_date_to_unix)
+                    .or_else(|| get_reg_key_last_write_time(&app_key));
 
-                        // 4. 提取其他字段
-                        let display_version: String = app_key
-                            .get_value::<String, _>("DisplayVersion")
-                            .unwrap_or_default()
-                            .trim()
-                            .to_string();
+                let app = ScannedRawApp {
+                    display_name,
+                    display_version: display_version.clone(),
+                    publisher: read(&app_key, "Publisher"),
+                    install_location,
+                    display_icon: read(&app_key, "DisplayIcon"),
+                    uninstall_string,
+                    installed_at,
+                    registry_key: registry_key_label(&key_name),
+                    source_kind: Some("registry".to_string()),
+                };
 
-                        // 去重检查
-                        let dedup_key = format!("{}::{}", lower_name, display_version);
-                        if seen_names.contains(&dedup_key) {
-                            continue;
-                        }
-                        seen_names.insert(dedup_key);
-
-                        let publisher: Option<String> = app_key
-                            .get_value("Publisher")
-                            .ok()
-                            .map(|s: String| s.trim().to_string())
-                            .filter(|s| !s.is_empty());
-
-                        let install_location: Option<String> = app_key
-                            .get_value("InstallLocation")
-                            .ok()
-                            .map(|s: String| s.trim().to_string())
-                            .filter(|s| !s.is_empty());
-
-                        let display_icon: Option<String> = app_key
-                            .get_value("DisplayIcon")
-                            .ok()
-                            .map(|s: String| s.trim().to_string())
-                            .filter(|s| !s.is_empty());
-
-                        let uninstall_string: Option<String> = app_key
-                            .get_value("UninstallString")
-                            .ok()
-                            .map(|s: String| s.trim().to_string())
-                            .filter(|s| !s.is_empty());
-
-                        let install_date_str: Option<String> = app_key
-                            .get_value("InstallDate")
-                            .ok()
-                            .map(|s: String| s.trim().to_string())
-                            .filter(|s| !s.is_empty());
-
-                        let mut installed_at: Option<i64> = install_date_str
-                            .as_deref()
-                            .and_then(parse_install_date_to_unix);
-
-                        if installed_at.is_none() {
-                            installed_at = get_reg_key_last_write_time(&app_key);
-                        }
-
-                        scanned_list.push(ScannedRawApp {
-                            display_name,
-                            display_version,
-                            publisher,
-                            install_location,
-                            display_icon,
-                            uninstall_string,
-                            installed_at,
-                        });
+                let dedup_key = format!("{}::{}", lower_name, display_version);
+                match index_by_key.get(&dedup_key) {
+                    Some(&idx) => merge_missing_fields(&mut scanned_list[idx], app),
+                    None => {
+                        index_by_key.insert(dedup_key, scanned_list.len());
+                        scanned_list.push(app);
                     }
                 }
             }
         }
 
-        // 5. 针对部分如 WiX Burn 引导包（InstallLocation 记录在 MSI 子组件中）回填安装路径
         for app in &mut scanned_list {
             if app.install_location.is_none() {
-                let app_lower = app.display_name.to_lowercase();
-                for (comp_name, loc) in &component_locations {
-                    if app_lower.contains(comp_name) || comp_name.contains(&app_lower) {
-                        app.install_location = Some(loc.clone());
-                        break;
-                    }
-                }
+                app.install_location =
+                    match_wix_component_location(&app.display_name, &component_locations);
             }
         }
 
