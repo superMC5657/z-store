@@ -66,6 +66,82 @@ pub struct ScanConfig {
     pub search_subdirs: Vec<String>,
 }
 
+/// 标识符是否为发布页的安装包/压缩包资产名，而非安装后的主程序名
+/// （如 `npp.8.9.8.Installer.arm64.exe`、`GitHubDesktopSetup-x64.exe`、`rio-portable-aarch64.exe`）。
+/// 应用自身 repo/名称已含的词不算特征（`Bulk-Crap-Uninstaller.exe` 属合法主程序）。
+pub fn is_installer_asset_identifier(ident: &str, repo: &str, app_name: &str) -> bool {
+    let lower = ident.trim().to_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    if [".paf.exe", ".msi", ".zip", ".7z"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+    {
+        return true;
+    }
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    let owner_text = format!("{} {}", repo.to_lowercase(), app_name.to_lowercase());
+
+    if ["setup", "installer"]
+        .iter()
+        .any(|kw| stem.contains(kw) && !owner_text.contains(kw))
+    {
+        return true;
+    }
+    if has_embedded_version(stem) && !has_embedded_version(&owner_text) {
+        return true;
+    }
+    const PACKAGING_TOKENS: &[&str] = &[
+        "install", "portable", "release", "x64", "x86", "x32", "amd64", "win32", "win64", "arm64",
+        "aarch64", "mingw", "win", "windows",
+    ];
+    let owner_tokens: Vec<&str> = owner_text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    stem.split(|c: char| !c.is_alphanumeric())
+        .any(|t| PACKAGING_TOKENS.contains(&t) && !owner_tokens.contains(&t))
+}
+
+/// 是否内嵌 `数字[._]数字` 形态的版本段（`8.9.8`、`4_4_198`）。
+fn has_embedded_version(s: &str) -> bool {
+    s.as_bytes()
+        .windows(3)
+        .any(|w| w[0].is_ascii_digit() && (w[1] == b'.' || w[1] == b'_') && w[2].is_ascii_digit())
+}
+
+/// 当前平台原生标识中剔除安装包资产名后的主程序候选。
+pub fn clean_native_identifiers(cat: &CatalogItem) -> Vec<String> {
+    cat.get_native_identifiers()
+        .into_iter()
+        .filter(|id| !is_installer_asset_identifier(id, &cat.repo, &cat.name))
+        .collect()
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+/// 名称可直接作文件名候选（ASCII 字母数字与 `-_.+ `）时返回其 `.exe` 候选。
+fn name_exe_candidates(name: &str) -> Vec<String> {
+    let trimmed = name.trim();
+    let shaped = !trimmed.is_empty()
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | ' '));
+    if shaped {
+        exe_candidates(trimmed)
+    } else {
+        Vec::new()
+    }
+}
+
+fn push_unique(out: &mut Vec<String>, extra: impl IntoIterator<Item = String>) {
+    for e in extra {
+        if !out.contains(&e) {
+            out.push(e);
+        }
+    }
+}
+
 /// 可执行文件名候选（本地 helper，收敛两个 From impl）。
 fn exe_candidates(base: &str) -> Vec<String> {
     let lower = base.to_lowercase();
@@ -115,31 +191,18 @@ pub(crate) fn now_secs() -> i64 {
 
 impl From<&CatalogItem> for ScanConfig {
     fn from(cat: &CatalogItem) -> Self {
-        // Windows：windows 标识为空才用 repo 派生 .exe。
-        // Linux：优先取 linux 原生标识，为空才回退裸名；
-        // Linux 无扩展名裸名需并入 `/usr/bin/<token>` 匹配。
+        // 精校主程序标识（已剔除安装包资产名）在前，repo/名称派生候选恒追加在后，
+        // 精校标识不全时仍能按 repo 找到主程序。
+        // ADR-0010：id 为 owner/repo 坐标，不能当文件名候选，仅以 repo 派生。
+        let mut target_executables = clean_native_identifiers(cat);
         #[cfg(target_os = "windows")]
-        let mut target_executables = cat.get_identifiers("windows");
-        #[cfg(not(target_os = "windows"))]
-        let mut target_executables = cat.get_native_identifiers();
-        if target_executables.is_empty() {
-            // ADR-0010：id 为 owner/repo 坐标，不能再当文件名候选，仅以 repo 派生
-            #[cfg(target_os = "windows")]
-            {
-                target_executables = exe_candidates(&cat.repo);
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                target_executables = bare_candidates(&cat.repo);
-            }
-        }
-        #[cfg(target_os = "linux")]
         {
-            for extra in bare_candidates(&cat.repo) {
-                if !target_executables.contains(&extra) {
-                    target_executables.push(extra);
-                }
-            }
+            push_unique(&mut target_executables, exe_candidates(&cat.repo));
+            push_unique(&mut target_executables, name_exe_candidates(&cat.name));
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            push_unique(&mut target_executables, bare_candidates(&cat.repo));
         }
 
         let mut install_dirs = cat.install_dirs.clone();

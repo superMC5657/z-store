@@ -44,6 +44,17 @@ fn test_is_version_newer_matrix() {
 }
 
 #[test]
+fn two_segment_versions_compare_against_pe_three_segment() {
+    assert!(is_version_newer("0.15.0", "v0.16"));
+    assert!(!is_version_newer("0.15.0", "v0.15"));
+    assert!(is_version_newer("10.37.0", "10.38"));
+    assert!(!is_version_newer("10.38", "10.37.0"));
+    assert!(is_version_newer("v0.15", "v0.16"));
+    // 带 `-` 的复合标签不补段，保持原有不可解析语义
+    assert!(!is_version_newer("1.0.0", "v26.02-v1.5.7-R2"));
+}
+
+#[test]
 fn test_should_include_update() {
     // 1. 无规则，有新版本 -> 应当包含
     assert!(should_include_update("v1.0.0", "v1.1.0", None));

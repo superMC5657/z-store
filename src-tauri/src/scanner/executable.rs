@@ -346,10 +346,25 @@ impl AppScanner {
     ) -> Option<String> {
         let config: ScanConfig = config_source.into();
 
-        // 1. 优先尝试从 DisplayIcon 提取，必须经过物理存在校验且排除安装缓存/安装向导
+        // 1. 优先尝试从 DisplayIcon 提取，必须经过物理存在校验且排除安装缓存/辅助二进制；
+        //    指向 `.lnk` 时先解出目标主程序（以便读取 PE 版本），解不出才退回快捷方式本身。
         if let Some(raw_icon) = display_icon {
             if let Some(icon_path) = Self::clean_display_icon(raw_icon) {
-                if !Self::is_installer_or_cache_path(&icon_path) && icon_path.is_file() {
+                let is_lnk = icon_path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("lnk"));
+                if is_lnk && icon_path.is_file() {
+                    if let Some(target) = Self::resolve_lnk_target(&icon_path) {
+                        if target.is_file()
+                            && Self::is_valid_app_executable(&target, &config.target_executables)
+                        {
+                            return Some(target.to_string_lossy().to_string());
+                        }
+                    }
+                }
+                if Self::is_valid_app_executable(&icon_path, &config.target_executables)
+                    && icon_path.is_file()
+                {
                     return Some(icon_path.to_string_lossy().to_string());
                 }
             }
@@ -887,7 +902,6 @@ impl AppScanner {
 
     /// 文件名/目录名归一化：小写去空格/`-`/`_`后比对（与 `/opt/Clash Verge`
     /// 带空格目录共用；纯函数，跨平台可单测）。
-    #[cfg(any(target_os = "linux", test))]
     pub fn normalize_fs_token(s: &str) -> String {
         s.to_lowercase()
             .chars()

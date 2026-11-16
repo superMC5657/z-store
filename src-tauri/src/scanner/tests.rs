@@ -247,8 +247,19 @@ fn test_is_installer_or_cache_path() {
         std::path::Path::new(r"C:\Temp\app.exe")
     ));
     assert!(AppScanner::is_installer_or_cache_path(
-        std::path::Path::new(r"C:\App\bundle\app.exe")
+        std::path::Path::new(r"C:\Windows\Installer\{GUID}\app.exe")
     ));
+    for aux in [
+        "Update.exe",
+        "crashpad_handler.exe",
+        "elevate.exe",
+        "foo-setup.exe",
+    ] {
+        assert!(
+            AppScanner::is_installer_or_cache_path(&std::path::Path::new(r"C:\App").join(aux)),
+            "{aux}"
+        );
+    }
 
     assert!(!AppScanner::is_installer_or_cache_path(
         std::path::Path::new(r"C:\Program Files\VLC\vlc.exe")
@@ -256,6 +267,174 @@ fn test_is_installer_or_cache_path() {
     assert!(!AppScanner::is_installer_or_cache_path(
         std::path::Path::new(r"C:\Programs\Tool\tool.exe")
     ));
+    // 只含 temp 子串的路径段不算缓存目录
+    assert!(!AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\Users\tempuser\AppData\Local\Programs\Motrix\Motrix.exe")
+    ));
+    assert!(!AppScanner::is_installer_or_cache_path(
+        std::path::Path::new(r"C:\Program Files\Core Temp\Core Temp.exe")
+    ));
+}
+
+#[test]
+fn valid_app_executable_exempts_declared_targets() {
+    let targets = vec!["bulk-crap-uninstaller.exe".to_string()];
+    let p = |s: &str| std::path::PathBuf::from(s);
+    assert!(AppScanner::is_valid_app_executable(
+        &p(r"C:\Program Files\BCUninstaller\Bulk-Crap-Uninstaller.exe"),
+        &targets
+    ));
+    for aux in [
+        "unins000.exe",
+        "Update.exe",
+        "crashpad_handler.exe",
+        "elevate.exe",
+    ] {
+        assert!(
+            !AppScanner::is_valid_app_executable(&p(r"C:\App").join(aux), &targets),
+            "{aux}"
+        );
+    }
+    assert!(!AppScanner::is_valid_app_executable(
+        &p(r"C:\Users\x\AppData\Local\Temp\Bulk-Crap-Uninstaller.exe"),
+        &targets
+    ));
+}
+
+#[test]
+fn clean_display_icon_handles_quotes_and_index_in_any_order() {
+    let expected = Some(std::path::PathBuf::from(r"C:\Program Files\App\app.exe"));
+    for raw in [
+        r#""C:\Program Files\App\app.exe,0""#,
+        r#""C:\Program Files\App\app.exe",0"#,
+        r#"C:\Program Files\App\app.exe,-101"#,
+        r#"  "C:\Program Files\App\app.exe" , 0 "#,
+    ] {
+        assert_eq!(AppScanner::clean_display_icon(raw), expected, "{raw}");
+    }
+    assert_eq!(
+        AppScanner::clean_display_icon(r#""C:\Users\Public\Desktop\App.lnk",0"#),
+        Some(std::path::PathBuf::from(r"C:\Users\Public\Desktop\App.lnk"))
+    );
+}
+
+#[test]
+fn find_exe_prefers_newest_squirrel_app_dir_over_update_exe() {
+    let temp_dir = temp_test_dir(".test_squirrel_");
+    let root = temp_dir.path();
+    std::fs::write(root.join("Update.exe"), b"dummy").unwrap();
+    for ver in ["app-3.5.0", "app-3.6.10", "app-3.6.9"] {
+        let d = root.join(ver);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("GitHubDesktop.exe"), b"dummy").unwrap();
+    }
+    let config = ScanConfig {
+        target_executables: vec!["GitHubDesktop.exe".to_string()],
+        install_dirs: vec!["GitHubDesktop".to_string()],
+        search_subdirs: vec![],
+    };
+    assert_eq!(
+        AppScanner::find_exe_in_directory(root, &config).map(std::path::PathBuf::from),
+        Some(root.join("app-3.6.10").join("GitHubDesktop.exe"))
+    );
+}
+
+#[test]
+fn find_exe_does_not_guess_in_multi_binary_directory() {
+    let temp_dir = temp_test_dir(".test_multi_exe_");
+    let root = temp_dir.path();
+    std::fs::write(root.join("foo.exe"), b"dummy").unwrap();
+    std::fs::write(root.join("bar.exe"), b"dummy").unwrap();
+    let config = ScanConfig {
+        target_executables: vec!["demo.exe".to_string()],
+        install_dirs: vec!["demo".to_string()],
+        search_subdirs: vec![],
+    };
+    assert!(AppScanner::find_exe_in_directory(root, &config).is_none());
+    // 文件名与配置词元一致时多二进制目录也可采纳
+    std::fs::write(root.join("Demo.exe"), b"dummy").unwrap();
+    let found = AppScanner::find_exe_in_directory(root, &config).unwrap();
+    assert!(found.to_lowercase().ends_with("demo.exe"));
+}
+
+#[test]
+fn bulk_crap_uninstaller_resolves_as_declared_target() {
+    let temp_dir = temp_test_dir(".test_bcu_");
+    let root = temp_dir.path();
+    std::fs::write(root.join("Bulk-Crap-Uninstaller.exe"), b"dummy").unwrap();
+    std::fs::write(root.join("unins000.exe"), b"dummy").unwrap();
+    let config = ScanConfig {
+        target_executables: vec!["Bulk-Crap-Uninstaller.exe".to_string()],
+        install_dirs: vec!["BCUninstaller".to_string()],
+        search_subdirs: vec![],
+    };
+    let found = AppScanner::find_exe_in_directory(root, &config).unwrap();
+    assert!(found.ends_with("Bulk-Crap-Uninstaller.exe"));
+}
+
+#[test]
+fn installer_asset_identifiers_are_detected() {
+    use super::types::is_installer_asset_identifier as asset;
+    for (id, repo, name) in [
+        (
+            "npp.8.9.8.Installer.arm64.exe",
+            "notepad-plus-plus",
+            "Notepad++",
+        ),
+        ("GitHubDesktopSetup-x64.exe", "desktop", "GitHub Desktop"),
+        ("rio-portable-aarch64.exe", "rio", "Rio"),
+        (
+            "SQLiteDatabaseBrowserPortable_3.13.1.paf.exe",
+            "sqlitebrowser",
+            "DB Browser",
+        ),
+        ("Wave-win32-x64.exe", "waveterm", "Wave Terminal"),
+        (
+            "OpenShellSetup_4_4_198.exe",
+            "open-shell-menu",
+            "Open-Shell",
+        ),
+    ] {
+        assert!(asset(id, repo, name), "{id}");
+    }
+    for (id, repo, name) in [
+        (
+            "Bulk-Crap-Uninstaller.exe",
+            "bulk-crap-uninstaller",
+            "BCUninstaller",
+        ),
+        ("x64dbg.exe", "x64dbg", "x64dbg"),
+        ("obs64.exe", "obs-studio", "OBS Studio"),
+        ("mpv.net.exe", "mpv.net", "mpv.net"),
+        ("Playnite.DesktopApp.exe", "playnite", "Playnite"),
+        ("terminal.exe", "terminal", "Windows Terminal"),
+    ] {
+        assert!(!asset(id, repo, name), "{id}");
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn scan_config_keeps_repo_candidates_alongside_curated_identifiers() {
+    let mut cat = create_mock_catalog().remove(0);
+    cat.repo = "motrix".to_string();
+    cat.name = "Motrix".to_string();
+    cat.identifiers.insert(
+        "windows".to_string(),
+        vec![
+            "Motrix-Setup-1.8.19.exe".to_string(),
+            "Motrix.exe".to_string(),
+        ],
+    );
+    let config = ScanConfig::from(&cat);
+    assert_eq!(config.target_executables[0], "Motrix.exe");
+    assert!(!config
+        .target_executables
+        .iter()
+        .any(|t| t.contains("Setup")));
+    assert!(config
+        .target_executables
+        .contains(&"motrix.exe".to_string()));
 }
 
 #[test]

@@ -231,10 +231,20 @@ pub(crate) fn resolve_update_shallow_with_fallback(
 ///（即 `norm(cur) != norm(lat)`）；仅一侧可解析则一律返回 false，避免 `tip` 相对
 /// 任何正式版本都误报、或 `R2` 这类后缀被当成数字段参与比较。
 pub(crate) fn is_version_newer(current: &str, latest: &str) -> bool {
-    /// 归一化：去 `v` 前缀与空白；4 段式纯数字 MSI 且末段为 0 时截断为 3 段。
+    /// 归一化：去 `v` 前缀与空白；4 段式纯数字 MSI 且末段为 0 时截断为 3 段；
+    /// 无后缀的 2 段纯数字（`0.16`、`10.38`）补成 3 段，以便与 PE 版本资源的 `0.15.0` 比较。
     fn normalize(s: &str) -> String {
         let clean = s.trim_start_matches('v').trim();
         let parts: Vec<&str> = clean.split('.').collect();
+        if parts.len() == 2
+            && parts.iter().all(|p| {
+                !p.is_empty()
+                    && p.bytes().all(|b| b.is_ascii_digit())
+                    && (p.len() == 1 || !p.starts_with('0'))
+            })
+        {
+            return format!("{}.{}.0", parts[0], parts[1]);
+        }
         if parts.len() == 4
             && parts
                 .iter()

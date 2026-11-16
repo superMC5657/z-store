@@ -1111,7 +1111,7 @@
     "homepage": "https://pulsar-edit.dev",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Windows.Pulsar.Setup.1.132.1.exe"],
+      "windows": ["Pulsar.exe"],
       "linux": ["pulsar"],
       "macos": ["pulsar.app"],
       "android": [],
@@ -1251,7 +1251,7 @@
     "homepage": "https://hyper.is",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Hyper-Setup.exe"],
+      "windows": ["Hyper.exe"],
       "linux": ["hyper"],
       "macos": ["hyper.app"],
       "android": [],
@@ -1307,7 +1307,7 @@
     "homepage": "https://www.waveterm.dev",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Wave-win32-x64.exe"],
+      "windows": ["Wave.exe"],
       "linux": ["waveterm"],
       "macos": ["waveterm.app"],
       "android": [],
@@ -1335,7 +1335,7 @@
     "homepage": "https://rioterm.com",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["rio-portable-aarch64.exe"],
+      "windows": ["rio.exe"],
       "linux": ["rio"],
       "macos": ["rio.app"],
       "android": [],
@@ -1391,7 +1391,7 @@
     "homepage": "https://github.com/apps/desktop",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["GitHubDesktopSetup-x64.exe"],
+      "windows": ["GitHubDesktop.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -1531,7 +1531,7 @@
     "homepage": "https://www.usebruno.com/",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["bruno_4.1.0_arm64_win.exe"],
+      "windows": ["Bruno.exe"],
       "linux": ["bruno"],
       "macos": ["bruno.app"],
       "android": [],
@@ -1587,7 +1587,7 @@
     "homepage": "https://altairgraphql.dev",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["altair_8.5.9_x64_win.exe"],
+      "windows": ["Altair GraphQL Client.exe"],
       "linux": ["altair"],
       "macos": ["altair.app"],
       "android": [],
@@ -1615,7 +1615,7 @@
     "homepage": "https://mockoon.com",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["mockoon.portable.9.8.0.exe"],
+      "windows": ["Mockoon.exe"],
       "linux": ["mockoon"],
       "macos": ["mockoon.app"],
       "android": [],
@@ -1867,7 +1867,7 @@
     "homepage": "https://notepad-plus-plus.org/",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["npp.8.9.8.Installer.arm64.exe"],
+      "windows": ["notepad++.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -2651,7 +2651,7 @@
     "homepage": "https://www.openra.net",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["OpenRA-release.exe"],
+      "windows": ["RedAlert.exe", "TiberianDawn.exe", "Dune2000.exe"],
       "linux": ["openra"],
       "macos": ["OpenRA.app"],
       "android": [],
@@ -2875,7 +2875,7 @@
     "homepage": "https://cockatrice.github.io",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Cockatrice-Graduation-Day.exe"],
+      "windows": ["cockatrice.exe"],
       "linux": ["cockatrice"],
       "macos": ["Cockatrice.app"],
       "android": [],
@@ -3211,7 +3211,7 @@
     "homepage": "https://vcmi.eu/",
     "platforms": ["windows", "macos", "linux", "android", "ios"],
     "identifiers": {
-      "windows": ["VCMI-Windows-arm64.exe"],
+      "windows": ["VCMI_launcher.exe"],
       "linux": ["vcmi"],
       "macos": ["vcmi.app"],
       "android": ["org.vcmi"],
@@ -3463,7 +3463,7 @@
     "homepage": "https://rawtherapee.com",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["RawTherapee_5.13_win64_arm64_release.exe"],
+      "windows": ["rawtherapee.exe"],
       "linux": ["rawtherapee"],
       "macos": ["RawTherapee.app"],
       "android": [],
@@ -3603,7 +3603,7 @@
     "homepage": "http://www.pinta-project.com/",
     "platforms": ["windows", "macos"],
     "identifiers": {
-      "windows": ["Pinta-arm64.exe"],
+      "windows": ["Pinta.exe"],
       "linux": [],
       "macos": ["Pinta.app"],
       "android": [],
@@ -3687,7 +3687,7 @@
     "homepage": "https://opentoonz.github.io/",
     "platforms": ["windows", "macos"],
     "identifiers": {
-      "windows": ["OpenToonzSetup.exe"],
+      "windows": ["OpenToonz.exe"],
       "linux": [],
       "macos": ["opentoonz.app"],
       "android": [],
@@ -3771,7 +3771,7 @@
     "homepage": "http://www.bforartists.de",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Install_Bforartists5_520.exe"],
+      "windows": ["bforartists.exe"],
       "linux": ["bforartists"],
       "macos": ["Bforartists.app"],
       "android": [],
@@ -3799,7 +3799,7 @@
     "homepage": "http://www.meshlab.net",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["MeshLab2025.07-windows_x86_64.exe"],
+      "windows": ["meshlab.exe"],
       "linux": ["meshlab"],
       "macos": ["meshlab.app"],
       "android": [],
@@ -4079,7 +4079,7 @@
     "homepage": "https://github.com/clsid2/mpc-hc",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["MPC-HC.2.8.1.x64.exe"],
+      "windows": ["mpc-hc64.exe", "mpc-hc.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -4583,7 +4583,7 @@
     "homepage": "https://www.shotcut.org",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["shotcut-win64.exe"],
+      "windows": ["shotcut.exe"],
       "linux": ["shotcut"],
       "macos": ["shotcut.app"],
       "android": [],
@@ -4779,7 +4779,7 @@
     "homepage": "http://www.nikse.dk/SubtitleEdit/Help",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["SubtitleEdit-Windows-x64-Setup.exe"],
+      "windows": ["SubtitleEdit.exe"],
       "linux": ["subtitleedit"],
       "macos": ["subtitleedit.app"],
       "android": [],
@@ -4891,7 +4891,7 @@
     "homepage": "https://flathub.org/apps/details/org.nickvision.tubeconverter",
     "platforms": ["windows", "macos"],
     "identifiers": {
-      "windows": ["NickvisionParabolicSetup-arm64.exe"],
+      "windows": ["Parabolic.exe"],
       "linux": [],
       "macos": ["Parabolic.app"],
       "android": [],
@@ -4947,7 +4947,7 @@
     "homepage": "https://soundswitch.aaflalo.me/",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["SoundSwitch_v7.3.3.0_Release_Installer.exe"],
+      "windows": ["SoundSwitch.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -5171,7 +5171,7 @@
     "homepage": "https://brave.com",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["BraveBrowserSetup.exe"],
+      "windows": ["brave.exe"],
       "linux": ["brave-browser"],
       "macos": ["brave-browser.app"],
       "android": ["org.brave-browser"],
@@ -5199,7 +5199,7 @@
     "homepage": "https://getmailspring.com/",
     "platforms": ["windows", "linux"],
     "identifiers": {
-      "windows": ["MailspringSetup.exe"],
+      "windows": ["mailspring.exe"],
       "linux": ["mailspring"],
       "macos": [],
       "android": [],
@@ -5227,7 +5227,7 @@
     "homepage": "https://getsession.org",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["session-desktop-win-x64.exe"],
+      "windows": ["Session.exe"],
       "linux": ["session-desktop"],
       "macos": ["session-desktop.app"],
       "android": [],
@@ -5591,7 +5591,7 @@
     "homepage": "https://hiddify.com",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["Hiddify-Windows-Setup-x64.exe"],
+      "windows": ["Hiddify.exe"],
       "linux": ["hiddify-app"],
       "macos": ["hiddify-app.app"],
       "android": ["org.hiddify-app"],
@@ -5647,7 +5647,7 @@
     "homepage": "https://persepolisdm.github.io",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["persepolis_5.2.0.0_windows_64bit.exe"],
+      "windows": ["persepolis.exe"],
       "linux": ["persepolis"],
       "macos": ["persepolis.app"],
       "android": [],
@@ -5731,7 +5731,7 @@
     "homepage": "https://github.com/moonlight-stream/moonlight-qt",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["MoonlightSetup.exe"],
+      "windows": ["Moonlight.exe"],
       "linux": ["moonlight-qt"],
       "macos": ["moonlight-qt.app"],
       "android": [],
@@ -5843,7 +5843,7 @@
     "homepage": "https://zulip.com/apps",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Zulip-Web-Setup.exe"],
+      "windows": ["Zulip.exe"],
       "linux": ["zulip-desktop"],
       "macos": ["zulip-desktop.app"],
       "android": [],
@@ -6039,7 +6039,7 @@
     "homepage": "https://notesnook.com/",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["notesnook_win.exe"],
+      "windows": ["Notesnook.exe"],
       "linux": ["notesnook"],
       "macos": ["notesnook.app"],
       "android": [],
@@ -6319,7 +6319,7 @@
     "homepage": "https://www.onlyoffice.com",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["DesktopEditors_arm64.exe"],
+      "windows": ["DesktopEditors.exe"],
       "linux": ["desktopeditors"],
       "macos": ["DesktopEditors.app"],
       "android": [],
@@ -6347,7 +6347,7 @@
     "homepage": "http://super-productivity.com?ref=github",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["Super-Productivity-Setup-arm64.exe"],
+      "windows": ["Super Productivity.exe"],
       "linux": ["super-productivity"],
       "macos": ["super-productivity.app"],
       "android": ["org.super-productivity"],
@@ -6431,7 +6431,7 @@
     "homepage": "https://www.freeplane.org",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Freeplane-Setup.exe"],
+      "windows": ["freeplane.exe"],
       "linux": ["freeplane"],
       "macos": ["freeplane.app"],
       "android": [],
@@ -6543,7 +6543,7 @@
     "homepage": "https://www.tagspaces.org",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["tagspaces-win-arm64.exe"],
+      "windows": ["TagSpaces.exe"],
       "linux": ["tagspaces"],
       "macos": ["tagspaces.app"],
       "android": ["org.tagspaces"],
@@ -6627,7 +6627,7 @@
     "homepage": "https://anytype.io",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Anytype.Setup.0.56.9-alpha.exe"],
+      "windows": ["Anytype.exe"],
       "linux": ["anytype-ts"],
       "macos": ["anytype-ts.app"],
       "android": [],
@@ -6655,7 +6655,7 @@
     "homepage": "https://openboard.ch/",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["OpenBoard_Installer_1.7.7.exe"],
+      "windows": ["OpenBoard.exe"],
       "linux": ["openboard"],
       "macos": ["OpenBoard.app"],
       "android": [],
@@ -6739,7 +6739,7 @@
     "homepage": "https://monokle.io",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Monokle-win.exe"],
+      "windows": ["Monokle.exe"],
       "linux": ["monokle"],
       "macos": ["monokle.app"],
       "android": [],
@@ -6879,7 +6879,7 @@
     "homepage": "https://www.heidisql.com/",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["HeidiSQL_12.21.0.7344_Setup.exe"],
+      "windows": ["heidisql.exe"],
       "linux": ["heidisql"],
       "macos": ["HeidiSQL.app"],
       "android": [],
@@ -6907,7 +6907,7 @@
     "homepage": "https://sqlitebrowser.org",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["SQLiteDatabaseBrowserPortable_3.13.1.paf.exe"],
+      "windows": ["DB Browser for SQLite.exe"],
       "linux": ["sqlitebrowser"],
       "macos": ["sqlitebrowser.app"],
       "android": [],
@@ -7019,7 +7019,7 @@
     "homepage": "https://github.com/qishibo/AnotherRedisDesktopManager",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Another-Redis-Desktop-Manager-win.exe"],
+      "windows": ["Another Redis Desktop Manager.exe"],
       "linux": ["anotherredisdesktopmanager"],
       "macos": ["AnotherRedisDesktopManager.app"],
       "android": [],
@@ -7047,7 +7047,7 @@
     "homepage": "https://mqttx.app",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["mqttx-cli-win-arm64.exe"],
+      "windows": ["MQTTX.exe"],
       "linux": ["mqttx"],
       "macos": ["MQTTX.app"],
       "android": [],
@@ -7271,7 +7271,7 @@
     "homepage": "https://readest.com",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["Readest_0.12.8_arm64-portable.exe"],
+      "windows": ["Readest.exe"],
       "linux": ["readest"],
       "macos": ["readest.app"],
       "android": ["org.readest"],
@@ -7439,7 +7439,7 @@
     "homepage": "https://hyliu.me/fluent-reader/",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Fluent.Reader.Setup.1.2.2.x64.exe"],
+      "windows": ["Fluent Reader.exe"],
       "linux": ["fluent-reader"],
       "macos": ["fluent-reader.app"],
       "android": [],
@@ -7691,7 +7691,7 @@
     "homepage": "https://anx.anxcye.com",
     "platforms": ["windows", "macos", "android", "ios"],
     "identifiers": {
-      "windows": ["Anx-Reader-windows.exe"],
+      "windows": ["anx_reader.exe"],
       "linux": [],
       "macos": ["anx-reader.app"],
       "android": ["org.anx-reader"],
@@ -7747,7 +7747,7 @@
     "homepage": "https://veracrypt.jp",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["VeraCrypt.Portable.1.26.29.exe"],
+      "windows": ["VeraCrypt.exe"],
       "linux": ["veracrypt"],
       "macos": ["VeraCrypt.app"],
       "android": [],
@@ -7859,7 +7859,7 @@
     "homepage": "https://padloc.app",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["padloc_4.3.0_windows_electron_x64.exe"],
+      "windows": ["Padloc.exe"],
       "linux": ["padloc"],
       "macos": ["padloc.app"],
       "android": ["org.padloc"],
@@ -8027,7 +8027,7 @@
     "homepage": "https://amnezia.org",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["AmneziaVPN_5.0.1.5_windows_x64.exe"],
+      "windows": ["AmneziaVPN.exe"],
       "linux": ["amnezia-client"],
       "macos": ["amnezia-client.app"],
       "android": ["org.amnezia-client"],
@@ -8139,7 +8139,7 @@
     "homepage": "https://www.zaproxy.org",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["ZAP_2_17_0_windows-x32.exe"],
+      "windows": ["ZAP.exe"],
       "linux": ["zaproxy"],
       "macos": ["zaproxy.app"],
       "android": [],
@@ -8167,7 +8167,7 @@
     "homepage": "https://exifcleaner.com",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["ExifCleaner.4.2.1.exe"],
+      "windows": ["ExifCleaner.exe"],
       "linux": ["exifcleaner"],
       "macos": ["exifcleaner.app"],
       "android": [],
@@ -8195,7 +8195,7 @@
     "homepage": "https://privacy.sexy",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["privacy.sexy-Setup.exe"],
+      "windows": ["privacy.sexy.exe"],
       "linux": ["privacy.sexy"],
       "macos": ["privacy.sexy.app"],
       "android": [],
@@ -8223,7 +8223,7 @@
     "homepage": "https://www.openstego.com",
     "platforms": ["windows", "linux"],
     "identifiers": {
-      "windows": ["Setup-OpenStego.exe"],
+      "windows": ["OpenStego.exe"],
       "linux": ["openstego"],
       "macos": [],
       "android": [],
@@ -8279,7 +8279,7 @@
     "homepage": "https://ueli.app",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["Ueli-Setup.exe"],
+      "windows": ["ueli.exe"],
       "linux": ["ueli"],
       "macos": ["ueli.app"],
       "android": [],
@@ -8307,7 +8307,7 @@
     "homepage": "https://ditto-cp.sourceforge.io/",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["DittoSetup_3_25_113_0.exe"],
+      "windows": ["Ditto.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -8363,7 +8363,7 @@
     "homepage": "https://twinkletray.com",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["Twinkle.Tray.v1.17.2.exe"],
+      "windows": ["Twinkle Tray.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -8503,7 +8503,7 @@
     "homepage": "https://github.com/qarmin/czkawka",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["windows_czkawka_cli.exe"],
+      "windows": ["czkawka_gui.exe"],
       "linux": ["czkawka"],
       "macos": ["czkawka.app"],
       "android": ["org.czkawka"],
@@ -8951,7 +8951,7 @@
     "homepage": "https://github.com/Open-Shell/Open-Shell-Menu",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["OpenShellSetup_4_4_198.exe"],
+      "windows": ["StartMenu.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -9371,7 +9371,7 @@
     "homepage": "http://wincompose.info/",
     "platforms": ["windows"],
     "identifiers": {
-      "windows": ["WinCompose-Setup.exe"],
+      "windows": ["wincompose.exe"],
       "linux": [],
       "macos": [],
       "android": [],
@@ -9567,7 +9567,7 @@
     "homepage": "https://cutwire.org/drift",
     "platforms": ["windows", "macos", "linux", "android"],
     "identifiers": {
-      "windows": ["Drift-Setup.exe"],
+      "windows": ["Drift.exe"],
       "linux": ["drift"],
       "macos": ["Drift.app"],
       "android": ["org.drift"],
@@ -9623,7 +9623,7 @@
     "homepage": "https://prismlauncher.org",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["PrismLauncher-Windows-MinGW-arm64-Setup.exe"],
+      "windows": ["prismlauncher.exe"],
       "linux": ["prismlauncher"],
       "macos": ["PrismLauncher.app"],
       "android": [],
@@ -9651,7 +9651,7 @@
     "homepage": "https://github.com/OneKeePass/desktop",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["OneKeePass_0.26.0_Windows_x64_Setup.exe"],
+      "windows": ["OneKeePass.exe"],
       "linux": ["desktop"],
       "macos": ["desktop.app"],
       "android": [],
@@ -9847,7 +9847,7 @@
     "homepage": "https://github.com/SethRobinson/Patchy",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["PatchyWindowsInstaller.exe"],
+      "windows": ["Patchy.exe"],
       "linux": ["patchy"],
       "macos": ["Patchy.app"],
       "android": [],
@@ -9903,7 +9903,7 @@
     "homepage": "https://opencode.ai",
     "platforms": ["windows", "macos", "linux"],
     "identifiers": {
-      "windows": ["opencode-desktop-win-arm64.exe"],
+      "windows": ["OpenCode.exe"],
       "linux": ["opencode"],
       "macos": ["opencode.app"],
       "android": [],

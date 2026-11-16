@@ -765,6 +765,14 @@ mod tests {
                     "{id_lower} identifiers[{key}] 含空串"
                 );
             }
+            for v in item.get_identifiers("windows") {
+                assert!(
+                    !crate::scanner::types::is_installer_asset_identifier(
+                        &v, &item.repo, &item.name
+                    ),
+                    "{id_lower} identifiers[windows] 是安装包资产名而非主程序：{v}"
+                );
+            }
             let mut aliases: std::collections::HashSet<String> = std::collections::HashSet::new();
             for alias in &item.aliases {
                 let a = alias.trim().to_lowercase();
