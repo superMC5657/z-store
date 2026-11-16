@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -205,11 +205,11 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     return selectPlatformCounts(rows, platformResolvedOtherIds);
   }, [installedPlatformRows, rulesByAppId, showHiddenSpread, platformResolvedOtherIds]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (displayPlatformCounts) onDisplayPlatformCounts?.(displayPlatformCounts);
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => onDisplayPlatformCounts?.(null);
   }, [onDisplayPlatformCounts]);
 

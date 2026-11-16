@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CountLabel } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -342,7 +342,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     return out;
   }, [entries, activeGroup]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDisplayPlatformCounts?.(displayPlatformCounts);
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
 

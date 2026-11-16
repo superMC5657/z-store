@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -253,10 +253,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
   const reportCountsRef = React.useRef(onDisplayPlatformCounts);
   reportCountsRef.current = onDisplayPlatformCounts;
-  useEffect(() => {
+  useLayoutEffect(() => {
     reportCountsRef.current?.(categoryPlatformCounts);
   }, [categoryPlatformCounts]);
-  useEffect(() => () => reportCountsRef.current?.(null), []);
+  useLayoutEffect(() => () => reportCountsRef.current?.(null), []);
 
   const handleResetFilter = () => {
     onResetPlatformFilter();

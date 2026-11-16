@@ -421,6 +421,16 @@ vi.mock('./services/api', () => {
             }));
         }
         if (prop === 'listCustomApps') return async () => PENDING_ENTRIES;
+        if (prop === 'getLaunchpadFeed') {
+          return async () => ({
+            spotlight: [],
+            items: [],
+            discussions_repo: 'o/r',
+            submit_issue_url: '',
+            submit_web_url: '',
+            is_stale: false,
+          });
+        }
         if (prop === 'getPlatformsLite') {
           return async (id: string) => ({ id, platforms: [], is_stale: false });
         }
@@ -610,5 +620,39 @@ describe('App cross-view counts match visible content', () => {
     expect(badgeText(tabs[1])).toBe('0');
     fireEvent.click(tabs[1] as HTMLElement);
     await expectReset('favorites-view');
+  });
+
+  it('switching to view-scoped pages never flashes full-catalog platform counts', async () => {
+    render(<App />);
+
+    // Wait for home catalog + local apps to settle (windows: win-tool, cross-kit, ready-win = 3)
+    const winChip = () => document.querySelector('[data-platform-id="windows"]')!;
+    const winCount = () => winChip().querySelector('.platform-chip-count')?.textContent ?? null;
+    await waitFor(() => {
+      expect(winCount()).toBe('3');
+    });
+
+    // Navigate to installed first (windows: win-tool, cross-kit = 2)
+    navigate('installed');
+    await waitFor(() => expect(winCount()).toBe('2'));
+
+    // Observe every DOM mutation across view switches: must NEVER jump back to full-catalog '3'
+    const seenCounts: Array<string | null> = [];
+    const observer = new MutationObserver(() => {
+      seenCounts.push(winCount());
+    });
+    observer.observe(winChip(), { childList: true, subtree: true, characterData: true });
+
+    navigate('pending');
+    await waitFor(() => expect(winCount()).toBe('1'));
+
+    navigate('favorites');
+    await waitFor(() => expect(winCount()).toBe('1'));
+
+    navigate('launchpad');
+    await waitFor(() => expect(winCount()).toBe('0'));
+
+    observer.disconnect();
+    expect(seenCounts).not.toContain('3');
   });
 });

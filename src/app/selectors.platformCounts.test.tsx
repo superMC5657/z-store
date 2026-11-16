@@ -195,7 +195,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
     platformResolvedOtherIds: new Set<string>(),
     selectedApp: null,
     recentlyViewedApps: [],
-    currentView: 'favorites' as Parameters<typeof useAppSelectors>[0]['currentView'],
+    currentView: 'categories' as Parameters<typeof useAppSelectors>[0]['currentView'],
     stagedDeepLinkInstall: null,
     searchQuery: 'vlc',
   };
@@ -286,15 +286,22 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
       { initialProps: { view: currentView } },
     );
 
-  it('当前视图上报值优先；其它视图上报不串用；null 回退全库', () => {
+  it('当前视图上报值优先；其它视图上报不串用；非全库视图未上报时为 undefined（不闪全库），分类大厅 null 回退全库', () => {
     const { result } = render('latest');
-    expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
+    expect(result.current.sidebarPlatformCounts).toBeUndefined();
     act(() => result.current.setViewPlatformCounts('pending', latestCounts));
-    expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
+    expect(result.current.sidebarPlatformCounts).toBeUndefined();
     act(() => result.current.handleLatestPlatformCounts(latestCounts));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
     act(() => result.current.handleLatestPlatformCounts(null));
-    expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
+    expect(result.current.sidebarPlatformCounts).toBeUndefined();
+
+    const cat = render('categories');
+    expect(cat.result.current.sidebarPlatformCounts).toEqual(fullCounts);
+    act(() => cat.result.current.handleCategoryPlatformCounts(latestCounts));
+    expect(cat.result.current.sidebarPlatformCounts).toEqual(latestCounts);
+    act(() => cat.result.current.handleCategoryPlatformCounts(null));
+    expect(cat.result.current.sidebarPlatformCounts).toEqual(fullCounts);
   });
 
   it('离开视图即复位该视图槽位，返回后在重新上报前回退全库', () => {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BookmarkPlus, ChevronsDown, RotateCcw, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppCard } from '../../components/AppCard';
@@ -543,11 +543,11 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     return selectPlatformCounts(annotatedRows, resolvedOtherIds);
   }, [queryKey, annotatedRows, resolvedOtherIds]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDisplayPlatformCounts?.(displayPlatformCounts);
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
       onDisplayPlatformCounts?.(null);
     };

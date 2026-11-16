@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { CountLabel } from '../components/CountBadge';
 import { Bookmark, Eye, Star, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -115,10 +115,10 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     if (activeTab === 'watched') return selectPlatformCounts(allWatchRows, platformResolvedOtherIds);
     return null;
   }, [activeTab, allFavRows, allWatchRows, platformResolvedOtherIds]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (tabPlatformCounts) onDisplayPlatformCounts?.(tabPlatformCounts);
   }, [tabPlatformCounts, onDisplayPlatformCounts]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => onDisplayPlatformCounts?.(null);
   }, [onDisplayPlatformCounts]);
 

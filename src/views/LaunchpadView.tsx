@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { BookOpen, FilePlus, Megaphone, Pin, Plus, RefreshCw, Rocket, WifiOff } from 'lucide-react';
@@ -137,10 +137,10 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
   );
   const reportRef = useRef(onDisplayPlatformCounts);
   reportRef.current = onDisplayPlatformCounts;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (platformCounts) reportRef.current?.(platformCounts);
   }, [platformCounts]);
-  useEffect(() => () => reportRef.current?.(null), []);
+  useLayoutEffect(() => () => reportRef.current?.(null), []);
 
   const matches = useCallback(
     (e: LaunchpadEntry) =>

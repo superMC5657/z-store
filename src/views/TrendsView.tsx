@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useLayoutEffect, useMemo, useRef } from 'react';
 import { CountBadge } from '../components/CountBadge';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -223,8 +223,9 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
   }, [rawDisplayItems, selectedPlatforms, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
   displayItemsRef.current = displayItems;
 
-  // 榜单平台分布：取平台过滤前的行，各平台计数不随当前勾选变化（加载中行暂不计数，落定后单次更新）。
-  const displayPlatformCounts = useMemo<Record<PlatformId, number>>(() => {
+  // 榜单平台分布：取平台过滤前的行，各平台计数不随当前勾选变化（加载中行暂不计数，落定后单次更新；榜单尚未返回前不上报假 0）。
+  const displayPlatformCounts = useMemo<Record<PlatformId, number> | null>(() => {
+    if (trendResult === null) return null;
     const counts = {} as Record<PlatformId, number>;
     for (const id of PLATFORM_IDS) counts[id] = 0;
     const platsOf = (item: DisplayTrendItem): string[] | undefined => {
@@ -244,10 +245,10 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
       }
     }
     return counts;
-  }, [rawDisplayItems, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
+  }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
 
-  useEffect(() => {
-    onDisplayPlatformCounts?.(displayPlatformCounts);
+  useLayoutEffect(() => {
+    if (displayPlatformCounts) onDisplayPlatformCounts?.(displayPlatformCounts);
   }, [displayPlatformCounts, onDisplayPlatformCounts]);
 
   const gainTextFor = (gain?: number): string | undefined => {

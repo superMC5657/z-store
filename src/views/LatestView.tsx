@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { Sparkles, Calendar } from 'lucide-react';
@@ -200,10 +200,10 @@ export const LatestView: React.FC<LatestViewProps> = ({
 
   const reportCountsRef = useRef(onDisplayPlatformCounts);
   reportCountsRef.current = onDisplayPlatformCounts;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (windowPlatformCounts) reportCountsRef.current?.(windowPlatformCounts);
   }, [windowPlatformCounts]);
-  useEffect(() => () => reportCountsRef.current?.(null), []);
+  useLayoutEffect(() => () => reportCountsRef.current?.(null), []);
 
   const settled = !loading && !error;
   // 该时间窗在全平台本身无新收录 → 时间窗切换引导；有新收录但被平台筛选排除 → FilterEmptyState。

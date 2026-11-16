@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppDetailViewModel,
   AppSummary,
@@ -1127,29 +1127,48 @@ export function useAppSelectors({
     setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
   }, [setSelectedPlatforms]);
 
-  // 视图级侧栏平台计数通道：各视图按自身作用域上报分布（null = 未上报/撤回，回退默认口径）。
-  // 只读取 currentView 的槽位；离开视图即清空其槽位，回到该视图在重新上报前回退默认口径（不闪旧值）。
+  // 视图级侧栏平台计数通道：各视图按自身作用域上报分布（null = 显式回退全库口径，如分类大厅）。
+  // 离开视图即清空其槽位；非全库作用域视图在首次上报前返回 undefined，避免加载/切页瞬间闪现全库数量。
+  const VIEW_SCOPED_PLATFORM_VIEWS: ReadonlySet<ViewType> = new Set<ViewType>([
+    'trends',
+    'launchpad',
+    'latest',
+    'pending',
+    'installed',
+    'favorites',
+  ]);
   const [viewPlatformCounts, setViewPlatformCountsState] = useState<
-    Partial<Record<ViewType, PlatformCounts>>
+    Partial<Record<ViewType, PlatformCounts | null>>
   >({});
   const setViewPlatformCounts = useCallback((view: ViewType, counts: PlatformCounts | null) => {
     setViewPlatformCountsState((prev) => {
       if (counts === null) {
-        if (!(view in prev)) return prev;
-        const next = { ...prev };
-        delete next[view];
-        return next;
+        if (VIEW_SCOPED_PLATFORM_VIEWS.has(view)) {
+          if (!(view in prev)) return prev;
+          const next = { ...prev };
+          delete next[view];
+          return next;
+        }
+        if (prev[view] === null) return prev;
+        return { ...prev, [view]: null };
       }
       if (prev[view] === counts) return prev;
       return { ...prev, [view]: counts };
     });
   }, []);
   const prevViewRef = useRef(currentView);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const left = prevViewRef.current;
     prevViewRef.current = currentView;
-    if (left !== currentView) setViewPlatformCounts(left, null);
-  }, [currentView, setViewPlatformCounts]);
+    if (left !== currentView) {
+      setViewPlatformCountsState((prev) => {
+        if (!(left in prev)) return prev;
+        const next = { ...prev };
+        delete next[left];
+        return next;
+      });
+    }
+  }, [currentView]);
   const handleLatestPlatformCounts = useCallback(
     (counts: PlatformCounts | null) => setViewPlatformCounts('latest', counts),
     [setViewPlatformCounts],
@@ -1191,9 +1210,14 @@ export function useAppSelectors({
       platformResolvedOtherIds,
     );
   }, [isHomeSearch, hasActiveOnlineSearch, searchMergedApps, annotatedOnlineApps, platformResolvedOtherIds]);
-  // 优先级：当前视图上报值 > home 搜索态分布 > 全库分布。
-  const sidebarPlatformCounts: PlatformCounts =
-    viewPlatformCounts[currentView] ?? searchPlatformCounts ?? platformCounts;
+  // 优先级：当前视图上报值 >（全库作用域或显式回退 null 时：home 搜索态分布 > 全库分布）。
+  const reportedPlatformCounts = viewPlatformCounts[currentView];
+  const sidebarPlatformCounts: PlatformCounts | undefined =
+    reportedPlatformCounts !== undefined
+      ? reportedPlatformCounts ?? searchPlatformCounts ?? platformCounts
+      : VIEW_SCOPED_PLATFORM_VIEWS.has(currentView)
+        ? undefined
+        : searchPlatformCounts ?? platformCounts;
 
   // 已安装 id 集（大小写归一）：安装态与「受管」判定共用同一集合，一处计算两处消费。
   const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
