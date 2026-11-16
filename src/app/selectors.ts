@@ -1162,6 +1162,10 @@ export function useAppSelectors({
     (counts: PlatformCounts | null) => setViewPlatformCounts('trends', counts),
     [setViewPlatformCounts],
   );
+  const handleLaunchpadPlatformCounts = useCallback(
+    (counts: PlatformCounts | null) => setViewPlatformCounts('launchpad', counts),
+    [setViewPlatformCounts],
+  );
   const handlePendingPlatformCounts = useCallback(
     (counts: PlatformCounts | null) => setViewPlatformCounts('pending', counts),
     [setViewPlatformCounts],
@@ -1251,6 +1255,7 @@ export function useAppSelectors({
     handleLatestPlatformCounts,
     handleCategoryPlatformCounts,
     handleTrendsPlatformCounts,
+    handleLaunchpadPlatformCounts,
     handlePendingPlatformCounts,
     handleInstalledPlatformCounts,
     handleFavoritesPlatformCounts,

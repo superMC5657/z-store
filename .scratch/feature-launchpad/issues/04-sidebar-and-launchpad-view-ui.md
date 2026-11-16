@@ -1,6 +1,6 @@
 # Issue 04: 开源广场双区视图（Spotlight + 新品流）、一键 Star、作者画像联动与筛选计数对齐
 
-Status: ready-for-agent
+Status: done
 Blocked by: 03
 
 ## Summary

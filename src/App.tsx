@@ -18,6 +18,7 @@ import { FeaturedView } from './views/FeaturedView';
 import { SearchResultsView } from './views/SearchResultsView';
 import { LatestView } from './views/LatestView';
 import { TrendsView } from './views/TrendsView';
+import { LaunchpadView } from './views/LaunchpadView';
 import { CategoriesView } from './views/CategoriesView';
 import { PendingView } from './views/PendingView';
 import { InstalledView } from './views/InstalledView';
@@ -85,6 +86,9 @@ export const App: React.FC = () => {
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   // 一次性落点请求：深链要求「我的应用」落在「有更新」签；InstalledView 消费后复位
   const [focusMyAppsUpdates, setFocusMyAppsUpdates] = useState(false);
+  // 开源广场深链定位目标（`zstore://launchpad/{id}`），视图高亮后清除。
+  const [launchpadFocusId, setLaunchpadFocusId] = useState<string | null>(null);
+  const clearLaunchpadFocus = useCallback(() => setLaunchpadFocusId(null), []);
   const {
     theme,
     settings,
@@ -305,6 +309,7 @@ export const App: React.FC = () => {
     focusView: (focus) => {
       if (focus === 'updates') setFocusMyAppsUpdates(true);
     },
+    onFocusLaunchpadApp: setLaunchpadFocusId,
     showToast,
     t,
   });
@@ -373,6 +378,7 @@ export const App: React.FC = () => {
     handleResetPlatformFilter,
     handleInstalledPlatformCounts,
     handleTrendsPlatformCounts,
+    handleLaunchpadPlatformCounts,
     handlePendingPlatformCounts,
     handleLatestPlatformCounts,
     handleCategoryPlatformCounts,
@@ -774,6 +780,26 @@ export const App: React.FC = () => {
               onResetPlatformFilter={handleResetPlatformFilter}
               customIds={customIds}
               localApps={localLibrarySummaries}
+            />
+          )}
+
+          {currentView === 'launchpad' && (
+            <LaunchpadView
+              selectedPlatforms={selectedPlatforms}
+              platformResolvedOtherIds={platformResolvedOtherIds}
+              installedIds={installedIds}
+              installingIds={installingAppIds}
+              managedIds={managedLoaded ? managedIds : null}
+              customIds={customIds}
+              oauthUser={oauthUser}
+              focusAppId={launchpadFocusId}
+              onFocusConsumed={clearLaunchpadFocus}
+              onOpenDetail={handleOpenDetail}
+              onQuickInstall={handleQuickInstall}
+              onOpenDeveloper={setSelectedDeveloper}
+              onOpenAccount={handleOpenAccountSettings}
+              onResetPlatformFilter={handleResetPlatformFilter}
+              onDisplayPlatformCounts={handleLaunchpadPlatformCounts}
             />
           )}
 

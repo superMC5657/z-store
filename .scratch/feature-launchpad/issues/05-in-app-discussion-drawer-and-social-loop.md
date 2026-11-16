@@ -1,6 +1,6 @@
 # Issue 05: 应用内 GitHub Discussion 评论/顶帖抽屉与未登录优雅降级闭环
 
-Status: ready-for-agent
+Status: done
 Blocked by: 04
 
 ## Summary

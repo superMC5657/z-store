@@ -60,6 +60,9 @@ const MIGRATED_FILES = [
   '../views/InstalledView/ChangelogDrawer.tsx',
   '../views/SettingsView/sections/DataManagementSection.tsx',
   '../app/InstallConfirmDialog.tsx',
+  '../views/LaunchpadView.tsx',
+  '../views/LaunchpadView/LaunchpadCard.tsx',
+  '../views/LaunchpadView/LaunchpadDiscussionDrawer.tsx',
 ];
 
 interface Violation {
