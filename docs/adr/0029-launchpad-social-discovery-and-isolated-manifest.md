@@ -4,7 +4,7 @@
 - 日期：2026-11-16
 - 关联：ADR-0006（多托管源 `ForgeProvider`）、ADR-0009（独立生态清单仓库）、ADR-0010（规范应用标识）、ADR-0018（开源协议门禁）、ADR-0020（OAuth 令牌边界）、ADR-0025（动态系统代理与资产缓存收敛；本 ADR 受控扩展其镜像回退范围）、ADR-0027（单仓富卡独立缓存表）
 - 落地计划：`.scratch/feature-launchpad/`
-- 实现：`src-tauri/src/launchpad/`、`src-tauri/src/commands/launchpad.rs`、`src-tauri/src/github/discussions.rs`、`src-tauri/src/db/launchpad.rs`、`src-tauri/src/deeplink.rs`、`src-tauri/config.toml`、`src/views/LaunchpadView.tsx`、`src/views/LaunchpadView/`、`src/services/api/launchpad.ts`、`src/demo/handlers/launchpad.ts`、外部数据仓脚手架 `docs/launchpad-repo-kit/`
+- 实现：`src-tauri/src/launchpad/`、`src-tauri/src/commands/launchpad.rs`、`src-tauri/src/github/discussions.rs`、`src-tauri/src/db/launchpad.rs`、`src-tauri/src/deeplink.rs`、`src-tauri/config.toml`、`src/views/LaunchpadView.tsx`、`src/views/LaunchpadView/`、`src/services/api/launchpad.ts`、`src/demo/handlers/launchpad.ts`；独立数据仓：`superMC5657/z-store-launchpad`（本地 `z:\web_workplace\z-store-launchpad`）
 
 ## 1. 背景
 

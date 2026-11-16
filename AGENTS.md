@@ -19,7 +19,7 @@ Single-context layout: one `CONTEXT.md` + `docs/adr/` at the repo root. See `doc
 ## Ecosystem Repositories
 
 - **Catalog (`superMC5657/z-store-catalog`)**: Manifest source in `src-tauri/config.toml` (`[catalog].default_source_url`), offline fallback `catalog.json` (ADR-0009).
-- **Launchpad (`superMC5657/z-store-launchpad`)**: Manifest source in `src-tauri/config.toml` (`[launchpad].default_source_url`), snapshot in `launchpad_feed_cache`, never written into catalog tables (ADR-0029). Repository scaffold lives in `docs/launchpad-repo-kit/`.
+- **Launchpad (`superMC5657/z-store-launchpad`)**: Local repo at `z:\web_workplace\z-store-launchpad`. Manifest source in `src-tauri/config.toml` (`[launchpad].default_source_url`), snapshot in `launchpad_feed_cache`, never written into catalog tables (ADR-0029).
 - **Website (`superMC5657/z-store-web`)**: Local repo at `z:\web_workplace\z-store-web`. Live demo build in `vite.demo.config.ts`.
 
 ## Rules

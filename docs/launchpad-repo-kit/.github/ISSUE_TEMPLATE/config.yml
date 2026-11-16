@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: 投稿与置顶说明 / Submission & spotlight guide
-    url: https://z-store.org/launchpad/submit
-    about: 了解准入门槛、置顶档位与审核流程 / Requirements, spotlight tiers and review flow
-  - name: 社区讨论 / Community discussions
-    url: https://github.com/superMC5657/z-store-launchpad/discussions
-    about: 新品讨论帖集中在 Launches 分类 / Launch threads live in the Launches category
