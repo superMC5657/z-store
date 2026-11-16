@@ -286,7 +286,7 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
       { initialProps: { view: currentView } },
     );
 
-  it('当前视图上报值优先；其它视图上报不串用；非全库视图未上报时为 undefined（不闪全库），分类大厅 null 回退全库', () => {
+  it('当前视图上报值优先；其它视图上报不串用；非全库视图未上报时沿用上次稳定计数（不闪空），分类大厅 null 回退全库', () => {
     const { result } = render('latest');
     expect(result.current.sidebarPlatformCounts).toBeUndefined();
     act(() => result.current.setViewPlatformCounts('pending', latestCounts));
@@ -294,7 +294,7 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
     act(() => result.current.handleLatestPlatformCounts(latestCounts));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
     act(() => result.current.handleLatestPlatformCounts(null));
-    expect(result.current.sidebarPlatformCounts).toBeUndefined();
+    expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
 
     const cat = render('categories');
     expect(cat.result.current.sidebarPlatformCounts).toEqual(fullCounts);
@@ -304,7 +304,7 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
     expect(cat.result.current.sidebarPlatformCounts).toEqual(fullCounts);
   });
 
-  it('离开视图即复位该视图槽位，返回后在重新上报前回退全库', () => {
+  it('异步视图切走再切回保留上次已知分布（零闪烁）；categories 离开复位回全库', () => {
     const { result, rerender } = render('categories');
     act(() => result.current.handleCategoryPlatformCounts(latestCounts));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
@@ -312,6 +312,14 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
     expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
     rerender({ view: 'categories' });
     expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
+
+    rerender({ view: 'launchpad' });
+    act(() => result.current.handleLaunchpadPlatformCounts(latestCounts));
+    expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
+    rerender({ view: 'home' });
+    expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
+    rerender({ view: 'launchpad' });
+    expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
   });
 
   it.each<[View, 'handleTrendsPlatformCounts' | 'handlePendingPlatformCounts' | 'handleInstalledPlatformCounts' | 'handleFavoritesPlatformCounts']>([

@@ -1128,7 +1128,9 @@ export function useAppSelectors({
   }, [setSelectedPlatforms]);
 
   // 视图级侧栏平台计数通道：各视图按自身作用域上报分布（null = 显式回退全库口径，如分类大厅）。
-  // 离开视图即清空其槽位；非全库作用域视图在首次上报前返回 undefined，避免加载/切页瞬间闪现全库数量。
+  // - 离开 categories 时清空其槽位（再进时落在全库大厅）；
+  // - 异步数据源视图（trends / launchpad / latest）保留上次已知分布，重访时零闪烁直出并在新数据就绪后刷新；
+  // - 首次进入尚未上报的异步视图时，沿用上一次稳定显示的计数（lastStablePlatformCountsRef），既不闪全库也不闪空。
   const VIEW_SCOPED_PLATFORM_VIEWS: ReadonlySet<ViewType> = new Set<ViewType>([
     'trends',
     'launchpad',
@@ -1160,11 +1162,11 @@ export function useAppSelectors({
   useLayoutEffect(() => {
     const left = prevViewRef.current;
     prevViewRef.current = currentView;
-    if (left !== currentView) {
+    if (left !== currentView && left === 'categories') {
       setViewPlatformCountsState((prev) => {
-        if (!(left in prev)) return prev;
+        if (!('categories' in prev)) return prev;
         const next = { ...prev };
-        delete next[left];
+        delete next.categories;
         return next;
       });
     }
@@ -1210,14 +1212,20 @@ export function useAppSelectors({
       platformResolvedOtherIds,
     );
   }, [isHomeSearch, hasActiveOnlineSearch, searchMergedApps, annotatedOnlineApps, platformResolvedOtherIds]);
-  // 优先级：当前视图上报值 >（全库作用域或显式回退 null 时：home 搜索态分布 > 全库分布）。
+  // 优先级：当前视图上报值 >（全库作用域或显式回退 null 时：home 搜索态分布 > 全库分布）> 上次稳定计数。
   const reportedPlatformCounts = viewPlatformCounts[currentView];
-  const sidebarPlatformCounts: PlatformCounts | undefined =
+  const resolvedPlatformCounts: PlatformCounts | undefined =
     reportedPlatformCounts !== undefined
       ? reportedPlatformCounts ?? searchPlatformCounts ?? platformCounts
       : VIEW_SCOPED_PLATFORM_VIEWS.has(currentView)
         ? undefined
         : searchPlatformCounts ?? platformCounts;
+  const lastStablePlatformCountsRef = useRef<PlatformCounts | undefined>(undefined);
+  if (resolvedPlatformCounts !== undefined) {
+    lastStablePlatformCountsRef.current = resolvedPlatformCounts;
+  }
+  const sidebarPlatformCounts: PlatformCounts | undefined =
+    resolvedPlatformCounts ?? lastStablePlatformCountsRef.current;
 
   // 已安装 id 集（大小写归一）：安装态与「受管」判定共用同一集合，一处计算两处消费。
   const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);

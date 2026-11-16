@@ -140,7 +140,6 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
   useLayoutEffect(() => {
     if (platformCounts) reportRef.current?.(platformCounts);
   }, [platformCounts]);
-  useLayoutEffect(() => () => reportRef.current?.(null), []);
 
   const matches = useCallback(
     (e: LaunchpadEntry) =>

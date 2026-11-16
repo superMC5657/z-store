@@ -654,5 +654,6 @@ describe('App cross-view counts match visible content', () => {
 
     observer.disconnect();
     expect(seenCounts).not.toContain('3');
+    expect(seenCounts).not.toContain(null);
   });
 });

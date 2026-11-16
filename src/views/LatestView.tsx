@@ -203,7 +203,6 @@ export const LatestView: React.FC<LatestViewProps> = ({
   useLayoutEffect(() => {
     if (windowPlatformCounts) reportCountsRef.current?.(windowPlatformCounts);
   }, [windowPlatformCounts]);
-  useLayoutEffect(() => () => reportCountsRef.current?.(null), []);
 
   const settled = !loading && !error;
   // 该时间窗在全平台本身无新收录 → 时间窗切换引导；有新收录但被平台筛选排除 → FilterEmptyState。
