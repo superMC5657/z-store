@@ -272,7 +272,7 @@ fn default_launchpad_submit_issue_url() -> String {
 }
 
 fn default_launchpad_submit_web_url() -> String {
-    "https://z-store.org/launchpad/submit".to_string()
+    "https://z-store-web.pages.dev/launchpad/submit".to_string()
 }
 
 impl Default for LaunchpadConfig {

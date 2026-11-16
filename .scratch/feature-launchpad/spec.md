@@ -53,7 +53,7 @@ discussions_repo = "superMC5657/z-store-launchpad"
 # 作者提交作品预填 GitHub Issue Form 地址
 submit_issue_url = "https://github.com/superMC5657/z-store-launchpad/issues/new?template=submit-launchpad.yml"
 # 官网开源广场投稿说明页地址
-submit_web_url = "https://z-store.org/launchpad/submit"
+submit_web_url = "https://z-store-web.pages.dev/launchpad/submit"
 ```
 
 ### 3.2 视图路由、侧栏导航与深链协议

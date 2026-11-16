@@ -215,7 +215,7 @@ export function handleGetLaunchpadFeed(a: InvokeArgs): LaunchpadFeedResponse {
     items: RECENT.map((s, i) => withLiveState(toEntry(s, false, i))),
     discussions_repo: DISCUSSIONS_REPO,
     submit_issue_url: `https://github.com/${DISCUSSIONS_REPO}/issues/new?template=submit-launchpad.yml`,
-    submit_web_url: 'https://z-store.org/launchpad/submit',
+    submit_web_url: 'https://z-store-web.pages.dev/launchpad/submit',
     generated_at: isoDaysAgo(0),
     cached_at: nowSecs(),
     is_stale: false,

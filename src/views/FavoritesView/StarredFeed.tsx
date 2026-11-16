@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookmarkPlus, ChevronsDown, RotateCcw, Star } from 'lucide-react';
+import { useReportPlatformCounts } from '../../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
 import { AppCard } from '../../components/AppCard';
 import { EmptyState } from '../../components/EmptyState';
@@ -543,15 +544,10 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     return selectPlatformCounts(annotatedRows, resolvedOtherIds);
   }, [queryKey, annotatedRows, resolvedOtherIds]);
 
-  useLayoutEffect(() => {
-    onDisplayPlatformCounts?.(displayPlatformCounts);
-  }, [displayPlatformCounts, onDisplayPlatformCounts]);
-
-  useLayoutEffect(() => {
-    return () => {
-      onDisplayPlatformCounts?.(null);
-    };
-  }, [onDisplayPlatformCounts]);
+  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts, {
+    reportNull: true,
+    resetOnUnmount: true,
+  });
 
   const favoriteIdsLower = normalizeIdLowerSet(favoriteIds);
   const watchedIdsLower = normalizeIdLowerSet(watchedIds || new Set<string>());

@@ -69,7 +69,7 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      className="flyout-menu"
+      data-align={align}
       style={{
         position: 'absolute',
         ...(align === 'right'
@@ -82,12 +82,19 @@ export const FlyoutMenu: React.FC<FlyoutMenuProps> = ({
           : { bottom: 'calc(100% + 6px)' }),
         width: `${width}px`,
         zIndex: 1000,
-        boxShadow:
-          'var(--shadow-modal, 0 16px 40px rgba(0, 0, 0, 0.65)), 0 0 0 1px var(--border-highlight, rgba(255, 255, 255, 0.12))',
       }}
-      onClick={(e) => e.stopPropagation()}
     >
-      {children}
+      <div
+        className="flyout-menu"
+        style={{
+          width: '100%',
+          boxShadow:
+            'var(--shadow-modal, 0 16px 40px rgba(0, 0, 0, 0.65)), 0 0 0 1px var(--border-highlight, rgba(255, 255, 255, 0.12))',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
     </div>
   );
 };

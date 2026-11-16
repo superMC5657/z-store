@@ -1,5 +1,6 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CountBadge } from '../components/CountBadge';
+import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
@@ -205,13 +206,9 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
     return selectPlatformCounts(rows, platformResolvedOtherIds);
   }, [installedPlatformRows, rulesByAppId, showHiddenSpread, platformResolvedOtherIds]);
 
-  useLayoutEffect(() => {
-    if (displayPlatformCounts) onDisplayPlatformCounts?.(displayPlatformCounts);
-  }, [displayPlatformCounts, onDisplayPlatformCounts]);
-
-  useLayoutEffect(() => {
-    return () => onDisplayPlatformCounts?.(null);
-  }, [onDisplayPlatformCounts]);
+  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts, {
+    resetOnUnmount: true,
+  });
 
   const isPlatformFilteredEmpty = installedApps.length === 0 && (totalInstalledCount ?? 0) > 0;
 

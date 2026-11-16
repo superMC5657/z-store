@@ -1,7 +1,8 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { Sparkles, Calendar } from 'lucide-react';
+import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { AppCard } from '../components/AppCard';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { CountBadge } from '../components/CountBadge';
@@ -198,11 +199,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
     return selectPlatformCounts(rows, platformResolvedOtherIds);
   }, [matchedIds, platformSource, platformResolvedOtherIds]);
 
-  const reportCountsRef = useRef(onDisplayPlatformCounts);
-  reportCountsRef.current = onDisplayPlatformCounts;
-  useLayoutEffect(() => {
-    if (windowPlatformCounts) reportCountsRef.current?.(windowPlatformCounts);
-  }, [windowPlatformCounts]);
+  useReportPlatformCounts(windowPlatformCounts, onDisplayPlatformCounts);
 
   const settled = !loading && !error;
   // 该时间窗在全平台本身无新收录 → 时间窗切换引导；有新收录但被平台筛选排除 → FilterEmptyState。

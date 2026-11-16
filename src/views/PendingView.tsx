@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CountLabel } from '../components/CountBadge';
+import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-pending.css';
@@ -342,9 +343,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
     return out;
   }, [entries, activeGroup]);
 
-  useLayoutEffect(() => {
-    onDisplayPlatformCounts?.(displayPlatformCounts);
-  }, [displayPlatformCounts, onDisplayPlatformCounts]);
+  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts);
 
   const previewPlatforms = useMemo(() => {
     return splitCsv(platformsText.toLowerCase());

@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { BookOpen, FilePlus, Megaphone, Pin, Plus, RefreshCw, Rocket, WifiOff } from 'lucide-react';
+import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { tauriApi } from '../services/api';
 import { notifyToast } from '../useToasts';
 import { CountBadge } from '../components/CountBadge';
@@ -135,11 +136,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
     () => (feed ? selectPlatformCounts(allEntries.map((e) => e.summary), platformResolvedOtherIds) : null),
     [feed, allEntries, platformResolvedOtherIds],
   );
-  const reportRef = useRef(onDisplayPlatformCounts);
-  reportRef.current = onDisplayPlatformCounts;
-  useLayoutEffect(() => {
-    if (platformCounts) reportRef.current?.(platformCounts);
-  }, [platformCounts]);
+  useReportPlatformCounts(platformCounts, onDisplayPlatformCounts);
 
   const matches = useCallback(
     (e: LaunchpadEntry) =>
@@ -391,14 +388,14 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
           resetLabel={t('launchpad.retry')}
           onReset={() => load(true)}
         />
-      ) : filteredOut ? (
+      ) : feed === null ? null : filteredOut ? (
         <FilterEmptyState
           title={t('launchpad.filter_empty_title')}
           description={t('launchpad.filter_empty_desc')}
           resetLabel={t('launchpad.reset_device_filter')}
           onReset={onResetPlatformFilter}
         />
-      ) : rawEmpty && settled ? (
+      ) : rawEmpty ? (
         <div className="empty-state-card launchpad-empty">
           <Rocket size={32} aria-hidden="true" />
           <h4>{t('launchpad.empty_title')}</h4>

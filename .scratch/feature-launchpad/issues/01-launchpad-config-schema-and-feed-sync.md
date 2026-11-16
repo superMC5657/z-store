@@ -42,7 +42,7 @@ Blocked by: none
   - `default_source_url`: `"https://raw.githubusercontent.com/superMC5657/z-store-launchpad/main/launchpad.json"`
   - `discussions_repo`: `"superMC5657/z-store-launchpad"`
   - `submit_issue_url`: `"https://github.com/superMC5657/z-store-launchpad/issues/new?template=submit-launchpad.yml"`
-  - `submit_web_url`: `"https://z-store.org/launchpad/submit"`
+  - `submit_web_url`: `"https://z-store-web.pages.dev/launchpad/submit"`
 - 同步更新 `config.rs` 中的 `serde_field_defaults_match_embedded_baseline` 与 `embedded_config_toml_declares_every_section` 测试（将 `"launchpad"` 加入必检段列表）。
 
 ### 2. SQLite `launchpad_feed_cache` 与迁移（`db/schema.rs` & `db/launchpad.rs`）

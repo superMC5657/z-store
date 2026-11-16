@@ -1,5 +1,6 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CountBadge } from '../components/CountBadge';
+import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { queueAssembledRowIcons } from '../services/iconStore';
@@ -251,12 +252,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     return selectPlatformCounts(rows, platformResolvedOtherIds);
   }, [selectedCategory, platformSource, platformResolvedOtherIds]);
 
-  const reportCountsRef = React.useRef(onDisplayPlatformCounts);
-  reportCountsRef.current = onDisplayPlatformCounts;
-  useLayoutEffect(() => {
-    reportCountsRef.current?.(categoryPlatformCounts);
-  }, [categoryPlatformCounts]);
-  useLayoutEffect(() => () => reportCountsRef.current?.(null), []);
+  useReportPlatformCounts(categoryPlatformCounts, onDisplayPlatformCounts, {
+    reportNull: true,
+    resetOnUnmount: true,
+  });
 
   const handleResetFilter = () => {
     onResetPlatformFilter();

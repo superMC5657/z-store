@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { CountLabel } from '../components/CountBadge';
+import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { Bookmark, Eye, Star, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
@@ -115,12 +116,9 @@ export const FavoritesView: React.FC<FavoritesViewProps> = ({
     if (activeTab === 'watched') return selectPlatformCounts(allWatchRows, platformResolvedOtherIds);
     return null;
   }, [activeTab, allFavRows, allWatchRows, platformResolvedOtherIds]);
-  useLayoutEffect(() => {
-    if (tabPlatformCounts) onDisplayPlatformCounts?.(tabPlatformCounts);
-  }, [tabPlatformCounts, onDisplayPlatformCounts]);
-  useLayoutEffect(() => {
-    return () => onDisplayPlatformCounts?.(null);
-  }, [onDisplayPlatformCounts]);
+  useReportPlatformCounts(tabPlatformCounts, onDisplayPlatformCounts, {
+    resetOnUnmount: true,
+  });
 
   // 「有新版本」面板与下方关注列表同一可见作用域：已在池内的应用须出现在当前关注网格，
   // 不在池内的提醒（无平台信息）仅按页内搜索词匹配名称 / ID。

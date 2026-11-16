@@ -84,7 +84,7 @@ function feed(spotlight: LaunchpadEntry[], items: LaunchpadEntry[]): LaunchpadFe
     items,
     discussions_repo: 'superMC5657/z-store-launchpad',
     submit_issue_url: 'https://github.com/x/issues/new',
-    submit_web_url: 'https://z-store.org/launchpad/submit',
+    submit_web_url: 'https://z-store-web.pages.dev/launchpad/submit',
     is_stale: false,
   };
 }
@@ -267,11 +267,48 @@ describe('LaunchpadView', () => {
     expect(screen.getAllByRole('menuitem')).toHaveLength(2);
     expect(buttons[0].getAttribute('aria-expanded')).toBe('false');
     expect(buttons[1].getAttribute('aria-expanded')).toBe('true');
+    const emptyWrapper = screen.getAllByRole('menuitem')[0].closest('.flyout-menu')?.parentElement;
+    expect(emptyWrapper?.getAttribute('data-align')).toBe('center');
+    expect(emptyWrapper?.style.left).toBe('50%');
+    expect(emptyWrapper?.style.transform).toBe('translateX(-50%)');
+    expect(screen.getAllByRole('menuitem')[0].closest<HTMLElement>('.flyout-menu')?.style.transform).toBe('');
 
     fireEvent.click(buttons[0]);
     expect(screen.getAllByRole('menuitem')).toHaveLength(2);
     expect(buttons[0].getAttribute('aria-expanded')).toBe('true');
     expect(buttons[1].getAttribute('aria-expanded')).toBe('false');
+    const headerWrapper = screen.getAllByRole('menuitem')[0].closest('.flyout-menu')?.parentElement;
+    expect(headerWrapper?.getAttribute('data-align')).toBe('right');
+    expect(headerWrapper?.style.right).toBe('0px');
+  });
+
+  it('首次加载中与空态刷新期间不闪出排序栏（推荐/最新上架/讨论热度）', async () => {
+    let resolveInitial!: (v: LaunchpadFeedResponse) => void;
+    api.getLaunchpadFeed.mockImplementationOnce(
+      () => new Promise<LaunchpadFeedResponse>((resolve) => { resolveInitial = resolve; }),
+    );
+    renderView();
+    expect(screen.queryByRole('tablist', { name: '最新上架排序' })).toBeNull();
+    expect(screen.queryByText('广场还没有上架作品')).toBeNull();
+
+    await act(async () => {
+      resolveInitial(feed([], []));
+    });
+    expect(await screen.findByText('广场还没有上架作品')).toBeTruthy();
+
+    let resolveRefresh!: (v: LaunchpadFeedResponse) => void;
+    api.getLaunchpadFeed.mockImplementationOnce(
+      () => new Promise<LaunchpadFeedResponse>((resolve) => { resolveRefresh = resolve; }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    expect(screen.getByText('广场还没有上架作品')).toBeTruthy();
+    expect(screen.queryByRole('tablist', { name: '最新上架排序' })).toBeNull();
+
+    await act(async () => {
+      resolveRefresh(feed([], []));
+    });
+    expect(screen.getByText('广场还没有上架作品')).toBeTruthy();
+    expect(screen.queryByRole('tablist', { name: '最新上架排序' })).toBeNull();
   });
 });
 

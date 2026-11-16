@@ -1,5 +1,6 @@
-import React, { useLayoutEffect, useMemo, useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { CountBadge } from '../components/CountBadge';
+import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import '../styles/components-trends.css';
@@ -247,9 +248,7 @@ export const TrendsView: React.FC<TrendsViewProps> = ({
     return counts;
   }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
 
-  useLayoutEffect(() => {
-    if (displayPlatformCounts) onDisplayPlatformCounts?.(displayPlatformCounts);
-  }, [displayPlatformCounts, onDisplayPlatformCounts]);
+  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts);
 
   const gainTextFor = (gain?: number): string | undefined => {
     if (!gain || gain <= 0) return undefined;
