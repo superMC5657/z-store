@@ -6,8 +6,9 @@
 pub mod models;
 
 pub use models::{
-    LaunchpadEntry, LaunchpadFeedResponse, LaunchpadMaker, RawLaunchpadItem, RawLaunchpadManifest,
-    RawLaunchpadPin,
+    LaunchpadDiscussionAuthor, LaunchpadDiscussionComment, LaunchpadDiscussionDetail,
+    LaunchpadEntry, LaunchpadFeedResponse, LaunchpadMaker, LaunchpadUpvoteResult,
+    RawLaunchpadItem, RawLaunchpadManifest, RawLaunchpadPin,
 };
 
 use models::non_empty;

@@ -202,3 +202,58 @@ impl RawLaunchpadItem {
         }
     }
 }
+
+/// 讨论区作者（GitHub 用户）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchpadDiscussionAuthor {
+    pub login: String,
+    pub avatar_url: String,
+    pub html_url: String,
+}
+
+/// 讨论评论（一级评论含二级 `replies`，二级回复的 `replies` 恒为空）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LaunchpadDiscussionComment {
+    pub id: String,
+    pub body: String,
+    pub created_at: String,
+    pub author_association: String,
+    pub author: Option<LaunchpadDiscussionAuthor>,
+    pub upvote_count: u64,
+    pub viewer_has_upvoted: bool,
+    pub replies: Vec<LaunchpadDiscussionComment>,
+}
+
+/// `get_launchpad_discussion` 响应。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LaunchpadDiscussionDetail {
+    pub id: String,
+    pub number: u64,
+    pub title: String,
+    pub body: String,
+    pub url: String,
+    pub created_at: String,
+    pub locked: bool,
+    pub closed: bool,
+    pub author: Option<LaunchpadDiscussionAuthor>,
+    pub category_name: String,
+    pub upvote_count: u64,
+    pub viewer_has_upvoted: bool,
+    pub viewer_can_upvote: bool,
+    pub viewer_can_comment: bool,
+    pub auth_required_for_write: bool,
+    pub comments_total: u64,
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
+    pub comments: Vec<LaunchpadDiscussionComment>,
+    pub is_stale: bool,
+}
+
+/// `toggle_launchpad_upvote` 响应：`mode` 为 `upvote`（原生顶帖）或 `reaction`（👍 兜底）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchpadUpvoteResult {
+    pub subject_id: String,
+    pub upvote_count: u64,
+    pub viewer_has_upvoted: bool,
+    pub mode: String,
+}

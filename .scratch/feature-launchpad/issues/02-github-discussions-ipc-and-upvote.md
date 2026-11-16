@@ -1,6 +1,6 @@
 # Issue 02: GitHub Discussions 混合读取、应用内评论与 `+1` 顶帖 IPC 实现
 
-Status: ready-for-agent
+Status: done
 Blocked by: 01
 
 ## Summary

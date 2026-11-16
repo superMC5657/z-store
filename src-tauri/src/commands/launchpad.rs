@@ -1,4 +1,5 @@
-//! 开源广场（Launchpad）命令：清单同步水合（`get_launchpad_feed`）。
+//! 开源广场（Launchpad）命令：清单同步水合（`get_launchpad_feed`）与 GitHub Discussions
+//! 讨论/评论/顶帖（`get_launchpad_discussion`、`add_launchpad_comment`、`toggle_launchpad_upvote`）。
 //!
 //! 只读写 `launchpad_feed_cache`、`api_etag_cache` 与未收录 `repo_card_cache`；
 //! 精选目录表（`catalog_apps` / `custom_apps`）永不写入。
@@ -252,6 +253,118 @@ pub async fn get_launchpad_feed(
         cached_at: load.cached_at,
         is_stale: load.is_stale,
     })
+}
+
+fn require_token(state: &AppState, msg: &str) -> Result<String, String> {
+    state.active_github_token().ok_or_else(|| msg.to_string())
+}
+
+/// 讨论详情：已登录走 GraphQL；未登录走匿名 REST 只读降级（不触发 GraphQL 401）。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_launchpad_discussion(
+    state: State<'_, AppState>,
+    discussion_repo: String,
+    discussion_number: u64,
+    cursor: Option<String>,
+    force_refresh: Option<bool>,
+) -> crate::AppResult<crate::launchpad::LaunchpadDiscussionDetail> {
+    use crate::github::discussions as gd;
+    let (owner, repo) = gd::validate_discussion_repo(&discussion_repo)?;
+    let number = gd::validate_discussion_number(discussion_number)?;
+    let client = crate::shared_http_client();
+    let cursor = cursor.filter(|c| !c.trim().is_empty());
+    if let Some(token) = state.active_github_token() {
+        return gd::fetch_discussion_authed(
+            &client,
+            crate::github::GITHUB_API_BASE,
+            &token,
+            &owner,
+            &repo,
+            number,
+            cursor.as_deref(),
+        )
+        .await
+        .map_err(|e| crate::AppError::from(e.into_message()));
+    }
+    if cursor.is_some() {
+        // 匿名通道只提供首页评论，续页需登录。
+        let mut shell = gd::degraded_shell(&owner, &repo, number);
+        shell.is_stale = false;
+        return Ok(shell);
+    }
+    Ok(gd::fetch_discussion_anonymous(
+        &state.db,
+        &client,
+        None,
+        &owner,
+        &repo,
+        number,
+        force_refresh.unwrap_or(false),
+    )
+    .await)
+}
+
+/// 发表评论或回复（需登录）；成功后清除匿名通道的讨论/评论缓存。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn add_launchpad_comment(
+    state: State<'_, AppState>,
+    discussion_repo: String,
+    discussion_number: u64,
+    discussion_id: Option<String>,
+    body: String,
+    reply_to_id: Option<String>,
+) -> crate::AppResult<crate::launchpad::LaunchpadDiscussionComment> {
+    use crate::github::discussions as gd;
+    let token = require_token(&state, "请先登录 GitHub 账号后再发表评论")?;
+    let (owner, repo) = gd::validate_discussion_repo(&discussion_repo)?;
+    let number = gd::validate_discussion_number(discussion_number)?;
+    let comment = gd::add_comment(
+        &crate::shared_http_client(),
+        crate::github::GITHUB_API_BASE,
+        &token,
+        &owner,
+        &repo,
+        number,
+        discussion_id.as_deref(),
+        &body,
+        reply_to_id.as_deref(),
+    )
+    .await?;
+    if let Ok(db) = state.db() {
+        let _ = db.delete_etag(&gd::rest_comments_url(&owner, &repo, number));
+        let _ = db.delete_etag(&gd::rest_discussion_url(&owner, &repo, number));
+    }
+    Ok(comment)
+}
+
+/// `+1` 顶帖 / 取消顶帖（需登录）：原生 Upvote 优先，受限时回退 👍 Reaction。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn toggle_launchpad_upvote(
+    state: State<'_, AppState>,
+    discussion_repo: String,
+    discussion_number: u64,
+    subject_id: Option<String>,
+    currently_upvoted: bool,
+) -> crate::AppResult<crate::launchpad::LaunchpadUpvoteResult> {
+    use crate::github::discussions as gd;
+    let token = require_token(&state, "请先登录 GitHub 账号后再顶帖")?;
+    let (owner, repo) = gd::validate_discussion_repo(&discussion_repo)?;
+    let number = gd::validate_discussion_number(discussion_number)?;
+    let result = gd::toggle_upvote(
+        &crate::shared_http_client(),
+        crate::github::GITHUB_API_BASE,
+        &token,
+        &owner,
+        &repo,
+        number,
+        subject_id.as_deref(),
+        currently_upvoted,
+    )
+    .await?;
+    if let Ok(db) = state.db() {
+        let _ = db.delete_etag(&gd::rest_discussion_url(&owner, &repo, number));
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
