@@ -1,6 +1,7 @@
 import type { AppSettings, AppSummary } from '../types';
 import * as catalogApi from './api/catalog';
 import * as installerApi from './api/installer';
+import * as launchpadApi from './api/launchpad';
 import * as settingsApi from './api/settings';
 import * as socialApi from './api/social';
 import { isTauri, tauriInvoke } from './api/client';
@@ -101,6 +102,10 @@ export const CMD = {
   getCategoryApps: 'get_category_apps',
   getLatestCatalogApps: 'get_latest_catalog_apps',
   getHomeFeed: 'get_home_feed',
+  getLaunchpadFeed: 'get_launchpad_feed',
+  getLaunchpadDiscussion: 'get_launchpad_discussion',
+  addLaunchpadComment: 'add_launchpad_comment',
+  toggleLaunchpadUpvote: 'toggle_launchpad_upvote',
   getAffinityProfileSummary: 'get_affinity_profile_summary',
   getFeaturedPage: 'get_featured_page',
   saveInterestSeeds: 'save_interest_seeds',
@@ -288,6 +293,12 @@ export const tauriApi = {
   starApp: socialApi.starApp,
   unstarApp: socialApi.unstarApp,
   fetchStarredStatus: socialApi.fetchStarredStatus,
+
+  // Launchpad（开源广场）
+  getLaunchpadFeed: launchpadApi.getLaunchpadFeed,
+  getLaunchpadDiscussion: launchpadApi.getLaunchpadDiscussion,
+  addLaunchpadComment: launchpadApi.addLaunchpadComment,
+  toggleLaunchpadUpvote: launchpadApi.toggleLaunchpadUpvote,
 
   // Diagnostics / Logs
   getLogDir: settingsApi.getLogDir,

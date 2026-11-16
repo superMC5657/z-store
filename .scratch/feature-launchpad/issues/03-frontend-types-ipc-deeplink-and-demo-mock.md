@@ -1,6 +1,6 @@
 # Issue 03: 前端类型、IPC 表驱动对齐、`zstore://launchpad` 深链与 Demo Mock 实现
 
-Status: ready-for-agent
+Status: done
 Blocked by: 01, 02
 
 ## Summary

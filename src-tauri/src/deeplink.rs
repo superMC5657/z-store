@@ -13,6 +13,8 @@ pub enum DeepLinkAction {
     Search { query: String },
     DeveloperProfile { owner: String },
     OpenView { view: String },
+    /// 开源广场定位：切至 `launchpad` 视图并打开该新品详情（绝不自动安装）。
+    LaunchpadApp { app_id: String },
 }
 
 pub struct DeepLinkParser;
@@ -111,7 +113,27 @@ impl DeepLinkParser {
             });
         }
 
-        // 6. 如果直接是 zstore://{app_id} (例如 zstore://rustdesk 或 zstore://localsend/localsend)
+        // 6. 开源广场：zstore://launchpad → 视图；zstore://launchpad/{app_id} → 定位新品
+        if path_part.eq_ignore_ascii_case("launchpad") {
+            return Some(DeepLinkAction::OpenView {
+                view: "launchpad".to_string(),
+            });
+        }
+        if let Some(app_id) = path_part
+            .get(..10)
+            .filter(|p| p.eq_ignore_ascii_case("launchpad/"))
+            .map(|_| &path_part[10..])
+        {
+            let id = decode_payload(app_id)?;
+            if id.trim().is_empty() {
+                return None;
+            }
+            return Some(DeepLinkAction::LaunchpadApp {
+                app_id: crate::forge::canonical_lookup_id(&id),
+            });
+        }
+
+        // 7. 如果直接是 zstore://{app_id} (例如 zstore://rustdesk 或 zstore://localsend/localsend)
         if !path_part.is_empty() && !path_part.contains('?') {
             let lower = path_part.to_lowercase();
             if lower == "app"
@@ -119,6 +141,7 @@ impl DeepLinkParser {
                 || lower == "developer"
                 || lower == "view"
                 || lower == "search"
+                || lower == "launchpad"
             {
                 return None;
             }
@@ -177,6 +200,24 @@ pub fn register_windows_protocol() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_launchpad_routes() {
+        let view = DeepLinkAction::OpenView {
+            view: "launchpad".to_string(),
+        };
+        assert_eq!(DeepLinkParser::parse("zstore://view/launchpad"), Some(view.clone()));
+        assert_eq!(DeepLinkParser::parse("zstore://launchpad"), Some(view.clone()));
+        assert_eq!(DeepLinkParser::parse("zstore://launchpad/"), Some(view.clone()));
+        assert_eq!(DeepLinkParser::parse("ZSTORE://Launchpad"), Some(view));
+        assert_eq!(
+            DeepLinkParser::parse("zstore://launchpad/Acme/Hyper-Term"),
+            Some(DeepLinkAction::LaunchpadApp {
+                app_id: "acme/hyper-term".to_string()
+            })
+        );
+        assert_eq!(DeepLinkParser::parse("zstore://launchpad/%00bad"), None);
+    }
 
     #[test]
     fn test_parse_app_detail() {

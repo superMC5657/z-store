@@ -36,6 +36,12 @@ import {
 } from './handlers/customApps';
 import { handlePluginCommand } from './handlers/plugins';
 import {
+  handleAddLaunchpadComment,
+  handleGetLaunchpadDiscussion,
+  handleGetLaunchpadFeed,
+  handleToggleLaunchpadUpvote,
+} from './handlers/launchpad';
+import {
   handleClearSearchHistory,
   handleEnrichTrendRepos,
   handleGetAppDetails,
@@ -439,6 +445,15 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleUnstarApp(a);
     case 'fetch_starred_status':
       return handleFetchStarredStatus(a);
+
+    case 'get_launchpad_feed':
+      return handleGetLaunchpadFeed(a);
+    case 'get_launchpad_discussion':
+      return handleGetLaunchpadDiscussion(a);
+    case 'add_launchpad_comment':
+      return handleAddLaunchpadComment(a);
+    case 'toggle_launchpad_upvote':
+      return handleToggleLaunchpadUpvote(a);
 
     default:
       warnOnce(cmd);

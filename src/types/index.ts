@@ -151,6 +151,7 @@ export const VIEW_TYPES = [
   'latest',
   'categories',
   'trends',
+  'launchpad',
   'pending',
   'favorites',
   'installed',
@@ -421,7 +422,8 @@ export type DeepLinkAction =
   | { action: 'install_app'; payload: { app_id: string } }
   | { action: 'search'; payload: { query: string } }
   | { action: 'developer_profile'; payload: { owner: string } }
-  | { action: 'open_view'; payload: { view: string } };
+  | { action: 'open_view'; payload: { view: string } }
+  | { action: 'launchpad_app'; payload: { app_id: string } };
 
 // 关注（Watch）/ 订阅更新 —— 后端事件 `zstore://watch-updated` 载荷
 export interface WatchUpdatedPayload {
@@ -568,4 +570,94 @@ export interface TrendsResult {
    * `false`/`undefined` = 新鲜（网络/L1/L2 新鲜命中）。空态文案/设计不动，仅供调用方区分。
    */
   stale?: boolean;
+}
+
+// ── 开源广场（Launchpad）IPC 契约（响应字段 snake_case，与 Rust `launchpad::models` 一致）──
+
+export interface LaunchpadMaker {
+  login: string;
+  name?: string | null;
+  avatar_url: string;
+  html_url: string;
+}
+
+/** 广场卡片：`summary` 复用全站卡片/详情契约。 */
+export interface LaunchpadEntry {
+  summary: AppSummary;
+  maker_note: string;
+  maker_note_en?: string | null;
+  maker: LaunchpadMaker;
+  launched_at: string;
+  latest_release_at?: string | null;
+  stars_7d_delta: number;
+  discussion_repo: string;
+  discussion_number: number;
+  discussion_node_id?: string | null;
+  discussion_url: string;
+  discussion_comments_count: number;
+  discussion_upvotes: number;
+  is_pinned: boolean;
+  pin_until?: string | null;
+  pin_tier?: string | null;
+  viewer_has_starred: boolean;
+}
+
+export interface LaunchpadFeedResponse {
+  spotlight: LaunchpadEntry[];
+  items: LaunchpadEntry[];
+  discussions_repo: string;
+  submit_issue_url: string;
+  submit_web_url: string;
+  generated_at?: string | null;
+  cached_at?: number | null;
+  is_stale: boolean;
+}
+
+export type LaunchpadSortMode = 'recommended' | 'latest' | 'discussions';
+
+export interface LaunchpadDiscussionAuthor {
+  login: string;
+  avatar_url: string;
+  html_url: string;
+}
+
+export interface LaunchpadDiscussionComment {
+  id: string;
+  body: string;
+  created_at: string;
+  author_association: string;
+  author: LaunchpadDiscussionAuthor | null;
+  upvote_count: number;
+  viewer_has_upvoted: boolean;
+  replies: LaunchpadDiscussionComment[];
+}
+
+export interface LaunchpadDiscussionDetail {
+  id: string;
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  created_at: string;
+  locked: boolean;
+  closed: boolean;
+  author: LaunchpadDiscussionAuthor | null;
+  category_name: string;
+  upvote_count: number;
+  viewer_has_upvoted: boolean;
+  viewer_can_upvote: boolean;
+  viewer_can_comment: boolean;
+  auth_required_for_write: boolean;
+  comments_total: number;
+  has_next_page: boolean;
+  end_cursor: string | null;
+  comments: LaunchpadDiscussionComment[];
+  is_stale: boolean;
+}
+
+export interface LaunchpadUpvoteResult {
+  subject_id: string;
+  upvote_count: number;
+  viewer_has_upvoted: boolean;
+  mode: 'upvote' | 'reaction';
 }

@@ -44,6 +44,7 @@ function renderDeepLink() {
     setSelectedDeveloper: vi.fn(),
     navigate: vi.fn(),
     focusView: vi.fn(),
+    onFocusLaunchpadApp: vi.fn(),
     showToast: vi.fn(),
     t: ((key: string, opts?: Record<string, unknown>) => {
       const interpolation = opts ? ` ${JSON.stringify(opts)}` : '';
@@ -64,6 +65,31 @@ beforeEach(() => {
 });
 
 describe('useDeepLink：五类动作分发', () => {
+  it('launchpad_app：切至开源广场、定位卡片并打开详情，绝不暂存安装', async () => {
+    const { rendered, handlers } = renderDeepLink();
+    mocks.handleDeepLink.mockResolvedValue({ action: 'launchpad_app', payload: { app_id: 'acme/hyper-term' } });
+
+    await act(async () => {
+      await rendered.result.current.handleDispatchDeepLink('zstore://launchpad/acme/hyper-term');
+    });
+
+    expect(handlers.navigate).toHaveBeenCalledWith('launchpad');
+    expect(handlers.onFocusLaunchpadApp).toHaveBeenCalledWith('acme/hyper-term');
+    expect(handlers.handleOpenDetail).toHaveBeenCalledWith('acme/hyper-term');
+    expect(rendered.result.current.stagedDeepLinkInstall).toBeNull();
+  });
+
+  it('open_view launchpad：直达开源广场视图', async () => {
+    const { rendered, handlers } = renderDeepLink();
+    mocks.handleDeepLink.mockResolvedValue({ action: 'open_view', payload: { view: 'launchpad' } });
+
+    await act(async () => {
+      await rendered.result.current.handleDispatchDeepLink('zstore://launchpad');
+    });
+
+    expect(handlers.navigate).toHaveBeenCalledWith('launchpad');
+  });
+
   it('app_detail：打开详情，不暂存安装', async () => {
     const { rendered, handlers } = renderDeepLink();
     mocks.handleDeepLink.mockResolvedValue({ action: 'app_detail', payload: { app_id: 'acme/atlas' } });

@@ -9,6 +9,8 @@ interface UseDeepLinkParams {
   setSelectedDeveloper: (dev: string | null) => void;
   /** 集中导航入口（App.createNavigate 产物；合法 ViewType 校验收口于 types）。 */
   navigate: Navigate;
+  /** 开源广场深链定位：切至 `launchpad` 后高亮对应新品卡片。 */
+  onFocusLaunchpadApp?: (appId: string) => void;
   /** 视图内落点（如「我的应用」的「有更新」签）；导航之后调用。 */
   focusView?: (focus: ViewFocus) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
@@ -28,6 +30,7 @@ export function useDeepLink({
   setSelectedDeveloper,
   navigate,
   focusView,
+  onFocusLaunchpadApp,
   showToast,
   t,
 }: UseDeepLinkParams) {
@@ -56,6 +59,11 @@ export function useDeepLink({
           navigate(target.view);
           if (target.focus) focusView?.(target.focus);
         }
+      } else if (action.action === 'launchpad_app') {
+        // 广场定位：切视图、高亮卡片并打开详情；绝不进入安装确认态。
+        navigate('launchpad');
+        onFocusLaunchpadApp?.(action.payload.app_id);
+        handleOpenDetail(action.payload.app_id);
       }
       showToast(t('toast.deeplink_responded', { url: rawUrl }), 'info');
     } catch (e) {

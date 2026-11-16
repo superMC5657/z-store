@@ -15,6 +15,7 @@ const unionMembers = [
   'latest',
   'categories',
   'trends',
+  'launchpad',
   'pending',
   'installed',
   'favorites',

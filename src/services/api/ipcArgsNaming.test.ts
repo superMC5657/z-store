@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as clientModule from './client';
 import * as catalog from './catalog';
 import * as installer from './installer';
+import * as launchpad from './launchpad';
 import * as settings from './settings';
 import * as social from './social';
 
@@ -17,6 +18,8 @@ type Captured = { cmd: string; args: Record<string, unknown> };
 
 function stubFor(cmd: string): unknown {
   switch (cmd) {
+    case 'get_launchpad_feed':
+      return { spotlight: [], items: [], is_stale: false };
     case 'get_home_feed':
     case 'get_category_apps':
       return { items: [], total: 0, has_more: false };
@@ -249,6 +252,50 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(settings.exportBackupFile('backup.json', '{}'));
     await swallow(settings.openUrl('https://example.com/'));
 
+    expectAllCamel();
+  });
+
+  it('开源广场 4 个包装器请求键全部 camelCase，可选游标缺省时不带键', async () => {
+    const swallow = async (p: Promise<unknown>): Promise<void> => {
+      try {
+        await p;
+      } catch {
+        // 参数已捕获，回包形状不影响命名断言
+      }
+    };
+    await launchpad.getLaunchpadFeed(true);
+    await swallow(launchpad.getLaunchpadDiscussion('o/r', 7));
+    await swallow(launchpad.getLaunchpadDiscussion('o/r', 7, 'Y3Vy', true));
+    await swallow(
+      launchpad.addLaunchpadComment({
+        discussionRepo: 'o/r',
+        discussionNumber: 7,
+        discussionId: 'D_1',
+        body: 'hi',
+        replyToId: 'DC_1',
+      }),
+    );
+    await swallow(
+      launchpad.toggleLaunchpadUpvote({
+        discussionRepo: 'o/r',
+        discussionNumber: 7,
+        subjectId: 'D_1',
+        currentlyUpvoted: false,
+      }),
+    );
+
+    expect(captured.map((c) => c.cmd)).toEqual([
+      'get_launchpad_feed',
+      'get_launchpad_discussion',
+      'get_launchpad_discussion',
+      'add_launchpad_comment',
+      'toggle_launchpad_upvote',
+    ]);
+    expect(captured[0].args).toEqual({ forceRefresh: true });
+    expect(captured[1].args).toEqual({ discussionRepo: 'o/r', discussionNumber: 7, forceRefresh: false });
+    expect(captured[2].args).toMatchObject({ cursor: 'Y3Vy', forceRefresh: true });
+    expect(captured[3].args).toMatchObject({ discussionId: 'D_1', body: 'hi', replyToId: 'DC_1' });
+    expect(captured[4].args).toMatchObject({ subjectId: 'D_1', currentlyUpvoted: false });
     expectAllCamel();
   });
 
