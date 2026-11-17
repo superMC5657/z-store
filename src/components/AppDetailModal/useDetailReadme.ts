@@ -6,6 +6,7 @@ import { tauriApi, type ReadmeVariant } from '../../services/api';
 import { sanitizeHtml } from '../../utils/sanitize';
 import { useResolvedMarkdownImages } from '../../services/assetCache';
 import { normalizeId } from '../../services/normalizeId';
+import { scrollBehavior } from '../../lib/motion';
 
 // GitHub Markdown 块级引用 Alerts 预处理器（支持 [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]）
 function preprocessGitHubAlerts(markdown: string, t?: TFunction): string {
@@ -244,7 +245,7 @@ export function useDetailReadme(opts: {
           document.getElementById(anchorId) ||
           document.querySelector(`[name="${anchorId}"]`);
         if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          targetEl.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
         }
       }
       return;

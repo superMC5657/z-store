@@ -7,8 +7,9 @@ import '../i18n';
 import { AppCard } from '../components/AppCard';
 import { EmptyState } from '../components/EmptyState';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { AppSummary, OAuthUser, WatchUpdatedPayload } from '../types';
-import { FilterEmptyState, ViewAppActions, ViewShell, resolvePlatformReset } from './ViewShell';
+import { AppSummary, WatchUpdatedPayload } from '../types';
+import { EMPTY_IDS, FilterEmptyState, ViewAppActions, ViewShell, noopAction, resolvePlatformReset } from './ViewShell';
+import { useAppContextProps } from '../app/AppContext';
 import { isPlatformLoading, type PlatformId } from '../lib/platformFilter';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isFavoritePlaceholderRow } from '../app/favoritesUncataloged';
@@ -25,18 +26,10 @@ import { StarredFeed } from './FavoritesView/StarredFeed';
 interface FavoritesViewProps extends ViewAppActions {
   /** 未按平台过滤的收藏/关注池（目录 ∪ 未收录行），供侧栏平台分布与提醒图标查表；缺省回退 pps。 */
   allApps?: readonly AppSummary[];
-  selectedPlatforms?: ReadonlySet<string>;
-  platformResolvedOtherIds?: ReadonlySet<string>;
   onConfirmPlatformOtherIds?: (ids: readonly string[]) => void;
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
-  onResetPlatformFilter?: () => void;
-  oauthUser?: OAuthUser | null;
   /** 合并后目录全量，供 Star 页显式标注已收录与本地角标。 */
   catalogApps?: readonly AppSummary[];
-  /** custom 草稿已存在 id 集（归一小写），供 Star 页隐藏已存在移入入口。 */
-  customIds?: ReadonlySet<string>;
-  /** 本地收录全量，供 Star 页叠加橘黄 local 角标。 */
-  localApps?: readonly AppSummary[];
   /** 占位行手动加载（缓存缺失空壳行经行内按钮拉详情升级富卡；缺席即无按钮）。 */
   onLoadUncatalogedDetail?: (id: string) => void;
   /** 关注应用的待处理新版本提醒（经 zstore://watch-updated 聚合）；有提醒时默认落在「关注」签。 */
@@ -44,31 +37,32 @@ interface FavoritesViewProps extends ViewAppActions {
   onDismissWatch?: (appId: string) => void;
 }
 
-export const FavoritesView: React.FC<FavoritesViewProps> = ({
-  apps,
-  allApps,
-  selectedPlatforms,
-  platformResolvedOtherIds = new Set<string>(),
-  onConfirmPlatformOtherIds,
-  onDisplayPlatformCounts,
-  onResetPlatformFilter,
-  favoriteIds,
-  watchedIds,
-  installedIds,
-  installingIds,
-  managedIds = null,
-  oauthUser,
-  catalogApps,
-  customIds,
-  localApps,
-  onOpenDetail,
-  onQuickInstall,
-  onToggleFavorite,
-  onToggleWatch,
-  onLoadUncatalogedDetail,
-  watchNotifications = [],
-  onDismissWatch,
-}) => {
+export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
+  const {
+    apps,
+    allApps,
+    selectedPlatforms,
+    platformResolvedOtherIds = EMPTY_IDS,
+    onConfirmPlatformOtherIds,
+    onDisplayPlatformCounts,
+    onResetPlatformFilter,
+    favoriteIds = EMPTY_IDS,
+    watchedIds,
+    installedIds = EMPTY_IDS,
+    installingIds,
+    managedIds = null,
+    oauthUser,
+    catalogApps,
+    customIds,
+    localApps,
+    onOpenDetail = noopAction,
+    onQuickInstall = noopAction,
+    onToggleFavorite = noopAction,
+    onToggleWatch,
+    onLoadUncatalogedDetail,
+    watchNotifications = [],
+    onDismissWatch,
+  } = useAppContextProps(props);
   const { t } = useTranslation();
   type FavoritesTab = 'local' | 'watched' | 'starred';
   const [activeTab, setActiveTab] = useState<FavoritesTab>(() =>

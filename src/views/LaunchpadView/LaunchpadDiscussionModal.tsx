@@ -23,6 +23,7 @@ import { LaunchpadStarButton, formatLaunchedLabel, makerNoteFor } from './Launch
 import { DiscussionComposer } from './DiscussionComposer';
 import { DiscussionMarkdown } from './DiscussionMarkdown';
 import { DISCUSSION_REACTIONS, formatRelativeTime, reactionEmoji } from './discussionFormat';
+import { scrollBehavior } from '../../lib/motion';
 
 export interface LaunchpadDiscussionSyncedPayload {
   upvotes: number;
@@ -387,7 +388,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
         const nodes = panelRef.current?.querySelectorAll<HTMLElement>('.launchpad-comment') ?? [];
         Array.from(nodes)
           .find((n) => n.dataset.testid === `launchpad-comment-${created.id}`)
-          ?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+          ?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'nearest' });
       }, 30);
     } catch (e) {
       notifyToast(t('launchpad.comment_failed', { error: String(e) }), 'error');

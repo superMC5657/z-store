@@ -8,16 +8,16 @@ import { notifyToast } from '../useToasts';
 import { CountBadge } from '../components/CountBadge';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { FlyoutMenu } from '../components/FlyoutMenu';
-import { FilterEmptyState, ViewShell } from './ViewShell';
+import { EMPTY_IDS, FilterEmptyState, ViewShell, noopAction, resolvePlatformReset } from './ViewShell';
+import { useAppContextProps, type AppContextProps } from '../app/AppContext';
 import { LaunchpadCard } from './LaunchpadView/LaunchpadCard';
-import {
-  LaunchpadDiscussionModal,
-  type LaunchpadDiscussionSyncedPayload,
-} from './LaunchpadView/LaunchpadDiscussionModal';
+import type { LaunchpadDiscussionSyncedPayload } from './LaunchpadView/LaunchpadDiscussionModal';
+import { lazyNamed } from '../lib/lazyNamed';
 import { sortLaunchpadItems } from './LaunchpadView/sortLaunchpad';
 import {
   matchPlatformSetWithLoading,
   isPlatformLoading,
+  PLATFORM_IDS,
   type PlatformId,
 } from '../lib/platformFilter';
 import {
@@ -33,30 +33,26 @@ import type {
   LaunchpadEntry,
   LaunchpadFeedResponse,
   LaunchpadSortMode,
-  OAuthUser,
 } from '../types';
+import { scrollBehavior } from '../lib/motion';
 
-export interface LaunchpadViewProps {
-  selectedPlatforms: ReadonlySet<PlatformId>;
-  platformResolvedOtherIds?: ReadonlySet<string>;
-  installedIds: Set<string>;
-  installingIds?: Set<string>;
-  managedIds?: Set<string> | null;
-  customIds?: ReadonlySet<string>;
-  oauthUser: OAuthUser | null;
+export interface LaunchpadViewProps extends AppContextProps {
   /** 深链定位的新品 id（高亮并滚动到卡片后经 `onFocusConsumed` 清除）。 */
   focusAppId?: string | null;
   onFocusConsumed?: () => void;
-  onOpenDetail: (id: string) => void;
-  onQuickInstall: (id: string) => void;
-  onOpenDeveloper: (login: string) => void;
-  onOpenAccount: () => void;
-  onResetPlatformFilter: () => void;
   /** 向侧栏上报广场全量条目（置顶 ∪ 新品流）的平台分布；卸载时上报 `null`。 */
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set<string>();
+
+// 讨论弹窗连同 Markdown 渲染（marked）单独分块，打开讨论时才加载。
+const LaunchpadDiscussionModal = lazyNamed(
+  () => import('./LaunchpadView/LaunchpadDiscussionModal'),
+  'LaunchpadDiscussionModal',
+);
+/** 未提供全局平台选择时视为全选。 */
+const ALL_PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_IDS);
 
 function patchEntry(
   feed: LaunchpadFeedResponse | null,
@@ -70,23 +66,24 @@ function patchEntry(
   return { ...feed, spotlight: apply(feed.spotlight), items: apply(feed.items) };
 }
 
-export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
-  selectedPlatforms,
-  platformResolvedOtherIds = EMPTY_SET,
-  installedIds,
-  installingIds,
-  managedIds = null,
-  customIds,
-  oauthUser,
-  focusAppId,
-  onFocusConsumed,
-  onOpenDetail,
-  onQuickInstall,
-  onOpenDeveloper,
-  onOpenAccount,
-  onResetPlatformFilter,
-  onDisplayPlatformCounts,
-}) => {
+export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
+  const {
+    selectedPlatforms = ALL_PLATFORMS,
+    platformResolvedOtherIds = EMPTY_SET,
+    installedIds = EMPTY_IDS,
+    installingIds,
+    managedIds = null,
+    customIds,
+    oauthUser = null,
+    focusAppId,
+    onFocusConsumed,
+    onOpenDetail = noopAction,
+    onQuickInstall = noopAction,
+    onOpenDeveloper = noopAction,
+    onOpenAccount = noopAction,
+    onResetPlatformFilter,
+    onDisplayPlatformCounts,
+  } = useAppContextProps(props);
   const { t } = useTranslation();
   const [feed, setFeed] = useState<LaunchpadFeedResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -223,7 +220,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
     onFocusConsumed?.();
     const timer = window.setTimeout(() => {
       const el = document.querySelector(`[data-launchpad-id="${CSS.escape(key)}"]`);
-      el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+      el?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
     }, 60);
     const clear = window.setTimeout(() => setHighlightId(null), 4000);
     return () => {
@@ -496,7 +493,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
           title={t('launchpad.filter_empty_title')}
           description={t('launchpad.filter_empty_desc')}
           resetLabel={t('launchpad.reset_device_filter')}
-          onReset={onResetPlatformFilter}
+          onReset={resolvePlatformReset(onResetPlatformFilter)}
         />
       ) : rawEmpty ? (
         <div className="empty-state-card launchpad-empty">
@@ -541,20 +538,22 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
       )}
 
       {discussionEntry && (
-        <LaunchpadDiscussionModal
-          entry={discussionEntry}
-          oauthUser={oauthUser}
-          initialUpvoted={Boolean(discussionEntry.viewer_has_upvoted)}
-          isStarring={starring.has(discussionEntry.summary.id)}
-          onClose={closeDiscussion}
-          onOpenDetail={onOpenDetail}
-          onOpenDeveloper={onOpenDeveloper}
-          onOpenAccount={onOpenAccount}
-          onToggleStar={handleToggleStar}
-          onUpvoteChange={applyUpvote}
-          onCommentAdded={handleCommentAdded}
-          onDiscussionSynced={handleDiscussionSynced}
-        />
+        <React.Suspense fallback={null}>
+          <LaunchpadDiscussionModal
+            entry={discussionEntry}
+            oauthUser={oauthUser}
+            initialUpvoted={Boolean(discussionEntry.viewer_has_upvoted)}
+            isStarring={starring.has(discussionEntry.summary.id)}
+            onClose={closeDiscussion}
+            onOpenDetail={onOpenDetail}
+            onOpenDeveloper={onOpenDeveloper}
+            onOpenAccount={onOpenAccount}
+            onToggleStar={handleToggleStar}
+            onUpvoteChange={applyUpvote}
+            onCommentAdded={handleCommentAdded}
+            onDiscussionSynced={handleDiscussionSynced}
+          />
+        </React.Suspense>
       )}
     </ViewShell>
   );

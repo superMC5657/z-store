@@ -23,10 +23,13 @@ import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
 import {
   FilterEmptyState,
-  RequiredPlatformReset,
+  EMPTY_IDS,
   ViewAppActions,
+  noopAction,
+  resolvePlatformReset,
   ViewShell,
 } from './ViewShell';
+import { useAppContextProps } from '../app/AppContext';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { CATEGORY_APPS_PER_PAGE, getCategoryApps } from '../services/api/catalog';
 import type { AppSummary } from '../types';
@@ -37,8 +40,7 @@ import {
   selectPlatformCounts,
 } from '../app/selectors';
 
-interface CategoriesViewProps extends ViewAppActions, RequiredPlatformReset {
-  platformResolvedOtherIds?: ReadonlySet<string>;
+interface CategoriesViewProps extends ViewAppActions {
   /** 进入视图时直接打开的分类（精选页「进入分类」），缺席时停在分类大厅。 */
   initialCategory?: string | null;
   /** 未按平台裁剪的全量合并目录，用于计算分类子页的全平台分布；缺省回退 `apps`。 */
@@ -70,23 +72,24 @@ const CATEGORY_DEFINITIONS = [
   { id: 'games', Icon: Gamepad2, nameKey: 'categories.cat_games_name' as const, descKey: 'categories.cat_games_desc' as const, color: '#a855f7' },
 ];
 
-export const CategoriesView: React.FC<CategoriesViewProps> = ({
-  apps,
-  platformResolvedOtherIds = new Set<string>(),
-  installedIds,
-  installingIds,
-  favoriteIds,
-  managedIds = null,
-  watchedIds,
-  onOpenDetail,
-  onQuickInstall,
-  onToggleFavorite,
-  onToggleWatch,
-  onResetPlatformFilter,
-  initialCategory = null,
-  allApps,
-  onDisplayPlatformCounts,
-}) => {
+export const CategoriesView: React.FC<CategoriesViewProps> = (props) => {
+  const {
+    apps,
+    platformResolvedOtherIds = EMPTY_IDS,
+    installedIds = EMPTY_IDS,
+    installingIds,
+    favoriteIds = EMPTY_IDS,
+    managedIds = null,
+    watchedIds,
+    onOpenDetail = noopAction,
+    onQuickInstall = noopAction,
+    onToggleFavorite = noopAction,
+    onToggleWatch,
+    onResetPlatformFilter,
+    initialCategory = null,
+    allApps,
+    onDisplayPlatformCounts,
+  } = useAppContextProps(props);
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(initialCategory);
 
@@ -258,7 +261,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   });
 
   const handleResetFilter = () => {
-    onResetPlatformFilter();
+    resolvePlatformReset(onResetPlatformFilter)();
     setSelectedCategory(null);
   };
 

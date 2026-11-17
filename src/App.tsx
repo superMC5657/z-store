@@ -10,20 +10,14 @@ const ResizeHandles = isTauriEnv
   : () => null;
 import { Sidebar } from './components/Sidebar';
 import { ToastContainer } from './components/Toast';
-import { AppDetailModal } from './components/AppDetailModal';
-import { DeveloperProfileModal } from './components/DeveloperProfileModal';
-import { AppImportModal } from './components/AppImportModal';
-import { RulesManagerModal } from './components/RulesManagerModal';
 import { FeaturedView } from './views/FeaturedView';
 import { SearchResultsView } from './views/SearchResultsView';
 import { LatestView } from './views/LatestView';
 import { TrendsView } from './views/TrendsView';
 import { LaunchpadView } from './views/LaunchpadView';
 import { CategoriesView } from './views/CategoriesView';
-import { PendingView } from './views/PendingView';
 import { InstalledView } from './views/InstalledView';
 import { buildRulesMap, buildUpdatesMap, selectUpdatableInstalled } from './views/manage/manageModel';
-import { SettingsView } from './views/SettingsView';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
@@ -52,11 +46,22 @@ import { useAppSelectors, rowAliasKeys, selectMergedCatalogApps } from './app/se
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
 import { useViewScrollMemory } from './app/hooks/useViewScrollMemory';
+import { AppContextProvider, type AppActions, type LibraryState } from './app/AppContext';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
 import { noteStarredLogin } from './services/starred/starredMemory';
 import { useTranslation } from 'react-i18next';
+import { lazyNamed, whenIdle } from './lib/lazyNamed';
+import { scrollBehavior } from './lib/motion';
 import './i18n';
+
+// 非首屏页面与弹窗按需分块：设置、待收录与各类弹窗不参与冷启动解析。
+const SettingsView = lazyNamed(() => import('./views/SettingsView'), 'SettingsView');
+const PendingView = lazyNamed(() => import('./views/PendingView'), 'PendingView');
+const AppDetailModal = lazyNamed(() => import('./components/AppDetailModal'), 'AppDetailModal');
+const DeveloperProfileModal = lazyNamed(() => import('./components/DeveloperProfileModal'), 'DeveloperProfileModal');
+const AppImportModal = lazyNamed(() => import('./components/AppImportModal'), 'AppImportModal');
+const RulesManagerModal = lazyNamed(() => import('./components/RulesManagerModal'), 'RulesManagerModal');
 
 /** 安装请求：无校验资产警示弹窗确认后需携原上下文重试。 */
 interface InstallAppRequest {
@@ -129,6 +134,9 @@ export const App: React.FC = () => {
   // 应用内通知通道（关注提醒 / 自更新 / OAuth / 导入导出共用）
   const { toasts, showToast, handleDismissToast } = useToasts();
   const { t } = useTranslation();
+
+  // 详情弹窗几乎必开：首屏空闲时预取其分块，首次点卡片无需等待。
+  useEffect(() => whenIdle(() => void AppDetailModal.preload().catch(() => undefined)), []);
 
   // 待收录草稿域（customApps 列表 + 六个落盘 handler + 派生序列）：
   // 状态机本体收容于 app/hooks/useCustomApps（对齐既有下沉模式）。
@@ -630,16 +638,64 @@ export const App: React.FC = () => {
   const handleOpenAffinitySettings = () => {
     navigate('settings');
     setTimeout(() => {
-      document.getElementById('settings-affinity')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('settings-affinity')?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     }, 120);
   };
 
-  const handleOpenAccountSettings = () => {
+  const handleOpenAccountSettings = useCallback(() => {
     navigate('settings');
     setTimeout(() => {
-      document.getElementById('settings-account')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      document.getElementById('settings-account')?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     }, 120);
-  };
+  }, [navigate]);
+
+  // 视图共享的库状态与动作：经上下文下发，视图只接收各自裁剪后的数据与专属回调。
+  const visibleManagedIds = managedLoaded ? managedIds : null;
+  const library = useMemo<LibraryState>(
+    () => ({
+      installedIds,
+      installingIds: installingAppIds,
+      managedIds: visibleManagedIds,
+      favoriteIds,
+      watchedIds,
+      customIds,
+      localApps: localLibrarySummaries,
+      platformResolvedOtherIds,
+      selectedPlatforms,
+      oauthUser,
+    }),
+    [
+      installedIds,
+      installingAppIds,
+      visibleManagedIds,
+      favoriteIds,
+      watchedIds,
+      customIds,
+      localLibrarySummaries,
+      platformResolvedOtherIds,
+      selectedPlatforms,
+      oauthUser,
+    ],
+  );
+  const appActions = useMemo<AppActions>(
+    () => ({
+      onOpenDetail: handleOpenDetail,
+      onQuickInstall: handleQuickInstall,
+      onToggleFavorite: handleToggleFavorite,
+      onToggleWatch: handleToggleWatch,
+      onResetPlatformFilter: handleResetPlatformFilter,
+      onOpenDeveloper: setSelectedDeveloper,
+      onOpenAccount: handleOpenAccountSettings,
+    }),
+    [
+      handleOpenDetail,
+      handleQuickInstall,
+      handleToggleFavorite,
+      handleToggleWatch,
+      handleResetPlatformFilter,
+      handleOpenAccountSettings,
+    ],
+  );
 
   return (
     <div className="app-window">
@@ -678,258 +734,170 @@ export const App: React.FC = () => {
         />
 
         {/* 主内容显示区域 */}
-        <main ref={contentRef} className="content-area">
-          {currentView === 'home' && (
-            // 搜索双段空态：本地段与在线段都为空时才走整页空态（保留在线搜索入口）；
-            // 任一段有结果即进 HomeView 上下分段展示（本地在上、在线在下）。
-            searchQuery.trim() && searchPlatformFilteredApps.length === 0 && platformFilteredOnlineApps.length === 0 ? (
-              <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
-                <EmptyState
-                  icon={<Search size={40} strokeWidth={1.5} />}
-                  title={
-                    isSearchingLocal || isSearchingOnline
-                      ? t('search.searching_online')
-                      : onlineSearchPerformed
-                        ? t('search.no_online_results')
-                        : t('search.no_local_results')
-                  }
-                  description={
-                    isSearchingLocal || isSearchingOnline
-                      ? t('search.searching_online_desc')
-                      : onlineSearchPerformed
-                        ? t('search.online_empty_desc')
-                        : t('search.local_empty_online_hint')
-                  }
-                  action={
-                    !isSearchingLocal && !isSearchingOnline && (
-                      <button
-                        type="button"
-                        className="btn-fluent btn-primary"
-                        onClick={() =>
-                          handleSearchSubmit(searchQuery, { forceRefresh: onlineSearchPerformed })
-                        }
-                      >
-                        {onlineSearchPerformed
-                          ? t('search.retry_online')
-                          : t('search.search_online_btn')}
-                      </button>
-                    )
-                  }
+        <AppContextProvider library={library} actions={appActions}>
+          <main ref={contentRef} className="content-area">
+            {currentView === 'home' && (
+              // 搜索双段空态：本地段与在线段都为空时才走整页空态（保留在线搜索入口）；
+              // 任一段有结果即进 HomeView 上下分段展示（本地在上、在线在下）。
+              searchQuery.trim() && searchPlatformFilteredApps.length === 0 && platformFilteredOnlineApps.length === 0 ? (
+                <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
+                  <EmptyState
+                    icon={<Search size={40} strokeWidth={1.5} />}
+                    title={
+                      isSearchingLocal || isSearchingOnline
+                        ? t('search.searching_online')
+                        : onlineSearchPerformed
+                          ? t('search.no_online_results')
+                          : t('search.no_local_results')
+                    }
+                    description={
+                      isSearchingLocal || isSearchingOnline
+                        ? t('search.searching_online_desc')
+                        : onlineSearchPerformed
+                          ? t('search.online_empty_desc')
+                          : t('search.local_empty_online_hint')
+                    }
+                    action={
+                      !isSearchingLocal && !isSearchingOnline && (
+                        <button
+                          type="button"
+                          className="btn-fluent btn-primary"
+                          onClick={() =>
+                            handleSearchSubmit(searchQuery, { forceRefresh: onlineSearchPerformed })
+                          }
+                        >
+                          {onlineSearchPerformed
+                            ? t('search.retry_online')
+                            : t('search.search_online_btn')}
+                        </button>
+                      )
+                    }
+                  />
+                </div>
+              ) : searchQuery.trim() ? (
+                <SearchResultsView
+                  apps={searchPlatformFilteredApps}
+                  searchQuery={searchQuery}
+                  isOnlineResults={isOnlineResultSet}
+                  onlineApps={platformFilteredOnlineApps}
+                  isSearchingLocal={isSearchingLocal}
+                  isSearchingOnline={isSearchingOnline}
+                  onlineSearchPerformed={onlineSearchPerformed}
+                  onlineHasMore={onlineHasMore}
+                  isLoadingOnlineMore={isLoadingOnlineMore}
+                  onOnlineLoadMore={handleOnlineLoadMore}
+                  onSearchOnline={(opts) => handleSearchSubmit(searchQuery, opts)}
                 />
-              </div>
-            ) : searchQuery.trim() ? (
-              <SearchResultsView
-                apps={searchPlatformFilteredApps}
-                platformResolvedOtherIds={platformResolvedOtherIds}
-                installedIds={installedIds}
-                installingIds={installingAppIds}
-                managedIds={managedLoaded ? managedIds : null}
-                favoriteIds={favoriteIds}
-                watchedIds={watchedIds}
-                searchQuery={searchQuery}
-                onOpenDetail={handleOpenDetail}
-                onQuickInstall={handleQuickInstall}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleWatch={handleToggleWatch}
-                isOnlineResults={isOnlineResultSet}
-                onlineApps={platformFilteredOnlineApps}
-                isSearchingLocal={isSearchingLocal}
-                isSearchingOnline={isSearchingOnline}
-                onlineSearchPerformed={onlineSearchPerformed}
-                onlineHasMore={onlineHasMore}
-                isLoadingOnlineMore={isLoadingOnlineMore}
-                onOnlineLoadMore={handleOnlineLoadMore}
-                onSearchOnline={(opts) => handleSearchSubmit(searchQuery, opts)}
-                customIds={customIds}
-                localApps={localLibrarySummaries}
-              />
-            ) : (
-              <FeaturedView
+              ) : (
+                <FeaturedView
+                  apps={catalogPlatformFilteredApps}
+                  recentlyViewedApps={platformFilteredRecentApps}
+                  onClearRecentViews={handleClearRecentViews}
+                  onOpenCategory={handleOpenCategory}
+                  onNavigateLatest={() => navigate('latest')}
+                  onOpenAffinitySettings={handleOpenAffinitySettings}
+                />
+              )
+            )}
+
+            {currentView === 'trends' && (
+              <TrendsView
                 apps={catalogPlatformFilteredApps}
-                platformResolvedOtherIds={platformResolvedOtherIds}
-                installedIds={installedIds}
-                installingIds={installingAppIds}
-                managedIds={managedLoaded ? managedIds : null}
-                favoriteIds={favoriteIds}
-                watchedIds={watchedIds}
-                recentlyViewedApps={platformFilteredRecentApps}
-                onOpenDetail={handleOpenDetail}
-                onQuickInstall={handleQuickInstall}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleWatch={handleToggleWatch}
-                onClearRecentViews={handleClearRecentViews}
-                onResetPlatformFilter={handleResetPlatformFilter}
-                localApps={localLibrarySummaries}
-                onOpenCategory={handleOpenCategory}
-                onNavigateLatest={() => navigate('latest')}
-                onOpenAffinitySettings={handleOpenAffinitySettings}
+                allApps={mergedAppsForJoins}
+                onDisplayPlatformCounts={handleTrendsPlatformCounts}
               />
-            )
-          )}
+            )}
 
-          {currentView === 'trends' && (
-            <TrendsView
-              apps={catalogPlatformFilteredApps}
-              allApps={mergedAppsForJoins}
-              selectedPlatforms={selectedPlatforms}
-              platformResolvedOtherIds={platformResolvedOtherIds}
-              onDisplayPlatformCounts={handleTrendsPlatformCounts}
-              favoriteIds={favoriteIds}
-              watchedIds={watchedIds}
-              installedIds={installedIds}
-              installingIds={installingAppIds}
-              managedIds={managedLoaded ? managedIds : null}
-              onOpenDetail={handleOpenDetail}
-              onQuickInstall={handleQuickInstall}
-              onToggleFavorite={handleToggleFavorite}
-              onToggleWatch={handleToggleWatch}
-              onResetPlatformFilter={handleResetPlatformFilter}
-              customIds={customIds}
-              localApps={localLibrarySummaries}
-            />
-          )}
+            {currentView === 'launchpad' && (
+              <LaunchpadView
+                focusAppId={launchpadFocusId}
+                onFocusConsumed={clearLaunchpadFocus}
+                onDisplayPlatformCounts={handleLaunchpadPlatformCounts}
+              />
+            )}
 
-          {currentView === 'launchpad' && (
-            <LaunchpadView
-              selectedPlatforms={selectedPlatforms}
-              platformResolvedOtherIds={platformResolvedOtherIds}
-              installedIds={installedIds}
-              installingIds={installingAppIds}
-              managedIds={managedLoaded ? managedIds : null}
-              customIds={customIds}
-              oauthUser={oauthUser}
-              focusAppId={launchpadFocusId}
-              onFocusConsumed={clearLaunchpadFocus}
-              onOpenDetail={handleOpenDetail}
-              onQuickInstall={handleQuickInstall}
-              onOpenDeveloper={setSelectedDeveloper}
-              onOpenAccount={handleOpenAccountSettings}
-              onResetPlatformFilter={handleResetPlatformFilter}
-              onDisplayPlatformCounts={handleLaunchpadPlatformCounts}
-            />
-          )}
+            {currentView === 'latest' && (
+              <LatestView
+                apps={catalogPlatformFilteredApps}
+                onNavigateCategories={() => navigate('categories')}
+                allApps={fullMergedCatalogApps}
+                onDisplayPlatformCounts={handleLatestPlatformCounts}
+              />
+            )}
 
-          {currentView === 'latest' && (
-            <LatestView
-              apps={catalogPlatformFilteredApps}
-              platformResolvedOtherIds={platformResolvedOtherIds}
-              installedIds={installedIds}
-              installingIds={installingAppIds}
-              managedIds={managedLoaded ? managedIds : null}
-              favoriteIds={favoriteIds}
-              watchedIds={watchedIds}
-              onOpenDetail={handleOpenDetail}
-              onQuickInstall={handleQuickInstall}
-              onToggleFavorite={handleToggleFavorite}
-              onToggleWatch={handleToggleWatch}
-              onResetPlatformFilter={handleResetPlatformFilter}
-              onNavigateCategories={() => navigate('categories')}
-              allApps={fullMergedCatalogApps}
-              onDisplayPlatformCounts={handleLatestPlatformCounts}
-            />
-          )}
+            {currentView === 'categories' && (
+              <CategoriesView
+                apps={catalogPlatformFilteredApps}
+                initialCategory={categoryFocus}
+                allApps={fullMergedCatalogApps}
+                onDisplayPlatformCounts={handleCategoryPlatformCounts}
+              />
+            )}
 
-          {currentView === 'categories' && (
-            <CategoriesView
-              apps={catalogPlatformFilteredApps}
-              platformResolvedOtherIds={platformResolvedOtherIds}
-              installedIds={installedIds}
-              installingIds={installingAppIds}
-              managedIds={managedLoaded ? managedIds : null}
-              favoriteIds={favoriteIds}
-              watchedIds={watchedIds}
-              onOpenDetail={handleOpenDetail}
-              onQuickInstall={handleQuickInstall}
-              onToggleFavorite={handleToggleFavorite}
-              onToggleWatch={handleToggleWatch}
-              onResetPlatformFilter={handleResetPlatformFilter}
-              initialCategory={categoryFocus}
-              allApps={fullMergedCatalogApps}
-              onDisplayPlatformCounts={handleCategoryPlatformCounts}
-            />
-          )}
+            {currentView === 'pending' && (
+              <React.Suspense fallback={null}>
+                <PendingView
+                  entries={customAppEntries}
+                  onSave={(draft) => handleSaveCustomApp(draft)}
+                  onDelete={(id) => handleDeleteCustomApp(id)}
+                  onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
+                  onCollectLocal={(id) => handleCollectLocalApp(id)}
+                  onRevertToDraft={(id) => handleRevertCollectedApp(id)}
+                  onWithdrawSubmitted={(id) => handleWithdrawSubmitted(id)}
+                  onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
+                  onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}
+                  onNotify={(message, type) => showToast(message, type ?? 'info')}
+                  onDisplayPlatformCounts={handlePendingPlatformCounts}
+                />
+              </React.Suspense>
+            )}
 
-          {currentView === 'pending' && (
-            <PendingView
-              entries={customAppEntries}
-              onSave={(draft) => handleSaveCustomApp(draft)}
-              onDelete={(id) => handleDeleteCustomApp(id)}
-              onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
-              onCollectLocal={(id) => handleCollectLocalApp(id)}
-              onRevertToDraft={(id) => handleRevertCollectedApp(id)}
-              onWithdrawSubmitted={(id) => handleWithdrawSubmitted(id)}
-              onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
-              onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}
-              onNotify={(message, type) => showToast(message, type ?? 'info')}
-              selectedPlatforms={selectedPlatforms}
-              onResetPlatformFilter={handleResetPlatformFilter}
-              onDisplayPlatformCounts={handlePendingPlatformCounts}
-            />
-          )}
+            {currentView === 'favorites' && (
+              <FavoritesView
+                apps={favoritesViewApps}
+                allApps={allFavoritesPoolApps}
+                onConfirmPlatformOtherIds={confirmPlatformOtherIds}
+                onDisplayPlatformCounts={handleStarredPlatformCounts}
+                catalogApps={mergedAppsForJoins}
+                onLoadUncatalogedDetail={loadUncatalogedDetail}
+                watchNotifications={watchNotifications}
+                onDismissWatch={handleDismissWatchNotification}
+              />
+            )}
 
-          {currentView === 'favorites' && (
-            <FavoritesView
-              apps={favoritesViewApps}
-              allApps={allFavoritesPoolApps}
-              selectedPlatforms={selectedPlatforms}
-              platformResolvedOtherIds={platformResolvedOtherIds}
-              onConfirmPlatformOtherIds={confirmPlatformOtherIds}
-              onDisplayPlatformCounts={handleStarredPlatformCounts}
-              onResetPlatformFilter={handleResetPlatformFilter}
-              catalogApps={mergedAppsForJoins}
-              customIds={customIds}
-              localApps={localLibrarySummaries}
-              favoriteIds={favoriteIds}
-              watchedIds={watchedIds}
-              installedIds={installedIds}
-              installingIds={installingAppIds}
-              managedIds={managedLoaded ? managedIds : null}
-              oauthUser={oauthUser}
-              onOpenDetail={handleOpenDetail}
-              onQuickInstall={handleQuickInstall}
-              onToggleFavorite={handleToggleFavorite}
-              onToggleWatch={handleToggleWatch}
-              onLoadUncatalogedDetail={loadUncatalogedDetail}
-              watchNotifications={watchNotifications}
-              onDismissWatch={handleDismissWatchNotification}
-            />
-          )}
+            {currentView === 'installed' && (
+              <InstalledView
+                focusUpdates={focusMyAppsUpdates}
+                onFocusConsumed={() => setFocusMyAppsUpdates(false)}
+                installedApps={filteredInstalledApps}
+                apps={catalogPlatformFilteredApps}
+                uninstallingAppIds={uninstallingAppIds}
+                updates={filteredUpdates}
+                isChecking={isCheckingUpdates}
+                checkProgress={updateCheckProgress}
+                onCheckUpdates={handleCheckUpdatesAndRefresh}
+                onApplyUpdate={handleApplyUpdate}
+                onBatchUpdateAll={handleBatchUpdateAll}
+                onSkipVersion={handleSkipVersion}
+                onLaunch={handleLaunchApp}
+                onUninstall={handleUninstallApp}
+                onUnmanage={handleUnmanageApp}
+                onScanSystemApps={handleScanSystemApps}
+                updateRules={updateRules}
+                updateRulesCount={updateRules.length + activeDismissedWatches.length}
+                onToggleRuleFrozen={handleToggleRuleFrozen}
+                onToggleRuleHidden={handleToggleRuleHidden}
+                onOpenRules={() => setIsRulesModalOpen(true)}
+                loadError={installLoadError}
+                onRetryLoad={loadInstalledApps}
+                totalInstalledCount={installedApps.length}
+                installedPlatformRows={installedPlatformRows}
+                onDisplayPlatformCounts={handleInstalledPlatformCounts}
+              />
+            )}
 
-          {currentView === 'installed' && (
-            <InstalledView
-              focusUpdates={focusMyAppsUpdates}
-              onFocusConsumed={() => setFocusMyAppsUpdates(false)}
-              installedApps={filteredInstalledApps}
-              apps={catalogPlatformFilteredApps}
-              uninstallingAppIds={uninstallingAppIds}
-              updates={filteredUpdates}
-              isChecking={isCheckingUpdates}
-              checkProgress={updateCheckProgress}
-              onCheckUpdates={handleCheckUpdatesAndRefresh}
-              onApplyUpdate={handleApplyUpdate}
-              onBatchUpdateAll={handleBatchUpdateAll}
-              onSkipVersion={handleSkipVersion}
-              onOpenDetail={handleOpenDetail}
-              onLaunch={handleLaunchApp}
-              onUninstall={handleUninstallApp}
-              onUnmanage={handleUnmanageApp}
-              onScanSystemApps={handleScanSystemApps}
-              updateRules={updateRules}
-              updateRulesCount={updateRules.length + activeDismissedWatches.length}
-              onToggleRuleFrozen={handleToggleRuleFrozen}
-              onToggleRuleHidden={handleToggleRuleHidden}
-              onOpenRules={() => setIsRulesModalOpen(true)}
-              loadError={installLoadError}
-              onRetryLoad={loadInstalledApps}
-              totalInstalledCount={installedApps.length}
-              installedPlatformRows={installedPlatformRows}
-              platformResolvedOtherIds={platformResolvedOtherIds}
-              onResetPlatformFilter={handleResetPlatformFilter}
-              onDisplayPlatformCounts={handleInstalledPlatformCounts}
-            />
-          )}
-
-              {currentView === 'settings' && (
+            {currentView === 'settings' && (
+              <React.Suspense fallback={null}>
                 <SettingsView
                   onSelectMirror={handleSelectMirror}
                   theme={settings.theme}
@@ -940,8 +908,10 @@ export const App: React.FC = () => {
                   updateRulesCount={updateRules.length + activeDismissedWatches.length}
                   onOpenRules={() => setIsRulesModalOpen(true)}
                 />
-              )}
-        </main>
+              </React.Suspense>
+            )}
+          </main>
+        </AppContextProvider>
       </div>
 
       {/* 深度链接安装确认弹窗（显式用户授权门禁） */}
@@ -991,67 +961,81 @@ export const App: React.FC = () => {
 
       {/* 应用详情弹窗 */}
       {selectedApp && (
-        <AppDetailModal
-          app={selectedApp}
-          isInstalled={selectIsInstalled(selectedApp.id, installedIds)}
-          isManaged={managedLoaded ? selectIsManaged(selectedApp.id, managedIds) : null}
-          isExploreMode={currentView === 'home' || currentView === 'trends' || currentView === 'categories'}
-          isFavorite={favoriteIds.has(selectedApp.id)}
-          isWatched={watchedIds.has(selectedApp.id)}
-          isInstallingGlobal={installingAppIds.has(selectedApp.id)}
-          isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
-          platformLoading={isPlatformLoading(selectedApp, platformResolvedOtherIds)}
-          oauthUser={oauthUser}
-          onClose={() => {
-            activeDetailIdRef.current = null;
-            setSelectedApp(null);
-          }}
-          onInstall={handleInstallApp}
-          onLaunch={handleLaunchApp}
-          onUninstall={handleUninstallApp}
-          onUnmanage={handleUnmanageApp}
-          onToggleFavorite={handleToggleFavorite}
-          onToggleWatch={handleToggleWatch}
-          onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
-          onOpenAccountSettings={handleOpenAccountSettings}
-          onRetry={(retryId) => handleOpenDetail(retryId)}
-          onRefresh={(refreshId) => handleOpenDetail(refreshId, true)}
-        />
+        <React.Suspense fallback={null}>
+          <AppDetailModal
+            app={selectedApp}
+            isInstalled={selectIsInstalled(selectedApp.id, installedIds)}
+            isManaged={managedLoaded ? selectIsManaged(selectedApp.id, managedIds) : null}
+            isExploreMode={currentView === 'home' || currentView === 'trends' || currentView === 'categories'}
+            isFavorite={favoriteIds.has(selectedApp.id)}
+            isWatched={watchedIds.has(selectedApp.id)}
+            isInstallingGlobal={installingAppIds.has(selectedApp.id)}
+            isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
+            platformLoading={isPlatformLoading(selectedApp, platformResolvedOtherIds)}
+            oauthUser={oauthUser}
+            onClose={() => {
+              activeDetailIdRef.current = null;
+              setSelectedApp(null);
+            }}
+            onInstall={handleInstallApp}
+            onLaunch={handleLaunchApp}
+            onUninstall={handleUninstallApp}
+            onUnmanage={handleUnmanageApp}
+            onToggleFavorite={handleToggleFavorite}
+            onToggleWatch={handleToggleWatch}
+            onOpenDeveloperProfile={(owner) => setSelectedDeveloper(owner)}
+            onOpenAccountSettings={handleOpenAccountSettings}
+            onRetry={(retryId) => handleOpenDetail(retryId)}
+            onRefresh={(refreshId) => handleOpenDetail(refreshId, true)}
+          />
+        </React.Suspense>
       )}
 
       {/* 开发者主页弹窗（功能 D） */}
-      <DeveloperProfileModal
-        developer={selectedDeveloper || ''}
-        isOpen={Boolean(selectedDeveloper)}
-        onClose={() => setSelectedDeveloper(null)}
-        onOpenAppDetail={(id) => handleOpenDetail(id)}
-        onInstallApp={handleInstallApp}
-        installedIds={installedIds}
-        managedIds={managedLoaded ? managedIds : null}
-      />
+      {selectedDeveloper && (
+        <React.Suspense fallback={null}>
+          <DeveloperProfileModal
+            developer={selectedDeveloper}
+            isOpen
+            onClose={() => setSelectedDeveloper(null)}
+            onOpenAppDetail={(id) => handleOpenDetail(id)}
+            onInstallApp={handleInstallApp}
+            installedIds={installedIds}
+            managedIds={visibleManagedIds}
+          />
+        </React.Suspense>
+      )}
 
       {/* 系统已安装应用导入弹窗 */}
-      <AppImportModal
-        isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
-        onImportSuccess={handleImportSuccess}
-      />
+      {isImportModalOpen && (
+        <React.Suspense fallback={null}>
+          <AppImportModal
+            isOpen
+            onClose={() => setIsImportModalOpen(false)}
+            onImportSuccess={handleImportSuccess}
+          />
+        </React.Suspense>
+      )}
 
       {/* 更新规则管理弹窗 */}
-      <RulesManagerModal
-        isOpen={isRulesModalOpen}
-        onClose={() => setIsRulesModalOpen(false)}
-        updateRules={updateRules}
-        installedApps={installedApps}
-        apps={mergedAppsForJoins}
-        updatesById={allUpdatesById}
-        onClearRuleSkip={handleClearRuleSkip}
-        onToggleRuleFrozen={handleToggleRuleFrozen}
-        onToggleRuleHidden={handleToggleRuleHidden}
-        onSkipVersion={handleSkipVersion}
-        dismissedWatches={activeDismissedWatches}
-        onRestoreWatch={handleRestoreWatchNotification}
-      />
+      {isRulesModalOpen && (
+        <React.Suspense fallback={null}>
+          <RulesManagerModal
+            isOpen
+            onClose={() => setIsRulesModalOpen(false)}
+            updateRules={updateRules}
+            installedApps={installedApps}
+            apps={mergedAppsForJoins}
+            updatesById={allUpdatesById}
+            onClearRuleSkip={handleClearRuleSkip}
+            onToggleRuleFrozen={handleToggleRuleFrozen}
+            onToggleRuleHidden={handleToggleRuleHidden}
+            onSkipVersion={handleSkipVersion}
+            dismissedWatches={activeDismissedWatches}
+            onRestoreWatch={handleRestoreWatchNotification}
+          />
+        </React.Suspense>
+      )}
 
       {/* 应用内通知 Toast */}
       <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />

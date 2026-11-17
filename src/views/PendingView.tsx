@@ -6,6 +6,7 @@ import '../i18n';
 import '../styles/components-pending.css';
 import { Archive, FilePlus2, Inbox, PackageCheck, PencilLine, Send } from 'lucide-react';
 import { FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
+import { useAppContextProps, type AppContextProps } from '../app/AppContext';
 import { PLATFORM_IDS, matchPlatformSet, type PlatformId } from '../lib/platformFilter';
 import type { DraftItem } from '../services/custom';
 import {
@@ -38,6 +39,7 @@ import { PendingListColumn } from './pending/PendingListColumn';
 import { PendingRichCard } from './pending/PendingRichCard';
 import { PendingPreviewLane } from './pending/PendingPreviewLane';
 import { PendingDraftForm } from './pending/PendingDraftForm';
+import { scrollBehavior } from '../lib/motion';
 
 /** 待收录页（UI 层，自维护草稿 overlay 前端）。
  *
@@ -55,7 +57,7 @@ import { PendingDraftForm } from './pending/PendingDraftForm';
  *   提交尾段收容于 `pending/submitPrefillFlow`。
  */
 
-interface PendingViewProps {
+interface PendingViewProps extends AppContextProps {
   /** 受控草稿列表（缺席时走内部本地态）。 */
   entries?: CustomDraftEntry[];
   /** 初始草稿（非受控模式种子，故事/单测用）。 */
@@ -155,23 +157,24 @@ function buildNormalizedFormItem(
   };
 }
 
-export const PendingView: React.FC<PendingViewProps> = ({
-  entries: controlledEntries,
-  initialEntries = [],
-  onSave,
-  onDelete,
-  onMarkSubmitted,
-  onCollectLocal,
-  onRevertToDraft,
-  onWithdrawSubmitted,
-  onGetPrUrl,
-  onGetPrPayload,
-  onGetLicenseAllowlist,
-  onNotify,
-  selectedPlatforms = ALL_PLATFORMS,
-  onResetPlatformFilter,
-  onDisplayPlatformCounts,
-}) => {
+export const PendingView: React.FC<PendingViewProps> = (props) => {
+  const {
+    entries: controlledEntries,
+    initialEntries = [],
+    onSave,
+    onDelete,
+    onMarkSubmitted,
+    onCollectLocal,
+    onRevertToDraft,
+    onWithdrawSubmitted,
+    onGetPrUrl,
+    onGetPrPayload,
+    onGetLicenseAllowlist,
+    onNotify,
+    selectedPlatforms = ALL_PLATFORMS,
+    onResetPlatformFilter,
+    onDisplayPlatformCounts,
+  } = useAppContextProps(props);
   const { t } = useTranslation();
   const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
   const entries = controlledEntries ?? localEntries;
@@ -445,7 +448,7 @@ export const PendingView: React.FC<PendingViewProps> = ({
       const el = document.querySelector(`[data-testid="pending-error-${first}"]`);
       if (!el) return;
       try {
-        (el as HTMLElement).scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        (el as HTMLElement).scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
       } catch {
         /* jsdom 无滚动实现时忽略 */
       }

@@ -5,7 +5,8 @@ import { ChevronsDown, Globe, Package } from 'lucide-react';
 import { CountBadge } from '../components/CountBadge';
 import { AppCard } from '../components/AppCard';
 import { AppSummary } from '../types';
-import { ViewAppActions, ViewShell } from './ViewShell';
+import { EMPTY_IDS, ViewAppActions, ViewShell, noopAction } from './ViewShell';
+import { useAppContextProps } from '../app/AppContext';
 import { useOnlinePullToLoadMore } from './SearchResultsView/useOnlinePullToLoadMore';
 import { useRowAnnotator, useRowIconBackfill } from './shared/useRowAnnotations';
 import { isPlatformLoading } from '../lib/platformFilter';
@@ -23,7 +24,6 @@ const SEARCH_LOCAL_PAGE = 20;
 interface SearchResultsViewProps extends ViewAppActions {
   /** 本地段结果（App 已做平台过滤，保序）。 */
   apps: AppSummary[];
-  platformResolvedOtherIds?: ReadonlySet<string>;
   searchQuery: string;
   /** 在线段有结果标记：true 表示当前查询的在线段有结果。 */
   isOnlineResults?: boolean;
@@ -43,37 +43,34 @@ interface SearchResultsViewProps extends ViewAppActions {
   onOnlineLoadMore?: () => void;
   /** 用户显式发起在线搜索：首次在线搜索传 `forceRefresh: false`（可命中列表缓存与 ETag）；已搜过再点「重试」传 `true`。 */
   onSearchOnline?: (opts?: { forceRefresh?: boolean }) => void;
-  /** custom 草稿已存在 id 集：抑制在线段富卡的移入入口。 */
-  customIds?: ReadonlySet<string>;
-  /** 本地收录全量：本地段/在线段叠加黄标（远端已存在同仓行亦命中，蓝优先）。 */
-  localApps?: readonly AppSummary[];
 }
 
-export const SearchResultsView: React.FC<SearchResultsViewProps> = ({
-  apps,
-  platformResolvedOtherIds = new Set<string>(),
-  installedIds,
-  installingIds,
-  favoriteIds,
-  managedIds = null,
-  searchQuery,
-  onOpenDetail,
-  onQuickInstall,
-  onToggleFavorite,
-  watchedIds,
-  onToggleWatch,
-  isOnlineResults = false,
-  onlineApps = [],
-  isSearchingLocal = false,
-  isSearchingOnline = false,
-  onlineSearchPerformed = false,
-  onlineHasMore = false,
-  isLoadingOnlineMore = false,
-  onOnlineLoadMore,
-  onSearchOnline,
-  customIds,
-  localApps,
-}) => {
+export const SearchResultsView: React.FC<SearchResultsViewProps> = (props) => {
+  const {
+    apps,
+    platformResolvedOtherIds = EMPTY_IDS,
+    installedIds = EMPTY_IDS,
+    installingIds,
+    favoriteIds = EMPTY_IDS,
+    managedIds = null,
+    searchQuery,
+    onOpenDetail = noopAction,
+    onQuickInstall = noopAction,
+    onToggleFavorite = noopAction,
+    watchedIds,
+    onToggleWatch,
+    isOnlineResults = false,
+    onlineApps = [],
+    isSearchingLocal = false,
+    isSearchingOnline = false,
+    onlineSearchPerformed = false,
+    onlineHasMore = false,
+    isLoadingOnlineMore = false,
+    onOnlineLoadMore,
+    onSearchOnline,
+    customIds,
+    localApps,
+  } = useAppContextProps(props);
   const { t } = useTranslation();
   const { isMovingIn, handleMoveIn } = useMoveInToDraft();
 

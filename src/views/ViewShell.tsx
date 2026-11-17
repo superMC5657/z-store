@@ -1,6 +1,7 @@
 import React from 'react';
 import { EmptyState } from '../components/EmptyState';
 import { broadcastPlatformReset } from '../lib/platformFilter';
+import type { AppContextProps } from '../app/AppContext';
 import type { AppSummary } from '../types';
 
 /**
@@ -8,37 +9,26 @@ import type { AppSummary } from '../types';
  *
  * 提供：
  * - 外层 `<div className="*-view view-entrance">` 壳
- * - 平台重置回调与 `broadcastPlatformReset`（自 `lib/platformFilter` 引入）兜底
+ * - 平台重置回调缺席时以 `broadcastPlatformReset`（自 `lib/platformFilter` 引入）兜底
  * - `.filter-empty-reset` 空状态按钮
  *
  * 约束：后端字段不动，只涉及前端展示层。`viewClass` 保持各 View
  * 的根 CSS 类名，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
  */
 
-/** 各内容 View 共用的应用网格 Props（Home / Categories / Favorites / Trends 对齐）。 */
-export interface ViewAppActions {
+/**
+ * 各内容 View 共用的应用网格 Props：`apps` 由 App 按视图裁剪后传入，
+ * 成员集合与动作回调取自 App 上下文（显式传入优先，见 `useAppContextProps`）。
+ */
+export interface ViewAppActions extends AppContextProps {
   apps: AppSummary[];
-  installedIds: Set<string>;
-  installingIds?: Set<string>;
-  favoriteIds: Set<string>;
-  watchedIds?: Set<string>;
-  /** 已纳管集合（供 isManaged 派生；显式 null = managed 未加载，已安装命中行占位）。 */
-  managedIds?: Set<string> | null;
-  onOpenDetail: (id: string) => void;
-  onQuickInstall: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
-  onToggleWatch?: (id: string) => void;
 }
 
-/** 全局设备平台筛选重置扩展点（可选：未传入时回退为广播兜底）。 */
-export interface PlatformResetOption {
-  onResetPlatformFilter?: () => void;
-}
+/** 未提供成员集合时的空集（模块级常量，保持 memo 依赖稳定）。 */
+export const EMPTY_IDS: Set<string> = new Set<string>();
 
-/** 必选平台重置（CategoriesView：空状态重置按钮始终经 App 恢复全量设备集合）。 */
-export interface RequiredPlatformReset {
-  onResetPlatformFilter: () => void;
-}
+/** 未提供动作回调时的空操作。 */
+export const noopAction = (): void => {};
 
 /** 统一解析平台重置动作：优先调用方回调，否则广播兜底。 */
 export function resolvePlatformReset(onReset?: () => void): () => void {

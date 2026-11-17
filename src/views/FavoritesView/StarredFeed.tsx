@@ -58,7 +58,8 @@ import {
   selectPlatformCounts,
 } from '../../app/selectors';
 import { useOnlinePullToLoadMore } from '../SearchResultsView/useOnlinePullToLoadMore';
-import { FilterEmptyState, resolvePlatformReset, type ViewAppActions } from '../ViewShell';
+import { FilterEmptyState, resolvePlatformReset } from '../ViewShell';
+import type { AppActions, AppContextProps, LibraryState } from '../../app/AppContext';
 
 /** 每页条数，与搜索页在线续拉一致。 */
 export const STARRED_PER_PAGE = 20;
@@ -148,18 +149,9 @@ function memoryFromPages(target: StarredTarget, pageIds: readonly StarredPageIds
 }
 
 interface StarredFeedProps
-  extends Pick<
-    ViewAppActions,
-    | 'favoriteIds'
-    | 'watchedIds'
-    | 'installedIds'
-    | 'installingIds'
-    | 'managedIds'
-    | 'onOpenDetail'
-    | 'onQuickInstall'
-    | 'onToggleFavorite'
-    | 'onToggleWatch'
-  > {
+  extends Pick<LibraryState, 'favoriteIds' | 'installedIds'>,
+    Pick<AppActions, 'onOpenDetail' | 'onQuickInstall' | 'onToggleFavorite'>,
+    Pick<AppContextProps, 'watchedIds' | 'installingIds' | 'managedIds' | 'onToggleWatch'> {
   oauthUser?: OAuthUser | null;
   selectedPlatforms?: ReadonlySet<string>;
   platformResolvedOtherIds: ReadonlySet<string>;

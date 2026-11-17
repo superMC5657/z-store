@@ -7,11 +7,14 @@ import { AppCard } from '../components/AppCard';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { CountBadge } from '../components/CountBadge';
 import {
+  EMPTY_IDS,
   FilterEmptyState,
-  RequiredPlatformReset,
   ViewAppActions,
   ViewShell,
+  noopAction,
+  resolvePlatformReset,
 } from './ViewShell';
+import { useAppContextProps } from '../app/AppContext';
 import { isPlatformLoading } from '../lib/platformFilter';
 import {
   LATEST_APPS_PER_PAGE,
@@ -29,8 +32,7 @@ import { queueAssembledRowIcons } from '../services/iconStore';
 
 type LatestTimeWindow = '7d' | '30d' | '90d';
 
-interface LatestViewProps extends ViewAppActions, RequiredPlatformReset {
-  platformResolvedOtherIds?: ReadonlySet<string>;
+interface LatestViewProps extends ViewAppActions {
   onNavigateCategories?: () => void;
   /** 未按平台裁剪的全量合并目录，用于计算时间窗内的全平台分布；缺省回退 `apps`。 */
   allApps?: readonly AppSummary[];
@@ -38,23 +40,24 @@ interface LatestViewProps extends ViewAppActions, RequiredPlatformReset {
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
-export const LatestView: React.FC<LatestViewProps> = ({
-  apps,
-  platformResolvedOtherIds = new Set<string>(),
-  installedIds,
-  installingIds,
-  favoriteIds,
-  managedIds = null,
-  watchedIds,
-  onOpenDetail,
-  onQuickInstall,
-  onToggleFavorite,
-  onToggleWatch,
-  onResetPlatformFilter,
-  onNavigateCategories,
-  allApps,
-  onDisplayPlatformCounts,
-}) => {
+export const LatestView: React.FC<LatestViewProps> = (props) => {
+  const {
+    apps,
+    platformResolvedOtherIds = EMPTY_IDS,
+    installedIds = EMPTY_IDS,
+    installingIds,
+    favoriteIds = EMPTY_IDS,
+    managedIds = null,
+    watchedIds,
+    onOpenDetail = noopAction,
+    onQuickInstall = noopAction,
+    onToggleFavorite = noopAction,
+    onToggleWatch,
+    onResetPlatformFilter,
+    onNavigateCategories,
+    allApps,
+    onDisplayPlatformCounts,
+  } = useAppContextProps(props);
   const { t } = useTranslation();
   const [activeWindow, setActiveWindow] = useState<LatestTimeWindow>('30d');
 
@@ -251,7 +254,7 @@ export const LatestView: React.FC<LatestViewProps> = ({
           title={t('categories.no_apps_device_filter')}
           description={t('categories.no_apps_device_filter_desc')}
           resetLabel={t('categories.reset_device_filter')}
-          onReset={onResetPlatformFilter}
+          onReset={resolvePlatformReset(onResetPlatformFilter)}
         />
       ) : windowEmpty ? (
         <div

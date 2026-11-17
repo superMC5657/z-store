@@ -21,7 +21,8 @@ import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import type { AppSummary, FeaturedPick, FeaturedShelf, FeedbackScope } from '../types';
-import { FilterEmptyState, PlatformResetOption, ViewAppActions, ViewShell, resolvePlatformReset } from './ViewShell';
+import { EMPTY_IDS, FilterEmptyState, ViewAppActions, ViewShell, noopAction, resolvePlatformReset } from './ViewShell';
+import { useAppContextProps } from '../app/AppContext';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
 import { tauriApi } from '../services/api';
@@ -41,38 +42,36 @@ const RECENT_SECTION_MAX = 8;
 let interestPickerSkipped = false;
 let affinityOffHintClosed = false;
 
-interface FeaturedViewProps extends ViewAppActions, PlatformResetOption {
-  platformResolvedOtherIds?: ReadonlySet<string>;
+interface FeaturedViewProps extends ViewAppActions {
   recentlyViewedApps?: AppSummary[];
   onClearRecentViews?: () => void;
-  /** 本地收录全量：推荐与最近浏览叠加黄标。 */
-  localApps?: readonly AppSummary[];
   onOpenCategory: (category: string) => void;
   onNavigateLatest: () => void;
   /** 打开设置页隐私看板（`#settings-affinity`）。 */
   onOpenAffinitySettings: () => void;
 }
 
-export const FeaturedView: React.FC<FeaturedViewProps> = ({
-  apps,
-  platformResolvedOtherIds = new Set<string>(),
-  installedIds,
-  installingIds,
-  favoriteIds,
-  managedIds = null,
-  watchedIds,
-  recentlyViewedApps = [],
-  onOpenDetail,
-  onQuickInstall,
-  onToggleFavorite,
-  onToggleWatch,
-  onClearRecentViews,
-  onResetPlatformFilter,
-  localApps,
-  onOpenCategory,
-  onNavigateLatest,
-  onOpenAffinitySettings,
-}) => {
+export const FeaturedView: React.FC<FeaturedViewProps> = (props) => {
+  const {
+    apps,
+    platformResolvedOtherIds = EMPTY_IDS,
+    installedIds = EMPTY_IDS,
+    installingIds,
+    favoriteIds = EMPTY_IDS,
+    managedIds = null,
+    watchedIds,
+    recentlyViewedApps = [],
+    onOpenDetail = noopAction,
+    onQuickInstall = noopAction,
+    onToggleFavorite = noopAction,
+    onToggleWatch,
+    onClearRecentViews,
+    onResetPlatformFilter,
+    localApps,
+    onOpenCategory,
+    onNavigateLatest,
+    onOpenAffinitySettings,
+  } = useAppContextProps(props);
   const { t, i18n } = useTranslation();
   const seed = useMemo(() => daySeed(), []);
   const allowedIds = useMemo(() => apps.map((a) => a.id), [apps]);

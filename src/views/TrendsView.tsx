@@ -12,11 +12,12 @@ import { useTrendBoard } from './TrendsView/useTrendBoard';
 import { tauriApi } from '../services/api';
 import {
   FilterEmptyState,
-  PlatformResetOption,
   ViewAppActions,
   ViewShell,
+  noopAction,
   resolvePlatformReset,
 } from './ViewShell';
+import { useAppContextProps } from '../app/AppContext';
 import {
   TREND_BOARD_IDS,
   formatStars,
@@ -59,16 +60,7 @@ import { useTrendEnrichment, type DisplayTrendItem } from './TrendsView/useTrend
  * 抓取→L1→L2-hydrate→enrich-merge→落盘收口于 `services/trends` 会话控制器。
  */
 
-interface TrendsViewProps
-  extends
-    Omit<ViewAppActions, 'favoriteIds' | 'installedIds' | 'installingIds' | 'onToggleFavorite'>,
-    PlatformResetOption {
-  favoriteIds?: Set<string>;
-  installedIds?: Set<string>;
-  installingIds?: Set<string>;
-  onToggleFavorite?: (id: string) => void;
-  watchedIds?: Set<string>;
-  onToggleWatch?: (id: string) => void;
+interface TrendsViewProps extends ViewAppActions {
   /** 全量收录（身份匹配用；缺省回退 apps）。显示用 apps 仍为 App 预过滤后的集合。 */
   allApps?: AppSummary[];
   /** 全局设备平台选择：传入即按其过滤榜单行（含未收录行）；缺省不过滤。 */
@@ -112,25 +104,26 @@ function getStarsGained(repo: TrendRepo): number | undefined {
   return Math.round(n);
 }
 
-export const TrendsView: React.FC<TrendsViewProps> = ({
-  apps,
-  favoriteIds,
-  installedIds,
-  installingIds,
-  managedIds = null,
-  onOpenDetail,
-  onQuickInstall,
-  onToggleFavorite,
-  onToggleWatch,
-  watchedIds,
-  onResetPlatformFilter,
-  allApps,
-  selectedPlatforms,
-  platformResolvedOtherIds,
-  onDisplayPlatformCounts,
-  customIds,
-  localApps,
-}) => {
+export const TrendsView: React.FC<TrendsViewProps> = (props) => {
+  const {
+    apps,
+    favoriteIds,
+    installedIds,
+    installingIds,
+    managedIds = null,
+    onOpenDetail = noopAction,
+    onQuickInstall = noopAction,
+    onToggleFavorite,
+    onToggleWatch,
+    watchedIds,
+    onResetPlatformFilter,
+    allApps,
+    selectedPlatforms,
+    platformResolvedOtherIds,
+    onDisplayPlatformCounts,
+    customIds,
+    localApps,
+  } = useAppContextProps(props);
   const { t } = useTranslation();
   const {
     setBoard,

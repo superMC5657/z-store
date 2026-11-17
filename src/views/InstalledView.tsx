@@ -29,6 +29,7 @@ import {
 } from '../types';
 import { EmptyState } from '../components/EmptyState';
 import { FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
+import { useAppContextProps, type AppContextProps } from '../app/AppContext';
 import type { PlatformId } from '../lib/platformFilter';
 import { selectPlatformCounts, type InstalledPlatformRow } from '../app/selectors';
 import {
@@ -41,7 +42,7 @@ import { InstalledItemActions, type RowUpdateActions } from './InstalledView/Ins
 import { rowClickHandler } from './manage/rowClick';
 import { PathText } from './InstalledView/PathText';
 import { CheckProgressBanner } from './InstalledView/CheckProgressBanner';
-import { ChangelogDrawer } from './InstalledView/ChangelogDrawer';
+import { lazyNamed } from '../lib/lazyNamed';
 import { queueAssembledRowIcons } from '../services/iconStore';
 import { AppIconFrame } from '../components/AppIconFrame';
 import { ManageHeader } from './manage/ManageHeader';
@@ -61,7 +62,10 @@ import {
 
 const EMPTY_RESOLVED_IDS: ReadonlySet<string> = new Set<string>();
 
-interface InstalledViewProps {
+// 更新日志抽屉连同 Markdown 渲染（marked）单独分块，展开日志时才加载。
+const ChangelogDrawer = lazyNamed(() => import('./InstalledView/ChangelogDrawer'), 'ChangelogDrawer');
+
+interface InstalledViewProps extends AppContextProps {
   /** 一次性落点请求：为 true 时切到「有更新」签并清空搜索，随后调用 onFocusConsumed。 */
   focusUpdates?: boolean;
   onFocusConsumed?: () => void;
@@ -78,7 +82,6 @@ interface InstalledViewProps {
   /** 批量更新：参数为当前「有更新」口径下的全部目标（不含被平台筛选或隐藏规则排除的项）。 */
   onBatchUpdateAll?: (targets: UpdateItem[]) => Promise<void>;
   onSkipVersion?: (id: string, version: string) => Promise<void>;
-  onOpenDetail?: (id: string) => void;
   onLaunch: (id: string) => void;
   onUninstall: (id: string) => void;
   onUnmanage?: (id: string) => void;
@@ -96,44 +99,42 @@ interface InstalledViewProps {
   totalInstalledCount?: number;
   /** 全部已装应用（未过平台筛选）的平台行，供侧栏平台分布上报。 */
   installedPlatformRows?: readonly InstalledPlatformRow[];
-  /** 已确认 Other 的 id 集：目录空平台行据此区分 Other 与加载中（加载中暂不计数）。 */
-  platformResolvedOtherIds?: ReadonlySet<string>;
-  onResetPlatformFilter?: () => void;
   /** 上报侧栏平台分布：「已隐藏」签为隐藏的已装应用，其余签为未隐藏的已装应用；卸载时上报 null。 */
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
-export const InstalledView: React.FC<InstalledViewProps> = ({
-  focusUpdates = false,
-  onFocusConsumed,
-  installedApps,
-  apps = [],
-  uninstallingAppIds,
-  updates = [],
-  isChecking = false,
-  checkProgress,
-  onCheckUpdates,
-  onApplyUpdate,
-  onBatchUpdateAll,
-  onSkipVersion,
-  onOpenDetail,
-  onLaunch,
-  onUninstall,
-  onUnmanage,
-  onScanSystemApps,
-  updateRules = [],
-  updateRulesCount,
-  onToggleRuleFrozen,
-  onToggleRuleHidden,
-  onOpenRules,
-  loadError = null,
-  onRetryLoad,
-  totalInstalledCount,
-  installedPlatformRows,
-  platformResolvedOtherIds = EMPTY_RESOLVED_IDS,
-  onResetPlatformFilter,
-  onDisplayPlatformCounts,
-}) => {
+export const InstalledView: React.FC<InstalledViewProps> = (props) => {
+  const {
+    focusUpdates = false,
+    onFocusConsumed,
+    installedApps,
+    apps = [],
+    uninstallingAppIds,
+    updates = [],
+    isChecking = false,
+    checkProgress,
+    onCheckUpdates,
+    onApplyUpdate,
+    onBatchUpdateAll,
+    onSkipVersion,
+    onOpenDetail,
+    onLaunch,
+    onUninstall,
+    onUnmanage,
+    onScanSystemApps,
+    updateRules = [],
+    updateRulesCount,
+    onToggleRuleFrozen,
+    onToggleRuleHidden,
+    onOpenRules,
+    loadError = null,
+    onRetryLoad,
+    totalInstalledCount,
+    installedPlatformRows,
+    platformResolvedOtherIds = EMPTY_RESOLVED_IDS,
+    onResetPlatformFilter,
+    onDisplayPlatformCounts,
+  } = useAppContextProps(props);
   const { t, i18n } = useTranslation();
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
@@ -623,10 +624,12 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                 </div>
 
                 {update && isChangelogOpen && (
-                  <ChangelogDrawer
-                    update={update}
-                    onOpenDetail={onOpenDetail ? () => onOpenDetail(app.app_id) : undefined}
-                  />
+                  <React.Suspense fallback={null}>
+                    <ChangelogDrawer
+                      update={update}
+                      onOpenDetail={onOpenDetail ? () => onOpenDetail(app.app_id) : undefined}
+                    />
+                  </React.Suspense>
                 )}
               </div>
             );

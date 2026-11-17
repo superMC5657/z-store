@@ -235,7 +235,8 @@ describe('InstalledView redesigned workbench', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /查看日志/ }));
-    expect(screen.getByText('Faster startup')).toBeTruthy();
+    // 抽屉按需分块加载：首次展开需等待分块就绪。
+    expect(await screen.findByText('Faster startup')).toBeTruthy();
     expect(screen.getByText('v0.12.6 → v0.13.0 发布说明')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
