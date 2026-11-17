@@ -1,4 +1,4 @@
-# CD: Tauri 双平台(Windows/Linux)构建与双清单发布
+# CD: Tauri 三平台(Windows/Linux/macOS)构建与双清单发布
 #
 # 架构: 并行打包 -> 收集 artifacts -> 统一发布;
 # 项目配置完全由 .github/release.env 控制，发版工作流直通构建（解耦 CI 门禁，避免 Tag 双跑）。
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  # 步骤 1: Windows/Linux 并行打包 (带签名并上传 artifacts)
+  # 步骤 1: Windows/Linux/macOS 并行打包 (带签名并上传 artifacts)
   build:
     name: Build ${{ matrix.platform }}
     strategy:
@@ -36,6 +36,9 @@ jobs:
           - os: ubuntu-22.04
             platform: linux-x86_64
             bundles: deb,appimage
+          - os: macos-latest
+            platform: macos
+            bundles: app,dmg
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -73,19 +76,33 @@ jobs:
 
       # Rust 编译构建
       - uses: dtolnay/rust-toolchain@stable
+      - name: Add macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
       # 核心步骤：打包安装包并签名
       - name: Build Tauri bundle (signed)
+        if: runner.os != 'macOS'
         run: pnpm tauri build --bundles ${{ matrix.bundles }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPIMAGE_EXTRACT_AND_RUN: '1'
 
-      # 收集产物: windows = exe+sig; linux = AppImage+sig 和 deb (deb通常不作为自动更新)
+      # macOS 单机产分架构双包：只装一次依赖，分别编译 Apple Silicon 与 Intel 安装包及 updater 包
+      - name: Build Tauri bundle (signed, macOS dual-arch)
+        if: runner.os == 'macOS'
+        run: |
+          pnpm tauri build --target aarch64-apple-darwin --bundles ${{ matrix.bundles }}
+          pnpm tauri build --target x86_64-apple-darwin --bundles ${{ matrix.bundles }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # 收集产物: windows = exe+sig; macos = 各自 .app.tar.gz+sig 与 .dmg; linux = AppImage+sig 与 deb
       - name: Collect artifacts
         shell: bash
         run: |
@@ -104,6 +121,45 @@ jobs:
             if [ -f "$EXE.sig" ]; then
               cp "$EXE.sig" "artifacts/windows-x86_64/$SAFE.sig"
             fi
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            mkdir -p artifacts/darwin-aarch64 artifacts/darwin-x86_64 artifacts/dmg
+            collect_macos_arch() {
+              local rust_target="$1"
+              local tauri_target="$2"
+              local arch_tag="$3"
+
+              local tar_file
+              tar_file=$(ls "src-tauri/target/$rust_target/release/bundle/macos/"*.app.tar.gz 2>/dev/null | head -1 || true)
+              local dmg_file
+              dmg_file=$(ls "src-tauri/target/$rust_target/release/bundle/dmg/"*.dmg 2>/dev/null | head -1 || true)
+
+              if [ -z "$tar_file" ] || [ -z "$dmg_file" ]; then
+                echo "::error::未找到 $tauri_target 安装包 (.app.tar.gz / .dmg)"
+                exit 1
+              fi
+
+              local tar_base tar_safe
+              tar_base=$(basename "$tar_file")
+              tar_safe="${tar_base// /.}"
+              if [[ "$tar_safe" != *"$arch_tag"* && "$tar_safe" != *"x86_64"* ]]; then
+                tar_safe="${tar_safe%.app.tar.gz}_${arch_tag}.app.tar.gz"
+              fi
+              cp "$tar_file" "artifacts/$tauri_target/$tar_safe"
+              if [ -f "$tar_file.sig" ]; then
+                cp "$tar_file.sig" "artifacts/$tauri_target/$tar_safe.sig"
+              fi
+
+              local dmg_base dmg_safe
+              dmg_base=$(basename "$dmg_file")
+              dmg_safe="${dmg_base// /.}"
+              if [[ "$dmg_safe" != *"$arch_tag"* && "$dmg_safe" != *"x86_64"* ]]; then
+                dmg_safe="${dmg_safe%.dmg}_${arch_tag}.dmg"
+              fi
+              cp "$dmg_file" "artifacts/dmg/$dmg_safe"
+            }
+
+            collect_macos_arch "aarch64-apple-darwin" "darwin-aarch64" "aarch64"
+            collect_macos_arch "x86_64-apple-darwin" "darwin-x86_64" "x64"
           else
             APPIMAGE=$(ls src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null | head -1)
             DEB=$(ls src-tauri/target/release/bundle/deb/*.deb 2>/dev/null | head -1)
@@ -128,7 +184,7 @@ jobs:
           if-no-files-found: error
           compression-level: 1
 
-  # 步骤 2: 统一发布 —— 合并双平台产物，一次性写 latest.json 并原子发布
+  # 步骤 2: 统一发布 —— 合并三平台产物，一次性写 latest.json 并原子发布
   publish:
     name: Publish Release
     needs: [build]
@@ -174,13 +230,15 @@ jobs:
         shell: bash
         run: |
           set -e
-          EXE=$(basename "$(ls artifacts/windows-x86_64/*.exe 2>/dev/null | head -1)")
-          APPIMAGE=$(basename "$(ls artifacts/linux-x86_64/*.AppImage 2>/dev/null | head -1)")
-          if [ -z "$EXE" ] || [ -z "$APPIMAGE" ]; then
-            echo "::error::安装包不完整: windows-x86_64=$EXE, linux-x86_64=$APPIMAGE"
+          EXE=$(basename "$(ls artifacts/windows-x86_64/*.exe 2>/dev/null | head -1 || true)")
+          APPIMAGE=$(basename "$(ls artifacts/linux-x86_64/*.AppImage 2>/dev/null | head -1 || true)")
+          DARWIN_ARM=$(basename "$(ls artifacts/darwin-aarch64/*.app.tar.gz 2>/dev/null | head -1 || true)")
+          DARWIN_X64=$(basename "$(ls artifacts/darwin-x86_64/*.app.tar.gz 2>/dev/null | head -1 || true)")
+          if [ -z "$EXE" ] || [ -z "$APPIMAGE" ] || [ -z "$DARWIN_ARM" ] || [ -z "$DARWIN_X64" ]; then
+            echo "::error::安装包不完整: windows-x86_64=$EXE, linux-x86_64=$APPIMAGE, darwin-aarch64=$DARWIN_ARM, darwin-x86_64=$DARWIN_X64"
             exit 1
           fi
-          ASSETS_JSON="[{\"target\":\"windows-x86_64\",\"file\":\"$EXE\"},{\"target\":\"linux-x86_64\",\"file\":\"$APPIMAGE\"}]"
+          ASSETS_JSON="[{\"target\":\"windows-x86_64\",\"file\":\"$EXE\"},{\"target\":\"linux-x86_64\",\"file\":\"$APPIMAGE\"},{\"target\":\"darwin-aarch64\",\"file\":\"$DARWIN_ARM\"},{\"target\":\"darwin-x86_64\",\"file\":\"$DARWIN_X64\"}]"
 
           # 双清单模式(带扩展字段，updater 忽略未知字段；仅 URL 前缀不同)：直连 latest.json / 国内加速 latest-cn.json
           node scripts/build-latest-json.mjs \

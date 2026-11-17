@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-22.04]
+        os: [windows-latest, ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -94,7 +94,7 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # 代码格式检查单平台运行即可，避免 Windows 重复执行
+      # 代码格式检查单平台运行即可，避免 Windows/macOS 重复执行
       - name: Rust Format
         if: runner.os == 'Linux'
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
