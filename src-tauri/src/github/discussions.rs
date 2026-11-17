@@ -82,14 +82,14 @@ mutation($discussionId: ID!, $body: String!, $replyToId: ID) {
 const ADD_UPVOTE_MUTATION: &str = r#"
 mutation($subjectId: ID!) {
   addUpvote(input: { subjectId: $subjectId }) {
-    subject { id upvoteCount viewerHasUpvoted }
+    subject { ... on Node { id } upvoteCount viewerHasUpvoted }
   }
 }"#;
 
 const REMOVE_UPVOTE_MUTATION: &str = r#"
 mutation($subjectId: ID!) {
   removeUpvote(input: { subjectId: $subjectId }) {
-    subject { id upvoteCount viewerHasUpvoted }
+    subject { ... on Node { id } upvoteCount viewerHasUpvoted }
   }
 }"#;
 
