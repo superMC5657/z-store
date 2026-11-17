@@ -1,6 +1,8 @@
+import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import i18n from '../../i18n';
+import { useModalA11y } from '../../components/useModalA11y';
 import type {
   LaunchpadDiscussionComment,
   LaunchpadDiscussionDetail,
@@ -260,13 +262,17 @@ describe('LaunchpadDiscussionModal', () => {
     fireEvent.click(screen.getByTestId('launchpad-open-detail'));
     expect(props.onOpenDetail).toHaveBeenCalledWith('acme/hyper');
 
-    const overlay = document.createElement('div');
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    document.body.appendChild(overlay);
+    const onCloseDetail = vi.fn();
+    const StackedDetail = () => {
+      const ref = React.useRef<HTMLDivElement>(null);
+      useModalA11y(ref, { onEscape: onCloseDetail });
+      return <div ref={ref} role="dialog" aria-modal="true" tabIndex={-1} />;
+    };
+    const overlay = render(<StackedDetail />);
     fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onCloseDetail).toHaveBeenCalledTimes(1);
     expect(props.onClose).not.toHaveBeenCalled();
-    overlay.remove();
+    overlay.unmount();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });

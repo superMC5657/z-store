@@ -16,7 +16,7 @@ async function bootstrap(): Promise<void> {
   if (import.meta.env.VITE_DEMO) {
     const { installDemoMock, resolveDemoDisplayDefaults } = await import('./demo/tauri-mock');
     installDemoMock();
-    // 仅限 Demo 的默认显示配置（嵌入页更适合 0.9x 缩放 / 12px 字号）。
+    // 仅限 Demo 的默认显示配置（UI 缩放 100% / 14px 字号，可被已保存设置与 URL 参数覆盖）。
     // URL 参数覆盖（?scale=0.9&font=12）优先级最高；在 App 挂载前应用至 DOM，
     // 以保证首次渲染即使用 Demo 显示密度。桌面端默认设置不受影响。
     try {

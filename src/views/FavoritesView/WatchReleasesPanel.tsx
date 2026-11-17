@@ -8,6 +8,7 @@ import { AppIconFrame } from '../../components/AppIconFrame';
 import { resolveAppIconInfo } from '../../utils/appHelper';
 import { queueAssembledRowIcons } from '../../services/iconStore';
 import { buildCatalogLookup } from '../manage/manageModel';
+import { rowClickHandler } from '../manage/rowClick';
 
 interface WatchReleasesPanelProps {
   notifications: WatchUpdatedPayload[];
@@ -59,7 +60,10 @@ export const WatchReleasesPanel: React.FC<WatchReleasesPanelProps> = ({
           const displayName = n.app_name || n.app_id;
           return (
             <div key={n.app_id} className="manage-row">
-              <div className="manage-row-main">
+              <div
+                className={`manage-row-main ${onOpenDetail ? 'is-clickable' : ''}`.trim()}
+                onClick={rowClickHandler(onOpenDetail ? () => onOpenDetail(n.app_id) : undefined)}
+              >
                 <div className="manage-identity">
                   <AppIconFrame
                     size="sm"
@@ -74,7 +78,6 @@ export const WatchReleasesPanel: React.FC<WatchReleasesPanelProps> = ({
                     <div className="manage-title-line">
                       <span
                         className={`manage-app-name ${onOpenDetail ? 'is-clickable' : ''}`.trim()}
-                        onClick={() => onOpenDetail && onOpenDetail(n.app_id)}
                         title={onOpenDetail ? t('app.view_details') : undefined}
                       >
                         {displayName}
@@ -87,7 +90,7 @@ export const WatchReleasesPanel: React.FC<WatchReleasesPanelProps> = ({
                   </div>
                 </div>
 
-                <div className="manage-row-actions">
+                <div className="manage-row-actions" data-row-click-ignore>
                   {onOpenDetail && (
                     <button
                       type="button"

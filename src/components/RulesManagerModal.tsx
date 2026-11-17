@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import { CountLabel } from './CountBadge';
+import { useModalA11y } from './useModalA11y';
 import {
   Shield,
   Plus,
@@ -70,6 +71,9 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   const [skipVersion, setSkipVersion] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useModalA11y(dialogRef, { open: isOpen, onEscape: onClose });
 
   if (!isOpen) return null;
 
@@ -189,8 +193,11 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           overflow: 'hidden',
         }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
       >
         {/* 弹窗头部 */}
         <div
@@ -208,7 +215,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Shield size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-              <h3 style={{ margin: 0, fontSize: 'calc(17px * var(--font-scale))', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
+              <h3 id={titleId} style={{ margin: 0, fontSize: 'calc(17px * var(--font-scale))', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
                 {t('rules.title')}
               </h3>
             </div>

@@ -34,6 +34,11 @@
   animation: modalSlideIn 0.16s var(--ease-smooth);
 }
 
+/* 打开时焦点落在弹窗容器本身（useModalA11y），容器不画焦点环；内部控件照常显示。 */
+.detail-modal:focus {
+  outline: none;
+}
+
 [data-theme="dark"] .detail-modal {
   background: var(--bg-acrylic);
   border-color: var(--border-color);
@@ -458,6 +463,15 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 管理/危险操作组与主操作之间的竖向分隔 */
+.install-action-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--border-highlight);
   flex-shrink: 0;
 }
 

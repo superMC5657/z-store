@@ -16,6 +16,7 @@ import { notifyToast } from '../../useToasts';
 import { AppIconFrame } from '../../components/AppIconFrame';
 import { CachedAvatar } from '../../components/CachedAvatar';
 import { CountBadge } from '../../components/CountBadge';
+import { useModalA11y } from '../../components/useModalA11y';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../../components/VerifiedBadge';
 import { getCategoryLabel } from '../../utils/appHelper';
 import { LaunchpadStarButton, formatLaunchedLabel, makerNoteFor } from './LaunchpadCard';
@@ -171,31 +172,13 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
     };
   }, [entry.discussion_repo, entry.discussion_number, authKey]);
 
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (openReactionRef.current) {
-        e.stopPropagation();
-        setOpenReactionFor(null);
-        return;
-      }
-      // 应用详情 / 开发者画像叠在讨论之上时，Escape 只属于最上层弹窗。
-      const panel = panelRef.current;
-      const covered = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some(
-        (d) => d !== panel && !panel?.contains(d),
-      );
-      if (covered) return;
-      e.stopPropagation();
-      onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      previous?.focus?.();
-    };
-  }, [onClose]);
+  // 应用详情 / 开发者画像叠在讨论之上时，Esc 归最上层弹窗；本层 Esc 先收起表情面板。
+  useModalA11y(panelRef, {
+    onEscape: () => {
+      if (openReactionRef.current) setOpenReactionFor(null);
+      else onClose();
+    },
+  });
 
   useEffect(() => {
     if (!openReactionFor) return;

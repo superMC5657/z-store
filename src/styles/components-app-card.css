@@ -237,6 +237,37 @@
   pointer-events: none;
 }
 
+/* 未激活的关注/收藏是次要操作：行悬停或键盘聚焦到行内时才显现，仍占位不挤动布局；
+ * 已关注/已收藏常显，作为状态标记。触屏无悬停时保持常显。 */
+@media (hover: hover) {
+  .app-card .app-card-header .btn-fav-card:not(.active):not(.btn-fav-placeholder) {
+    opacity: 0;
+    transition: opacity 0.12s var(--ease-smooth), color 0.1s var(--ease-smooth), background 0.1s var(--ease-smooth);
+  }
+
+  .app-card:hover .app-card-header .btn-fav-card:not(.active),
+  .app-card:focus-within .app-card-header .btn-fav-card:not(.active) {
+    opacity: 1;
+  }
+}
+
+/* 图标加载占位：延迟淡入，瞬时命中的本地缓存图标不会闪出首字母。 */
+.app-icon-placeholder {
+  pointer-events: none;
+  opacity: 0;
+  animation: app-icon-placeholder-in 0.2s var(--ease-smooth) 0.25s forwards;
+}
+
+@keyframes app-icon-placeholder-in {
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-icon-placeholder {
+    animation-duration: 1ms;
+  }
+}
+
 .app-desc {
   flex: 1 1 auto;
   font-size: var(--font-sm);

@@ -38,6 +38,7 @@ import {
   resolveInstalledAppName,
 } from '../utils/appHelper';
 import { InstalledItemActions, type RowUpdateActions } from './InstalledView/InstalledItemActions';
+import { rowClickHandler } from './manage/rowClick';
 import { PathText } from './InstalledView/PathText';
 import { CheckProgressBanner } from './InstalledView/CheckProgressBanner';
 import { ChangelogDrawer } from './InstalledView/ChangelogDrawer';
@@ -488,7 +489,10 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                 key={app.app_id}
                 className={`installed-list-row manage-row ${isMenuOpen ? 'is-menu-open' : ''}`.trim()}
               >
-                <div className="manage-row-main">
+                <div
+                  className={`manage-row-main ${onOpenDetail ? 'is-clickable' : ''}`.trim()}
+                  onClick={rowClickHandler(onOpenDetail ? () => onOpenDetail(app.app_id) : undefined)}
+                >
                   <div className="manage-identity">
                     <AppIconFrame
                       size="md"
@@ -504,7 +508,6 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                       <div className="manage-title-line">
                         <span
                           className={`manage-app-name ${onOpenDetail ? 'is-clickable' : ''}`.trim()}
-                          onClick={() => onOpenDetail && onOpenDetail(app.app_id)}
                           title={onOpenDetail ? t('app.view_details') : undefined}
                         >
                           {appDisplayName}
@@ -589,7 +592,7 @@ export const InstalledView: React.FC<InstalledViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="manage-row-actions">
+                  <div className="manage-row-actions" data-row-click-ignore>
                     <InstalledItemActions
                       app={app}
                       isFrozen={isFrozen}

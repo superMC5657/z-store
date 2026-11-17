@@ -6,10 +6,6 @@
 :root {
   color-scheme: light dark;
 
-[data-theme="light"] {
-  color-scheme: light;
-}
-
   /* Linear 精确缓动：只用 cubic-bezier(0.16, 1, 0.3, 1)，禁用 ease-in 与弹性过冲 */
   --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -126,6 +122,10 @@
   --font-md: calc(14px * var(--font-scale));
   --font-lg: calc(16px * var(--font-scale));
   --font-xl: calc(18px * var(--font-scale));
+}
+
+[data-theme="light"] {
+  color-scheme: light;
 }
 
 [data-font-size="12"],

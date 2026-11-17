@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import {
   ScanLine,
   AlertTriangle,
@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
+import { useModalA11y } from './useModalA11y';
 import { AppIconFrame } from './AppIconFrame';
 import { stripVersionPrefix } from '../utils/appHelper';
 import { useTranslation } from 'react-i18next';
@@ -77,6 +78,9 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useModalA11y(dialogRef, { open: isOpen, onEscape: isImporting ? undefined : onClose });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -177,8 +181,11 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           overflow: 'hidden',
         }}
         onClick={(e) => e.stopPropagation()}
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
       >
         {/* 弹窗头部 */}
         <div
@@ -196,7 +203,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <ScanLine size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-              <h3 style={{ margin: 0, fontSize: 'var(--font-xl)', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
+              <h3 id={titleId} style={{ margin: 0, fontSize: 'var(--font-xl)', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
                 {t('import_modal.title')}
               </h3>
             </div>

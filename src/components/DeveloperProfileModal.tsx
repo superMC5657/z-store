@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CountBadge } from './CountBadge';
 import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -7,6 +7,7 @@ import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 import { isInstalled, selectManagedState } from '../app/selectors';
 import { CachedAvatar } from './CachedAvatar';
+import { useModalA11y } from './useModalA11y';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -64,16 +65,8 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
     };
   }, [developer, isOpen]);
 
-  // 全局 Esc 快捷键监听
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, { open: isOpen, onEscape: onClose });
 
   if (!isOpen) return null;
 
@@ -89,11 +82,14 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="detail-modal"
         style={{ maxWidth: '780px', width: '92%', maxHeight: '88vh' }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-label={profile?.name || developer}
+        tabIndex={-1}
       >
         {/* 顶部个人概览横幅 */}
         <div className="modal-header" style={{ position: 'relative', padding: '24px 28px' }}>

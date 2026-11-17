@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../../types';
@@ -8,6 +8,7 @@ import { Header, handleOpenExternal } from './Header';
 import { InstallActions } from './InstallActions';
 import { AssetList } from './AssetList';
 import { ReadmeSection } from './ReadmeSection';
+import { useModalA11y } from '../useModalA11y';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -75,6 +76,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [isRevealingFolder, setIsRevealingFolder] = useState(false);
   const effectiveIsInstalling = isInstalling || isInstallingGlobal;
   const effectiveIsBusy = effectiveIsInstalling || isDownloadingOnly;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, { onEscape: onClose });
 
   useEffect(() => {
     setSelectedAssetName(null);
@@ -268,10 +271,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div
+        ref={dialogRef}
         className="detail-modal"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        aria-label={displayName}
+        tabIndex={-1}
       >
         {/* 顶部概览横幅 */}
         <Header

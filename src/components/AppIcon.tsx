@@ -159,6 +159,8 @@ export const AppIcon: React.FC<AppIconProps> = ({
 
   // prop 或落盘展示源切换即重置错误态（远端直连失败后一旦本地缓存 data: 就绪立即自愈显示）。
   const [hasError, setHasError] = useState(false);
+  // 已完成解码的展示源：与当前 displaySrc 不一致即仍在加载，底下垫首字母占位。
+  const [loadedSrc, setLoadedSrc] = useState('');
   const retriedUrlRef = useRef<string>('');
   useEffect(() => {
     retriedUrlRef.current = '';
@@ -240,47 +242,74 @@ export const AppIcon: React.FC<AppIconProps> = ({
         borderRadius: 'var(--radius-xs, 4px)',
       }
     : {};
+  const badgeTextStyle: React.CSSProperties = {
+    // 容器可经 `--app-icon-badge-font` 指定徽章字号（如 AppIconFrame 各档），缺省随容器字号。
+    fontSize: 'var(--app-icon-badge-font, 0.45em)',
+    fontWeight: 590,
+    letterSpacing: '0.5px',
+    color: '#ffffff',
+    textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+    userSelect: 'none',
+  };
+
+  // 加载占位：图片解码前或等待后端读盘时垫在底下的首字母块。CSS 延迟淡入
+  // （`.app-icon-placeholder`），本地缓存这类瞬时命中不会闪出徽章。
+  const placeholder = (
+    <span
+      className="app-icon-placeholder"
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        inset: isInset ? insetPadding : 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: iconBg,
+        borderRadius: isInset ? 'var(--radius-xs, 4px)' : 'inherit',
+        ...badgeTextStyle,
+      }}
+    >
+      {getInitials(name)}
+    </span>
+  );
 
   return (
     <div className={`app-icon-container ${className}`} style={containerStyle}>
       {showImg ? (
-        <img
-          src={displaySrc}
-          alt={name}
-          className="app-icon-image"
-          decoding="async"
-          loading={loading}
-          onError={handleError}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: fit,
-            borderRadius: isInset ? 'var(--radius-xs, 4px)' : 'inherit',
-            display: 'block',
-            opacity: 1,
-          }}
-        />
+        <>
+          {loadedSrc !== displaySrc && placeholder}
+          <img
+            src={displaySrc}
+            alt={name}
+            className="app-icon-image"
+            decoding="async"
+            loading={loading}
+            onLoad={() => setLoadedSrc(displaySrc)}
+            onError={handleError}
+            style={{
+              // 定位后按文档顺序叠在占位之上
+              position: 'relative',
+              width: '100%',
+              height: '100%',
+              objectFit: fit,
+              borderRadius: isInset ? 'var(--radius-xs, 4px)' : 'inherit',
+              display: 'block',
+              opacity: 1,
+            }}
+          />
+        </>
       ) : awaitingBackend ? (
-        // 平滑空底板：等待后端读盘/下载（本地已落盘约 1ms 即切入 data: 实图）。
-        <span
-          className="app-icon-pending"
-          aria-hidden="true"
-          style={{ ...fallbackTileStyle, background: 'transparent' }}
-        />
+        // 等待后端读盘/下载：本地已落盘约 1ms 即切入 data: 实图，慢时才淡入首字母占位。
+        <>
+          <span
+            className="app-icon-pending"
+            aria-hidden="true"
+            style={{ ...fallbackTileStyle, background: 'transparent' }}
+          />
+          {placeholder}
+        </>
       ) : isFallbackBadge ? (
-        <span
-          className="app-icon-fallback-badge"
-          style={{
-            ...fallbackTileStyle,
-            // 容器可经 `--app-icon-badge-font` 指定徽章字号（如 AppIconFrame 各档），缺省随容器字号。
-            fontSize: 'var(--app-icon-badge-font, 0.45em)',
-            fontWeight: 590,
-            letterSpacing: '0.5px',
-            color: '#ffffff',
-            textShadow: '0 1px 2px rgba(0,0,0,0.3)',
-            userSelect: 'none',
-          }}
-        >
+        <span className="app-icon-fallback-badge" style={{ ...fallbackTileStyle, ...badgeTextStyle }}>
           {getInitials(name)}
         </span>
       ) : (

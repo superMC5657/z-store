@@ -51,6 +51,7 @@ import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors, rowAliasKeys, selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdateActions } from './app/hooks/useUpdateActions';
+import { useViewScrollMemory } from './app/hooks/useViewScrollMemory';
 import { useToasts } from './useToasts';
 import { useAppSettings } from './useAppSettings';
 import { noteStarredLogin } from './services/starred/starredMemory';
@@ -239,6 +240,11 @@ export const App: React.FC = () => {
     t,
     catalogAppsRef: fullCatalogAppsRef,
   });
+
+  // 主内容区按视图记忆滚动位置；首页搜索结果是临时状态，不记忆。
+  const contentRef = useRef<HTMLElement>(null);
+  const isHomeSearching = currentView === 'home' && searchQuery.trim() !== '';
+  useViewScrollMemory(contentRef, isHomeSearching ? null : currentView);
 
   const {
     platformResolvedOtherIds,
@@ -672,7 +678,7 @@ export const App: React.FC = () => {
         />
 
         {/* 主内容显示区域 */}
-        <main className="content-area">
+        <main ref={contentRef} className="content-area">
           {currentView === 'home' && (
             // 搜索双段空态：本地段与在线段都为空时才走整页空态（保留在线搜索入口）；
             // 任一段有结果即进 HomeView 上下分段展示（本地在上、在线在下）。

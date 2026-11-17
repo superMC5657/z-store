@@ -274,21 +274,6 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
               </button>
             ) : (
               <>
-                {onUnmanage && (
-                  <InlineConfirmButton
-                    variant="secondary"
-                    confirmVariant="danger"
-                    confirmText={t('detail.install.confirm_unmanage')}
-                    cancelTitle={t('detail.install.cancel_action')}
-                    onConfirm={() => onUnmanage(app.id)}
-                    disabled={isUninstallingGlobal}
-                    title={t('detail.install.unmanage_title')}
-                    timeoutMs={4000}
-                  >
-                    <span>{t('detail.install.unmanage_btn')}</span>
-                  </InlineConfirmButton>
-                )}
-
                 {onUninstall && (
                   <InlineConfirmButton
                     variant="danger"
@@ -310,7 +295,27 @@ export const InstallActions: React.FC<InstallActionsProps> = ({
                     )}
                   </InlineConfirmButton>
                 )}
+
+                {onUnmanage && (
+                  <InlineConfirmButton
+                    variant="secondary"
+                    confirmVariant="danger"
+                    confirmText={t('detail.install.confirm_unmanage')}
+                    cancelTitle={t('detail.install.cancel_action')}
+                    onConfirm={() => onUnmanage(app.id)}
+                    disabled={isUninstallingGlobal}
+                    title={t('detail.install.unmanage_title')}
+                    timeoutMs={4000}
+                  >
+                    <span>{t('detail.install.unmanage_btn')}</span>
+                  </InlineConfirmButton>
+                )}
               </>
+            )}
+
+            {/* 卸载/取消管理与主操作「启动」之间留分隔，避免误点相邻的危险按钮 */}
+            {!isUnknown && (onUninstall || (!isExploreMode && onUnmanage)) && (
+              <span className="install-action-divider" aria-hidden="true" />
             )}
 
             <button

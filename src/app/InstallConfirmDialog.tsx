@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useModalA11y } from '../components/useModalA11y';
 
 interface InstallConfirmDialogProps {
   intro: string;
@@ -27,32 +28,8 @@ export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
-  // 置顶弹窗的焦点管理：打开即聚焦自身；Tab 限制在两个按钮内循环（简易焦点陷阱）；
-  // Esc 仅关闭本层（关闭时详情弹窗仍在底下，保持无感返回）。
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onCancel();
-      return;
-    }
-    if (e.key !== 'Tab' || !dialogRef.current) return;
-    const buttons = Array.from(dialogRef.current.querySelectorAll('button:not([disabled])'));
-    if (buttons.length === 0) return;
-    const first = buttons[0] as HTMLElement;
-    const last = buttons[buttons.length - 1] as HTMLElement;
-    const active = document.activeElement;
-    if (e.shiftKey && active === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
+  // 置顶于详情弹窗之上：Esc 只取消本层，详情弹窗仍留在底下。
+  useModalA11y(dialogRef, { onEscape: onCancel });
 
   return (
     <div className="modal-backdrop modal-confirm-above" onClick={onCancel}>
@@ -61,7 +38,6 @@ export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
         className="detail-modal"
         style={{ maxWidth: '480px', width: '92%', padding: '24px 28px', outline: 'none' }}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
         role="dialog"
         aria-modal="true"
         aria-label={t('install_confirm.title')}

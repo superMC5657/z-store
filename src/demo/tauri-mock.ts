@@ -136,17 +136,17 @@ import {
 } from './handlers/social';
 
 // ---------------------------------------------------------------------------
-// Demo 默认显示配置（仅限嵌入页）：UI 缩放 100% + 12px 字号。
+// Demo 默认显示配置（仅限嵌入页）：UI 缩放 100% + 14px 字号（与桌面端默认一致）。
 // ---------------------------------------------------------------------------
 
 const DEMO_UI_SCALE: AppSettings['ui_scale'] = '100';
-const DEMO_FONT_SIZE: AppSettings['font_size'] = '12';
+const DEMO_FONT_SIZE: AppSettings['font_size'] = '14';
 
 // 可用于 grep 检查的构建标记：普通字符串字面量（固定硬编码数值），
 // 以便代码压缩后仍能原样保留——可通过 grep 搜索
-// `zstore:demo:display-defaults` / `ui_scale=100` / `font_size=12` 进行验证。
+// `zstore:demo:display-defaults` / `ui_scale=100` / `font_size=14` 进行验证。
 // 在 installDemoMock 中挂载到 window，避免被 tree-shaking 移除。
-const DEMO_DISPLAY_DEFAULTS_MARKER = 'zstore:demo:display-defaults:ui_scale=100:font_size=12';
+const DEMO_DISPLAY_DEFAULTS_MARKER = 'zstore:demo:display-defaults:ui_scale=100:font_size=14';
 
 const ALLOWED_UI_SCALES: ReadonlySet<string> = new Set(['100', '110', '125', '150']);
 const ALLOWED_FONT_SIZES: ReadonlySet<string> = new Set([
@@ -196,7 +196,7 @@ function normalizeDemoLanguage(raw: string | null | undefined): AppSettings['lan
   return null;
 }
 
-/** 生效的 Demo 显示默认值：内置默认值 (100/12) < 已保存设置 < URL 参数。 */
+/** 生效的 Demo 显示默认值：内置默认值 (100/14) < 已保存设置 < URL 参数。 */
 export function resolveDemoDisplayDefaults(): {
   ui_scale: AppSettings['ui_scale'];
   font_size: AppSettings['font_size'];

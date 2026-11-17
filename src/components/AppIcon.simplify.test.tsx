@@ -241,3 +241,22 @@ describe('<AppIcon/> 展示分支', () => {
     expect(badge.style.background).toBe('');
   });
 });
+
+describe('AppIcon 加载占位', () => {
+  it('图片解码前垫首字母占位，加载完成即撤下，且不计入失败徽章', () => {
+    const { container } = render(
+      <AppIcon icon="https://cdn.example.com/rd.png" name="RustDesk" appId="rustdesk/rustdesk" />,
+    );
+    const placeholder = container.querySelector('.app-icon-placeholder');
+    expect(placeholder?.textContent).toBe('RD');
+    expect(placeholder?.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector('.app-icon-fallback-badge')).toBeNull();
+
+    const img = container.querySelector('img.app-icon-image') as HTMLImageElement;
+    act(() => {
+      fireEvent.load(img);
+    });
+    expect(container.querySelector('.app-icon-placeholder')).toBeNull();
+    expect(container.querySelector('img.app-icon-image')).toBe(img);
+  });
+});

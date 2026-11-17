@@ -396,6 +396,12 @@
   cursor: pointer;
 }
 
+/* 整行可点打开详情（rowClickHandler）；悬停行时名称下划线提示落点 */
+.manage-row-main.is-clickable {
+  cursor: pointer;
+}
+
+.manage-row-main.is-clickable:hover .manage-app-name.is-clickable,
 .manage-app-name.is-clickable:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
