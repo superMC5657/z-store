@@ -10,6 +10,7 @@
  * - OAuth：登录态加载、过期警示 + `zstore:oauth-changed` 派发、数据导入全量回放；
  * - 迟到订阅：卸载后才 resolve 的 unlisten 立即解绑（不泄漏）。
  */
+import { StrictMode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
@@ -42,6 +43,7 @@ const subs = vi.hoisted(() => {
     };
   }
   const emitters = {
+    catalogSynced: makeEmitter(),
     searchIconUpgraded: makeEmitter(),
     watchUpdated: makeEmitter(),
     updateItemFound: makeEmitter(),
@@ -69,6 +71,7 @@ const mocks = vi.hoisted(() => ({
   getOAuthUser: vi.fn(),
   getFavoriteEntries: vi.fn(),
   syncCatalog: vi.fn(),
+  consumeStartupCatalogSynced: vi.fn(),
 }));
 
 vi.mock('../../services/api', async () => {
@@ -90,6 +93,8 @@ vi.mock('../../services/api', async () => {
           getWatchedApps: mocks.getWatchedApps,
           getOAuthUser: mocks.getOAuthUser,
           syncCatalog: mocks.syncCatalog,
+          consumeStartupCatalogSynced: mocks.consumeStartupCatalogSynced,
+          onCatalogSynced: subs.catalogSynced.on,
           onIconReady: subs.searchIconUpgraded.on,
           onWatchUpdated: subs.watchUpdated.on,
           onUpdateItemFound: subs.updateItemFound.on,
@@ -107,6 +112,7 @@ vi.mock('../../services/api', async () => {
 import { useAppSubscriptions } from './useAppSubscriptions';
 
 // emitters 须在 vi.mock 工厂可见（hoist 顺序），统一收进 vi.hoisted。
+const catalogSynced = subs.catalogSynced;
 const searchIconUpgraded = subs.searchIconUpgraded;
 const watchUpdated = subs.watchUpdated;
 const updateItemFound = subs.updateItemFound;
@@ -141,7 +147,10 @@ function makeRow(id: string, over: Partial<AppSummary> = {}): AppSummary {
 
 const unmounts: Array<() => void> = [];
 
-function renderSubs(overrides: Partial<Parameters<typeof useAppSubscriptions>[0]> = {}) {
+function renderSubs(
+  overrides: Partial<Parameters<typeof useAppSubscriptions>[0]> = {},
+  options: { strict?: boolean } = {},
+) {
   // spies 与 hook 入参对象分离：断言面恒为 vi.fn（无 Dispatch 联合类型）。
   const spies = {
     setApps: vi.fn(),
@@ -176,8 +185,9 @@ function renderSubs(overrides: Partial<Parameters<typeof useAppSubscriptions>[0]
     localApps: undefined as readonly AppSummary[] | undefined,
     ...overrides,
   };
-  const rendered = renderHook(() =>
-    useAppSubscriptions(deps as unknown as Parameters<typeof useAppSubscriptions>[0]),
+  const rendered = renderHook(
+    () => useAppSubscriptions(deps as unknown as Parameters<typeof useAppSubscriptions>[0]),
+    options.strict ? { wrapper: StrictMode } : undefined,
   );
   unmounts.push(rendered.unmount);
   return {
@@ -213,6 +223,7 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   subs.clearAll();
+  catalogSynced.on.mockClear();
   searchIconUpgraded.on.mockClear();
   watchUpdated.on.mockClear();
   updateItemFound.on.mockClear();
@@ -233,10 +244,11 @@ beforeEach(() => {
   mocks.getOAuthUser.mockResolvedValue(null);
   mocks.checkForUpdates.mockResolvedValue([]);
   mocks.syncCatalog.mockResolvedValue({ updated: false, count: 0, message: '' });
+  mocks.consumeStartupCatalogSynced.mockResolvedValue(false);
 });
 
 describe('useAppSubscriptions：初始加载扇出', () => {
-  it('目录/已装/收藏/规则/快照/最近浏览/设置/深链注册 全部落位', async () => {
+  it('目录/已装/收藏/规则/快照/最近浏览/设置 全部落位，且不从前端重复调 syncCatalog/registerDeepLinkScheme', async () => {
     const catalog = [makeRow('acme/atlas')];
     mocks.searchApps.mockResolvedValue(catalog);
     mocks.getInstalledApps.mockResolvedValue([]);
@@ -258,7 +270,8 @@ describe('useAppSubscriptions：初始加载扇出', () => {
     const recents = applySetter<AppSummary[]>(deps.setRecentlyViewedApps, []);
     expect(recents[0].is_cataloged).toBe(true);
     expect(recents[0].source).toBe('local');
-    expect(mocks.registerDeepLinkScheme).toHaveBeenCalled();
+    expect(mocks.registerDeepLinkScheme).not.toHaveBeenCalled();
+    expect(mocks.syncCatalog).not.toHaveBeenCalled();
     expect(deps.applyPersistedSettings).toHaveBeenCalled();
   });
 
@@ -271,28 +284,101 @@ describe('useAppSubscriptions：初始加载扇出', () => {
     expect(mocks.checkForUpdates).not.toHaveBeenCalled();
   });
 
-  it('启动后台按天增量同步清单：有更新派发刷新，冷却/304 与离线失败静默不弹错', async () => {
-    mocks.syncCatalog.mockResolvedValueOnce({ updated: true, count: 2, message: 'updated' });
+  it('订阅后端 zstore://catalog-synced：StrictMode 双挂载只保留 1 个有效监听且收到事件后刷新目录', async () => {
+    const seededRows = [makeRow('acme/seed')];
+    const remoteRows = [makeRow('acme/remote-new')];
+    mocks.searchApps
+      .mockResolvedValueOnce(seededRows)
+      .mockResolvedValueOnce(seededRows)
+      .mockResolvedValue(remoteRows);
+
     const syncedEvents: string[] = [];
     const onSynced = () => syncedEvents.push('catalog');
     const onCustom = () => syncedEvents.push('custom');
     window.addEventListener('zstore:catalog-synced', onSynced);
     window.addEventListener('zstore:custom-apps-changed', onCustom);
     try {
-      const { deps } = renderSubs();
+      const { deps } = renderSubs({}, { strict: true });
       await flush();
-      expect(mocks.syncCatalog).toHaveBeenCalledWith(false);
+
+      expect(mocks.syncCatalog).not.toHaveBeenCalled();
+      expect(catalogSynced.size()).toBe(1);
+      expect(deps.setApps).toHaveBeenLastCalledWith(seededRows);
+
+      await act(async () => {
+        catalogSynced.emit(undefined);
+        await flush();
+      });
+
       expect(syncedEvents).toEqual(['catalog', 'custom']);
+      expect(deps.setApps).toHaveBeenLastCalledWith(remoteRows);
       expect(deps.showToast).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener('zstore:catalog-synced', onSynced);
       window.removeEventListener('zstore:custom-apps-changed', onCustom);
     }
+  });
 
-    mocks.syncCatalog.mockRejectedValueOnce(new Error('offline'));
-    const { deps: depsOffline } = renderSubs();
-    await flush();
-    expect(depsOffline.showToast).not.toHaveBeenCalled();
+  it('监听就绪前后端已落库广播：StrictMode 只由活动挂载消费一次标记并补齐刷新，不与实时事件双刷', async () => {
+    const seededRows = [makeRow('acme/seed')];
+    const remoteRows = [makeRow('acme/remote-new')];
+    mocks.searchApps
+      .mockResolvedValueOnce(seededRows)
+      .mockResolvedValueOnce(seededRows)
+      .mockResolvedValue(remoteRows);
+    mocks.consumeStartupCatalogSynced.mockResolvedValueOnce(true);
+
+    const syncedEvents: string[] = [];
+    const onSynced = () => syncedEvents.push('catalog');
+    const onCustom = () => syncedEvents.push('custom');
+    window.addEventListener('zstore:catalog-synced', onSynced);
+    window.addEventListener('zstore:custom-apps-changed', onCustom);
+    try {
+      const { deps } = renderSubs({}, { strict: true });
+      await flush();
+
+      // StrictMode 卸载的首个挂载不消费标记，仅活动挂载消费一次。
+      expect(mocks.consumeStartupCatalogSynced).toHaveBeenCalledTimes(1);
+      expect(syncedEvents).toEqual(['catalog', 'custom']);
+      expect(deps.setApps).toHaveBeenLastCalledWith(remoteRows);
+    } finally {
+      window.removeEventListener('zstore:catalog-synced', onSynced);
+      window.removeEventListener('zstore:custom-apps-changed', onCustom);
+    }
+  });
+
+  it('实时事件先于 consumeStartupCatalogSynced 返回时只刷新一次（不双刷）', async () => {
+    const seededRows = [makeRow('acme/seed')];
+    const remoteRows = [makeRow('acme/remote-new')];
+    mocks.searchApps.mockResolvedValueOnce(seededRows).mockResolvedValue(remoteRows);
+    let resolveConsume!: (v: boolean) => void;
+    mocks.consumeStartupCatalogSynced.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConsume = resolve;
+        }),
+    );
+
+    const syncedEvents: string[] = [];
+    const onSynced = () => syncedEvents.push('catalog');
+    const onCustom = () => syncedEvents.push('custom');
+    window.addEventListener('zstore:catalog-synced', onSynced);
+    window.addEventListener('zstore:custom-apps-changed', onCustom);
+    try {
+      renderSubs();
+      await flush();
+
+      await act(async () => {
+        catalogSynced.emit(undefined);
+        resolveConsume(true);
+        await flush();
+      });
+
+      expect(syncedEvents).toEqual(['catalog', 'custom']);
+    } finally {
+      window.removeEventListener('zstore:catalog-synced', onSynced);
+      window.removeEventListener('zstore:custom-apps-changed', onCustom);
+    }
   });
 });
 

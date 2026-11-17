@@ -477,6 +477,7 @@ async fn get_or_fetch_icon_rejects_non_image_data_uri() {
         mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
         github_token: std::sync::Mutex::new(None),
         sync_lock: tokio::sync::Mutex::new(()),
+        startup_catalog_synced: std::sync::atomic::AtomicBool::new(false),
     };
     let img = "DATA:image/png;base64,AAAA";
     assert_eq!(

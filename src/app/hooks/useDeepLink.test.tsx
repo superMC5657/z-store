@@ -8,6 +8,7 @@
  * - 分发失败 error toast；成功恒有 responded info toast；
  * - window 挂载点挂载/卸载对称；CLI 深链参数拉起即分发。
  */
+import { StrictMode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -37,7 +38,7 @@ interface ToastCall {
   type?: string;
 }
 
-function renderDeepLink() {
+function renderDeepLink(options: { strict?: boolean } = {}) {
   const handlers = {
     handleOpenDetail: vi.fn(),
     handleSearchChange: vi.fn(async () => {}),
@@ -51,7 +52,13 @@ function renderDeepLink() {
       return `${key}${interpolation}`;
     }) as never,
   };
-  const rendered = renderHook(() => useDeepLink(handlers));
+  const rendered = renderHook(
+    (props: typeof handlers) => useDeepLink(props),
+    {
+      initialProps: handlers,
+      ...(options.strict ? { wrapper: StrictMode } : {}),
+    },
+  );
   return { rendered, handlers };
 }
 
@@ -214,5 +221,21 @@ describe('useDeepLink：失败与生命周期', () => {
     await act(async () => {});
     expect(mocks.handleDeepLink).toHaveBeenCalledWith('zstore://app/cli/app');
     expect(handlers.handleOpenDetail).toHaveBeenCalledWith('cli/app');
+  });
+
+  it('StrictMode 双挂载与父组件重渲染不会重复读取或派发 CLI 深链', async () => {
+    mocks.getCliDeepLink.mockResolvedValue('zstore://app/cli/once');
+    mocks.handleDeepLink.mockResolvedValue({ action: 'app_detail', payload: { app_id: 'cli/once' } });
+    const { rendered, handlers } = renderDeepLink({ strict: true });
+
+    await act(async () => {});
+    // 模拟父组件状态变更导致传入新的回调引用重渲染
+    const nextHandlers = { ...handlers, navigate: vi.fn() };
+    rendered.rerender(nextHandlers);
+    await act(async () => {});
+
+    expect(mocks.getCliDeepLink).toHaveBeenCalledTimes(1);
+    expect(mocks.handleDeepLink).toHaveBeenCalledTimes(1);
+    expect(handlers.handleOpenDetail).toHaveBeenCalledTimes(1);
   });
 });

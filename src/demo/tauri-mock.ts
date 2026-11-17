@@ -315,6 +315,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleGetRecentlyViewedApps();
     case 'sync_catalog':
       return handleSyncCatalog();
+    case 'consume_startup_catalog_synced':
+      return false;
     case 'get_or_fetch_icon':
       return handleGetOrFetchIcon(a);
     case 'cycle_app_icon':

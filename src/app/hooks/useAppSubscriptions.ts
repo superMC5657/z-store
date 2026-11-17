@@ -181,18 +181,30 @@ export function useAppSubscriptions({
       });
     };
 
-    // 初始数据拉取（DB/local 直读，保持自动）
+    let liveSyncReceived = false;
+    const dispatchCatalogSynced = () => {
+      window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
+      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed'));
+    };
+
+    // 初始数据拉取（DB/local 直读，保持自动；后端 setup 已在后台同步远端清单与注册深链协议）
     reloadCatalogApps(false);
-    // 启动后台按北京时间下午 14:00（06:00 UTC）切日静默增量同步远端收录清单：同周期内跳过网络，跨边界后走 ETag 条件请求，有更新才覆盖 catalog_apps 并通知视图刷新
-    tauriApi.syncCatalog(false).then((res) => {
+    // 先订阅后端启动同步事件；注册就绪后再消费后端一次性同步标记，
+    // 堵住「前端首读完成 → listen 尚未就绪 → 后端 emit 丢失」的窗口，并用 liveSyncReceived 避免双刷。
+    const catalogSyncedReady = tauriApi.onCatalogSynced(() => {
       if (!startupCtx.mounted) return;
-      if (res?.updated) {
-        window.dispatchEvent(new CustomEvent('zstore:catalog-synced'));
-        window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed'));
-      }
-    }).catch(() => {
-      // 启动静默同步失败（如离线/超时）不提示错误，保留本地 catalog_apps 既有数据
+      liveSyncReceived = true;
+      dispatchCatalogSynced();
     });
+    trackSubscription(startupCtx, catalogSyncedReady);
+    catalogSyncedReady
+      .then(() => (startupCtx.mounted ? tauriApi.consumeStartupCatalogSynced() : false))
+      .then((pending) => {
+        if (pending && startupCtx.mounted && !liveSyncReceived) {
+          dispatchCatalogSynced();
+        }
+      })
+      .catch(() => {});
     tauriApi.getInstalledApps().then(setInstalledApps);
     tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     tauriApi.getUpdateRules().then(setUpdateRules);
@@ -205,7 +217,6 @@ export function useAppSubscriptions({
       const withLocal = prepareRecentViews(recents, fullCatalogAppsRef?.current, appsRef.current, localApps);
       setRecentlyViewedApps(withLocal);
     }).catch(() => {});
-    tauriApi.registerDeepLinkScheme().catch(() => {});
 
     // 加载持久化设置（DB/local，保持自动；更新检查仅手动触发检查更新按钮）
     tauriApi.getSettings().then((persisted) => {

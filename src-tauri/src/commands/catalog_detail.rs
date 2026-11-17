@@ -1499,6 +1499,7 @@ mod catalog_platform_tests {
             mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
             github_token: std::sync::Mutex::new(None),
             sync_lock: tokio::sync::Mutex::new(()),
+            startup_catalog_synced: std::sync::atomic::AtomicBool::new(false),
         };
         let mut local_item = crate::github::CatalogItem {
             id: "demo/app".to_string(),
@@ -1648,6 +1649,7 @@ mod repo_card_hydration_tests {
             mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
             github_token: std::sync::Mutex::new(None),
             sync_lock: tokio::sync::Mutex::new(()),
+            startup_catalog_synced: std::sync::atomic::AtomicBool::new(false),
         }
     }
 

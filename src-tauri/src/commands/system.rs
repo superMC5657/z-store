@@ -16,15 +16,28 @@ pub fn handle_deep_link(url: String) -> crate::AppResult<DeepLinkAction> {
     })
 }
 
+fn find_cli_deep_link_in_args<I, S>(args: I) -> Option<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter().skip(1).find_map(|arg| {
+        let s = arg.as_ref();
+        s.get(..9)
+            .is_some_and(|p| p.eq_ignore_ascii_case("zstore://"))
+            .then(|| s.to_string())
+    })
+}
+
+/// 进程级 CLI 深链槽：启动参数只消费一次（`take()` 后置空），防止前端 StrictMode/重渲染/刷新重复触发。
+static CLI_DEEP_LINK_SLOT: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
+
 #[tauri::command]
 pub fn get_cli_deep_link() -> Option<String> {
-    for arg in std::env::args().skip(1) {
-        let lower = arg.to_lowercase();
-        if lower.starts_with("zstore://") {
-            return Some(arg);
-        }
-    }
-    None
+    let slot = CLI_DEEP_LINK_SLOT
+        .get_or_init(|| std::sync::Mutex::new(find_cli_deep_link_in_args(std::env::args())));
+    slot.lock().ok().and_then(|mut guard| guard.take())
 }
 
 /// 外链安全校验：协议头大小写不敏感（与前端 `openUrl` 的 `/^https?:\/\//i` 对齐），
@@ -249,5 +262,23 @@ mod tests {
         ] {
             assert!(validate(bad).is_err(), "{bad:?} must be rejected");
         }
+    }
+
+    #[test]
+    fn cli_deep_link_parses_case_insensitively_and_consumes_once() {
+        let found =
+            super::find_cli_deep_link_in_args(["z-store.exe", "--flag", "ZSTORE://app/o/r"]);
+        assert_eq!(found.as_deref(), Some("ZSTORE://app/o/r"));
+        assert_eq!(
+            super::find_cli_deep_link_in_args(["z-store.exe", "https://example.com"]),
+            None
+        );
+
+        let slot = std::sync::Mutex::new(found);
+        assert_eq!(
+            slot.lock().unwrap().take().as_deref(),
+            Some("ZSTORE://app/o/r")
+        );
+        assert_eq!(slot.lock().unwrap().take(), None);
     }
 }

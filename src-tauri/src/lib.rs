@@ -36,6 +36,8 @@ pub struct AppState {
     pub github_token: Mutex<Option<String>>,
     /// 清单同步串行互斥锁：防止启动后台增量同步与设置页手动同步并发交叉写库。
     pub sync_lock: tokio::sync::Mutex<()>,
+    /// 启动后台静默同步是否已完成并产生更新（前端订阅就绪后一次性消费清零，防漏接事件）。
+    pub startup_catalog_synced: std::sync::atomic::AtomicBool,
 }
 
 /// 集中统一秒级 Unix 时间戳，替换各模块手写 SystemTime::now() 样板。
@@ -422,6 +424,7 @@ pub fn run() {
                 mirror: Mutex::new(mirror),
                 github_token: Mutex::new(saved_token.clone()),
                 sync_lock: tokio::sync::Mutex::new(()),
+                startup_catalog_synced: std::sync::atomic::AtomicBool::new(false),
             };
             app.manage(state);
 
@@ -528,6 +531,26 @@ pub fn run() {
                 }
             });
 
+            let catalog_sync_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::{Emitter, Manager};
+                if let Some(app_state) = catalog_sync_handle.try_state::<AppState>() {
+                    if let Ok(res) =
+                        crate::commands::run_sync_catalog(app_state.inner(), false).await
+                    {
+                        if res.updated {
+                            app_state
+                                .startup_catalog_synced
+                                .store(true, std::sync::atomic::Ordering::Release);
+                            let _ = catalog_sync_handle.emit("zstore://catalog-synced", ());
+                        }
+                    }
+                }
+            });
+
+            // 进程启动只注册一次深链协议，不依赖前端挂载后发 IPC。
+            let _ = crate::deeplink::register_windows_protocol();
+
             let init_token = saved_token.clone();
             tauri::async_runtime::spawn(async move {
                 crate::probe_and_announce_rate_limit(init_token.as_deref()).await;
@@ -622,6 +645,7 @@ pub fn run() {
             commands::handle_deep_link,
             commands::get_cli_deep_link,
             commands::sync_catalog,
+            commands::consume_startup_catalog_synced,
             commands::list_custom_apps,
             commands::save_custom_app,
             commands::delete_custom_app,

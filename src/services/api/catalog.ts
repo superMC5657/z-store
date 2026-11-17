@@ -205,6 +205,20 @@ export async function onIconReady(
   });
 }
 
+/** 后端 `setup` 后台同步远端清单并落库完成后广播；前端收到后重拉本地目录与转正态。 */
+export async function onCatalogSynced(callback: () => void): Promise<() => void> {
+  if (!isTauri) return () => {};
+  return listen('zstore://catalog-synced', () => {
+    callback();
+  });
+}
+
+/** 消费后端启动后台清单同步完成标记，兜底「首读后、监听注册前」期间已落库并广播的同步。 */
+export async function consumeStartupCatalogSynced(): Promise<boolean> {
+  if (!isTauri) return false;
+  return tauriInvoke<boolean>(CMD.consumeStartupCatalogSynced);
+}
+
 export async function getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
   return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
 }

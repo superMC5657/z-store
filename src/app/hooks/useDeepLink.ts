@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { tauriApi } from '../../services/api';
 import { resolveViewTarget, type Navigate, type ViewFocus } from '../../types';
 
@@ -71,20 +71,29 @@ export function useDeepLink({
     }
   };
 
-  useEffect(() => {
-    window.dispatchZStoreDeepLink = handleDispatchDeepLink;
+  const handleDispatchDeepLinkRef = useRef(handleDispatchDeepLink);
+  handleDispatchDeepLinkRef.current = handleDispatchDeepLink;
+  // 同一组件实例只查一次 CLI 深链参数：防 StrictMode 双挂载重复派发（后端亦为一次性 take()）。
+  const cliCheckedRef = useRef(false);
 
-    // 检查 CLI 参数是否带有唤起协议 (如外部双击链接拉起新进程)
-    tauriApi.getCliDeepLink().then((cliLink) => {
-      if (cliLink) {
-        handleDispatchDeepLink(cliLink);
-      }
-    }).catch(() => {});
+  useEffect(() => {
+    window.dispatchZStoreDeepLink = (rawUrl: string) =>
+      void handleDispatchDeepLinkRef.current(rawUrl);
+
+    if (!cliCheckedRef.current) {
+      cliCheckedRef.current = true;
+      // 检查 CLI 参数是否带有唤起协议 (如外部双击链接拉起新进程)
+      tauriApi.getCliDeepLink().then((cliLink) => {
+        if (cliLink) {
+          void handleDispatchDeepLinkRef.current(cliLink);
+        }
+      }).catch(() => {});
+    }
 
     return () => {
       delete window.dispatchZStoreDeepLink;
     };
-  }, [handleDispatchDeepLink]);
+  }, []);
 
   return {
     stagedDeepLinkInstall,

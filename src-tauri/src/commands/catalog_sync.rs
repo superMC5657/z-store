@@ -86,10 +86,25 @@ pub async fn sync_catalog(
     state: State<'_, AppState>,
     force: Option<bool>,
 ) -> crate::AppResult<SyncCatalogResult> {
+    run_sync_catalog(&state, force.unwrap_or(false)).await
+}
+
+/// 消费并清零启动后台清单同步待刷新标记（供前端订阅就绪后补齐订阅前已完成的更新通知）。
+#[tauri::command]
+pub fn consume_startup_catalog_synced(state: State<'_, AppState>) -> bool {
+    state
+        .startup_catalog_synced
+        .swap(false, std::sync::atomic::Ordering::AcqRel)
+}
+
+/// 清单同步内部执行体（供 Tauri 命令与 `lib.rs::setup` 启动任务共用，同走 `state.sync_lock` 串行保护）。
+pub(crate) async fn run_sync_catalog(
+    state: &AppState,
+    is_force: bool,
+) -> crate::AppResult<SyncCatalogResult> {
     // 串行化清单同步：避免启动静默同步与设置页手动同步并发交叉写库或乱序覆盖 ETag。
     let _sync_guard = state.sync_lock.lock().await;
     let start = std::time::Instant::now();
-    let is_force = force.unwrap_or(false);
     let cycle_day = catalog_sync_cycle_day(utc_now());
     let (url, cached_etag, skip_daily) = {
         let db = state.db()?;
@@ -280,7 +295,7 @@ pub(crate) fn should_use_local_fallback(strict_errors: bool, catalog_has_rows: b
 /// 清单同步落库（Repository 收口）：单事务内权威覆盖 `catalog_apps` + 转正归档 `custom_apps` +
 /// 回填收藏/关注收录标记（+ 可选同事务落盘新 ETag）；提交成功后同步刷新 `CatalogService` 内存热读索引。
 fn apply_manifest_to_db(
-    state: &tauri::State<'_, AppState>,
+    state: &AppState,
     items: &[crate::github::models::CatalogItem],
     etag_entry: Option<(&str, &str, i64)>,
 ) -> Result<Vec<String>, String> {
@@ -448,5 +463,14 @@ mod tests {
             "https://other.example.com/catalog.json",
             "2026-11-12"
         ));
+    }
+
+    #[test]
+    fn startup_catalog_synced_flag_is_consumed_once() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        assert!(!flag.swap(false, std::sync::atomic::Ordering::AcqRel));
+        flag.store(true, std::sync::atomic::Ordering::Release);
+        assert!(flag.swap(false, std::sync::atomic::Ordering::AcqRel));
+        assert!(!flag.swap(false, std::sync::atomic::Ordering::AcqRel));
     }
 }
