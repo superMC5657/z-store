@@ -166,17 +166,19 @@ pub(crate) async fn emit_icon_job(
 }
 
 /// 隐藏规则 id 集合（本地收敛 `search_apps` / `get_category_apps` 重复块）。
-pub(crate) fn hidden_rule_ids(state: &AppState) -> std::collections::HashSet<String> {
-    if let Ok(db) = state.db() {
-        db.get_all_rules()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|r| r.is_hidden)
-            .map(|r| r.app_id)
-            .collect()
-    } else {
-        std::collections::HashSet::new()
-    }
+/// fail-closed：锁失败或 DB 读取失败时返回错误由命令传播，绝不退化为空集把已隐藏应用暴露出来。
+pub(crate) fn hidden_rule_ids(
+    state: &AppState,
+) -> Result<std::collections::HashSet<String>, String> {
+    let db = state.db()?;
+    let rules = db
+        .get_all_rules()
+        .map_err(|e| format!("读取隐藏规则失败: {}", e))?;
+    Ok(rules
+        .into_iter()
+        .filter(|r| r.is_hidden)
+        .map(|r| r.app_id)
+        .collect())
 }
 
 /// 未收录卡片回填：确认图标覆盖 → 待写 icon_cycle 构建 → 详情缓存 platforms join。
@@ -523,7 +525,7 @@ pub async fn search_apps(
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> crate::AppResult<Vec<AppSummary>> {
-    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
+    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state)?;
 
     // 本地收录叠加搜索（含本地，可搜与远端同行为）：目录模块统一合并远端 + 本地收录。
     let results = state.catalog.search_local_catalog(&query);
@@ -690,7 +692,7 @@ pub async fn search_apps_online(
     }
 
     let token = crate::commands::resolve_active_github_token(&state);
-    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state);
+    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state)?;
 
     // 关键词搜索走 `api_etag_cache` 条件请求：非强刷时短锁预读 ETag 与旧载荷，`await` 期间零 DB。
     let endpoint = crate::github::search::online_search_endpoint(&query, page, per_page);
@@ -902,17 +904,32 @@ pub struct TrendEnrichRequest {
     pub repo: String,
 }
 
+/// 趋势 enrich 坐标段校验：非空、非 `.`/`..` 路径段，且不含路径/查询分隔符、`:`、空白或控制字符
+/// （与 `canonical_app_id` 的 owner/repo 段口径一致），脏段不得拼进 API URL 或 canonical 键。
+fn valid_enrich_segment(seg: &str) -> bool {
+    !seg.is_empty()
+        && seg != "."
+        && seg != ".."
+        && !seg.contains(['/', '\\', ':', '?', '#'])
+        && !seg.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 /// 趋势 enrich 目标整形：take(40) 兜底截断 + trim + 小写 id。
 /// FE 单次批量 40 上限，此处截断不静默吃超量。
-fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<crate::icons::RepoCoord> {
+/// 结果按入参位置对齐：非法坐标占位 `None`（前端按下标回填）。
+fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<Option<crate::icons::RepoCoord>> {
     repos
         .into_iter()
         .take(40)
         .map(|r| {
             let owner = r.owner.trim().to_string();
             let repo = r.repo.trim().to_string();
+            if !valid_enrich_segment(&owner) || !valid_enrich_segment(&repo) {
+                return None;
+            }
             let id = format!("{}/{}", owner.to_lowercase(), repo.to_lowercase());
-            crate::icons::RepoCoord { id, owner, repo }
+            crate::forge::coord::canonical_app_id(&id)?;
+            Some(crate::icons::RepoCoord { id, owner, repo })
         })
         .collect()
 }
@@ -1112,10 +1129,11 @@ pub async fn enrich_trend_repos(
     // 世代：每次调用 +1（切榜/重拉均触发新调用，类比 SEARCH_GEN）。
     let current_gen = next_board_gen();
     // 首屏 probe=false 空壳快返 + 后台 fetch_icons_stream。
-    let targets = enrich_targets(repos);
-    let requested = targets.len();
+    let slots = enrich_targets(repos);
+    let requested = slots.len();
+    let targets: Vec<crate::icons::RepoCoord> = slots.iter().flatten().cloned().collect();
     if targets.is_empty() {
-        return Ok(Vec::new());
+        return Ok(vec![None; requested]);
     }
     let token = crate::commands::resolve_active_github_token(&state);
     let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
@@ -1291,7 +1309,12 @@ pub async fn enrich_trend_repos(
             .dev("force", is_force);
         ev.warn();
     }
-    Ok(results)
+    // 按入参位置回填：非法坐标槽位保持 `None`。
+    let mut valid_results = results.into_iter();
+    Ok(slots
+        .iter()
+        .map(|slot| slot.as_ref().and_then(|_| valid_results.next().flatten()))
+        .collect())
 }
 
 /// Star 列表单页组卡结果。
@@ -1415,6 +1438,36 @@ pub(crate) fn spawn_starred_icon_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enrich_targets_keeps_positions_and_rejects_dirty_segments() {
+        let req = |owner: &str, repo: &str| TrendEnrichRequest {
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+        };
+        let slots = enrich_targets(vec![
+            req(" Owner ", " Repo "),
+            req("", "repo"),
+            req(".", "repo"),
+            req("owner", ".."),
+            req("own/er", "repo"),
+            req("owner", "re po"),
+            req("owner", "re\u{7}po"),
+            req("gh:owner", "repo"),
+            req("owner", "repo?x=1"),
+            req("ok", "fine"),
+        ]);
+        assert_eq!(slots.len(), 10, "结果必须与入参逐位对齐");
+        let first = slots[0].as_ref().expect("合法坐标保留");
+        assert_eq!(
+            (first.id.as_str(), first.owner.as_str(), first.repo.as_str()),
+            ("owner/repo", "Owner", "Repo")
+        );
+        for (i, slot) in slots.iter().enumerate().take(9).skip(1) {
+            assert!(slot.is_none(), "slot {i} 应被拒绝");
+        }
+        assert_eq!(slots[9].as_ref().map(|c| c.id.as_str()), Some("ok/fine"));
+    }
 
     fn sample_summary(id: &str, owner: &str, repo: &str, icon: &str) -> AppSummary {
         AppSummary {

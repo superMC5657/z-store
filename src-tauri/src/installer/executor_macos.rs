@@ -3,7 +3,7 @@
 #[cfg(target_os = "macos")]
 use super::InstallOutcome;
 use std::path::Path;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 use std::path::PathBuf;
 
 /// macOS PKG 拉起 argv 纯函数（真实实现为 `open -W`）。
@@ -44,6 +44,99 @@ pub fn dmg_copy_argv(src_app: &Path, dst_app: &Path) -> Vec<String> {
         src_app.to_string_lossy().to_string(),
         dst_app.to_string_lossy().to_string(),
     ]
+}
+
+/// 挂载卷内的 `.app` 包探测：以 `symlink_metadata` 判定真实目录，
+/// 符号链接（可指向卷外任意目录）一律不认作应用包。
+pub fn find_app_bundle(volume: &Path) -> Option<std::path::PathBuf> {
+    let entries = std::fs::read_dir(volume).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("app") {
+            continue;
+        }
+        let is_real_dir = std::fs::symlink_metadata(&path)
+            .map(|m| m.file_type().is_dir())
+            .unwrap_or(false);
+        if is_real_dir {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// DMG 挂载点守卫：`hdiutil attach` 成功后持有卷路径。正常流程经 [`DmgMountGuard::detach`]
+/// 异步卸载；任何提前返回或 Future 被取消时由 `Drop` 在独立线程尽力 `hdiutil detach`，
+/// 不阻塞 async worker，也不残留挂载点。
+#[cfg(any(target_os = "macos", test))]
+struct DmgMountGuard {
+    volume: Option<PathBuf>,
+    #[cfg(test)]
+    on_detach: Option<std::sync::Arc<dyn Fn(Vec<String>) + Send + Sync>>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl DmgMountGuard {
+    #[cfg(target_os = "macos")]
+    fn new(volume: PathBuf) -> Self {
+        Self {
+            volume: Some(volume),
+            #[cfg(test)]
+            on_detach: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_detach_hook(
+        volume: PathBuf,
+        on_detach: std::sync::Arc<dyn Fn(Vec<String>) + Send + Sync>,
+    ) -> Self {
+        Self {
+            volume: Some(volume),
+            on_detach: Some(on_detach),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn volume(&self) -> &Path {
+        self.volume.as_deref().unwrap_or_else(|| Path::new(""))
+    }
+
+    async fn detach(mut self) {
+        if let Some(volume) = self.volume.take() {
+            let argv = dmg_detach_argv(&volume);
+            #[cfg(test)]
+            if let Some(cb) = self.on_detach.take() {
+                cb(argv);
+                return;
+            }
+            #[cfg(target_os = "macos")]
+            let _ = super::run_argv(&argv).await;
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl Drop for DmgMountGuard {
+    fn drop(&mut self) {
+        let Some(volume) = self.volume.take() else {
+            return;
+        };
+        let argv = dmg_detach_argv(&volume);
+        #[cfg(test)]
+        if let Some(cb) = self.on_detach.take() {
+            cb(argv);
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        let _ = std::thread::Builder::new()
+            .name("dmg-detach".to_string())
+            .spawn(move || {
+                if let Some((prog, args)) = argv.split_first() {
+                    let _ = std::process::Command::new(prog).args(args).status();
+                }
+            });
+    }
 }
 
 /// macOS DMG 安装体。
@@ -101,42 +194,27 @@ pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> 
         .find(|p| p.starts_with("/Volumes/"))
         .map(PathBuf::from);
 
-    let volume_path = match mount_point {
-        Some(p) => p,
-        None => {
-            return Err("无法从 hdiutil 输出中探测到挂载卷路径".to_string());
-        }
+    let Some(volume_path) = mount_point else {
+        return Err("无法从 hdiutil 输出中探测到挂载卷路径".to_string());
     };
+    let mount = DmgMountGuard::new(volume_path);
 
     // 3. 探测挂载卷内的 .app 目录
-    let app_in_volume = std::fs::read_dir(&volume_path).ok().and_then(|entries| {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.extension().and_then(|e| e.to_str()) == Some("app") {
-                return Some(path);
-            }
-        }
-        None
-    });
-
-    let target_app = match app_in_volume {
-        Some(p) => p,
-        None => {
-            let detach_argv = dmg_detach_argv(&volume_path);
-            let _ = super::run_argv(&detach_argv).await;
-            return Err("DMG 挂载卷内未发现有效 .app 应用程序包".to_string());
-        }
+    let Some(target_app) = find_app_bundle(mount.volume()) else {
+        mount.detach().await;
+        return Err("DMG 挂载卷内未发现有效 .app 应用程序包".to_string());
     };
 
     let app_name = target_app
         .file_name()
-        .ok_or_else(|| "无法获取 .app 目录名称".to_string())?;
+        .ok_or_else(|| "无法获取 .app 目录名称".to_string())?
+        .to_os_string();
 
     // 4. 拷贝至 /Applications 或用户 ~/Applications 目录
     // 旧版本删除失败必须中止：吞错继续 cp -R 会在已存在目录下生成
     // `X.app/X.app` 嵌套坏安装（应用无法启动且残留难以清理）。
     let sys_apps = PathBuf::from("/Applications");
-    let dest_app = sys_apps.join(app_name);
+    let dest_app = sys_apps.join(&app_name);
 
     if dest_app.exists() {
         std::fs::remove_dir_all(&dest_app).map_err(|e| {
@@ -160,8 +238,7 @@ pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> 
         .map_err(|e| format!("拷贝应用至 /Applications 失败: {}", e))?;
 
     // 5. 卸载 DMG 释放挂载点
-    let detach_argv = dmg_detach_argv(&volume_path);
-    let _ = super::run_argv(&detach_argv).await;
+    mount.detach().await;
 
     if cp_status.success() {
         Ok(format!(
@@ -173,5 +250,65 @@ pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> 
             "拷贝应用至 /Applications/{} 失败",
             app_name.to_string_lossy()
         ))
+    }
+}
+
+#[cfg(test)]
+mod app_bundle_tests {
+    use super::find_app_bundle;
+
+    #[test]
+    fn finds_real_app_directory_and_ignores_plain_files() {
+        let vol = tempfile::tempdir().unwrap();
+        std::fs::write(vol.path().join("Fake.app"), b"not a dir").unwrap();
+        assert_eq!(find_app_bundle(vol.path()), None);
+        std::fs::create_dir(vol.path().join("Real.app")).unwrap();
+        assert_eq!(
+            find_app_bundle(vol.path()),
+            Some(vol.path().join("Real.app"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_app_bundle_is_rejected() {
+        let vol = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), vol.path().join("Evil.app")).unwrap();
+        assert_eq!(find_app_bundle(vol.path()), None);
+    }
+
+    #[test]
+    fn dmg_mount_guard_detaches_on_early_drop_with_expected_argv() {
+        use std::sync::{Arc, Mutex};
+        let calls: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&calls);
+        {
+            let _guard = super::DmgMountGuard::with_detach_hook(
+                std::path::PathBuf::from("/Volumes/TestApp"),
+                Arc::new(move |argv| recorded.lock().unwrap().push(argv)),
+            );
+            // 模拟挂载后提前 `?` 返回或 Future 被取消，未显式调用 `.detach()`。
+        }
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(
+            calls[0],
+            vec!["hdiutil", "detach", "/Volumes/TestApp", "-force"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dmg_mount_guard_detach_disarms_drop_without_double_detach() {
+        use std::sync::{Arc, Mutex};
+        let calls: Arc<Mutex<Vec<Vec<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&calls);
+        let guard = super::DmgMountGuard::with_detach_hook(
+            std::path::PathBuf::from("/Volumes/TestApp"),
+            Arc::new(move |argv| recorded.lock().unwrap().push(argv)),
+        );
+        guard.detach().await;
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "显式 detach 后 Drop 不得重复卸载");
     }
 }

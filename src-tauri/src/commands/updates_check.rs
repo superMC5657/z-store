@@ -301,10 +301,10 @@ pub async fn check_for_updates(
     let check_start = std::time::Instant::now();
     let installed = crate::commands::get_installed_apps(state.clone())?;
     let installed_ids: Vec<String> = installed.iter().map(|a| a.app_id.clone()).collect();
+    // 规则读取失败必须中止：退化为空集会让已冻结/已跳过版本的应用误报更新。
     let rules_map: HashMap<String, UpdateRule> = {
         let db = state.db()?;
-        db.get_all_rules()
-            .unwrap_or_default()
+        db.get_all_rules()?
             .into_iter()
             .map(|r| (r.app_id.clone(), r))
             .collect()
@@ -476,16 +476,13 @@ pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<Up
         .into_iter()
         .map(|a| (a.app_id.clone(), a.version.clone()))
         .collect();
+    // 规则读取 fail-closed（与 `check_for_updates` 同口径）。
     let rules_map: HashMap<String, UpdateRule> = state
-        .db()
-        .map(|db| {
-            db.get_all_rules()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|r| (r.app_id.clone(), r))
-                .collect()
-        })
-        .unwrap_or_default();
+        .db()?
+        .get_all_rules()?
+        .into_iter()
+        .map(|r| (r.app_id.clone(), r))
+        .collect();
     let rows = state
         .db()
         .map(|db| db.get_cached_updates().unwrap_or_default())
@@ -579,17 +576,17 @@ async fn notify_watched_updates(
     rules_map: &HashMap<String, UpdateRule>,
     force_refresh: Option<bool>,
 ) -> WatchCheckSummary {
-    let watched: Vec<WatchedApp> = match state.db() {
-        Ok(db) => db.get_watched_apps().unwrap_or_default(),
+    // 关注列表与提醒频率单次短锁合并读取。
+    let (watched, frequency): (Vec<WatchedApp>, String) = match state.db() {
+        Ok(db) => (
+            db.get_watched_apps().unwrap_or_default(),
+            db.get_watch_notify_frequency(),
+        ),
         Err(_) => return WatchCheckSummary::default(),
     };
     if watched.is_empty() {
         return WatchCheckSummary::default();
     }
-    let frequency = match state.db() {
-        Ok(db) => db.get_watch_notify_frequency(),
-        Err(_) => crate::db::WATCH_NOTIFY_FREQUENCY_DEFAULT.to_string(),
-    };
     let now = crate::now_secs();
     let is_daily = frequency.as_str() == "daily";
     let is_force = force_refresh.unwrap_or(false);
@@ -626,14 +623,22 @@ async fn notify_watched_updates(
                 if latest.is_empty() {
                     return;
                 }
+                // 上次提醒时间单次读取，供「从未提醒」判定与 daily 节流共用；
+                // 读取失败保守跳过本轮（不当作从未提醒、也不绕过节流）。
+                let last_notified_at = match state.db().and_then(|db| {
+                    db.get_watch_last_notified_at(&w.app_id)
+                        .map_err(|e| e.to_string())
+                }) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        deferred_err.fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                };
                 // 从未提醒过：新关注（无基线），或基线即当前最新版本且从未发出过提醒
                 let never_notified_at_latest = match w.last_notified_version.as_deref() {
                     None => true,
-                    Some(base) if base.trim() == latest => state
-                        .db()
-                        .ok()
-                        .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten())
-                        .is_none(),
+                    Some(base) if base.trim() == latest => last_notified_at.is_none(),
                     Some(_) => false,
                 };
                 if never_notified_at_latest {
@@ -665,12 +670,7 @@ async fn notify_watched_updates(
                     }
                 }
                 if is_daily {
-                    let last_at = state
-                        .db
-                        .lock()
-                        .ok()
-                        .and_then(|db| db.get_watch_last_notified_at(&w.app_id).ok().flatten());
-                    if let Some(t) = last_at {
+                    if let Some(t) = last_notified_at {
                         if now.saturating_sub(t) < DAILY_NOTIFY_INTERVAL_SECONDS {
                             deferred_throttle.fetch_add(1, Ordering::Relaxed);
                             return;

@@ -1,4 +1,3 @@
-use super::resolve_uninstaller_command;
 use crate::models::InstalledApp;
 use crate::{AppResult, AppState};
 use tauri::State;
@@ -40,11 +39,13 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
             ) {
                 app.install_path = repaired_path.clone();
                 if app.uninstall_command.is_none() {
-                    app.uninstall_command = resolve_uninstaller_command(
+                    // 本轮已枚举过注册表（存在系统导入应用）时复用，不再逐个应用重扫卸载表。
+                    app.uninstall_command = crate::installer::paths::resolve_uninstaller_command_in(
                         &app.app_name,
                         &app.app_id,
                         &repaired_path,
                         None,
+                        registry_entries.as_deref(),
                     );
                 }
                 app_changed = true;

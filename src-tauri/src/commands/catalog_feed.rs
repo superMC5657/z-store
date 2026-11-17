@@ -262,7 +262,7 @@ pub fn get_home_feed(
     strategy: Option<String>,
 ) -> Result<FeedPage, String> {
     let hidden_ids: std::collections::HashSet<String> =
-        super::catalog_search::hidden_rule_ids(&state);
+        super::catalog_search::hidden_rule_ids(&state)?;
     let all = state.catalog.merged_summaries();
     let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
         all
@@ -317,7 +317,7 @@ pub fn get_category_apps(
 ) -> crate::AppResult<FeedPage> {
     let cat_clean = category.trim().to_lowercase();
     let hidden_ids: std::collections::HashSet<String> =
-        super::catalog_search::hidden_rule_ids(&state);
+        super::catalog_search::hidden_rule_ids(&state)?;
 
     let all = state.catalog.merged_summaries();
     let filtered: Vec<AppSummary> = all
@@ -357,7 +357,7 @@ pub fn get_latest_catalog_apps(
     allowed_ids: Option<Vec<String>>,
 ) -> crate::AppResult<FeedPage> {
     let hidden_ids: std::collections::HashSet<String> =
-        super::catalog_search::hidden_rule_ids(&state);
+        super::catalog_search::hidden_rule_ids(&state)?;
     let all = state.catalog.merged_summaries();
     let visible: Vec<AppSummary> = if hidden_ids.is_empty() {
         all

@@ -9,6 +9,33 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
+/// 下载临时文件守卫：持有 `.tmp` 路径直至成功 rename；Future 被取消或任意错误提前返回时
+/// 由 `Drop` 尽力删除，杜绝半成品 `.tmp` 残留。
+struct TempFileGuard(Option<PathBuf>);
+
+impl TempFileGuard {
+    fn new(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+
+    fn path(&self) -> &Path {
+        self.0.as_deref().unwrap_or_else(|| Path::new(""))
+    }
+
+    /// 临时文件已转正（rename 成功），不再清理。
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+
 const DOWNLOAD_CLIENT_POOL_CAP: usize = 8;
 static DOWNLOAD_CLIENTS: OnceLock<Mutex<HashMap<String, reqwest::Client>>> = OnceLock::new();
 
@@ -204,6 +231,8 @@ pub async fn download_with_progress(
         s.push(format!(".{}.{}.tmp", std::process::id(), nanos));
         PathBuf::from(s)
     };
+    let mut tmp_guard = TempFileGuard::new(tmp_path);
+    let tmp_path = tmp_guard.path().to_path_buf();
 
     let mut stream = resp.bytes_stream();
 
@@ -344,8 +373,9 @@ pub async fn download_with_progress(
             }
         }
     }
-    if !rename_ok {
-        let _ = tokio::fs::remove_file(&tmp_path).await;
+    if rename_ok {
+        tmp_guard.disarm();
+    } else {
         let err_msg = format!(
             "写入磁盘失败: {}",
             last_rename_err
@@ -389,7 +419,44 @@ pub async fn download_with_progress(
 
 #[cfg(test)]
 mod tests {
-    use super::download_pool_key;
+    use super::{download_pool_key, TempFileGuard};
+
+    #[test]
+    fn temp_file_guard_removes_file_unless_disarmed() {
+        let dir = tempfile::tempdir().unwrap();
+        let dropped = dir.path().join("a.tmp");
+        std::fs::write(&dropped, b"partial").unwrap();
+        drop(TempFileGuard::new(dropped.clone()));
+        assert!(!dropped.exists(), "未转正的临时文件必须被清理");
+
+        let kept = dir.path().join("b.tmp");
+        std::fs::write(&kept, b"done").unwrap();
+        let mut guard = TempFileGuard::new(kept.clone());
+        guard.disarm();
+        drop(guard);
+        assert!(kept.exists(), "disarm 后不得删除");
+
+        // 文件从未创建（如在建文件前即被取消）时 Drop 不 panic。
+        drop(TempFileGuard::new(dir.path().join("missing.tmp")));
+    }
+
+    #[tokio::test]
+    async fn temp_file_guard_cleans_up_when_future_is_cancelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("cancel.tmp");
+        let tmp2 = tmp.clone();
+        let task = tokio::spawn(async move {
+            let _guard = TempFileGuard::new(tmp2.clone());
+            tokio::fs::write(&tmp2, b"partial").await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        while !tmp.exists() {
+            tokio::task::yield_now().await;
+        }
+        task.abort();
+        let _ = task.await;
+        assert!(!tmp.exists(), "取消下载 Future 后不得残留 .tmp");
+    }
     use crate::proxy::ProxySnapshot;
     use crate::test_support::proxied_snapshot;
 

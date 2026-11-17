@@ -98,6 +98,60 @@ pub fn sync_launch_on_startup(enabled: bool) {
 #[cfg(not(target_os = "windows"))]
 pub fn sync_launch_on_startup(_enabled: bool) {}
 
+/// 收录清单源校验：空串（回退默认源）、带主机且无内嵌凭据的 `http(s)://` URL、
+/// `file://` 或本地路径；拒绝其它协议与 Windows 网络路径（UNC 读取会触发 SMB/NTLM 外泄）。
+fn validate_catalog_source_url(value: &str) -> Result<(), String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err("收录清单源不得包含控制字符".to_string());
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        let parsed = reqwest::Url::parse(trimmed)
+            .map_err(|_| format!("收录清单源不是合法 URL: {}", trimmed))?;
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err("收录清单源不应携带用户凭据（user:pass@host 形态）".to_string());
+        }
+        if parsed.host_str().is_none_or(str::is_empty) {
+            return Err(format!("收录清单源缺少主机名: {}", trimmed));
+        }
+        return Ok(());
+    }
+    let local = if lower.starts_with("file://") {
+        &trimmed["file://".len()..]
+    } else {
+        // 其它 `scheme:` 形态一律拒绝；单字母 scheme 即 Windows 盘符（`C:\...`）。
+        if let Some(colon) = trimmed.find(':') {
+            let scheme = &trimmed[..colon];
+            let looks_like_scheme = scheme.len() > 1
+                && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+            if looks_like_scheme {
+                return Err(format!("收录清单源不支持 {}: 协议", scheme));
+            }
+        }
+        trimmed
+    };
+    if super::system::is_windows_network_path(local) {
+        return Err(format!("收录清单源不支持网络路径: {}", trimmed));
+    }
+    Ok(())
+}
+
+/// 通用设置面的值校验：专用命令自带校验的键在此对齐同一口径，防止经 `save_setting` 绕过。
+fn validate_setting_value(key: &str, value: &str) -> Result<(), String> {
+    match key {
+        "active_mirror" => crate::mirror::validate_custom_proxy(value),
+        "catalog_source_url" => validate_catalog_source_url(value),
+        _ => Ok(()),
+    }
+}
+
 #[tauri::command]
 pub fn save_setting(
     state: State<'_, AppState>,
@@ -107,6 +161,7 @@ pub fn save_setting(
     if !is_managed_setting_key(&key) {
         return Err(crate::AppError::new(format!("未知的设置键: {}", key)));
     }
+    validate_setting_value(&key, &value).map_err(crate::AppError::new)?;
     let db = state.db()?;
     let value = crate::db::normalize_setting_value(&key, &value);
     db.set_setting(&key, &value)?;
@@ -145,7 +200,67 @@ pub async fn select_folder(
 
 #[cfg(test)]
 mod setting_gate_tests {
-    use super::is_managed_setting_key;
+    use super::{is_managed_setting_key, validate_setting_value};
+
+    #[test]
+    fn active_mirror_via_save_setting_requires_https() {
+        for ok in ["", "direct", "ghproxy", "https://gh-proxy.com"] {
+            assert!(
+                validate_setting_value("active_mirror", ok).is_ok(),
+                "{ok:?}"
+            );
+        }
+        for bad in [
+            "http://gh-proxy.com",
+            "https://127.0.0.1",
+            "https://user:pw@gh-proxy.com",
+            "ftp://mirror.example.com",
+        ] {
+            assert!(
+                validate_setting_value("active_mirror", bad).is_err(),
+                "{bad:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn catalog_source_url_rejects_dangerous_forms() {
+        for ok in [
+            "",
+            "https://example.com/catalog.json",
+            "HTTP://localhost:8080/catalog.json",
+            "file:///C:/data/catalog.json",
+            r"C:\data\catalog.json",
+            "/home/me/catalog.json",
+            "catalog.json",
+        ] {
+            assert!(
+                validate_setting_value("catalog_source_url", ok).is_ok(),
+                "{ok:?} must be accepted"
+            );
+        }
+        for bad in [
+            r"\\attacker\share\catalog.json",
+            "//attacker/share/catalog.json",
+            "file:////attacker/share/catalog.json",
+            r"file://\\attacker\share\catalog.json",
+            "smb://attacker/share",
+            "javascript:alert(1)",
+            "https://user:pw@example.com/c.json",
+            "https://",
+            "https://example.com/\u{0}x",
+        ] {
+            assert!(
+                validate_setting_value("catalog_source_url", bad).is_err(),
+                "{bad:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn other_keys_are_not_value_validated() {
+        assert!(validate_setting_value("theme", "anything").is_ok());
+    }
 
     #[test]
     fn ui_setting_keys_pass_gate() {

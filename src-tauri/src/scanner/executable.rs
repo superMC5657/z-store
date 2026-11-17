@@ -1,6 +1,64 @@
 use super::{AppScanner, ScanConfig};
 use std::path::{Path, PathBuf};
 
+/// 单个快捷方式根目录内 `.lnk` 的枚举结果：(路径, 小写文件名)。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+#[derive(Debug, Default)]
+struct LnkListing(Vec<(PathBuf, String)>);
+
+/// 桌面与开始菜单四个快捷方式根的一次性枚举缓存：同一次路径解析内
+/// 「开始菜单优先」与「桌面优先」两轮匹配复用同一份目录遍历结果。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+#[derive(Debug, Default)]
+struct ShortcutRoots {
+    common_start_menu: LnkListing,
+    user_start_menu: LnkListing,
+    user_desktop: LnkListing,
+    public_desktop: LnkListing,
+}
+
+#[cfg(target_os = "windows")]
+impl ShortcutRoots {
+    fn enumerate() -> Self {
+        let start_menu = |base: PathBuf| base.join(r"Microsoft\Windows\Start Menu\Programs");
+        let list = |p: Option<PathBuf>| p.map(|p| AppScanner::list_lnk_dir(&p)).unwrap_or_default();
+        Self {
+            common_start_menu: list(Some(start_menu(
+                std::env::var("ProgramData")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from(r"C:\ProgramData")),
+            ))),
+            user_start_menu: list(std::env::var("APPDATA").ok().map(|p| start_menu(p.into()))),
+            user_desktop: list(
+                std::env::var("USERPROFILE")
+                    .ok()
+                    .map(|p| PathBuf::from(p).join("Desktop")),
+            ),
+            public_desktop: list(Some(PathBuf::from(r"C:\Users\Public\Desktop"))),
+        }
+    }
+
+    /// token 探测顺序：公共开始菜单 → 用户开始菜单 → 用户桌面 → 公共桌面。
+    fn start_menu_first(&self) -> [&LnkListing; 4] {
+        [
+            &self.common_start_menu,
+            &self.user_start_menu,
+            &self.user_desktop,
+            &self.public_desktop,
+        ]
+    }
+
+    /// 可执行名兜底顺序：用户桌面 → 公共桌面 → 用户开始菜单 → 公共开始菜单。
+    fn desktop_first(&self) -> [&LnkListing; 4] {
+        [
+            &self.user_desktop,
+            &self.public_desktop,
+            &self.user_start_menu,
+            &self.common_start_menu,
+        ]
+    }
+}
+
 /// 候选名通用停用词（`resolve_installed_app_path` token 过滤与 `linux_candidate_names`
 /// 切分过滤同源共用；防 `app` / `tool` / `test` 等通用词误命中 `/usr/bin/test`、
 /// `apport-gtk.desktop` 同类误配）。
@@ -116,14 +174,12 @@ impl AppScanner {
         tokens
     }
 
-    /// 单个快捷方式根目录扫描（`resolve_executable_path` 与 `shortcut_scan` 共用）：
-    /// 根 + 一级子目录内 `.lnk` 按 `matches` 谓词过滤文件名（已小写），
-    /// 命中即 `resolve_lnk_target` + 安装缓存排除 + 存在性校验后返回首个落盘路径。
-    /// 遍历顺序：根优先，`read_dir` 原序。
+    /// 单个快捷方式根目录的 `.lnk` 枚举：根 + 一级子目录，根优先，`read_dir` 原序。
     #[cfg(target_os = "windows")]
-    fn scan_lnk_dir(root: &Path, matches: impl Fn(&str) -> bool) -> Option<String> {
+    fn list_lnk_dir(root: &Path) -> LnkListing {
+        let mut out = Vec::new();
         if !root.is_dir() {
-            return None;
+            return LnkListing(out);
         }
         let mut scan_dirs = vec![root.to_path_buf()];
         if let Ok(entries) = std::fs::read_dir(root) {
@@ -144,20 +200,33 @@ impl AppScanner {
                             .unwrap_or_default()
                             .to_string_lossy()
                             .to_lowercase();
-                        if matches(&fname) {
-                            if let Some(target_exe) = Self::resolve_lnk_target(&p) {
-                                if !Self::is_installer_or_cache_path(&target_exe)
-                                    && target_exe.is_file()
-                                {
-                                    return Some(target_exe.to_string_lossy().to_string());
-                                }
-                            }
-                        }
+                        out.push((p, fname));
                     }
                 }
             }
         }
-        None
+        LnkListing(out)
+    }
+
+    /// 已枚举 `.lnk` 按 `matches` 谓词过滤文件名（已小写），命中即 `resolve_lnk_target`
+    /// + 安装缓存排除 + 存在性校验后返回首个落盘路径。
+    #[cfg(target_os = "windows")]
+    fn first_lnk_match(listing: &LnkListing, matches: impl Fn(&str) -> bool) -> Option<String> {
+        listing
+            .0
+            .iter()
+            .filter(|(_, fname)| matches(fname))
+            .find_map(|(p, _)| {
+                Self::resolve_lnk_target(p)
+                    .filter(|t| !Self::is_installer_or_cache_path(t) && t.is_file())
+                    .map(|t| t.to_string_lossy().to_string())
+            })
+    }
+
+    /// 单个快捷方式根目录扫描：枚举 + 首个命中解析。
+    #[cfg(all(target_os = "windows", test))]
+    fn scan_lnk_dir(root: &Path, matches: impl Fn(&str) -> bool) -> Option<String> {
+        Self::first_lnk_match(&Self::list_lnk_dir(root), matches)
     }
 
     /// 1. Windows 注册表深度检索 (HKLM, Wow6432Node, HKCU)：DisplayName/key 名与
@@ -314,28 +383,10 @@ impl AppScanner {
 
     /// 3. 开始菜单与桌面快捷方式探测与智能目标解构 (.lnk -> Target exe)。
     #[cfg(target_os = "windows")]
-    fn shortcut_scan(tokens: &[String]) -> Option<String> {
-        let shortcut_roots = [
-            std::env::var("ProgramData")
-                .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
-                .ok(),
-            std::env::var("APPDATA")
-                .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
-                .ok(),
-            std::env::var("USERPROFILE")
-                .map(|p| PathBuf::from(p).join("Desktop"))
-                .ok(),
-            Some(PathBuf::from(r"C:\Users\Public\Desktop")),
-        ];
-
-        for root_opt in shortcut_roots.into_iter().flatten() {
-            if let Some(found) =
-                Self::scan_lnk_dir(&root_opt, |fname| tokens.iter().any(|t| fname.contains(t)))
-            {
-                return Some(found);
-            }
-        }
-        None
+    fn shortcut_scan(tokens: &[String], roots: &ShortcutRoots) -> Option<String> {
+        roots.start_menu_first().into_iter().find_map(|listing| {
+            Self::first_lnk_match(listing, |fname| tokens.iter().any(|t| fname.contains(t)))
+        })
     }
 
     /// 智能探测应用程序的主可执行文件物理路径（确保返回的一定是磁盘上真实存在的文件）
@@ -344,7 +395,23 @@ impl AppScanner {
         display_icon: Option<&str>,
         config_source: C,
     ) -> Option<String> {
-        let config: ScanConfig = config_source.into();
+        Self::resolve_executable_path_with(
+            install_location,
+            display_icon,
+            config_source.into(),
+            None,
+        )
+    }
+
+    /// `resolve_executable_path` 本体；`shortcuts` 为调用方已枚举的快捷方式根（缺省时按需枚举）。
+    fn resolve_executable_path_with(
+        install_location: Option<&str>,
+        display_icon: Option<&str>,
+        config: ScanConfig,
+        shortcuts: Option<&ShortcutRoots>,
+    ) -> Option<String> {
+        #[cfg(not(target_os = "windows"))]
+        let _ = shortcuts;
 
         // 1. 优先尝试从 DisplayIcon 提取，必须经过物理存在校验且排除安装缓存/辅助二进制；
         //    指向 `.lnk` 时先解出目标主程序（以便读取 PE 版本），解不出才退回快捷方式本身。
@@ -435,32 +502,28 @@ impl AppScanner {
         // 4. 检查桌面或开始菜单中的快捷方式 (.lnk)（支持深入子目录）
         #[cfg(target_os = "windows")]
         {
-            let shortcut_dirs = [
-                std::env::var("USERPROFILE")
-                    .map(|p| PathBuf::from(p).join("Desktop"))
-                    .ok(),
-                Some(PathBuf::from(r"C:\Users\Public\Desktop")),
-                std::env::var("APPDATA")
-                    .map(|p| PathBuf::from(p).join(r"Microsoft\Windows\Start Menu\Programs"))
-                    .ok(),
-                Some(PathBuf::from(
-                    r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
-                )),
-            ];
-
-            for dir_opt in shortcut_dirs.into_iter().flatten() {
-                let matched = Self::scan_lnk_dir(&dir_opt, |fname| {
-                    config.target_executables.iter().any(|exe| {
-                        let base_name = exe.trim_end_matches(".exe").to_lowercase();
-                        !base_name.is_empty() && fname.contains(&base_name)
-                    }) || config
-                        .install_dirs
-                        .iter()
-                        .any(|dir_name| fname.contains(&dir_name.to_lowercase()))
-                });
-                if matched.is_some() {
-                    return matched;
+            let owned;
+            let roots = match shortcuts {
+                Some(roots) => roots,
+                None => {
+                    owned = ShortcutRoots::enumerate();
+                    &owned
                 }
+            };
+            let base_names: Vec<String> = config
+                .target_executables
+                .iter()
+                .map(|exe| exe.trim_end_matches(".exe").to_lowercase())
+                .filter(|b| !b.is_empty())
+                .chain(config.install_dirs.iter().map(|d| d.to_lowercase()))
+                .collect();
+            let matched = roots.desktop_first().into_iter().find_map(|listing| {
+                Self::first_lnk_match(listing, |fname| {
+                    base_names.iter().any(|b| fname.contains(b.as_str()))
+                })
+            });
+            if matched.is_some() {
+                return matched;
             }
         }
 
@@ -497,10 +560,15 @@ impl AppScanner {
             }
         }
 
-        // 3. 开始菜单与桌面快捷方式探测与智能目标解构 (.lnk -> Target exe)
+        // 3. 开始菜单与桌面快捷方式探测与智能目标解构 (.lnk -> Target exe)；
+        // 枚举结果留给第 5 步复用，不重复遍历同一批快捷方式目录。
+        #[cfg(target_os = "windows")]
+        let shortcuts = ShortcutRoots::enumerate();
+        #[cfg(not(target_os = "windows"))]
+        let shortcuts = ShortcutRoots::default();
         #[cfg(target_os = "windows")]
         {
-            if let Some(found) = Self::shortcut_scan(&tokens) {
+            if let Some(found) = Self::shortcut_scan(&tokens, &shortcuts) {
                 return Some(found);
             }
         }
@@ -527,8 +595,8 @@ impl AppScanner {
             }
         }
 
-        // 5. 调用已有 resolve_executable_path
-        Self::resolve_executable_path(None, None, config)
+        // 5. 调用已有 resolve_executable_path（复用第 3 步的快捷方式枚举）
+        Self::resolve_executable_path_with(None, None, config, Some(&shortcuts))
     }
 
     // ========================================================================

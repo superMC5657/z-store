@@ -15,6 +15,34 @@ static LOGO_HTML_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("invalid LOGO_HTML_RE regex")
 });
 
+/// 单独居中的 Logo 容器（`<p align="center">` / `<div align="center">` 内仅一张图与可选 `<br>`）；
+/// 捕获组 1 为内部 `<img>` 标签原文，与命中的 Logo 标签逐字比较后再剥离。
+fn compile_centered_img_regex(tag: &str) -> Regex {
+    let pattern = format!(
+        r#"(?is)<{tag}\s+align=["']center["']>\s*(<img\s[^>]*>)\s*(?:<br\s*/?>)?\s*</{tag}>"#
+    );
+    Regex::new(&pattern).expect("invalid centered img container regex")
+}
+
+static CENTERED_IMG_CONTAINERS: LazyLock<[Regex; 2]> = LazyLock::new(|| {
+    [
+        compile_centered_img_regex("p"),
+        compile_centered_img_regex("div"),
+    ]
+});
+
+/// 剥离首个内部标签恰为 `img_tag` 的居中容器；无命中返回 `None`。
+fn strip_centered_logo_container(re: &Regex, markdown: &str, img_tag: &str) -> Option<String> {
+    let whole = re
+        .captures_iter(markdown)
+        .find(|caps| &caps[1] == img_tag)?
+        .get(0)?;
+    let mut out = String::with_capacity(markdown.len() - whole.len());
+    out.push_str(&markdown[..whole.start()]);
+    out.push_str(&markdown[whole.end()..]);
+    Some(out)
+}
+
 static GITHUB_BLOB_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)^https?://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/([^?#]+)(?:[?#].*)?$"#)
         .expect("invalid GITHUB_BLOB_RE regex")
@@ -247,9 +275,7 @@ impl CatalogService {
         owner: &str,
         repo: &str,
     ) -> (Option<String>, String) {
-        let lines: Vec<&str> = raw_markdown.lines().collect();
-        let head_count = lines.len().min(40);
-        let head_text = lines[..head_count].join("\n");
+        let head_text = raw_markdown.lines().take(40).collect::<Vec<_>>().join("\n");
 
         // 1. 优先在 HTML <img> 中寻找带有 logo/icon/brand/splash 的首部图片
         for caps in LOGO_HTML_RE.captures_iter(&head_text) {
@@ -276,26 +302,11 @@ impl CatalogService {
                 if !is_http_url(&cleaned_url) {
                     continue;
                 }
-                let mut stripped = raw_markdown.to_string();
-
                 // 仅在明确为单独居中的 Logo 容器（如 <p align="center">\s*<img>\s*</p>）时才安全剥离容器
-                let p_pattern = format!(
-                    r#"(?is)<p\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</p>"#,
-                    regex::escape(full_tag)
-                );
-                if let Ok(p_re) = Regex::new(&p_pattern) {
-                    if p_re.is_match(&stripped) {
-                        stripped = p_re.replace(&stripped, "").to_string();
-                        return (Some(cleaned_url), stripped);
-                    }
-                }
-                let div_pattern = format!(
-                    r#"(?is)<div\s+align=["']center["']>\s*{}\s*(?:<br\s*/?>)?\s*</div>"#,
-                    regex::escape(full_tag)
-                );
-                if let Ok(div_re) = Regex::new(&div_pattern) {
-                    if div_re.is_match(&stripped) {
-                        stripped = div_re.replace(&stripped, "").to_string();
+                for container in CENTERED_IMG_CONTAINERS.iter() {
+                    if let Some(stripped) =
+                        strip_centered_logo_container(container, raw_markdown, full_tag)
+                    {
                         return (Some(cleaned_url), stripped);
                     }
                 }
@@ -336,5 +347,36 @@ impl CatalogService {
         }
 
         (None, raw_markdown.to_string())
+    }
+}
+
+#[cfg(test)]
+mod logo_container_tests {
+    use super::CatalogService;
+
+    #[test]
+    fn strips_centered_div_container_with_br() {
+        let sample = "intro\n<div align=\"center\">\n  <img src=\"https://example.com/logo.png\" width=\"96\">\n  <br/>\n</div>\n# App\n";
+        let (logo, stripped) = CatalogService::extract_and_strip_logo_from_readme(sample, "o", "r");
+        assert_eq!(logo.as_deref(), Some("https://example.com/logo.png"));
+        assert_eq!(stripped, "intro\n\n# App\n");
+    }
+
+    #[test]
+    fn keeps_readme_when_logo_shares_container_with_text() {
+        let sample =
+            "<p align=\"center\"><img src=\"https://example.com/logo.png\"> Some text</p>\n# App\n";
+        let (logo, stripped) = CatalogService::extract_and_strip_logo_from_readme(sample, "o", "r");
+        assert_eq!(logo.as_deref(), Some("https://example.com/logo.png"));
+        assert_eq!(stripped, sample, "非纯居中容器不得改动原文");
+    }
+
+    #[test]
+    fn only_container_wrapping_the_matched_logo_is_removed() {
+        let sample = "<p align=\"center\"><img src=\"https://example.com/other.gif\"></p>\n<p align=\"center\"><img src=\"https://example.com/logo.png\"></p>\n# App\n";
+        let (logo, stripped) = CatalogService::extract_and_strip_logo_from_readme(sample, "o", "r");
+        assert_eq!(logo.as_deref(), Some("https://example.com/logo.png"));
+        assert!(stripped.contains("other.gif"), "无关居中图片容器必须保留");
+        assert!(!stripped.contains("logo.png"));
     }
 }

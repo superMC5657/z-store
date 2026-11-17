@@ -1,6 +1,7 @@
 use super::types::SourceKind;
 use super::version::normalize_path;
 use super::{AppScanner, ScanConfig, ScannedRawApp};
+use std::collections::HashSet;
 use std::path::Path;
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
@@ -205,26 +206,60 @@ pub fn merge_missing_fields(existing: &mut ScannedRawApp, incoming: ScannedRawAp
     fill(&mut existing.source_kind, incoming.source_kind);
 }
 
-/// 目标路径是否已被已有条目覆盖：位于某条目的安装目录内，或等于其 DisplayIcon 主程序。
-pub fn is_path_covered(target: &str, existing: &[ScannedRawApp]) -> bool {
-    let t = normalize_path(target);
-    if t.is_empty() {
-        return false;
+/// 已有条目的覆盖索引：归一化安装目录集合 + 归一化 DisplayIcon 主程序集合。
+/// 一次建索引 O(N)，单次判定 O(路径深度)；扫描循环中边追加边查询。
+#[derive(Debug, Default)]
+pub struct CoveredPaths {
+    locations: HashSet<String>,
+    icons: HashSet<String>,
+}
+
+impl CoveredPaths {
+    pub fn from_apps(apps: &[ScannedRawApp]) -> Self {
+        let mut index = Self::default();
+        for app in apps {
+            index.insert(app);
+        }
+        index
     }
-    existing.iter().any(|e| {
-        let by_loc = e
+
+    pub fn insert(&mut self, app: &ScannedRawApp) {
+        if let Some(loc) = app
             .install_location
             .as_deref()
             .map(normalize_path)
             .filter(|l| !l.is_empty())
-            .is_some_and(|l| t == l || t.starts_with(&format!("{l}\\")));
-        let by_icon = e
+        {
+            self.locations.insert(loc);
+        }
+        if let Some(icon) = app
             .display_icon
             .as_deref()
             .and_then(AppScanner::clean_display_icon)
-            .is_some_and(|icon| normalize_path(&icon.to_string_lossy()) == t);
-        by_loc || by_icon
-    })
+            .map(|icon| normalize_path(&icon.to_string_lossy()))
+            .filter(|i| !i.is_empty())
+        {
+            self.icons.insert(icon);
+        }
+    }
+
+    /// 目标路径是否已被覆盖：位于某条目的安装目录内（含等于），或等于其 DisplayIcon 主程序。
+    /// 「位于目录内」逐个检查目标在每个 `\` 处截断的祖先前缀。
+    pub fn covers(&self, target: &str) -> bool {
+        let t = normalize_path(target);
+        if t.is_empty() {
+            return false;
+        }
+        self.icons.contains(&t)
+            || self.locations.contains(&t)
+            || t.match_indices('\\')
+                .any(|(i, _)| self.locations.contains(&t[..i]))
+    }
+}
+
+/// 目标路径是否已被已有条目覆盖（单次查询便捷入口；批量判定请复用 [`CoveredPaths`]）。
+pub fn is_path_covered(target: &str, existing: &[ScannedRawApp]) -> bool {
+    CoveredPaths::from_apps(existing).covers(target)
 }
 
 /// Scoop `manifest.json` 中 `bin` / `shortcuts` 字段给出的首个 `.exe` 相对路径。
@@ -322,18 +357,20 @@ impl AppScanner {
     #[cfg(target_os = "windows")]
     pub(crate) fn scan_windows_registry() -> Vec<ScannedRawApp> {
         let mut apps = Self::scan_uninstall_registry();
+        let mut covered_index = CoveredPaths::from_apps(&apps);
         for root in Self::scoop_app_roots() {
             for app in scan_scoop_apps_in_dir(&root) {
                 let covered = app
                     .install_location
                     .as_deref()
-                    .is_some_and(|loc| is_path_covered(loc, &apps));
+                    .is_some_and(|loc| covered_index.covers(loc));
                 if !covered {
+                    covered_index.insert(&app);
                     apps.push(app);
                 }
             }
         }
-        let shortcuts = Self::scan_unregistered_shortcuts(&apps);
+        let shortcuts = Self::scan_unregistered_shortcuts(covered_index);
         apps.extend(shortcuts);
         apps
     }
@@ -368,9 +405,10 @@ impl AppScanner {
         roots
     }
 
-    /// 开始菜单 `.lnk`（根 + 一级子目录）中未被注册表/Scoop 覆盖的绿色软件。
+    /// 开始菜单 `.lnk`（根 + 一级子目录）中未被注册表/Scoop 覆盖的便携软件；
+    /// `covered` 为注册表 + Scoop 条目的覆盖索引，本函数内随新增条目同步追加。
     #[cfg(target_os = "windows")]
-    fn scan_unregistered_shortcuts(existing: &[ScannedRawApp]) -> Vec<ScannedRawApp> {
+    fn scan_unregistered_shortcuts(mut covered: CoveredPaths) -> Vec<ScannedRawApp> {
         let roots = [
             std::env::var("APPDATA")
                 .ok()
@@ -422,7 +460,7 @@ impl AppScanner {
                 continue;
             }
             let target_str = target.to_string_lossy().to_string();
-            if is_path_covered(&target_str, existing) || is_path_covered(&target_str, &out) {
+            if covered.covers(&target_str) {
                 continue;
             }
             let lower = target_str.to_lowercase();
@@ -430,7 +468,7 @@ impl AppScanner {
                 continue;
             }
             let parent = target.parent().map(|p| p.to_string_lossy().to_string());
-            out.push(ScannedRawApp {
+            let app = ScannedRawApp {
                 display_name: stem,
                 display_version: Self::read_exe_version(&target_str).unwrap_or_default(),
                 publisher: None,
@@ -440,7 +478,9 @@ impl AppScanner {
                 installed_at: Self::detect_path_installed_at(&target_str),
                 registry_key: None,
                 source_kind: Some(SourceKind::Shortcut),
-            });
+            };
+            covered.insert(&app);
+            out.push(app);
         }
         out
     }
@@ -566,5 +606,52 @@ impl AppScanner {
         }
 
         scanned_list
+    }
+}
+
+#[cfg(test)]
+mod covered_paths_tests {
+    use super::{is_path_covered, CoveredPaths};
+    use crate::scanner::ScannedRawApp;
+
+    fn app(loc: Option<&str>, icon: Option<&str>) -> ScannedRawApp {
+        ScannedRawApp {
+            install_location: loc.map(str::to_string),
+            display_icon: icon.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn covers_install_dir_descendants_and_display_icon() {
+        let apps = vec![
+            app(Some(r"C:\Program Files\Foo\"), None),
+            app(None, Some(r#""D:\Tools\Bar\bar.exe",0"#)),
+            app(Some(""), Some("")),
+        ];
+        let idx = CoveredPaths::from_apps(&apps);
+        assert!(idx.covers(r"c:\program files\foo"));
+        assert!(idx.covers(r"C:/Program Files/Foo/bin/foo.exe"));
+        assert!(idx.covers(r"D:\Tools\Bar\bar.exe"));
+        assert!(
+            !idx.covers(r"C:\Program Files\FooBar\x.exe"),
+            "同前缀兄弟目录不算覆盖"
+        );
+        assert!(!idx.covers(r"D:\Tools\Bar\other.exe"), "图标只按全路径命中");
+        assert!(!idx.covers(r"D:\Tools"), "祖先目录不算覆盖");
+        assert!(!idx.covers(""));
+        assert_eq!(
+            is_path_covered(r"C:\Program Files\Foo\a.exe", &apps),
+            idx.covers(r"C:\Program Files\Foo\a.exe")
+        );
+    }
+
+    #[test]
+    fn incremental_insert_is_visible_to_later_queries() {
+        let mut idx = CoveredPaths::default();
+        assert!(!idx.covers(r"E:\Green\App\app.exe"));
+        idx.insert(&app(Some(r"E:\Green\App"), Some(r"E:\Green\App\app.exe")));
+        assert!(idx.covers(r"E:\Green\App\app.exe"));
+        assert!(idx.covers(r"E:\Green\App\sub\tool.exe"));
     }
 }

@@ -1,4 +1,4 @@
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -173,26 +173,54 @@ pub fn sanitize_shortcut_name(app_name: &str) -> String {
     }
 }
 
+/// 创建桌面快捷方式的固定 PowerShell 脚本：名称、目标与工作目录只经进程环境变量读入，
+/// 脚本文本永不拼接任何外部字符串（归档内 `.exe` 文件名可含 `'`、Unicode 智能引号 `‘’‚‛`
+/// 等 PowerShell 字符串定界符，拼接即注入）。
+#[cfg(any(target_os = "windows", test))]
+const SHORTCUT_PS_SCRIPT: &str = "$ErrorActionPreference='Stop';\
+$d=[Environment]::GetFolderPath('Desktop');\
+$s=(New-Object -COM WScript.Shell).CreateShortcut([IO.Path]::Combine($d, $env:ZSTORE_LNK_NAME + '.lnk'));\
+$s.TargetPath=$env:ZSTORE_LNK_TARGET;\
+$s.WorkingDirectory=$env:ZSTORE_LNK_WORKDIR;\
+$s.Save()";
+
+/// 快捷方式 PowerShell 调用参数（纯函数）：固定 argv + 承载全部外部输入的环境变量。
+#[cfg(any(target_os = "windows", test))]
+fn shortcut_powershell_invocation(
+    app_name: &str,
+    exe_path: &Path,
+) -> (Vec<&'static str>, Vec<(&'static str, std::ffi::OsString)>) {
+    let working_dir = exe_path.parent().unwrap_or(exe_path);
+    let argv = vec![
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        SHORTCUT_PS_SCRIPT,
+    ];
+    let envs = vec![
+        ("ZSTORE_LNK_NAME", sanitize_shortcut_name(app_name).into()),
+        ("ZSTORE_LNK_TARGET", exe_path.as_os_str().to_os_string()),
+        ("ZSTORE_LNK_WORKDIR", working_dir.as_os_str().to_os_string()),
+    ];
+    (argv, envs)
+}
+
 #[cfg(target_os = "windows")]
 pub fn create_desktop_shortcut(app_name: &str, exe_path: &Path) {
     // 单元测试期间禁止在真实桌面创建任何快捷方式
     if cfg!(test) {
         return;
     }
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let final_name = sanitize_shortcut_name(app_name);
-
-    let working_dir = exe_path.parent().unwrap_or(exe_path);
-    let script = format!(
-        "$s=(New-Object -COM WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{}.lnk');$s.TargetPath='{}';$s.WorkingDirectory='{}';$s.Save()",
-        final_name.replace('\'', "''"),
-        exe_path.to_string_lossy().replace('\'', "''"),
-        working_dir.to_string_lossy().replace('\'', "''")
-    );
+    let (argv, envs) = shortcut_powershell_invocation(app_name, exe_path);
     let _ = std::process::Command::new("powershell")
-        .arg("-NoProfile")
-        .arg("-Command")
-        .arg(&script)
+        .args(argv)
+        .envs(envs)
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 }
 
@@ -221,6 +249,24 @@ fn start_menu_uninstall_lnk(base: &Path, app_name: &str) -> Option<PathBuf> {
     None
 }
 
+/// 卸载注册表条目 DisplayName 与应用的匹配口径（纯函数）：名称/id 全等、互相包含，
+/// 或去 `-_.` 后的 id 被 DisplayName 包含。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn uninstall_display_name_matches(display_name: &str, app_name: &str, app_id: &str) -> bool {
+    let disp_lower = display_name.trim().to_lowercase();
+    if disp_lower.is_empty() {
+        return false;
+    }
+    let name_lower = app_name.to_lowercase();
+    let id_lower = app_id.to_lowercase();
+    let clean_id = id_lower.replace(['-', '_', '.'], "");
+    disp_lower == name_lower
+        || disp_lower == id_lower
+        || disp_lower.contains(&name_lower)
+        || name_lower.contains(&disp_lower)
+        || (!clean_id.is_empty() && disp_lower.replace(['-', '_', '.'], "").contains(&clean_id))
+}
+
 /// 自动嗅探或构造已安装应用的系统卸载命令行
 pub fn resolve_uninstaller_command(
     app_name: &str,
@@ -228,8 +274,21 @@ pub fn resolve_uninstaller_command(
     install_path: &str,
     existing_command: Option<&str>,
 ) -> Option<String> {
+    resolve_uninstaller_command_in(app_name, app_id, install_path, existing_command, None)
+}
+
+/// 同 [`resolve_uninstaller_command`]；`registry` 为调用方已枚举的系统应用条目
+/// （`AppScanner::scan_system_apps` 结果），批量场景传入以复用，免去逐个应用重复遍历
+/// 三棵卸载注册表根；`None` 时现场枚举注册表。
+pub fn resolve_uninstaller_command_in(
+    app_name: &str,
+    app_id: &str,
+    install_path: &str,
+    existing_command: Option<&str>,
+    registry: Option<&[crate::scanner::ScannedRawApp]>,
+) -> Option<String> {
     #[cfg(not(target_os = "windows"))]
-    let _ = (app_name, app_id, install_path);
+    let _ = (app_name, app_id, install_path, registry);
     // 1. 如果已有明确且有效的卸载指令（非向导提示文案）
     if let Some(cmd) = existing_command {
         let trimmed = cmd.trim();
@@ -264,43 +323,40 @@ pub fn resolve_uninstaller_command(
             ),
         ];
 
-        let name_lower = app_name.to_lowercase();
-        let id_lower = app_id.to_lowercase();
-        let clean_id = id_lower.replace(['-', '_', '.'], "");
-
-        for (hive, subpath) in targets {
-            let root = RegKey::predef(hive);
-            if let Ok(uninstall_key) = root.open_subkey(subpath) {
-                for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
-                    if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
+        let registry_hit: Option<String> = match registry {
+            Some(entries) => entries
+                .iter()
+                .filter(|e| uninstall_display_name_matches(&e.display_name, app_name, app_id))
+                .find_map(|e| {
+                    e.uninstall_string
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                }),
+            None => targets.into_iter().find_map(|(hive, subpath)| {
+                let uninstall_key = RegKey::predef(hive).open_subkey(subpath).ok()?;
+                uninstall_key
+                    .enum_keys()
+                    .map_while(Result::ok)
+                    .find_map(|key_name| {
+                        let app_key = uninstall_key.open_subkey(&key_name).ok()?;
                         let display_name: String = app_key
                             .get_value::<String, _>("DisplayName")
-                            .unwrap_or_default()
-                            .trim()
-                            .to_string();
-                        let disp_lower = display_name.to_lowercase();
-
-                        let matched = !disp_lower.is_empty()
-                            && (disp_lower == name_lower
-                                || disp_lower == id_lower
-                                || disp_lower.contains(&name_lower)
-                                || name_lower.contains(&disp_lower)
-                                || (!clean_id.is_empty()
-                                    && disp_lower
-                                        .replace(['-', '_', '.'], "")
-                                        .contains(&clean_id)));
-
-                        if matched {
-                            if let Ok(uninst) = app_key.get_value::<String, _>("UninstallString") {
-                                let trimmed_uninst = uninst.trim().to_string();
-                                if !trimmed_uninst.is_empty() {
-                                    return Some(trimmed_uninst);
-                                }
-                            }
+                            .unwrap_or_default();
+                        if !uninstall_display_name_matches(&display_name, app_name, app_id) {
+                            return None;
                         }
-                    }
-                }
-            }
+                        app_key
+                            .get_value::<String, _>("UninstallString")
+                            .ok()
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                    })
+            }),
+        };
+        if registry_hit.is_some() {
+            return registry_hit;
         }
 
         // 3. 检查安装目录中的标准卸载程序
@@ -371,8 +427,74 @@ pub fn resolve_uninstaller_command(
 #[cfg(test)]
 mod shortcut_name_tests {
     use super::sanitize_shortcut_name;
-    #[cfg(target_os = "windows")]
     use std::path::PathBuf;
+
+    #[test]
+    fn uninstall_display_name_matching_rules() {
+        use super::uninstall_display_name_matches as m;
+        assert!(m("PicGo", "picgo", "molunerfinn/picgo"));
+        assert!(m("PicGo 2.4.0", "PicGo", "x/y"), "DisplayName 含应用名");
+        assert!(
+            m("Code", "Visual Studio Code", "x/y"),
+            "应用名含 DisplayName"
+        );
+        assert!(m("my-tool.app", "Other", "mytoolapp"), "去分隔符后 id 命中");
+        assert!(!m("   ", "PicGo", "x/y"), "空 DisplayName 不匹配");
+        assert!(!m("Firefox", "PicGo", "molunerfinn/picgo"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn uninstaller_lookup_reuses_pre_enumerated_registry() {
+        use crate::scanner::ScannedRawApp;
+        let entries = vec![
+            ScannedRawApp {
+                display_name: "PicGo 2.4.0".to_string(),
+                uninstall_string: Some("  ".to_string()),
+                ..Default::default()
+            },
+            ScannedRawApp {
+                display_name: "PicGo".to_string(),
+                uninstall_string: Some(r#" "C:\Apps\PicGo\Uninstall PicGo.exe" /S "#.to_string()),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(
+            super::resolve_uninstaller_command_in(
+                "PicGo",
+                "molunerfinn/picgo",
+                r"Z:\definitely\missing",
+                None,
+                Some(&entries),
+            )
+            .as_deref(),
+            Some(r#""C:\Apps\PicGo\Uninstall PicGo.exe" /S"#)
+        );
+    }
+
+    #[test]
+    fn shortcut_script_never_embeds_external_strings() {
+        let exe = PathBuf::from("C:\\Apps\\evil\u{2019};calc;\u{2018}'x\\a.exe");
+        let name = "Name\u{2019});Remove-Item C:\\ -Recurse;(\u{2018}";
+        let (argv, envs) = super::shortcut_powershell_invocation(name, &exe);
+        assert_eq!(argv.last().copied(), Some(super::SHORTCUT_PS_SCRIPT));
+        for arg in &argv {
+            assert!(!arg.contains("evil") && !arg.contains("Remove-Item"));
+        }
+        let get = |k: &str| envs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone());
+        assert_eq!(
+            get("ZSTORE_LNK_TARGET"),
+            Some(exe.as_os_str().to_os_string())
+        );
+        assert_eq!(
+            get("ZSTORE_LNK_WORKDIR"),
+            Some(exe.parent().unwrap().as_os_str().to_os_string())
+        );
+        assert_eq!(
+            get("ZSTORE_LNK_NAME"),
+            Some(sanitize_shortcut_name(name).into())
+        );
+    }
 
     #[test]
     fn strips_windows_reserved_filename_chars() {

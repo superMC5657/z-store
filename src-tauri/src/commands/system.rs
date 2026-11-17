@@ -88,8 +88,31 @@ pub fn open_external_url(url: &str) -> Result<bool, String> {
     }
 }
 
+/// Windows 网络路径判定（纯函数，`/` 与 `\` 等价）：`\\server\share`、`//server/share`、
+/// `\\?\UNC\...` 及 `\\.\` 设备命名空间均视为网络/非本地盘路径；
+/// 仅放行 `\\?\C:\...` 形态的本地盘 verbatim 路径（`canonicalize` 产物）。
+/// 访问 UNC 路径会触发 SMB 连接并可能外泄 NTLM 凭据。
+pub(crate) fn is_windows_network_path(raw: &str) -> bool {
+    let s = raw.trim().replace('/', "\\");
+    if !s.starts_with(r"\\") {
+        return false;
+    }
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) => {
+            let b = rest.as_bytes();
+            !(b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':')
+        }
+        None => true,
+    }
+}
+
 /// 在系统文件管理器中打开路径或高亮文件。
 pub fn open_desktop_path(path: &std::path::Path, select_file: bool) -> Result<bool, String> {
+    // 网络路径必须先于 `exists()` 拒绝：探测本身即会发起 SMB 连接。
+    #[cfg(target_os = "windows")]
+    if is_windows_network_path(&path.to_string_lossy()) {
+        return Err(format!("拒绝打开网络路径: {}", path.to_string_lossy()));
+    }
     if !path.exists() {
         return Err(format!("路径不存在: {}", path.to_string_lossy()));
     }
@@ -167,6 +190,37 @@ pub fn open_url(url: String) -> crate::AppResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::validate_external_http_url as validate;
+
+    #[test]
+    fn network_paths_are_detected() {
+        use super::is_windows_network_path as net;
+        for p in [
+            r"\\server\share\file.txt",
+            "//server/share",
+            r"\\?\UNC\server\share",
+            r"\\.\pipe\x",
+            r"\\?\GLOBALROOT\Device",
+        ] {
+            assert!(net(p), "{p:?} must be treated as network path");
+        }
+        for p in [
+            r"C:\Users\me\Downloads",
+            r"\\?\C:\Users\me",
+            r"relative\dir",
+            "/usr/local",
+            "",
+        ] {
+            assert!(!net(p), "{p:?} is a local path");
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn open_desktop_path_rejects_unc_before_probing() {
+        let err =
+            super::open_desktop_path(std::path::Path::new(r"\\127.0.0.1\c$"), false).unwrap_err();
+        assert!(err.contains("网络路径"), "{err}");
+    }
 
     #[test]
     fn test_validate_external_http_url_accepts_case_variant_http_schemes() {
