@@ -1,3 +1,4 @@
+import pkg from '../../../package.json';
 import {
   demoListeners,
   demoUnregisterListener,
@@ -50,7 +51,7 @@ export function handlePluginCommand(cmd: string, a: InvokeArgs): { handled: bool
     cmd.startsWith('plugin:resources|') ||
     cmd.startsWith('plugin:opener|')
   ) {
-    if (cmd === 'plugin:app|version' || cmd === 'plugin:app|get_version') return { handled: true, result: '0.7.0-demo' };
+    if (cmd === 'plugin:app|version' || cmd === 'plugin:app|get_version') return { handled: true, result: `${pkg.version}-demo` };
     if (cmd === 'plugin:app|name' || cmd === 'plugin:app|get_name') return { handled: true, result: 'ZStore Demo' };
     return { handled: true, result: null };
   }

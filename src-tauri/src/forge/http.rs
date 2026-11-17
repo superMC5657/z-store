@@ -3,7 +3,7 @@ use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT}
 
 /// forge 内复用的 UA / Accept 常量：避免 9 处 client+header 重复手写。
 /// SSOT：所有 UA / Accept 字面量只在此一处定义，其余模块经别名或 `api_headers`/`preset_headers` 复用。
-pub const USER_AGENT_VALUE: &str = "ZStore-Client/0.1.0";
+pub const USER_AGENT_VALUE: &str = concat!("ZStore-Client/", env!("CARGO_PKG_VERSION"));
 pub const GITHUB_ACCEPT_VALUE: &str = "application/vnd.github.v3+json";
 pub const JSON_ACCEPT_VALUE: &str = "application/json";
 /// 图标/CDN 专用：浏览器 UA + image/* Accept，与 API client 严格隔离（见 `new_icon_client`）。

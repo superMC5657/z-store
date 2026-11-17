@@ -18,7 +18,10 @@ fn build_download_client(
 ) -> Result<reqwest::Client, String> {
     let net_conf = &crate::config::get_project_config().network;
     let dl_builder = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ZStore/0.1.0")
+        .user_agent(concat!(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ZStore/",
+            env!("CARGO_PKG_VERSION")
+        ))
         .connect_timeout(std::time::Duration::from_secs(net_conf.connect_timeout_seconds))
         .tcp_keepalive(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(net_conf.download_timeout_seconds));

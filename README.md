@@ -1,178 +1,124 @@
+<div align="center">
+
+<a href="https://z-store.app"><img src="src-tauri/icons/128x128@2x.png" width="112" alt="ZStore"></a>
+
 # ZStore
 
-> 基于 GitHub / Multi-Forge Releases 的跨平台开源应用商店 · Linear 去彩单色界面
+### Helping users find great open-source apps, and makers find their first users.
 
-![ZStore License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)
-![Tauri](https://img.shields.io/badge/Tauri-2.2-blue?logo=tauri)
-![React](https://img.shields.io/badge/React-19-61dafb?logo=react)
-![Rust](https://img.shields.io/badge/Rust-1.77+-orange?logo=rust)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript)
+**Curated GitHub open-source apps, community-maintained lists, and a Launchpad for Vibe Coding makers.**<br>
+Discover trending tools, try fresh indie releases, and star or discuss them without leaving the app —<br>
+then let ZStore install, verify, and keep them updated for you.
 
----
+[![Release](https://img.shields.io/github/v/release/superMC5657/z-store?label=release&color=111111)](https://github.com/superMC5657/z-store/releases/latest) [![Stars](https://img.shields.io/github/stars/superMC5657/z-store?style=flat&color=111111)](https://github.com/superMC5657/z-store/stargazers) [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-111111)](LICENSE)<br>
+![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black) ![macOS](https://img.shields.io/badge/macOS_(source)-000000?logo=apple&logoColor=white)
 
-## 🌟 项目定位与基石原则 (Core Principles)
+**[Download](https://z-store.app/en/download)** &nbsp;·&nbsp; **[Live Demo](https://z-store-demo.pages.dev)** &nbsp;·&nbsp; **[Docs](https://z-store.app/en/docs)** &nbsp;·&nbsp; **[Catalog](https://github.com/superMC5657/z-store-catalog)** &nbsp;·&nbsp; **[Launchpad](https://github.com/superMC5657/z-store-launchpad)** &nbsp;·&nbsp; **English** · [简体中文](README.zh-CN.md)
 
-**ZStore 致力于成为开源世界的系统级应用商店**，把 GitHub 及主流开源托管平台的 Releases 转化为人人可用、一键安装、自动更新的跨平台现代化应用商店。
+</div>
 
-本项目严格遵循四大基石原则：
+<br>
 
-- **D1 纯粹开源 (Strictly FLOSS)**: 仅收录和分发具备 OSI 认证开源协议的软件项目，杜绝商业广告、捆绑流氓软件与闭源专有推广。
-- **D2 零服务器成本与解耦清单同步 (Serverless & Decoupled Manifest Sync)**:
-  - 基于独立的开源清单仓库（[superMC5657/z-store-catalog](https://github.com/superMC5657/z-store-catalog)）增量同步精选应用元数据，客户端本地预置 `catalog.json` 离线种子兜底，保障断网或首发秒开（详见 [ADR-0009](docs/adr/0009-catalog-manifest-repository-decoupling.md)）；
-  - 客户端通过 `ForgeProvider` 抽象层**按需直连**托管平台官方 REST API 获取深度详情与构建资产，无需中心化专有后端；
-  - 本地 SQLite 持久化结合统一配置源（`src-tauri/config.toml`）的 TTL 缓存（默认 60 分钟）与 **HTTP ETag 304 条件重新验证**，实现零 API 配额消耗延长时效与离线平滑降级（详见 [ADR-0007](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)）。
-- **D3 零信任完整性防篡改 (Zero-Trust Anti-Tampering)**:
-  - 默认利用高可用加速镜像代理大文件下载；
-  - 下载后**强制流式计算 SHA-256 哈希**并与官方清单比对，哈希不符立即强行阻断并销毁临时文件，防御供应链投毒（详见 [ADR-0004](docs/adr/0004-streaming-installer-and-checksum-verification.md)）。
-- **D4 Linear 去彩单色界面 (Monochrome Design System)**:
-  - 全站采用 Linear 风格的去彩单色体系：原生黑白灰画布、hairline 微边框、6/8px 精密圆角、510/590 字重与负字距，配 100~200ms snappy 微动效与系统级深浅色自适应；
-  - 全站功能操作与状态反馈全面采用统一的线性矢量图标体系（基于 `lucide-react` 14px/stroke 1.5 与统一单色矢量 SVG，通过 `currentColor` 适配主题与微动效）；
-  - 配套 [ADR-0005](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md) 明暗双模标识体系（暗夜实底 `#08090A` / 明亮实底 `#FFFFFF`）。
+## Is ZStore for you?
 
----
+Great open-source software is scattered across millions of GitHub repositories and hard to find. And if you build a useful tool yourself — maybe in a single afternoon of Vibe Coding — publishing a release on GitHub usually means nobody ever sees it.
 
-## 🚀 核心功能与特色 (Key Features)
+ZStore connects both sides in one desktop store, with no backend server:
 
-### 1. 🌐 解耦清单同步与按需详情获取
-- **离线秒开与种子兜底**：客户端启动优先读取本地 `catalog.json` 种子清单，保证零网络延迟立即可用。
-- **一键动态同步**：设置中心支持随时“立即同步收录库”，增量拉取独立生态仓库最新清单，同步源可自定义（填写非官方源属破坏性替换）。清单同步为直连通道，不套加速前缀；加速前缀只改写安装包下载 URL。
-- **TTL 智能缓存与 ETag 续期**：详情缓存 TTL 基线 60 分钟（合法挡位 `[0, 10, 60, 360, 1440]`，非法值归一化回退 60），过期后触发 ETag 304 条件请求，零配额消耗延长缓存新鲜度；该 TTL 仅约束详情浏览。资产面（我的应用、收藏）只在显式手动刷新时做 ETag 轻量探查并写 `update_results`，其余时间读本地快照；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用。
-- **精选推荐货架**：精选页由后端按本地亲和度画像状态（`off` / `cold` / `warm` / `rich`）组装推荐货架，附带可解释推荐理由，并按本地日期种子每日轮换（详见 [ADR-0023](docs/adr/0023-featured-page-explainable-local-recommendation.md) 与 [ADR-0024](docs/adr/0024-affinity-scoring-v2-and-shelf-sampling.md)）。
-- **分类与搜索翻页**：分类页与最新入库页首屏 20 条、触底续拉 20 条（`has_more=(offset+limit)<total`）；在线搜索默认 `per_page=20`、钳制 1–50，满页即可加载下一页。
-- **最新入库时效视图**：以清单 `added_at` 收录时间为轴的「最新入库」独立视图，支持最近一周/一月/一季度时效过滤并由近及远倒排展示（详见 [ADR-0021](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)）。
+- **For users looking for software**: Browse 360+ popular open-source apps out of the box, follow GitHub's daily, weekly, and monthly trends, or point ZStore at any community-maintained `catalog.json` list.
+- **For makers looking for users**: Shipped a new open-source tool? List it on **Launchpad** with a single GitHub Issue. People can discover it, read your one-line pitch, upvote with `+1`, comment, star, and install it — all inside the app.
+- **And the chores in between**: Once you find an app you like, ZStore picks the right package for your OS, verifies its SHA-256 checksum, tracks updates, and can even adopt open-source apps already installed on your machine.
 
-### 2. 🦊 多托管平台与多设备平台双维筛选
-- **多托管源抽象**：`ForgeProvider` 统一抽象层原生支持 **GitHub**、**Codeberg**、**GitLab**、**Forgejo** 与自建 **Gitea** 实例（[ADR-0006](docs/adr/0006-multi-forge-ecosystem-support.md)）。canonical 仓库标识为小写 `owner/repo`（GitHub）或 `forge:owner/repo`（非 GitHub 默认主机）/ `forge:host/owner/repo`（自建实例，host 后接 `/`）；`gh:` / `cb:` / `gl:` / `gt:` 作为入站输入别名在落库前统一归一为 canonical。后端解析托管平台限流响应头并更新 `host_tokens` 配额快照（GitHub 请求支持通过 OAuth Device Flow 登录提升配额；各平台请求同时只读读取 `host_tokens` 中已有的主机令牌记录）。
-- **原生多端标识符结构**：元数据清单原生支持按操作系统划分的应用标识符体系（`identifiers`：Windows 进程/可执行文件名、Linux 进程名、macOS 应用名、Android/iOS 原生包名）。
-- **双维交叉筛选**：分类中心支持按设备平台（全部设备 / Windows / Android / macOS / Linux / iOS）与功能分类（系统实用、开发工具、影音视听等 10 大分类）实时双维交叉过滤。
+If you already know exactly what you want and are happy running `winget` or `brew` in a terminal, you don't need ZStore. It's built for **discovering** great open-source software — and for **getting discovered** when you ship some.
 
-### 3. 🔍 存量已安装应用外部导入与管理 (External App Management)
-- 多源扫描已安装软件：Windows 注册表 `Uninstall` 项、Scoop 与开始菜单快捷方式（含绿色软件），Linux `.desktop` / AppImage（按 dpkg/rpm 反查真实版本），macOS `/Applications` 应用包，提取名称、版本、发布者与主程序路径。
-- 内存倒排索引召回候选，按整词元与路径段边界多信号打分（主程序、名称、安装目录、发布者），过滤竞品别名并守住衍生版边界，识别本地已装的开源软件（如 VLC、OBS、VS Code、Notepad++ 等）；确认弹窗展示本机原名与匹配依据，一键导入管理并接管自动更新。
+## Quick start
 
-### 4. 📝 待收录草稿与本地自维护库 (Pending & Self-maintained Catalog)
-- **本地草稿收录**：远端清单未收录的开源应用可在应用内创建草稿，本地先生效进入「待收录」视图，与远端目录全局合并展示（`showCustom` 开关，详见 [ADR-0017](docs/adr/0017-custom-apps-overlay.md)）。
-- **四段流转管理**：草稿按「草稿 / 待提交 / 已提交 / 已归档」四个平级 Tab 管理，本地收录与已提交行与远端同权重可搜可装。
-- **预填 Issue 链路**：草稿一键生成清单仓库的单条 Issue 预填 URL（标题带 canonical id、正文含关键字段与完整 JSON），与协议门禁（`license_gate`）协同校验，浏览器确认后提交、由维护者转为 PR 收录。
-- **转正闭环**：清单同步成功后按远端 id 集合自动退役命中草稿并提示转正，本地草稿与远端收录无缝衔接。
+**Looking for apps?**
 
-### 5. 🛡️ 细粒度版本控制与安全防御
-- **版本控制中枢**：更新列表中可针对特定应用选择“跳过此版本”或“锁定当前版本（禁止自动更新）”，避免破坏性升级；版本新旧比较遵循 semver 语义。
-- **黑名单管理**：支持从推荐与搜索列表中隐藏不感兴趣的应用仓库。
-- **SHA-256 完整性校验**：下载后强制流式计算 SHA-256 并与官方清单比对，不符立即阻断；本地已存在且哈希命中即零网络跳过（未命中/无期望哈希才重下覆盖，而非必重下）。
-- **便携卸载隔离**：`remove_dir_all` 仅允许删除 ZStore 自建的隔离目录，共享目录只做安全清理。
+1. Try the **[Live Demo](https://z-store-demo.pages.dev)** in your browser, or download the **Windows** (`.exe`) or **Linux** (`.AppImage` / `.deb`) build from **[z-store.app](https://z-store.app/en/download)** or **[GitHub Releases](https://github.com/superMC5657/z-store/releases)**. On macOS, [build from source](#build-from-source) for now.
+2. Browse **Featured**, **Latest**, **Trends**, **Launchpad**, or **Categories**. The built-in catalog opens instantly, even offline, and syncs new entries from [z-store-catalog](https://github.com/superMC5657/z-store-catalog).
+3. Press `⌘K` / `Ctrl+K` to search your catalog and all of GitHub at once, or switch to a community catalog URL under **Settings → Catalog**.
 
-### 6. 🌟 开发者全景生态与 GitHub Star 同步
-- **开发者主页**：点击作者一键查看其名下所有的开源项目、开源许可协议与最新发布历史。
-- **GitHub OAuth 登录**：Device Flow 免应用密钥登录，Client ID 遵循单一配置源（`src-tauri/config.toml`），支持在设置项中自定义覆盖。采用 `classify_device_poll` 明确区分 `Expired` 与 `Denied` 状态。
-- **GitHub Star 导入**：登录后一键拉取个人 Star 列表中所有具备可用构建资产的开源项目。
-- **本地足迹追踪**：自动记录并持久化搜索历史与最近浏览应用，支持一键快捷回访。
-- **趋势榜单直取**：经共享 Client 直取（`tokio` 10s 超时，截断 2MB 防爆内存），仅允许 `github.com` / `trend.doforce.dpdns.org` / `api.github.com` 三 host 白名单；doforce 429 透传 `retry-after` + `retry_after_ms` 后按值再试一次（上限 60s，缺省等 5s）；enrich 单次批量 40 上限（整批失败即整批缺席，不抛错；详见 ADR-0014）。
+**Shipping an open-source app?**
 
-### 7. 🔄 检查更新流式推流与实时感知
-- **实时推流动效**：更新检查基于并发管道流式拉取（`buffer_unordered(6)`，主路径与关注通知两处），后端通过 `zstore://update-check-progress` 逐项推流，前端呈现丝滑进度条与更新项逐项跳出微动效。
-- **轻量版本嗅探**：更新检查仅拉取版本号与 Release 说明，不下载大体积 README 或非必要元数据；默认只读本地快照（零网络），显式手动刷新（`forceRefresh=true`）才走 ETag 轻量探查（304 零配额），与详情 60 分钟 TTL 解耦。
+- Submit a new project to **[Launchpad](https://github.com/superMC5657/z-store-launchpad)** using its Issue template. Once merged, it shows up in the Launchpad feed with a direct `zstore://launchpad/owner/repo` link and a README badge.
+- Submit an established project to **[z-store-catalog](https://github.com/superMC5657/z-store-catalog)** — or draft it under **Pending** in the app and send it upstream from there.
 
-### 8. 🔗 系统级协议与状态指示
-- **深层链接唤起**：注册 `zstore://` URL Scheme，支持浏览器与外部命令行直接唤起客户端直达详情、安装、搜索、开发者主页或指定视图；安装类深链必须经过显式确认对话框，用户点确认后才开始安装。
-- **API 速率感知**：后端解析 GitHub 响应里的限流头并经 `zstore://quota-updated` 广播剩余配额；界面暂未消费该事件，账号卡片只展示登录态的配额说明文案。
-- **GitHub 账号胶囊**：侧栏底部常驻账号入口（`Account Capsule`），未登录状态下展示登录入口，登录后展示用户头像与用户名，点击直达设置中心账号卡片。
+## Features
 
-### 9. 🌐 网络代理与下载加速架构
-- **下载加速代理**：针对 Release 二进制大文件下载拼接加速前缀（默认 `https://gh-proxy.com`），支持在设置中心配置与单键测速。
-- **系统代理与 TUN 截获**：客户端发出的 HTTP 请求天然受系统代理及本地代理工具（如 Clash / v2ray / TUN 模式）透明捕获，无需在应用内繁琐配置本地代理 IP/端口；Windows 启动时自探测注册表系统代理无缝衔接。
+### 1 · Find great open-source software
 
-### 10. ⚙️ 设置中心 6 组架构
-- 设置中心规范分为 6 个业务分组：`外观`、`更新与规则`、`存储与安装`、`网络`（GitHub 账号卡片位于该组，锚点 `#settings-account`）、`用户画像`（本地隐私数据看板位于该组，锚点 `#settings-affinity`）、`数据与备份`。
-- 全量项目超参与默认配置收敛于 `src-tauri/config.toml` 单一真相源，确保前后端与引擎默认行为严格对齐。
-- **数据备份范围**：备份覆盖 13 个设置项（`components/DataBackupRow.tsx::buildBackupSettings` 的 12 个显式字段 + `showCustom` 自维护 overlay 开关；导入侧白名单 `userdata/mod.rs::IMPORT_SETTINGS_ALLOWLIST` 同时支持 `show_custom` 与 `showCustom` 两种键名），`github_token` 凭据键刻意排除，永不经备份文件流转。
-- **更新频率选项**：设置页提供“启动时检测”与“仅手动检查”；「我的应用」属资产面（`MANUAL_ONLY_NETWORK`），启动时不自动触网，实际生效路径为手动检查。
-- **自定义清单源**：填写非官方同步源属于破坏性替换，需经过显式二次确认；留空即恢复官方默认流程。
+| | |
+| :-- | :-- |
+| **Curated & community lists** | Ships with 360+ popular GitHub apps and syncs incrementally from [z-store-catalog](https://github.com/superMC5657/z-store-catalog). Swap the sync URL for any community-maintained `catalog.json`, or add a missing app locally under **Pending** and submit a pre-filled Issue upstream in one click. |
+| **Trends & Latest** | Follow GitHub's daily, weekly, monthly, and rising trending boards, or open **Latest** to see what was just added. |
+| **Local recommendations** | **Featured** builds personalized shelves from your stars, installs, and browsing history — computed entirely on your machine. |
+| **Cross-platform filters** | Filter any view by platform (`Windows`, `macOS`, `Linux`, `Android`, `iOS`) and across 10 categories at the same time. |
+| **Beyond GitHub** | Search all of GitHub live, or pull releases from **Codeberg**, **GitLab**, **Forgejo**, and **self-hosted Gitea**. |
 
----
+### 2 · Launchpad: a front door for Vibe Coding makers
 
-## 🛠️ 架构与技术栈
+Built something useful with Vibe Coding and cut a release, but not sure how to reach your first users?
 
-- **桌面底座**: Tauri 2（前后端版本见 `package.json` / `src-tauri/Cargo.toml`；四处版本号 `package.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` / `src-tauri/tauri.conf.json` 由 `scripts/bump-version.mjs` 同步，以代码为准）+ Rust（`edition 2021`，见 `src-tauri/Cargo.toml`；仓库内未 pin 工具链版本）
-- **前端界面**: React 19（`^19.0.0`，见 `package.json`）+ TypeScript 5.7 (strict)（`^5.7.3`，见 `package.json`）+ Vite 6（`^6.2.0`，见 `package.json`；`vite.config.ts` 固定 `1420` + HMR `1421`）+ `i18next ^26.4.2`（见 `package.json`）+ `pnpm 10.33.0`（见 `package.json`）+ `vitest ^3.2.4`（见 `package.json`）+ Linear 去彩单色 CSS Tokens + Fluent 矢量图标体系 (`lucide-react`)
-- **本地数据库**: 嵌入式 SQLite（WAL 模式；表清单以 `src-tauri/src/db/schema.rs::init_schema` 为准，含榜缓存二级落盘、资产缓存与图标分流表）
-- **配置中枢**: 单一基线配置源（`src-tauri/config.toml`），结合编译期内置兜底与外部重载机制
-- **网络与下载**: API / 图标双池物理隔离复用单例（`SHARED_API` / `SHARED_ICON`，均 `connect_timeout 5s`、`keepalive 60s`、`pool 20/idle 90s`，见 `src-tauri/src/forge/http.rs::build_client`；`src-tauri/src/lib.rs::shared_http_client` 与 API 池同池，供趋势、OAuth 等通用出站请求；各池按系统代理签名热重建；图标 CDN 通道恒丢 token，绝不携带认证头）+ `tokio full` + `reqwest 0.12` 异步流式下载 + ETag 条件缓存 + 有限重试（仅 GET 传输错误与 429/5xx，最多 2 次按 200ms→800ms 退避，401/404/304 永不重试）+ 设置页单键镜像测速；图标先 HEAD 判类型长度、再 Range 取前 32KB 验 magic（300B 最小阈值卡掉 LFS 指针，`buffered(3)` 并发）；运行期动态继承系统代理与 TUN 模式（Windows 注册表 / GNOME / macOS 实时读取，开关代理无需重启，见 `src-tauri/src/proxy/mod.rs::current_proxy_snapshot` 与 ADR-0025）
-- **桌面开发配置**: `pnpm tauri dev`（基于 `src-tauri/tauri.conf.json` 配置本地安全策略：无边框 `decorations:false` / `1280x860`、CSP、NSIS `currentUser`、updater 双 endpoint）
-- **IPC 出口**: 前端唯一出口为 CMD 表 + `tauriInvoke` 派发（请求键命名规则以 AGENTS.md 为准；视图层禁直调 `invoke`）；后端 commands 注册表以 `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` 为准（含 zlog 命令）
-- **安装引擎**: Windows MSI (`/qn`)、Setup EXE（不带静默参数、交互式拉起，由其自带向导控制流程；退出码 1602/1/2 视为用户取消）、便携版 ZIP/tarball 自动解压与快捷方式生成（便携 ZIP/tarball（.zip + 二进制 .tar.gz/.tgz/.tar.xz/.tar，os+arch命中可装、仅本平台、tar权重+5垫底、剥顶层+chmod兜底；.7z/.tar.bz2只下载））、macOS (DMG/PKG) 及 Linux (deb/rpm/AppImage) 管道；Unix 卸载走 argv 直调，不经 `sh -c`
+**Launchpad** is a dedicated space inside ZStore for new indie open-source tools. It's kept separate from the curated catalog, so fresh projects get seen right away instead of waiting months to qualify.
 
----
+- **Launch with one Issue**: Open an Issue on [z-store-launchpad](https://github.com/superMC5657/z-store-launchpad) (public repo, OSI-approved license, installable release). Automated checks validate the repo and publish your card along with your one-line **Maker Note**.
+- **Engagement inside the app**: Users can read your note, upvote with `+1`, discuss via GitHub Discussions, **Star** the repo, and **Install** it — without leaving ZStore.
+- **Shareable deep links**: Every launch gets a `zstore://launchpad/owner/repo` link for your README or release notes.
+- **Spotlight, not ads**: Up to 4 Spotlight slots at the top follow the same open-source and release rules as everything else — no closed-source products, no ad networks, no tracking.
 
-## 💻 本地开发指南
+### 3 · Installs and updates, handled
 
-### 前置依赖
-- [Node.js](https://nodejs.org/) (>= 18) 与 [pnpm](https://pnpm.io/) (>= 9)
-- [Rust](https://rustup.rs/) (>= 1.77)
-- C++ 构建工具（Windows 下需 Visual Studio C++ 生成工具）
+Once you find an app you want to try, ZStore takes care of the tedious parts:
 
-### 安装与启动
+- **The right asset, verified**: Picks the matching `.msi`, `.exe`, portable `.zip` / tarball, `.AppImage`, `.deb`, `.rpm`, `.dmg`, or `.pkg` for your OS and CPU, and checks its SHA-256 against `checksums.txt` / `SHA256SUMS` before anything runs. `.apk`, `.7z`, and other archives are downloaded with SHA-256 verification too.
+- **Faster downloads**: An optional download mirror prefix (`https://gh-proxy.com` by default, with a one-click speed test), plus live system proxy / TUN support (Clash, v2ray, etc.) that applies without a restart.
+- **Updates on your terms**: Check all installed apps for updates at once, skip a broken version, pin an app to its current build, or watch a repo for new releases before you install it.
+- **Adopt existing apps**: Optionally scan for open-source apps already on your computer (Windows Registry / Scoop / Start Menu, Linux `.desktop` / AppImage, macOS `/Applications`) and manage their updates in one place.
 
-```bash
-# 1. 安装前端依赖
+<details>
+<summary><b>Deep links</b> — open an app, a search, or a launch from your browser or terminal</summary>
+
+<br>
+
+```sh
+zstore://launchpad/owner/repo      # open a Launchpad entry
+zstore://app/localsend/localsend   # open an app's detail page
+zstore://install/videolan/vlc      # open the install confirmation (never installs silently)
+zstore://search?q=markdown         # search inside ZStore
+zstore://developer/rustdesk        # list all open-source apps by an author
+zstore://view/updates              # jump to available updates
+```
+
+</details>
+
+## Privacy
+
+ZStore has no backend server and collects no analytics or telemetry — not even Launchpad views or clicks.
+
+Your browsing history, search history, favorites, update rules, and recommendation preferences are stored in a local SQLite database on your computer. You can turn off local activity signals or GitHub profile signals at any time under **Settings → User Profile**.
+
+Signing in with GitHub is optional and uses Device Flow. It raises API rate limits and lets you import your stars and comment or upvote on Launchpad. Your token never leaves your machine and is excluded from backup exports.
+
+## Build from source
+
+Requires [Node.js](https://nodejs.org/) (>= 18), [pnpm](https://pnpm.io/) (>= 9), [Rust](https://rustup.rs/) (>= 1.77), and your platform's C++ / WebKitGTK build tools.
+
+```sh
 pnpm install
+pnpm tauri dev      # run the desktop app in dev mode
+pnpm tauri build    # build a release installer
+```
 
-# 2. 运行自动化测试与前端门禁（以本地实测为准）
-cargo test
+Run tests and checks:
+
+```sh
+cargo test --manifest-path src-tauri/Cargo.toml
 pnpm check
-pnpm build
-
-# 3. 启动前端浏览器开发预览
-pnpm dev
-
-# 4. 启动 Tauri 桌面完整应用
-pnpm tauri dev
 ```
 
-### 构建打包
+Architecture notes and design decisions (ADRs) live in [CONTEXT.md](CONTEXT.md), [AGENTS.md](AGENTS.md), and [docs/adr/](docs/adr/).
 
-```bash
-# 构建 Windows 安装包 (NSIS)
-pnpm tauri build
-```
+## License
 
----
-
-## 📄 架构决策记录 (ADR) 与核心文档
-
-- [ADR-0001: 采用 Tauri 2 与 React 19 + Fluent 矢量图标架构](docs/adr/0001-tauri2-and-react-fluent-architecture.md)
-- [ADR-0002: 客户端直连 GitHub API 与加速镜像下载管道](docs/adr/0002-direct-github-api-and-mirror-pipeline.md)
-- [ADR-0003: 嵌入式 SQLite 持久化与 ETag 条件请求缓存](docs/adr/0003-sqlite-persistence-and-etag-caching.md)
-- [ADR-0004: 流式安装引擎与零信任 SHA-256 完整性校验](docs/adr/0004-streaming-installer-and-checksum-verification.md)
-- [ADR-0005: 跨平台多模式应用图标自适应架构规范](docs/adr/0005-cross-platform-multi-mode-icon-specifications.md)
-- [ADR-0006: 多源代码托管平台 (Multi-Forge) 生态支持与统一抽象层](docs/adr/0006-multi-forge-ecosystem-support.md)
-- [ADR-0007: 开源清单仓库动态同步与客户端按需 API 详情拉取（含可配置 TTL 缓存）](docs/adr/0007-open-manifest-catalog-and-configurable-ttl-cache.md)
-- [ADR-0008: 出站代理与 OAuth 加固及设置中心重构](docs/adr/0008-outbound-proxy-oauth-hardening-and-settings-restructure.md)
-- [ADR-0009: 独立生态清单仓库与客户端运行时引擎解耦](docs/adr/0009-catalog-manifest-repository-decoupling.md)
-- [ADR-0010: 规范应用标识（Canonical App Identifier）](docs/adr/0010-canonical-app-identifier.md)
-- [ADR-0011: doforce趋势聚合源例外](docs/adr/0011-doforce-trends-aggregator-exception.md)
-- [ADR-0012: 网络性能P0双池并发跳过](docs/adr/0012-network-perf-p0-pooling-concurrency-skip.md)
-- [ADR-0013: Feed契约](docs/adr/0013-feed-contract.md)
-- [ADR-0014: 趋势榜 L2 与治理](docs/adr/0014-trends-l2-and-governance.md)
-- [ADR-0015: 统一图标获取与搜索对齐](docs/adr/0015-unified-icon-fetch-and-search-alignment.md)
-- [ADR-0017: 本地自维护草稿后端 overlay（custom_apps + 全局合并 + 预填 Issue 链路）](docs/adr/0017-custom-apps-overlay.md)
-- [ADR-0018: 开源协议门禁可配（`license_gate`）与 D1 默认严格](docs/adr/0018-license-gate-configurable.md)
-- [ADR-0019: 资产面手动缓存与非资产面自动拉取](docs/adr/0019-asset-manual-cache-and-non-asset-auto-fetch.md)
-- [ADR-0020: 令牌本地明文存储的风险接受](docs/adr/0020-token-plaintext-risk-acceptance.md)
-- [ADR-0021: 最新入库独立视图与收录时间倒排](docs/adr/0021-latest-catalog-new-arrivals-view-and-reverse-sort.md)
-- [ADR-0022: 「我的应用」合并已安装与更新视图](docs/adr/0022-my-apps-merges-installed-and-updates.md)
-- [ADR-0023: 精选页改为可解释的本地推荐货架](docs/adr/0023-featured-page-explainable-local-recommendation.md)
-- [ADR-0024: 亲和度画像 v2 与货架采样](docs/adr/0024-affinity-scoring-v2-and-shelf-sampling.md)
-- [ADR-0025: 运行期动态系统代理与通用资产缓存收口](docs/adr/0025-dynamic-system-proxy-and-asset-cache-convergence.md)
-- [ADR-0026: 搜索 / Star 列表缓存与富卡链路收敛](docs/adr/0026-search-starred-cache-and-enrich-convergence.md)
-- [ADR-0027: 单仓富卡独立缓存与瘦 id 列表索引](docs/adr/0027-isolated-repo-card-cache-and-slim-id-list-indexes.md)
-- [ADR-0028: 存量应用匹配引擎——多源发现、倒排索引与边界安全打分](docs/adr/0028-inverted-index-and-boundary-safe-local-app-matching.md)
-- [协作规范与 Agent 指南](AGENTS.md)
-
----
-
-## 📄 许可协议
-
-本项目基于 MIT / Apache-2.0 双开源协议分发，详见 LICENSE。
-
-
+Dual-licensed under [MIT](LICENSE) or [Apache-2.0](LICENSE), at your option.
