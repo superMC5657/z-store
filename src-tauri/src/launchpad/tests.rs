@@ -109,7 +109,10 @@ fn invalid_duplicate_and_dangling_entries_are_skipped() {
     bad.id = "../etc".to_string();
     let m = manifest(
         vec![item("Acme/Hyper-Term"), item("acme/hyper-term"), bad],
-        vec![pin("ghost/none", FUTURE, 1), pin("acme/hyper-term", "not-a-date", 2)],
+        vec![
+            pin("ghost/none", FUTURE, 1),
+            pin("acme/hyper-term", "not-a-date", 2),
+        ],
     );
     let (spot, recent) = partition_spotlight_and_recent(&m, NOW);
     assert!(spot.is_empty());

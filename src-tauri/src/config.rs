@@ -259,7 +259,8 @@ pub struct LaunchpadConfig {
 }
 
 fn default_launchpad_source_url() -> String {
-    "https://raw.githubusercontent.com/superMC5657/z-store-launchpad/main/launchpad.json".to_string()
+    "https://raw.githubusercontent.com/superMC5657/z-store-launchpad/main/launchpad.json"
+        .to_string()
 }
 
 fn default_launchpad_discussions_repo() -> String {

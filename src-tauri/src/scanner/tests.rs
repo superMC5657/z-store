@@ -1257,8 +1257,10 @@ fn macos_bundle_display_icon_and_contents_macos_resolution() {
     );
 
     let mut cat = catalog_item("obsidianmd/obsidian", "Obsidian", &[]);
-    cat.identifiers
-        .insert(CatalogItem::current_platform_key().to_string(), vec!["Obsidian".into()]);
+    cat.identifiers.insert(
+        CatalogItem::current_platform_key().to_string(),
+        vec!["Obsidian".into()],
+    );
     let scanned = ScannedRawApp {
         display_name: "笔记工具".into(),
         display_icon: Some(mac_exe.into()),

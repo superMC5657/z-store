@@ -220,10 +220,8 @@ impl Database {
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(repos), row_to_discussion_state)?;
-        let wanted: std::collections::HashSet<(String, u64)> = normalized
-            .into_iter()
-            .map(|(r, n)| (r, n as u64))
-            .collect();
+        let wanted: std::collections::HashSet<(String, u64)> =
+            normalized.into_iter().map(|(r, n)| (r, n as u64)).collect();
         let mut out = HashMap::with_capacity(wanted.len());
         for row in rows {
             let st = row?;
@@ -257,7 +255,11 @@ impl Database {
                     && item.discussion_repo.trim().eq_ignore_ascii_case(repo_key)
                 {
                     return Some(ManifestDiscussionBaseline {
-                        node_id: item.discussion_node_id.unwrap_or_default().trim().to_string(),
+                        node_id: item
+                            .discussion_node_id
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string(),
                         upvotes: item.discussion_upvotes,
                         comments: item.discussion_comments_count,
                     });
@@ -272,7 +274,10 @@ impl Database {
         repo_key: &str,
         number: u64,
         need_baseline: bool,
-    ) -> Result<(Option<LaunchpadDiscussionState>, Option<ManifestDiscussionBaseline>)> {
+    ) -> Result<(
+        Option<LaunchpadDiscussionState>,
+        Option<ManifestDiscussionBaseline>,
+    )> {
         let prev = self.get_launchpad_discussion_state(repo_key, number)?;
         let baseline = if prev.is_none() && need_baseline {
             self.manifest_baseline_for_discussion(repo_key, number)
@@ -284,7 +289,8 @@ impl Database {
 
     /// 合并写入单条讨论与源仓脉冲状态。
     pub fn upsert_launchpad_discussion_state(&self, inc: &LaunchpadDiscussionUpsert) -> Result<()> {
-        let Some((repo_key, num)) = norm_discussion_key(&inc.discussion_repo, inc.discussion_number)
+        let Some((repo_key, num)) =
+            norm_discussion_key(&inc.discussion_repo, inc.discussion_number)
         else {
             return Ok(());
         };
@@ -448,7 +454,8 @@ impl Database {
                 else {
                     continue;
                 };
-                let prev = self.get_launchpad_discussion_state(&repo_key, item.discussion_number)?;
+                let prev =
+                    self.get_launchpad_discussion_state(&repo_key, item.discussion_number)?;
                 let prev_ref = prev.as_ref();
                 let base_stars = prev_ref.and_then(|p| p.stars).unwrap_or(item.stars);
                 let next_stars = (base_stars as i128 + delta as i128).max(0) as u64;
@@ -625,7 +632,10 @@ mod tests {
             .get_launchpad_discussion_state("supermc5657/z-store-launchpad", 3)
             .unwrap()
             .unwrap();
-        assert_eq!((st.upvote_count, st.comments_count, st.viewer_has_upvoted), (5, 2, Some(true)));
+        assert_eq!(
+            (st.upvote_count, st.comments_count, st.viewer_has_upvoted),
+            (5, 2, Some(true))
+        );
         assert_eq!(st.node_id, "D_3");
 
         // 发表评论：保留顶帖计数 5 与本人已顶态，评论数 +1 → 3
@@ -650,7 +660,10 @@ mod tests {
             .get_launchpad_discussion_state("supermc5657/z-store-launchpad", 3)
             .unwrap()
             .unwrap();
-        assert_eq!((st.upvote_count, st.comments_count, st.viewer_has_upvoted), (5, 4, Some(true)));
+        assert_eq!(
+            (st.upvote_count, st.comments_count, st.viewer_has_upvoted),
+            (5, 4, Some(true))
+        );
         assert_eq!(st.repo_synced_at, 0);
 
         // 局部仓库统计更新但 discussion 字段缺失（comments_count: None）时，保留已有评论数 4 与顶帖 5
@@ -673,7 +686,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!((st.upvote_count, st.comments_count), (5, 4));
-        assert_eq!((st.stars, st.forks, st.latest_version.as_deref()), (Some(25), Some(3), Some("v0.5.0")));
+        assert_eq!(
+            (st.stars, st.forks, st.latest_version.as_deref()),
+            (Some(25), Some(3), Some("v0.5.0"))
+        );
         assert_eq!(st.synced_at, 220);
         assert_eq!(st.repo_synced_at, 230);
 

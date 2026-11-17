@@ -8,13 +8,25 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", content = "payload", rename_all = "snake_case")]
 pub enum DeepLinkAction {
-    AppDetail { app_id: String },
-    InstallApp { app_id: String },
-    Search { query: String },
-    DeveloperProfile { owner: String },
-    OpenView { view: String },
+    AppDetail {
+        app_id: String,
+    },
+    InstallApp {
+        app_id: String,
+    },
+    Search {
+        query: String,
+    },
+    DeveloperProfile {
+        owner: String,
+    },
+    OpenView {
+        view: String,
+    },
     /// 开源广场定位：切至 `launchpad` 视图并打开该新品详情（绝不自动安装）。
-    LaunchpadApp { app_id: String },
+    LaunchpadApp {
+        app_id: String,
+    },
 }
 
 pub struct DeepLinkParser;
@@ -206,9 +218,18 @@ mod tests {
         let view = DeepLinkAction::OpenView {
             view: "launchpad".to_string(),
         };
-        assert_eq!(DeepLinkParser::parse("zstore://view/launchpad"), Some(view.clone()));
-        assert_eq!(DeepLinkParser::parse("zstore://launchpad"), Some(view.clone()));
-        assert_eq!(DeepLinkParser::parse("zstore://launchpad/"), Some(view.clone()));
+        assert_eq!(
+            DeepLinkParser::parse("zstore://view/launchpad"),
+            Some(view.clone())
+        );
+        assert_eq!(
+            DeepLinkParser::parse("zstore://launchpad"),
+            Some(view.clone())
+        );
+        assert_eq!(
+            DeepLinkParser::parse("zstore://launchpad/"),
+            Some(view.clone())
+        );
         assert_eq!(DeepLinkParser::parse("ZSTORE://Launchpad"), Some(view));
         assert_eq!(
             DeepLinkParser::parse("zstore://launchpad/Acme/Hyper-Term"),

@@ -9,9 +9,9 @@ pub mod detail_assets;
 pub mod detail_fetch;
 pub mod developer_profile;
 pub mod developer_starred;
-pub mod discussions;
 #[cfg(test)]
 mod developer_starred_tests;
+pub mod discussions;
 pub mod featured;
 pub mod http;
 pub mod markdown;

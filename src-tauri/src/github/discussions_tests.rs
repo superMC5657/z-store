@@ -27,7 +27,10 @@ fn repo_coordinates_are_strictly_validated() {
         "/b",
         "a/",
     ] {
-        assert!(validate_discussion_repo(bad).is_err(), "{bad:?} should be rejected");
+        assert!(
+            validate_discussion_repo(bad).is_err(),
+            "{bad:?} should be rejected"
+        );
     }
     assert!(validate_discussion_number(0).is_err());
     assert_eq!(validate_discussion_number(7).unwrap(), 7);
@@ -122,32 +125,53 @@ fn locked_discussion_disables_commenting_and_reaction_count_used_without_upvote(
 #[test]
 fn graphql_error_mapping() {
     let scopes = json!({ "errors": [{ "type": "INSUFFICIENT_SCOPES", "message": "x" }] });
-    assert_eq!(map_graphql_response(&scopes).unwrap_err(), GqlError::InsufficientScopes);
+    assert_eq!(
+        map_graphql_response(&scopes).unwrap_err(),
+        GqlError::InsufficientScopes
+    );
     let forbidden = json!({ "errors": [{ "type": "FORBIDDEN", "message": "nope" }] });
-    assert!(matches!(map_graphql_response(&forbidden), Err(GqlError::Forbidden(_))));
+    assert!(matches!(
+        map_graphql_response(&forbidden),
+        Err(GqlError::Forbidden(_))
+    ));
     let integ = json!({ "errors": [{ "message": "Resource not accessible by integration" }] });
-    assert!(matches!(map_graphql_response(&integ), Err(GqlError::Forbidden(_))));
-    let unprocessable = json!({ "errors": [{ "type": "UNPROCESSABLE", "message": "Upvoting is disabled" }] });
-    assert!(matches!(map_graphql_response(&unprocessable), Err(GqlError::UpvoteUnavailable(_))));
+    assert!(matches!(
+        map_graphql_response(&integ),
+        Err(GqlError::Forbidden(_))
+    ));
+    let unprocessable =
+        json!({ "errors": [{ "type": "UNPROCESSABLE", "message": "Upvoting is disabled" }] });
+    assert!(matches!(
+        map_graphql_response(&unprocessable),
+        Err(GqlError::UpvoteUnavailable(_))
+    ));
     let other = json!({ "errors": [{ "type": "NOT_FOUND", "message": "gone" }] });
     assert_eq!(
         map_graphql_response(&other).unwrap_err(),
         GqlError::Other("gone".to_string())
     );
     assert!(map_graphql_response(&json!({ "data": null })).is_err());
-    assert!(GqlError::InsufficientScopes.into_message().contains("重新登录"));
+    assert!(GqlError::InsufficientScopes
+        .into_message()
+        .contains("重新登录"));
 }
 
 #[test]
 fn vote_results_parse_for_both_modes() {
     let up = json!({ "addUpvote": { "subject": { "id": "D_1", "upvoteCount": 13, "viewerHasUpvoted": true } } });
     let r = parse_vote_result(&up, "addUpvote", LaunchpadVoteMode::Upvote).unwrap();
-    assert_eq!((r.upvote_count, r.viewer_has_upvoted, r.mode), (13, true, LaunchpadVoteMode::Upvote));
+    assert_eq!(
+        (r.upvote_count, r.viewer_has_upvoted, r.mode),
+        (13, true, LaunchpadVoteMode::Upvote)
+    );
     let re = json!({ "addReaction": { "subject": { "id": "D_1", "reactionGroups": [
         { "content": "THUMBS_UP", "viewerHasReacted": true, "reactors": { "totalCount": 6 } }
     ] } } });
     let r = parse_vote_result(&re, "addReaction", LaunchpadVoteMode::Reaction).unwrap();
-    assert_eq!((r.upvote_count, r.viewer_has_upvoted, r.mode), (6, true, LaunchpadVoteMode::Reaction));
+    assert_eq!(
+        (r.upvote_count, r.viewer_has_upvoted, r.mode),
+        (6, true, LaunchpadVoteMode::Reaction)
+    );
 }
 
 #[test]
@@ -174,8 +198,16 @@ async fn forbidden_upvote_falls_back_to_thumbs_up_reaction() {
     .await;
     let http = client();
     let r = toggle_upvote(
-        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
-        DiscussionRef { owner: "o", repo: "r", number: 7 },
+        DiscussionClient {
+            client: &http,
+            api_base: &server.base,
+            token: "tok",
+        },
+        DiscussionRef {
+            owner: "o",
+            repo: "r",
+            number: 7,
+        },
         Some("D_1"),
         false,
     )
@@ -185,7 +217,9 @@ async fn forbidden_upvote_falls_back_to_thumbs_up_reaction() {
     assert_eq!((r.upvote_count, r.viewer_has_upvoted), (4, true));
     assert_eq!(server.hits(), 2);
     let first = &server.requests()[0];
-    assert!(first.to_ascii_lowercase().contains("authorization: bearer tok"));
+    assert!(first
+        .to_ascii_lowercase()
+        .contains("authorization: bearer tok"));
 }
 
 #[tokio::test]
@@ -204,8 +238,16 @@ async fn unprocessable_upvote_with_subject_falls_back_to_thumbs_up_reaction() {
     .await;
     let http = client();
     let r = toggle_upvote(
-        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
-        DiscussionRef { owner: "o", repo: "r", number: 7 },
+        DiscussionClient {
+            client: &http,
+            api_base: &server.base,
+            token: "tok",
+        },
+        DiscussionRef {
+            owner: "o",
+            repo: "r",
+            number: 7,
+        },
         Some("D_1"),
         false,
     )
@@ -231,8 +273,16 @@ async fn preflight_without_subject_uses_reaction_when_upvote_unavailable() {
     .await;
     let http = client();
     let r = toggle_upvote(
-        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
-        DiscussionRef { owner: "o", repo: "r", number: 9 },
+        DiscussionClient {
+            client: &http,
+            api_base: &server.base,
+            token: "tok",
+        },
+        DiscussionRef {
+            owner: "o",
+            repo: "r",
+            number: 9,
+        },
         None,
         true,
     )
@@ -245,8 +295,18 @@ async fn preflight_without_subject_uses_reaction_when_upvote_unavailable() {
 
 #[test]
 fn comment_node_ids_are_validated() {
-    assert_eq!(validate_comment_node_id("  DC_kwDOAbc-1_x ").unwrap(), "DC_kwDOAbc-1_x");
-    for bad in ["", "DC_", "D_kwDOAbc", "DC_a b", "DC_x\"}", &format!("DC_{}", "a".repeat(200))] {
+    assert_eq!(
+        validate_comment_node_id("  DC_kwDOAbc-1_x ").unwrap(),
+        "DC_kwDOAbc-1_x"
+    );
+    for bad in [
+        "",
+        "DC_",
+        "D_kwDOAbc",
+        "DC_a b",
+        "DC_x\"}",
+        &format!("DC_{}", "a".repeat(200)),
+    ] {
         assert!(validate_comment_node_id(bad).is_err(), "{bad:?}");
     }
 }
@@ -264,14 +324,22 @@ async fn comment_upvote_uses_native_upvote_without_reaction_fallback() {
     })
     .await;
     let http = client();
-    let ctx = DiscussionClient { client: &http, api_base: &server.base, token: "tok" };
+    let ctx = DiscussionClient {
+        client: &http,
+        api_base: &server.base,
+        token: "tok",
+    };
     let r = toggle_comment_upvote(ctx, "DC_1", true).await.unwrap();
     assert_eq!(r.mode, LaunchpadVoteMode::Upvote);
     assert_eq!((r.upvote_count, r.viewer_has_upvoted), (2, false));
 
     let err = toggle_comment_upvote(ctx, "DC_1", false).await.unwrap_err();
     assert!(!err.is_empty());
-    assert_eq!(server.hits(), 2, "FORBIDDEN must not fall back to addReaction");
+    assert_eq!(
+        server.hits(),
+        2,
+        "FORBIDDEN must not fall back to addReaction"
+    );
     assert!(toggle_comment_upvote(ctx, "D_1", false).await.is_err());
     assert_eq!(server.hits(), 2, "invalid id must not hit the network");
 }
@@ -286,8 +354,16 @@ async fn add_comment_on_locked_discussion_is_refused() {
     .await;
     let http = client();
     let err = add_comment(
-        DiscussionClient { client: &http, api_base: &server.base, token: "tok" },
-        DiscussionRef { owner: "o", repo: "r", number: 1 },
+        DiscussionClient {
+            client: &http,
+            api_base: &server.base,
+            token: "tok",
+        },
+        DiscussionRef {
+            owner: "o",
+            repo: "r",
+            number: 1,
+        },
         None,
         "hi",
         None,
@@ -320,7 +396,8 @@ fn rest_discussion_parses_read_only() {
 async fn anonymous_rate_limited_without_cache_returns_shell() {
     let server = serve(|_| Reply::status("403 Forbidden")).await;
     let db = Mutex::new(Database::open_in_memory().unwrap());
-    let (d, _) = fetch_discussion_anonymous(&db, &client(), Some(&server.base), "o", "r", 7, false).await;
+    let (d, _) =
+        fetch_discussion_anonymous(&db, &client(), Some(&server.base), "o", "r", 7, false).await;
     assert!(d.auth_required_for_write);
     assert!(d.is_stale);
     assert_eq!(d.url, "https://github.com/o/r/discussions/7");
@@ -375,7 +452,8 @@ fn rest_discussion_groups_flat_replies_under_parent_comment() {
       {"id":101,"node_id":"DC_2","parent_id":100,"body":"测试","created_at":"y","author_association":"OWNER",
        "user":{"login":"superMC5657","avatar_url":"","html_url":""}}
     ]"#;
-    let (detail, _) = parse_rest_discussion("superMC5657", "z-store-launchpad", 3, d, Some(c)).unwrap();
+    let (detail, _) =
+        parse_rest_discussion("superMC5657", "z-store-launchpad", 3, d, Some(c)).unwrap();
     assert_eq!(detail.comments_total, 2);
     assert_eq!(detail.comments.len(), 1);
     assert_eq!(detail.comments[0].id, "DC_1");
@@ -424,9 +502,15 @@ async fn toggle_reaction_validates_subject_and_content_and_parses_groups() {
     })
     .await;
     let http = client();
-    let ctx = DiscussionClient { client: &http, api_base: &server.base, token: "tok" };
+    let ctx = DiscussionClient {
+        client: &http,
+        api_base: &server.base,
+        token: "tok",
+    };
 
-    let added = toggle_reaction(ctx, "DC_2", "thumbs_up", false).await.unwrap();
+    let added = toggle_reaction(ctx, "DC_2", "thumbs_up", false)
+        .await
+        .unwrap();
     assert_eq!(
         added,
         vec![LaunchpadReactionGroup {
@@ -445,7 +529,11 @@ async fn toggle_reaction_validates_subject_and_content_and_parses_groups() {
         }]
     );
 
-    assert!(toggle_reaction(ctx, "BAD_1", "THUMBS_UP", false).await.is_err());
-    assert!(toggle_reaction(ctx, "DC_2", "INVALID_EMOJI", false).await.is_err());
+    assert!(toggle_reaction(ctx, "BAD_1", "THUMBS_UP", false)
+        .await
+        .is_err());
+    assert!(toggle_reaction(ctx, "DC_2", "INVALID_EMOJI", false)
+        .await
+        .is_err());
     assert_eq!(server.hits(), 2);
 }

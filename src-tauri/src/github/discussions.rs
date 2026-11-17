@@ -137,11 +137,17 @@ const REST_REACTION_KEYS: &[(&str, &str)] = &[
 /// forge 前缀与控制字符（防 SSRF 与路径注入）。
 pub fn validate_discussion_repo(raw: &str) -> Result<(String, String), String> {
     let t = raw.trim();
-    let invalid = || format!("无效的讨论仓库坐标: {}", crate::log_support::short_reason(raw));
+    let invalid = || {
+        format!(
+            "无效的讨论仓库坐标: {}",
+            crate::log_support::short_reason(raw)
+        )
+    };
     if t.is_empty()
         || t.contains("..")
-        || t.chars()
-            .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '?' | '#' | ':' | '\\' | '%'))
+        || t.chars().any(|c| {
+            c.is_control() || c.is_whitespace() || matches!(c, '?' | '#' | ':' | '\\' | '%')
+        })
     {
         return Err(invalid());
     }
@@ -164,7 +170,10 @@ pub fn validate_discussion_number(n: u64) -> Result<u64, String> {
 
 /// 讨论网页确定性地址。
 pub fn discussion_html_url(owner: &str, repo: &str, number: u64) -> String {
-    format!("https://github.com/{}/{}/discussions/{}", owner, repo, number)
+    format!(
+        "https://github.com/{}/{}/discussions/{}",
+        owner, repo, number
+    )
 }
 
 /// 匿名 REST 端点（`api_etag_cache` 键，恒用官方基址）。
@@ -345,7 +354,10 @@ fn gql_reaction_groups(subject: &Value) -> Vec<LaunchpadReactionGroup> {
                     if !ALLOWED_REACTION_CONTENTS.contains(&content) {
                         return None;
                     }
-                    let count = g.get("reactors").map(|r| u64_field(r, "totalCount")).unwrap_or(0);
+                    let count = g
+                        .get("reactors")
+                        .map(|r| u64_field(r, "totalCount"))
+                        .unwrap_or(0);
                     if count == 0 {
                         return None;
                     }
@@ -367,7 +379,10 @@ fn rest_reaction_groups(v: &Value) -> Vec<LaunchpadReactionGroup> {
     REST_REACTION_KEYS
         .iter()
         .filter_map(|(rest_key, gql_name)| {
-            let count = reactions.get(*rest_key).and_then(|n| n.as_u64()).unwrap_or(0);
+            let count = reactions
+                .get(*rest_key)
+                .and_then(|n| n.as_u64())
+                .unwrap_or(0);
             (count > 0).then(|| LaunchpadReactionGroup {
                 content: (*gql_name).to_string(),
                 count,
@@ -409,7 +424,9 @@ fn thumbs_up(subject: &Value) -> (u64, bool) {
         })
         .map(|g| {
             (
-                g.get("reactors").map(|r| u64_field(r, "totalCount")).unwrap_or(0),
+                g.get("reactors")
+                    .map(|r| u64_field(r, "totalCount"))
+                    .unwrap_or(0),
                 bool_field(g, "viewerHasReacted"),
             )
         })
@@ -425,7 +442,10 @@ pub fn parse_graphql_discussion(data: &Value) -> Result<LaunchpadDiscussionDetai
         .ok_or_else(|| "讨论不存在或无权访问".to_string())?;
     let can_upvote = bool_field(d, "viewerCanUpvote");
     let (upvote_count, viewer_has_upvoted) = if can_upvote {
-        (u64_field(d, "upvoteCount"), bool_field(d, "viewerHasUpvoted"))
+        (
+            u64_field(d, "upvoteCount"),
+            bool_field(d, "viewerHasUpvoted"),
+        )
     } else {
         thumbs_up(d)
     };
@@ -677,12 +697,7 @@ async fn rest_get_cached(
     match super::http::get_with_etag(client, url, api_base, &headers, send_etag.as_deref()).await {
         super::http::EtagGetOutcome::Fresh { text, etag } => {
             if let Ok(db) = db.lock() {
-                let _ = db.save_etag(
-                    url,
-                    etag.as_deref().unwrap_or(""),
-                    &text,
-                    crate::now_secs(),
-                );
+                let _ = db.save_etag(url, etag.as_deref().unwrap_or(""), &text, crate::now_secs());
             }
             RestLoad::Fresh(text)
         }
@@ -709,12 +724,12 @@ pub async fn fetch_discussion_anonymous(
     force_refresh: bool,
 ) -> (LaunchpadDiscussionDetail, bool) {
     let d_url = rest_discussion_url(owner, repo, number);
-    let (d_text, mut stale) = match rest_get_cached(db, client, api_base, &d_url, force_refresh).await
-    {
-        RestLoad::Fresh(t) => (t, false),
-        RestLoad::Cached(t) => (t, true),
-        RestLoad::Missing => return (degraded_shell(owner, repo, number), false),
-    };
+    let (d_text, mut stale) =
+        match rest_get_cached(db, client, api_base, &d_url, force_refresh).await {
+            RestLoad::Fresh(t) => (t, false),
+            RestLoad::Cached(t) => (t, true),
+            RestLoad::Missing => return (degraded_shell(owner, repo, number), false),
+        };
     let c_url = rest_comments_url(owner, repo, number);
     let c_text = match rest_get_cached(db, client, api_base, &c_url, force_refresh).await {
         RestLoad::Fresh(t) => Some(t),
@@ -757,7 +772,11 @@ async fn resolve_discussion_node(
     if id.is_empty() {
         return Err(GqlError::Other("讨论不存在或无权访问".to_string()));
     }
-    Ok((id, bool_field(d, "locked"), bool_field(d, "viewerCanUpvote")))
+    Ok((
+        id,
+        bool_field(d, "locked"),
+        bool_field(d, "viewerCanUpvote"),
+    ))
 }
 
 /// 校验评论正文：去首尾空白后非空且不超过 `COMMENT_MAX_CHARS` 字符。
@@ -870,9 +889,14 @@ pub async fn toggle_upvote(
             Err(e) => return Err(e.into_message()),
         }
     }
-    vote_once(ctx, &subject, currently_upvoted, LaunchpadVoteMode::Reaction)
-        .await
-        .map_err(GqlError::into_message)
+    vote_once(
+        ctx,
+        &subject,
+        currently_upvoted,
+        LaunchpadVoteMode::Reaction,
+    )
+    .await
+    .map_err(GqlError::into_message)
 }
 
 /// 校验评论节点 ID：仅接受 `DC_` 前缀的 GraphQL 节点 ID（防止误把讨论主帖或任意节点当评论投票）。
@@ -881,7 +905,9 @@ pub fn validate_comment_node_id(raw: &str) -> Result<String, String> {
     let well_formed = id.len() > 3
         && id.len() <= 128
         && id.starts_with("DC_")
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if !well_formed {
         return Err("无效的评论 ID".to_string());
     }
@@ -894,7 +920,9 @@ pub fn validate_discussion_subject_id(raw: &str) -> Result<String, String> {
     let body = id.strip_prefix("DC_").or_else(|| id.strip_prefix("D_"));
     let well_formed = body.is_some_and(|rest| !rest.is_empty())
         && id.len() <= 128
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if !well_formed {
         return Err("无效的讨论或评论 ID".to_string());
     }
@@ -996,9 +1024,10 @@ async fn graphql_post_allow_partial(
 ) -> Result<Value, GqlError> {
     let body = graphql_post_raw(ctx, query, variables, op).await?;
     if let Some(errors) = body.get("errors").and_then(|e| e.as_array()) {
-        if errors.iter().any(|e| {
-            e.get("type").and_then(|t| t.as_str()) == Some("INSUFFICIENT_SCOPES")
-        }) {
+        if errors
+            .iter()
+            .any(|e| e.get("type").and_then(|t| t.as_str()) == Some("INSUFFICIENT_SCOPES"))
+        {
             return Err(GqlError::InsufficientScopes);
         }
     }
@@ -1025,7 +1054,11 @@ pub async fn fetch_pulse_batch_authed(
             let disc_coord = (t.discussion_number > 0)
                 .then(|| validate_discussion_repo(&t.discussion_repo).ok())
                 .flatten()
-                .and_then(|(o, r)| validate_discussion_number(t.discussion_number).ok().map(|n| (o, r, n)));
+                .and_then(|(o, r)| {
+                    validate_discussion_number(t.discussion_number)
+                        .ok()
+                        .map(|n| (o, r, n))
+                });
             let repo_coord = t
                 .is_github
                 .then(|| validate_discussion_repo(&format!("{}/{}", t.owner, t.repo)).ok())
@@ -1069,13 +1102,9 @@ pub async fn fetch_pulse_batch_authed(
             continue;
         }
         let query = format!("query({}) {{ {} }}", defs.join(", "), fields.join(" "));
-        let data = graphql_post_allow_partial(
-            ctx,
-            &query,
-            Value::Object(vars),
-            "launchpad_pulse_batch",
-        )
-        .await?;
+        let data =
+            graphql_post_allow_partial(ctx, &query, Value::Object(vars), "launchpad_pulse_batch")
+                .await?;
 
         for (i, t, has_disc, has_repo) in active {
             let disc_val = has_disc
@@ -1093,7 +1122,10 @@ pub async fn fetch_pulse_batch_authed(
                 Some(d) => {
                     let can_upvote = bool_field(d, "viewerCanUpvote");
                     let (up, mine) = if can_upvote {
-                        (u64_field(d, "upvoteCount"), bool_field(d, "viewerHasUpvoted"))
+                        (
+                            u64_field(d, "upvoteCount"),
+                            bool_field(d, "viewerHasUpvoted"),
+                        )
                     } else {
                         thumbs_up(d)
                     };

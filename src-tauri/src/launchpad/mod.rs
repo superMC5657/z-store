@@ -197,7 +197,11 @@ fn item_to_entry(item: &RawLaunchpadItem, id: &str) -> LaunchpadEntry {
     } else {
         item.discussion_url.trim().to_string()
     };
-    let maker_note = item.maker_note.split_whitespace().collect::<Vec<_>>().join(" ");
+    let maker_note = item
+        .maker_note
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     LaunchpadEntry {
         summary,
         maker_note,

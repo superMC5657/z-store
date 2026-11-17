@@ -353,7 +353,9 @@ pub(crate) async fn sync_launchpad_discussions_core(
                 let keys: Vec<(String, u64)> = manifest
                     .items
                     .iter()
-                    .filter_map(|it| discussion_lookup_key(&it.discussion_repo, it.discussion_number))
+                    .filter_map(|it| {
+                        discussion_lookup_key(&it.discussion_repo, it.discussion_number)
+                    })
                     .collect();
                 db.get_launchpad_discussion_states_batch(&keys)
                     .unwrap_or_default()
@@ -427,7 +429,9 @@ pub(crate) async fn sync_launchpad_discussions_core(
                     || f.stars.is_some()
                     || f.forks.is_some()
                     || f.latest_version.is_some();
-                if f.target.discussion_number > 0 && !f.target.discussion_repo.is_empty() && has_state
+                if f.target.discussion_number > 0
+                    && !f.target.discussion_repo.is_empty()
+                    && has_state
                 {
                     db.upsert_launchpad_discussion_state(&LaunchpadDiscussionUpsert {
                         discussion_repo: f.target.discussion_repo.clone(),

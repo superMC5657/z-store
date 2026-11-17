@@ -41,7 +41,10 @@ async fn fresh_200_persists_snapshot_and_etag() {
         .unwrap();
     assert!(!load.is_stale);
     assert_eq!(load.manifest.items.len(), 2);
-    assert_eq!(load.manifest.items[0].icon, "", "data: icon stripped before persisting");
+    assert_eq!(
+        load.manifest.items[0].icon, "",
+        "data: icon stripped before persisting"
+    );
     let guard = db.lock().unwrap();
     assert_eq!(guard.get_etag(&url).unwrap().as_deref(), Some("W/\"v1\""));
     let (payload, _) = guard.get_launchpad_feed_cache(&url).unwrap().unwrap();
@@ -63,7 +66,13 @@ async fn not_modified_reuses_snapshot_without_rewriting_payload() {
     load_launchpad_manifest(&db, &client(), &url, None, false)
         .await
         .unwrap();
-    let before = db.lock().unwrap().get_launchpad_feed_cache(&url).unwrap().unwrap().0;
+    let before = db
+        .lock()
+        .unwrap()
+        .get_launchpad_feed_cache(&url)
+        .unwrap()
+        .unwrap()
+        .0;
 
     let load = load_launchpad_manifest(&db, &client(), &url, None, false)
         .await
@@ -71,8 +80,16 @@ async fn not_modified_reuses_snapshot_without_rewriting_payload() {
     assert!(!load.is_stale);
     assert_eq!(load.manifest.items.len(), 2);
     assert_eq!(server.hits(), 2);
-    assert!(server.requests()[1].to_ascii_lowercase().contains("if-none-match: w/\"v1\""));
-    let after = db.lock().unwrap().get_launchpad_feed_cache(&url).unwrap().unwrap().0;
+    assert!(server.requests()[1]
+        .to_ascii_lowercase()
+        .contains("if-none-match: w/\"v1\""));
+    let after = db
+        .lock()
+        .unwrap()
+        .get_launchpad_feed_cache(&url)
+        .unwrap()
+        .unwrap()
+        .0;
     assert_eq!(before, after);
 }
 
@@ -81,9 +98,15 @@ async fn force_refresh_skips_conditional_header() {
     let server = serve(|_| Reply::ok(MANIFEST).header("ETag", "W/\"v1\"")).await;
     let url = format!("{}{}", server.base, URL_PATH);
     let db = mem_db();
-    load_launchpad_manifest(&db, &client(), &url, None, false).await.unwrap();
-    load_launchpad_manifest(&db, &client(), &url, None, true).await.unwrap();
-    assert!(!server.requests()[1].to_ascii_lowercase().contains("if-none-match"));
+    load_launchpad_manifest(&db, &client(), &url, None, false)
+        .await
+        .unwrap();
+    load_launchpad_manifest(&db, &client(), &url, None, true)
+        .await
+        .unwrap();
+    assert!(!server.requests()[1]
+        .to_ascii_lowercase()
+        .contains("if-none-match"));
 }
 
 #[tokio::test]
@@ -122,12 +145,20 @@ async fn malformed_json_keeps_previous_snapshot() {
     let server = serve(|_| Reply::ok("{\"version\": 9}")).await;
     let url = format!("{}{}", server.base, URL_PATH);
     let db = mem_db();
-    db.lock().unwrap().save_launchpad_feed_cache(&url, MANIFEST).unwrap();
+    db.lock()
+        .unwrap()
+        .save_launchpad_feed_cache(&url, MANIFEST)
+        .unwrap();
     let load = load_launchpad_manifest(&db, &client(), &url, None, false)
         .await
         .unwrap();
     assert!(load.is_stale);
-    let (payload, _) = db.lock().unwrap().get_launchpad_feed_cache(&url).unwrap().unwrap();
+    let (payload, _) = db
+        .lock()
+        .unwrap()
+        .get_launchpad_feed_cache(&url)
+        .unwrap()
+        .unwrap();
     assert_eq!(payload, MANIFEST);
 }
 
@@ -143,7 +174,12 @@ async fn oversized_payload_is_rejected() {
     assert!(load_launchpad_manifest(&db, &client(), &url, None, false)
         .await
         .is_err());
-    assert!(db.lock().unwrap().get_launchpad_feed_cache(&url).unwrap().is_none());
+    assert!(db
+        .lock()
+        .unwrap()
+        .get_launchpad_feed_cache(&url)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
@@ -161,9 +197,8 @@ fn hydration_never_touches_catalog_tables_and_stamps_cataloged_items() {
     let catalog_rows = count(&db, "catalog_apps");
     let custom_rows = count(&db, "custom_apps");
 
-    let manifest = crate::launchpad::sanitize_manifest(
-        crate::launchpad::parse_manifest(MANIFEST).unwrap(),
-    );
+    let manifest =
+        crate::launchpad::sanitize_manifest(crate::launchpad::parse_manifest(MANIFEST).unwrap());
     let (_, mut items) = crate::launchpad::partition_spotlight_and_recent(&manifest, 0);
     hydrate_entries(&db, &catalog, &mut items, false, 0);
 
@@ -221,9 +256,11 @@ fn persisted_discussion_state_survives_restart_hydration_and_clears_viewer_flag_
     }"#;
     let db = Database::open_in_memory().unwrap();
     let url = "https://raw.githubusercontent.com/superMC5657/z-store-launchpad/main/launchpad.json";
-    db.save_launchpad_feed_cache(url, manifest_with_disc).unwrap();
+    db.save_launchpad_feed_cache(url, manifest_with_disc)
+        .unwrap();
     let manifest = crate::launchpad::parse_manifest(manifest_with_disc).unwrap();
-    let manifest_ts = crate::launchpad::parse_rfc3339_secs(manifest.generated_at.as_deref().unwrap()).unwrap();
+    let manifest_ts =
+        crate::launchpad::parse_rfc3339_secs(manifest.generated_at.as_deref().unwrap()).unwrap();
 
     // 用户会话内：顶帖 + 评论 2 条 + Star，写入本地 SQLite
     db.record_launchpad_upvote(
@@ -240,11 +277,13 @@ fn persisted_discussion_state_survives_restart_hydration_and_clears_viewer_flag_
     db.record_launchpad_comment_added("superMC5657/z-store-launchpad", 3, None, manifest_ts + 30)
         .unwrap();
     db.set_starred("superMC5657", "z-viewer", true).unwrap();
-    db.adjust_launchpad_repo_stars("superMC5657", "z-viewer", 1).unwrap();
+    db.adjust_launchpad_repo_stars("superMC5657", "z-viewer", 1)
+        .unwrap();
 
     // 模拟应用重启：静态 launchpad.json 仍为全 0，但从同一 SQLite 重新水合
     let catalog = crate::github::CatalogService::new_empty();
-    let (_, mut restarted) = crate::launchpad::partition_spotlight_and_recent(&manifest, manifest_ts + 60);
+    let (_, mut restarted) =
+        crate::launchpad::partition_spotlight_and_recent(&manifest, manifest_ts + 60);
     hydrate_entries(&db, &catalog, &mut restarted, true, manifest_ts);
     let zv = &restarted[0];
     assert_eq!(zv.discussion_upvotes, 1);
@@ -256,7 +295,8 @@ fn persisted_discussion_state_survives_restart_hydration_and_clears_viewer_flag_
 
     // 模拟登出后重新水合：本人态清零，公开计数保留
     crate::oauth::clear_oauth_session(&db).unwrap();
-    let (_, mut logged_out) = crate::launchpad::partition_spotlight_and_recent(&manifest, manifest_ts + 120);
+    let (_, mut logged_out) =
+        crate::launchpad::partition_spotlight_and_recent(&manifest, manifest_ts + 120);
     hydrate_entries(&db, &catalog, &mut logged_out, false, manifest_ts);
     assert_eq!(logged_out[0].discussion_upvotes, 1);
     assert_eq!(logged_out[0].discussion_comments_count, 2);
@@ -436,7 +476,14 @@ async fn partial_graphql_response_and_newer_manifest_do_not_corrupt_counts_or_re
     let v2_ts = crate::launchpad::parse_rfc3339_secs(v2.generated_at.as_deref().unwrap()).unwrap();
     db.lock()
         .unwrap()
-        .record_launchpad_upvote("superMC5657/z-store-launchpad", 3, "D_3", 5, true, v2_ts + 60)
+        .record_launchpad_upvote(
+            "superMC5657/z-store-launchpad",
+            3,
+            "D_3",
+            5,
+            true,
+            v2_ts + 60,
+        )
         .unwrap();
 
     let (_, mut items) = crate::launchpad::partition_spotlight_and_recent(&v2, v2_ts + 120);
