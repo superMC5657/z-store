@@ -53,10 +53,11 @@ pub struct RemoteCatalogFetch {
     pub via: CatalogVia,
 }
 
-struct CatalogFetchError {
-    message: String,
-    /// 传输失败 / 429 / 5xx：官方默认源可经镜像重试。
-    retryable: bool,
+/// 镜像回退主请求错误：附带是否允许经镜像重试一次的标记。
+pub(crate) struct MirrorPrimaryError {
+    pub message: String,
+    /// 传输失败 / 429 / 5xx：官方源或广场清单可经镜像重试。
+    pub retryable: bool,
 }
 
 /// 本地清单文件读取：以 mtime 合成弱 ETag，命中缓存 ETag 即视为未变更。
@@ -138,14 +139,20 @@ pub(crate) async fn fetch_with_mirror_fallback<T, P, M, MFut>(
     mirror: M,
 ) -> Result<T, String>
 where
-    P: std::future::Future<Output = Result<T, (String, bool)>>,
+    P: std::future::Future<Output = Result<T, MirrorPrimaryError>>,
     M: FnOnce(reqwest::Client, String) -> MFut,
     MFut: std::future::Future<Output = Result<T, String>>,
 {
     let primary_err = match primary.await {
         Ok(v) => return Ok(v),
-        Err((message, true)) => message,
-        Err((message, false)) => return Err(message),
+        Err(MirrorPrimaryError {
+            message,
+            retryable: true,
+        }) => message,
+        Err(MirrorPrimaryError {
+            message,
+            retryable: false,
+        }) => return Err(message),
     };
     let Some(prefix) = mirror_prefix else {
         return Err(primary_err);
@@ -162,8 +169,8 @@ async fn fetch_catalog_once(
     url: &str,
     cached_etag: Option<&str>,
     via: CatalogVia,
-) -> Result<RemoteCatalogFetch, CatalogFetchError> {
-    let fail = |message: String, retryable: bool| CatalogFetchError { message, retryable };
+) -> Result<RemoteCatalogFetch, MirrorPrimaryError> {
+    let fail = |message: String, retryable: bool| MirrorPrimaryError { message, retryable };
     let mut req = client
         .get(url)
         .header(USER_AGENT, crate::github::http::GH_USER_AGENT);
@@ -622,11 +629,8 @@ impl CatalogService {
         cached_etag: Option<&str>,
         mirror_prefix: Option<&str>,
     ) -> Result<RemoteCatalogFetch, String> {
-        let primary = async {
-            fetch_catalog_once(&self.http_client(), url, cached_etag, CatalogVia::Direct)
-                .await
-                .map_err(|e| (e.message, e.retryable))
-        };
+        let primary_client = self.http_client();
+        let primary = fetch_catalog_once(&primary_client, url, cached_etag, CatalogVia::Direct);
         // 镜像不发条件请求：恒取完整正文并严格校验，镜像无法以 304 冻结目录；
         // 镜像侧 ETag 不落库（下次同步仍以官方源为准）。
         fetch_with_mirror_fallback(primary, url, mirror_prefix, |client, mirrored| async move {

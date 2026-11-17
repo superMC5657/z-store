@@ -12,6 +12,9 @@ Blocked by: none
 - Allowed to modify:
   - `src-tauri/src/icons/mod.rs`
   - `src-tauri/src/icons/image_sniff.rs`
+  - `src-tauri/src/icons/quota_throttle.rs`
+  - `src-tauri/src/icons/singleflight.rs`
+  - `src-tauri/src/icons/tests.rs`
   - `src-tauri/src/lib.rs` (可选：启动期补齐一次 `enforce_icon_quota_lru`)
 - Do not modify:
   - `src/*`

@@ -70,14 +70,7 @@ impl<V: Clone> LruPool<V> {
 
     fn insert(&mut self, key: String, value: V) {
         if self.entries.len() >= self.cap && !self.entries.contains_key(&key) {
-            let oldest = self
-                .entries
-                .iter()
-                .min_by_key(|(_, (_, last))| *last)
-                .map(|(k, _)| k.clone());
-            if let Some(k) = oldest {
-                self.entries.remove(&k);
-            }
+            crate::evict_oldest_by_order(&mut self.entries);
         }
         let tick = self.next_tick();
         self.entries.insert(key, (value, tick));

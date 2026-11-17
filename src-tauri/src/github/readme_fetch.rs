@@ -32,13 +32,7 @@ fn insert_bounded<V>(
             map.retain(|_, (_, at)| now.saturating_sub(*at) < ttl_secs);
         }
         if map.len() >= cap {
-            let oldest = map
-                .iter()
-                .min_by_key(|(_, (_, at))| *at)
-                .map(|(k, _)| k.clone());
-            if let Some(k) = oldest {
-                map.remove(&k);
-            }
+            crate::evict_oldest_by_order(map);
         }
     }
     map.insert(key, (value, now));

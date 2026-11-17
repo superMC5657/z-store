@@ -314,7 +314,10 @@ pub async fn fetch_with_fallback(
     let first = async {
         fetch_once(primary, url, cached_etag)
             .await
-            .map_err(|e| (e.message, e.retryable))
+            .map_err(|e| crate::github::catalog_service::MirrorPrimaryError {
+                message: e.message,
+                retryable: e.retryable,
+            })
     };
     crate::github::catalog_service::fetch_with_mirror_fallback(
         first,

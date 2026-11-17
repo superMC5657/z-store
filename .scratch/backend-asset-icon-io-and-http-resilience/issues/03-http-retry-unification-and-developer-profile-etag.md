@@ -11,6 +11,8 @@ Blocked by: none
 
 - Allowed to modify:
   - `src-tauri/src/forge/http.rs`
+  - `src-tauri/src/forge/gitlab.rs`
+  - `src-tauri/src/forge/gitea.rs`
   - `src-tauri/src/github/http.rs`
   - `src-tauri/src/github/detail_fetch.rs`
   - `src-tauri/src/github/discussions.rs`
@@ -19,6 +21,7 @@ Blocked by: none
   - `src-tauri/src/github/catalog_service.rs`
   - `src-tauri/src/launchpad/mod.rs`
   - `src-tauri/src/installer/downloader_http.rs`
+  - `docs/adr/0025-dynamic-system-proxy-and-asset-cache-convergence.md`
 - Do not modify:
   - `src/*`
 

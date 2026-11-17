@@ -69,6 +69,21 @@ pub fn verify_sha256_str(actual_hex: &str, expected_hex: &str) -> bool {
     !exp.is_empty() && !act.is_empty() && act.eq_ignore_ascii_case(exp)
 }
 
+/// 从带序戳的有界映射表中驱逐序戳最小（最早写入或最久未用）的一条记录。
+pub(crate) fn evict_oldest_by_order<K, V, O>(map: &mut std::collections::HashMap<K, (V, O)>)
+where
+    K: Eq + std::hash::Hash + Clone,
+    O: Ord + Copy,
+{
+    let oldest = map
+        .iter()
+        .min_by_key(|(_, (_, order))| *order)
+        .map(|(k, _)| k.clone());
+    if let Some(k) = oldest {
+        map.remove(&k);
+    }
+}
+
 impl AppState {
     /// 集中收敛 `state.db.lock()` 样板（含毒锁映射）。
     /// `tauri::State<AppState>` 经 `Deref` 自动命中本方法，`&AppState` 直接调用。

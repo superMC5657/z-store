@@ -26,7 +26,7 @@ pub async fn get_developer_profile(
             let etag = payload
                 .as_ref()
                 .and_then(|_| db.get_etag(endpoint).ok().flatten());
-            (etag, payload)
+            crate::github::developer_profile::CachedEtagPayload { etag, payload }
         };
         (read(&user_key), read(&repos_key))
     };
@@ -37,8 +37,8 @@ pub async fn get_developer_profile(
     if !fetched.etag_writes.is_empty() || !fetched.touched.is_empty() {
         if let Ok(db) = state.db() {
             let now = crate::now_secs();
-            for (endpoint, etag, payload) in &fetched.etag_writes {
-                let _ = db.save_etag(endpoint, etag, payload, now);
+            for w in &fetched.etag_writes {
+                let _ = db.save_etag(&w.url, &w.etag, &w.payload, w.timestamp);
             }
             for endpoint in &fetched.touched {
                 let _ = db.touch_etag(endpoint, now);

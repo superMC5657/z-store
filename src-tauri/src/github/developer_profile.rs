@@ -1,18 +1,66 @@
 use super::models::{GitHubRepoResponse, GitHubUserResponse};
 use super::CatalogService;
 use crate::models::{DeveloperProfile, DeveloperRepoItem};
+use crate::repositories::EtagWrite;
 use reqwest::header::HeaderMap;
 
 pub(crate) use super::http::EtagGetOutcome;
+
+/// 调用方传入的单端点条件请求缓存（`etag` 与对应可恢复载荷）。
+#[derive(Debug, Default, Clone)]
+pub struct CachedEtagPayload {
+    pub etag: Option<String>,
+    pub payload: Option<String>,
+}
 
 /// ETag 感知的开发者画像拉取结果。
 #[derive(Debug)]
 pub struct DeveloperProfileFetch {
     pub profile: DeveloperProfile,
-    /// `200` 响应的 `(endpoint, etag, payload)`：调用方经 `save_etag` 落库。
-    pub etag_writes: Vec<(String, String, String)>,
+    /// `200` 响应的 ETag 写入记录：调用方经 `save_etag` 落库。
+    pub etag_writes: Vec<EtagWrite>,
     /// `304` 且以缓存载荷恢复的端点：调用方经 `touch_etag` 刷新检查时间。
     pub touched: Vec<String>,
+}
+
+enum EtagJsonSource {
+    Fresh,
+    Cached,
+}
+
+/// 解析 `EtagGetOutcome` 并记录 `etag_writes`（200 带 ETag）或 `touched`（304 命中缓存）。
+fn resolve_etag_json<T: serde::de::DeserializeOwned>(
+    outcome: EtagGetOutcome,
+    endpoint: &str,
+    cached_payload: Option<String>,
+    now: i64,
+    etag_writes: &mut Vec<EtagWrite>,
+    touched: &mut Vec<String>,
+) -> Result<Option<T>, (EtagJsonSource, serde_json::Error)> {
+    match outcome {
+        EtagGetOutcome::Fresh { text, etag } => {
+            let parsed: T = serde_json::from_str(&text).map_err(|e| (EtagJsonSource::Fresh, e))?;
+            if let Some(et) = etag {
+                etag_writes.push(EtagWrite {
+                    url: endpoint.to_string(),
+                    etag: et,
+                    payload: text,
+                    timestamp: now,
+                });
+            }
+            Ok(Some(parsed))
+        }
+        EtagGetOutcome::NotModified => match cached_payload {
+            Some(payload) => {
+                let parsed: T =
+                    serde_json::from_str(&payload).map_err(|e| (EtagJsonSource::Cached, e))?;
+                touched.push(endpoint.to_string());
+                Ok(Some(parsed))
+            }
+            None => Ok(None),
+        },
+        EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => Ok(None),
+    }
 }
 
 impl CatalogService {
@@ -36,13 +84,19 @@ impl CatalogService {
         // 持有 DB 的调用方使用 fetch_developer_profile_with_cache，并经
         // db.get_etag/save_etag 持久化（见 `commands::forge::get_developer_profile`）。
         Ok(self
-            .fetch_developer_profile_with_cache(developer, token, (None, None), (None, None), None)
+            .fetch_developer_profile_with_cache(
+                developer,
+                token,
+                CachedEtagPayload::default(),
+                CachedEtagPayload::default(),
+                None,
+            )
             .await?
             .profile)
     }
 
     /// ETag 感知的开发者画像拉取（与 `fetch_app_detail` 调用模式一致）：
-    /// 调用方经 SQLite `api_etag_cache` 取出 `(etag, payload)` 传入 → 本函数并发拉取
+    /// 调用方经 SQLite `api_etag_cache` 取出 `CachedEtagPayload` 传入 → 本函数并发拉取
     /// `/users/{dev}` 与 `/users/{dev}/repos` 并发送 `If-None-Match` → 304 时用 payload 恢复
     /// 并列入 `touched` → 200 时列入 `etag_writes` 供调用方持久化。
     /// 带 Token 请求命中 401 时上报登录过期；失败/限流时降级 catalog 兜底。
@@ -50,8 +104,8 @@ impl CatalogService {
         &self,
         developer: &str,
         token: Option<&str>,
-        user_cache: (Option<String>, Option<String>),
-        repos_cache: (Option<String>, Option<String>),
+        user_cache: CachedEtagPayload,
+        repos_cache: CachedEtagPayload,
         api_base: Option<&str>,
     ) -> Result<DeveloperProfileFetch, String> {
         let dev = developer.trim();
@@ -65,16 +119,20 @@ impl CatalogService {
 
         let user_key = Self::dev_user_endpoint(dev);
         let repos_key = Self::dev_repos_endpoint(dev);
-        let (user_etag, user_payload) = user_cache;
-        let (repos_etag, repos_payload) = repos_cache;
         let (user_outcome, repos_outcome) = tokio::join!(
-            Self::get_with_etag(&client, &user_key, api_base, &headers, user_etag.as_deref()),
+            Self::get_with_etag(
+                &client,
+                &user_key,
+                api_base,
+                &headers,
+                user_cache.etag.as_deref(),
+            ),
             Self::get_with_etag(
                 &client,
                 &repos_key,
                 api_base,
                 &headers,
-                repos_etag.as_deref(),
+                repos_cache.etag.as_deref(),
             ),
         );
         let has_token = token.is_some_and(|t| !t.trim().is_empty());
@@ -84,29 +142,22 @@ impl CatalogService {
         {
             crate::check_auth_expired(401, "developer_profile");
         }
-        let mut etag_writes: Vec<(String, String, String)> = Vec::new();
+        let now = crate::now_secs();
+        let mut etag_writes: Vec<EtagWrite> = Vec::new();
         let mut touched: Vec<String> = Vec::new();
 
-        let parsed_user: Option<GitHubUserResponse> = match user_outcome {
-            EtagGetOutcome::Fresh { text, etag } => {
-                let user: GitHubUserResponse = serde_json::from_str(&text)
-                    .map_err(|e| format!("解析 GitHub 用户数据失败: {}", e))?;
-                if let Some(et) = etag {
-                    etag_writes.push((user_key.clone(), et, text));
-                }
-                Some(user)
-            }
-            EtagGetOutcome::NotModified => match user_payload {
-                Some(payload) => {
-                    let user: GitHubUserResponse = serde_json::from_str(&payload)
-                        .map_err(|e| format!("解析本地 ETag 缓存失败: {}", e))?;
-                    touched.push(user_key.clone());
-                    Some(user)
-                }
-                None => None,
-            },
-            EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => None,
-        };
+        let parsed_user: Option<GitHubUserResponse> = resolve_etag_json(
+            user_outcome,
+            &user_key,
+            user_cache.payload,
+            now,
+            &mut etag_writes,
+            &mut touched,
+        )
+        .map_err(|(src, e)| match src {
+            EtagJsonSource::Fresh => format!("解析 GitHub 用户数据失败: {}", e),
+            EtagJsonSource::Cached => format!("解析本地 ETag 缓存失败: {}", e),
+        })?;
 
         let (
             login,
@@ -160,24 +211,16 @@ impl CatalogService {
         };
 
         // 仓库列表（ETag 条件请求：304 时用缓存 payload 恢复，失败时走 catalog 兜底）
-        let repo_items: Vec<GitHubRepoResponse> = match repos_outcome {
-            EtagGetOutcome::Fresh { text, etag } => {
-                let items: Vec<GitHubRepoResponse> =
-                    serde_json::from_str(&text).unwrap_or_default();
-                if let Some(et) = etag {
-                    etag_writes.push((repos_key.clone(), et, text));
-                }
-                items
-            }
-            EtagGetOutcome::NotModified => match repos_payload {
-                Some(payload) => {
-                    touched.push(repos_key.clone());
-                    serde_json::from_str(&payload).unwrap_or_default()
-                }
-                None => Vec::new(),
-            },
-            EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => Vec::new(),
-        };
+        let repo_items: Vec<GitHubRepoResponse> = resolve_etag_json(
+            repos_outcome,
+            &repos_key,
+            repos_cache.payload,
+            now,
+            &mut etag_writes,
+            &mut touched,
+        )
+        .unwrap_or(None)
+        .unwrap_or_default();
 
         let mut repos: Vec<DeveloperRepoItem> = Vec::new();
         let catalog_list = self.get_catalog_items();
@@ -269,6 +312,7 @@ impl CatalogService {
 
 #[cfg(test)]
 mod developer_profile_tests {
+    use super::CachedEtagPayload;
     use crate::github::developer_starred::test_support::*;
     use std::collections::HashMap;
     #[tokio::test]
@@ -296,8 +340,14 @@ mod developer_profile_tests {
         );
         let srv = spawn_mock(routes).await;
         let svc = test_service();
-        let user_cache = (Some("\"cached-user-etag\"".to_string()), None);
-        let repos_cache = (Some("\"cached-repos-etag\"".to_string()), None);
+        let user_cache = CachedEtagPayload {
+            etag: Some("\"cached-user-etag\"".to_string()),
+            payload: None,
+        };
+        let repos_cache = CachedEtagPayload {
+            etag: Some("\"cached-repos-etag\"".to_string()),
+            payload: None,
+        };
         let fetched = svc
             .fetch_developer_profile_with_cache(
                 "someone",
@@ -322,13 +372,13 @@ mod developer_profile_tests {
                 .as_deref(),
             Some("\"cached-repos-etag\"")
         );
-        // 200 响应必须返回全新的 (endpoint, etag, payload)，供调用方通过 save_etag 进行持久化。
+        // 200 响应必须返回全新的 ETag 写入记录，供调用方通过 save_etag 进行持久化。
         let etag_of = |suffix: &str| {
             fetched
                 .etag_writes
                 .iter()
-                .find(|(u, _, _)| u.ends_with(suffix))
-                .map(|(_, e, _)| e.clone())
+                .find(|w| w.url.ends_with(suffix))
+                .map(|w| w.etag.clone())
         };
         assert_eq!(
             etag_of("/users/someone").as_deref(),
@@ -366,11 +416,14 @@ mod developer_profile_tests {
         );
         let srv = spawn_mock(routes).await;
         let svc = test_service();
-        let user_cache = (
-            Some("\"user-etag-1\"".to_string()),
-            Some(user_json("someone")),
-        );
-        let repos_cache = (Some("\"repos-etag-1\"".to_string()), Some(repos_json()));
+        let user_cache = CachedEtagPayload {
+            etag: Some("\"user-etag-1\"".to_string()),
+            payload: Some(user_json("someone")),
+        };
+        let repos_cache = CachedEtagPayload {
+            etag: Some("\"repos-etag-1\"".to_string()),
+            payload: Some(repos_json()),
+        };
         let fetched = svc
             .fetch_developer_profile_with_cache(
                 "someone",
@@ -381,7 +434,7 @@ mod developer_profile_tests {
             )
             .await
             .unwrap();
-        // 响应 304 时：沿用缓存载荷，无需持久化新的缓存元组，两个端点均需刷新检查时间。
+        // 响应 304 时：沿用缓存载荷，无需持久化新的缓存条目，两个端点均需刷新检查时间。
         let profile = &fetched.profile;
         assert_eq!(profile.login, "someone");
         assert!(fetched.etag_writes.is_empty());
@@ -433,8 +486,8 @@ mod developer_profile_tests {
             .fetch_developer_profile_with_cache(
                 "someone",
                 None,
-                (None, None),
-                (None, None),
+                CachedEtagPayload::default(),
+                CachedEtagPayload::default(),
                 Some(&srv.base),
             )
             .await
@@ -471,8 +524,8 @@ mod developer_profile_tests {
             .fetch_developer_profile_with_cache(
                 "someone",
                 None,
-                (None, None),
-                (None, None),
+                CachedEtagPayload::default(),
+                CachedEtagPayload::default(),
                 Some(&srv.base),
             )
             .await
