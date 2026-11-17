@@ -542,6 +542,10 @@ impl AppScanner {
         let repo_base = repo_str.rsplit('/').next().unwrap_or(repo_str);
         let mut config = ScanConfig::from(repo_base);
 
+        #[cfg_attr(
+            not(any(target_os = "windows", target_os = "linux")),
+            allow(unused_variables)
+        )]
         let tokens = Self::build_tokens(app_name, app_id, repo_str, &mut config);
 
         // 1. Windows 注册表深度检索 (HKLM, Wow6432Node, HKCU)

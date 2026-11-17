@@ -454,7 +454,7 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
         );
         // 4b-1. desktop Exec 解析（全仓唯一 walker，见 scanner）
         if let Some(found) = crate::scanner::AppScanner::resolve_linux_via_desktop(&bare_names) {
-            if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "桌面文件")?
+            if spawn_and_backfill(state, &installed_app_opt, &target_path, &found, "桌面文件")?
             {
                 return Ok(true);
             }
@@ -465,7 +465,7 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
                 continue;
             }
             if let Some(found) = crate::scanner::AppScanner::which_binary(name) {
-                if spawn_and_backfill(&state, &installed_app_opt, &target_path, &found, "PATH")? {
+                if spawn_and_backfill(state, &installed_app_opt, &target_path, &found, "PATH")? {
                     return Ok(true);
                 }
             }
