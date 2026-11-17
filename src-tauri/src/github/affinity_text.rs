@@ -210,6 +210,19 @@ fn is_cjk(c: char) -> bool {
     ('\u{4E00}'..='\u{9FFF}').contains(&c)
 }
 
+fn strip_url_in_chunk(chunk: &str) -> &str {
+    let bytes = chunk.as_bytes();
+    for i in 0..bytes.len() {
+        let rest = &bytes[i..];
+        if (rest.len() >= 7 && rest[..7].eq_ignore_ascii_case(b"http://"))
+            || (rest.len() >= 8 && rest[..8].eq_ignore_ascii_case(b"https://"))
+        {
+            return &chunk[..i];
+        }
+    }
+    chunk
+}
+
 /// 去掉 `http://` / `https://` 起始的 URL 片段（到下一个空白为止）。
 fn strip_urls(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -217,15 +230,7 @@ fn strip_urls(text: &str) -> String {
         if i > 0 {
             out.push(' ');
         }
-        let lower = chunk.to_ascii_lowercase();
-        let cut = [lower.find("http://"), lower.find("https://")]
-            .into_iter()
-            .flatten()
-            .min();
-        match cut {
-            Some(pos) => out.push_str(&chunk[..pos]),
-            None => out.push_str(chunk),
-        }
+        out.push_str(strip_url_in_chunk(chunk));
     }
     out
 }
@@ -273,48 +278,107 @@ fn push_cjk_bigrams(run: &[char], out: &mut Vec<String>, seen: &mut HashSet<Stri
     }
 }
 
-/// 中英双语分词：剥离 URL；英文按非字母数字切分（保留词内 `+`，如 `c++`），
-/// 长度 ≥ 3 或命中短技术词白名单，过滤停用词与纯数字；连续汉字按双字滑窗切分并过滤泛化词。
-/// 结果按首次出现顺序去重。
-pub fn extract_tokens(text: &str) -> Vec<String> {
-    let cleaned = strip_urls(text);
+fn flush_ascii(buf: &mut String, out: &mut Vec<String>, seen: &mut HashSet<String>) {
+    if buf.is_empty() {
+        return;
+    }
+    let tok = buf.trim_start_matches('+').to_ascii_lowercase();
+    buf.clear();
+    if keep_ascii_token(&tok) && seen.insert(tok.clone()) {
+        out.push(tok);
+    }
+}
+
+fn feed_chunk_tokens(
+    chunk: &str,
+    out: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    ascii: &mut String,
+    cjk: &mut Vec<char>,
+) {
+    for c in strip_url_in_chunk(chunk).chars() {
+        if c.is_ascii_alphanumeric() || c == '+' {
+            if !cjk.is_empty() {
+                push_cjk_bigrams(cjk, out, seen);
+                cjk.clear();
+            }
+            ascii.push(c);
+        } else if is_cjk(c) {
+            flush_ascii(ascii, out, seen);
+            cjk.push(c);
+        } else {
+            flush_ascii(ascii, out, seen);
+            if !cjk.is_empty() {
+                push_cjk_bigrams(cjk, out, seen);
+                cjk.clear();
+            }
+        }
+    }
+    flush_ascii(ascii, out, seen);
+    if !cjk.is_empty() {
+        push_cjk_bigrams(cjk, out, seen);
+        cjk.clear();
+    }
+}
+
+/// 分段提取去重词元（等价于以空格拼接各段后再调用 `extract_tokens`，但不分配拼接串）。
+pub fn extract_tokens_from_parts<'a>(parts: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     let mut out = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut ascii = String::new();
     let mut cjk: Vec<char> = Vec::new();
 
-    let flush_ascii = |buf: &mut String, out: &mut Vec<String>, seen: &mut HashSet<String>| {
-        if buf.is_empty() {
-            return;
-        }
-        let tok = buf.trim_start_matches('+').to_ascii_lowercase();
-        buf.clear();
-        if keep_ascii_token(&tok) && seen.insert(tok.clone()) {
-            out.push(tok);
-        }
-    };
-
-    for c in cleaned.chars() {
-        if c.is_ascii_alphanumeric() || c == '+' {
-            if !cjk.is_empty() {
-                push_cjk_bigrams(&cjk, &mut out, &mut seen);
-                cjk.clear();
-            }
-            ascii.push(c);
-        } else if is_cjk(c) {
-            flush_ascii(&mut ascii, &mut out, &mut seen);
-            cjk.push(c);
-        } else {
-            flush_ascii(&mut ascii, &mut out, &mut seen);
-            if !cjk.is_empty() {
-                push_cjk_bigrams(&cjk, &mut out, &mut seen);
-                cjk.clear();
-            }
+    for part in parts {
+        for chunk in part.split_whitespace() {
+            feed_chunk_tokens(chunk, &mut out, &mut seen, &mut ascii, &mut cjk);
         }
     }
-    flush_ascii(&mut ascii, &mut out, &mut seen);
-    push_cjk_bigrams(&cjk, &mut out, &mut seen);
     out
+}
+
+/// 中英双语分词：剥离 URL；英文按非字母数字切分（保留词内 `+`，如 `c++`），
+/// 长度 ≥ 3 或命中短技术词白名单，过滤停用词与纯数字；连续汉字按双字滑窗切分并过滤泛化词。
+/// 结果按首次出现顺序去重。
+pub fn extract_tokens(text: &str) -> Vec<String> {
+    extract_tokens_from_parts(std::iter::once(text))
+}
+
+/// 分段提取应用词元（名称、仓库、别名与中英简介），避免无谓的文本拼接分配。
+pub fn extract_app_tokens(
+    name: &str,
+    repo: &str,
+    description: &str,
+    description_en: Option<&str>,
+    aliases: &[String],
+) -> Vec<String> {
+    extract_tokens_from_parts(
+        [name, repo]
+            .into_iter()
+            .chain(aliases.iter().map(String::as_str))
+            .chain([description, description_en.unwrap_or("")]),
+    )
+}
+
+/// 提取目录条目的词元（含别名）。
+pub fn extract_catalog_item_tokens(item: &CatalogItem) -> Vec<String> {
+    extract_app_tokens(
+        &item.name,
+        &item.repo,
+        &item.description,
+        item.description_en.as_deref(),
+        &item.aliases,
+    )
+}
+
+/// 提取精选候选的词元。
+pub fn extract_summary_tokens(app: &AppSummary, aliases: &[String]) -> Vec<String> {
+    extract_app_tokens(
+        &app.core.name,
+        &app.core.repo,
+        &app.core.description,
+        app.core.description_en.as_deref(),
+        aliases,
+    )
 }
 
 /// 应用参与画像词袋、IDF 与相似度计算的文本：名称、仓库、别名与中英简介。
@@ -367,7 +431,19 @@ pub struct CatalogIdf {
 
 impl CatalogIdf {
     pub fn from_catalog(items: &[CatalogItem]) -> Self {
-        Self::from_texts(items.iter().map(catalog_item_text))
+        Self::from_catalog_iter(items.iter())
+    }
+
+    pub fn from_catalog_iter<'a>(items: impl IntoIterator<Item = &'a CatalogItem>) -> Self {
+        let mut docs = 0usize;
+        let mut df: HashMap<String, usize> = HashMap::new();
+        for item in items {
+            docs += 1;
+            for tok in extract_catalog_item_tokens(item) {
+                *df.entry(tok).or_insert(0) += 1;
+            }
+        }
+        Self { docs, df }
     }
 
     /// 每条文本视为一个文档。
@@ -1214,5 +1290,18 @@ mod tests {
         assert_eq!(cats[0].0, "system");
         let cats = infer_categories("", "using box layouts", "a/b");
         assert!(!cats.iter().any(|(c, _)| *c == "network"), "{cats:?}");
+    }
+
+    #[test]
+    fn extract_parts_matches_joined_text_tokenization() {
+        let aliases = vec!["CodePad".to_string(), "C++".to_string()];
+        let name = "MyEditor";
+        let repo = "my-editor";
+        let desc = "开源编辑器 https://example.com/path 视频播放";
+        let desc_en = Some("Fast editor prefixHTTP://ignored and c++");
+
+        let direct = extract_app_tokens(name, repo, desc, desc_en, &aliases);
+        let joined = extract_tokens(&app_text(name, repo, desc, desc_en, &aliases));
+        assert_eq!(direct, joined);
     }
 }

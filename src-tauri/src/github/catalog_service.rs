@@ -253,7 +253,7 @@ impl CatalogBucket {
         let mut index = HashMap::with_capacity(items.len());
         let mut by_repo: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, item) in items.iter().enumerate() {
-            index.entry(item.id.clone()).or_insert(i);
+            index.entry(item.id.to_lowercase()).or_insert(i);
             by_repo.entry(item.repo.to_lowercase()).or_default().push(i);
         }
         Self {
@@ -263,26 +263,32 @@ impl CatalogBucket {
         }
     }
 
-    pub(crate) fn items(&self) -> &[CatalogItem] {
-        &self.items
+    fn lookup_index(&self, key: &str) -> Option<usize> {
+        if let Some(&i) = self.index.get(key) {
+            return Some(i);
+        }
+        if key.chars().any(char::is_uppercase) {
+            return self.index.get(&key.to_lowercase()).copied();
+        }
+        None
     }
 
     pub(crate) fn get(&self, key: &str) -> Option<&CatalogItem> {
-        self.index.get(key).map(|&i| &self.items[i])
+        self.lookup_index(key).map(|i| &self.items[i])
     }
 
     fn get_mut(&mut self, key: &str) -> Option<&mut CatalogItem> {
-        let i = *self.index.get(key)?;
+        let i = self.lookup_index(key)?;
         self.items.get_mut(i)
     }
 
     pub(crate) fn contains(&self, key: &str) -> bool {
-        self.index.contains_key(key)
+        self.lookup_index(key).is_some()
     }
 
     /// 下标 `i` 是否为该 `id` 在本侧的首次出现（同侧重复 id 只认第一条）。
     fn is_first(&self, i: usize) -> bool {
-        self.index.get(self.items[i].id.as_str()) == Some(&i)
+        self.lookup_index(self.items[i].id.as_str()) == Some(i)
     }
 }
 
@@ -302,10 +308,6 @@ pub struct CatalogStore {
 }
 
 impl CatalogStore {
-    pub(crate) fn remote(&self) -> &CatalogBucket {
-        &self.remote
-    }
-
     /// 合并目录按序遍历：远端全部行在前，本地收录仅取远端缺席且同侧首次出现的行。
     pub(crate) fn merged(&self) -> impl Iterator<Item = (&CatalogItem, MergedOrigin)> + '_ {
         let remote = self.remote.items.iter().map(move |item| {
@@ -359,11 +361,11 @@ impl CatalogStore {
         self.derived
             .get_or_init(|| {
                 let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
-                let idf = CatalogIdf::from_texts(self.merged().map(|(item, _)| {
+                let idf = CatalogIdf::from_catalog_iter(self.merged().map(|(item, _)| {
                     if !item.aliases.is_empty() {
                         aliases.insert(item.id.to_lowercase(), item.aliases.clone());
                     }
-                    crate::github::affinity_text::catalog_item_text(item)
+                    item
                 }));
                 Arc::new(CatalogDerived {
                     idf: Arc::new(idf),
@@ -637,6 +639,23 @@ impl CatalogService {
         }
     }
 
+    /// 合并目录行按来源投影为已盖章的 `AppSummary`。
+    fn project_merged_summary(item: &CatalogItem, origin: MergedOrigin) -> AppSummary {
+        let mut summary = item.to_summary();
+        Self::stamp_merged(&mut summary.core, origin);
+        summary
+    }
+
+    /// 远端目录中归属 `owner`（大小写不敏感）的条目数。
+    pub(crate) fn count_remote_by_owner(&self, owner: &str) -> usize {
+        self.read_store()
+            .remote
+            .items
+            .iter()
+            .filter(|i| i.owner.eq_ignore_ascii_case(owner))
+            .count()
+    }
+
     /// 收录态决议（盖章唯一口径）：
     /// - 远端已验证 → `remote`（蓝标优先，本地同 id 不降级）；
     /// - 本地收录（含远端未验证同仓补位）→ `local` + `status=collected`；
@@ -688,11 +707,7 @@ impl CatalogService {
         store
             .merged()
             .filter(|(item, _)| pred(item))
-            .map(|(item, origin)| {
-                let mut summary = item.to_summary();
-                Self::stamp_merged(&mut summary.core, origin);
-                summary
-            })
+            .map(|(item, origin)| Self::project_merged_summary(item, origin))
             .collect()
     }
 
@@ -882,18 +897,18 @@ impl CatalogService {
     pub fn search_local_catalog(&self, query: &str) -> Vec<AppSummary> {
         let q = query.trim().to_lowercase();
         let store = self.read_store();
-        let project = |(item, origin): (&CatalogItem, MergedOrigin)| {
-            let mut summary = item.to_summary();
-            Self::stamp_merged(&mut summary.core, origin);
-            summary
-        };
         let by_stars_desc = |mut rows: Vec<AppSummary>| {
             rows.sort_by_key(|b| std::cmp::Reverse(b.core.stars));
             rows
         };
 
         if q.is_empty() {
-            return by_stars_desc(store.merged().map(project).collect());
+            return by_stars_desc(
+                store
+                    .merged()
+                    .map(|(item, origin)| Self::project_merged_summary(item, origin))
+                    .collect(),
+            );
         }
 
         let mut category_hits: Vec<(&CatalogItem, MergedOrigin)> = Vec::new();
@@ -912,13 +927,18 @@ impl CatalogService {
         }
 
         if !category_hits.is_empty() {
-            return by_stars_desc(category_hits.into_iter().map(project).collect());
+            return by_stars_desc(
+                category_hits
+                    .into_iter()
+                    .map(|(item, origin)| Self::project_merged_summary(item, origin))
+                    .collect(),
+            );
         }
 
         keyword_hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.stars.cmp(&a.1.stars)));
         keyword_hits
             .into_iter()
-            .map(|(_, item, origin)| project((item, origin)))
+            .map(|(_, item, origin)| Self::project_merged_summary(item, origin))
             .collect()
     }
 
@@ -1591,5 +1611,39 @@ mod tests {
                 assert_eq!(from_store.idf.weight(tok), from_slice.idf.weight(tok));
             }
         }
+    }
+
+    #[test]
+    fn test_mixed_case_bucket_ids_and_owner_count() {
+        let mut remote_mixed = item("Acme/Tool", "Acme", "Tool");
+        remote_mixed.description = "remote tool".to_string();
+        let remote_other = item("other/app", "other", "app");
+        let svc = test_service(vec![remote_mixed, remote_other]);
+        svc.set_collected_items(vec![
+            item("acme/tool", "acme", "tool"),
+            item("Local/App", "Local", "App"),
+        ]);
+
+        assert_eq!(svc.count_remote_by_owner("acme"), 1);
+        assert_eq!(svc.count_remote_by_owner("local"), 0);
+        assert!(svc.is_cataloged("acme/tool"));
+        assert!(svc.is_cataloged("local/app"));
+        assert_eq!(svc.get_catalog_item("acme/tool").map(|i| i.description), Some("remote tool".to_string()));
+
+        let merged = svc.merged_summaries();
+        let ids: Vec<&str> = merged.iter().map(|s| s.core.id.as_str()).collect();
+        assert_eq!(ids, vec!["Acme/Tool", "other/app", "Local/App"]);
+
+        let raw = crate::db::RawAffinitySignals {
+            favorites: vec![("local/app".to_string(), 1_700_000_000)],
+            ..Default::default()
+        };
+        let profile = svc.build_affinity_profile(
+            &raw,
+            1_700_000_000,
+            crate::github::affinity::AffinitySources::ALL,
+        );
+        assert_eq!(profile.seeds.len(), 1);
+        assert_eq!(profile.seeds[0].id, "local/app");
     }
 }

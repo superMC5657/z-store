@@ -816,17 +816,21 @@ impl ChannelAcc {
     }
 
     /// 词元权重乘以目录 IDF，泛化词贡献被压低。
-    fn add_tokens(&mut self, text: &str, w: f64, idf: &CatalogIdf) {
-        for tok in extract_affinity_tokens(text) {
+    fn add_token_list(&mut self, tokens: Vec<String>, w: f64, idf: &CatalogIdf) {
+        for tok in tokens {
             let tw = w * idf.weight(&tok);
             *self.raw_tokens.entry(tok).or_insert(0.0) += tw;
         }
     }
 
+    fn add_tokens(&mut self, text: &str, w: f64, idf: &CatalogIdf) {
+        self.add_token_list(extract_affinity_tokens(text), w, idf);
+    }
+
     fn add_catalog_item(&mut self, item: &CatalogItem, w: f64, idf: &CatalogIdf) {
         self.add_category(&item.category, w);
         self.add_owner(&item.owner, w);
-        self.add_tokens(&affinity_text::catalog_item_text(item), w, idf);
+        self.add_token_list(affinity_text::extract_catalog_item_tokens(item), w, idf);
     }
 
     /// 未命中目录的本地应用：优先用 `app_details` 概要，否则只凭 `owner/repo`。
@@ -1315,8 +1319,7 @@ impl UserAffinityProfile {
         };
 
         // 候选文本不含别名（spec §3.3：name + repo + 中英简介）
-        let app_text = affinity_text::summary_text(app, &[]);
-        let mut matched: Vec<(String, f64)> = extract_affinity_tokens(&app_text)
+        let mut matched: Vec<(String, f64)> = affinity_text::extract_summary_tokens(app, &[])
             .into_iter()
             .filter_map(|t| {
                 let w = self.token_weights.get(&t).copied()? * self.idf.weight(&t);
@@ -1405,7 +1408,7 @@ impl UserAffinityProfile {
         {
             return r;
         }
-        let tokens = |a: &AppSummary| extract_affinity_tokens(&affinity_text::summary_text(a, &[]));
+        let tokens = |a: &AppSummary| affinity_text::extract_summary_tokens(a, &[]);
         let seed_toks: HashSet<String> = tokens(seed).into_iter().collect();
         let mut shared: Vec<(String, f64)> = tokens(candidate)
             .into_iter()
@@ -1444,7 +1447,7 @@ fn similarity_tokens(
         .and_then(|m| m.get(&app.core.id.to_lowercase()))
         .map(Vec::as_slice)
         .unwrap_or(&[]);
-    extract_affinity_tokens(&affinity_text::summary_text(app, aliases))
+    affinity_text::extract_summary_tokens(app, aliases)
 }
 
 /// 候选应用与推荐种子的相似度：

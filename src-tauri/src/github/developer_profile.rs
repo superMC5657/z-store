@@ -210,13 +210,7 @@ impl CatalogService {
             )
         } else {
             // 离线/限流降级：仅以收录库归属计数作画像提示，不伪造远端数据
-            let matched_count = self
-                .read_store()
-                .remote()
-                .items()
-                .iter()
-                .filter(|i| i.owner.eq_ignore_ascii_case(dev))
-                .count();
+            let matched_count = self.count_remote_by_owner(dev);
 
             (
                 dev.to_string(),
