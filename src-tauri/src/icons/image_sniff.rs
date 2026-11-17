@@ -24,7 +24,8 @@ const MAGIC_PREFIXES: &[(&[u8], &str)] = &[
 /// 由 [`MAGIC_PREFIXES`] 及容器/文本分支嗅探 MIME；未知返回 `None`（调用方决定回退）。
 /// - WEBP：`RIFF....WEBP`（偏移 8 处 4 字节，需 len > 12）；
 /// - AVIF：`....ftypavif/avis`（偏移 4/8，需 len >= 12）；
-/// - SVG：去 UTF-8 BOM + 跳过前导 ASCII 空白后，以 `<?xml` / `<svg` 开头。
+/// - SVG：去 UTF-8 BOM + 跳过前导 ASCII 空白后，以 `<svg` 开头；或以 `<?xml` 开头且
+///   前 [`SVG_XML_SCAN_BYTES`] 字节内出现 `<svg` 标签（排除 RSS/Atom 等普通 XML）。
 pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     for &(magic, mime) in MAGIC_PREFIXES {
         if bytes.starts_with(magic) {
@@ -45,11 +46,20 @@ pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
         Some(idx) => &trimmed[idx..],
         None => trimmed,
     };
-    if trimmed.starts_with(b"<?xml") || trimmed.starts_with(b"<svg") {
+    if trimmed.starts_with(b"<svg") {
         return Some("image/svg+xml");
+    }
+    if trimmed.starts_with(b"<?xml") {
+        let window = &trimmed[..trimmed.len().min(SVG_XML_SCAN_BYTES)];
+        if window.windows(4).any(|w| w == b"<svg") {
+            return Some("image/svg+xml");
+        }
     }
     None
 }
+
+/// `<?xml` 开头内容查找 `<svg` 标签的窗口：覆盖 XML 声明、DOCTYPE 与前置注释。
+const SVG_XML_SCAN_BYTES: usize = 16 * 1024;
 
 /// 嗅探失败回退 `image/png`（调用方无需判空）。
 pub fn detect_image_mime(bytes: &[u8]) -> &'static str {
@@ -245,6 +255,21 @@ mod tests {
         assert_eq!(
             sniff_image_mime(b"\xef\xbb\xbf<svg></svg>"),
             Some("image/svg+xml")
+        );
+        assert_eq!(
+            sniff_image_mime(
+                b"<?xml version='1.0'?>\n<!DOCTYPE svg PUBLIC '-//W3C//DTD SVG 1.1//EN'>\n<svg/>"
+            ),
+            Some("image/svg+xml")
+        );
+        // 非 SVG 的 XML（RSS / 错误页）不得识别为图片。
+        assert_eq!(
+            sniff_image_mime(b"<?xml version='1.0'?><rss><channel/></rss>"),
+            None
+        );
+        assert_eq!(
+            sniff_image_mime(b"<?xml version='1.0'?><Error><Code>NoSuchKey</Code></Error>"),
+            None
         );
         assert_eq!(sniff_image_mime(b"Hello World"), None);
         assert_eq!(detect_image_mime(b"Hello World"), "image/png");

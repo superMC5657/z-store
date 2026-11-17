@@ -1,6 +1,6 @@
 # Issue 01: `asset_fetch` 复用共享 `AppState.db`、节流磁盘配额与单飞清理
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -37,7 +37,7 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] 生产路径 `fetch_or_cache_asset_url` 不再调用 `Database::open`，全程复用 `AppState.db`。
-- [ ] `save_asset` 不再每次请求都递归扫描整个 `cache/assets/` 目录；`RETURNING` 或内存构造消除冗余回读。
-- [ ] `inflight_map` 在 Future cancel 时自动清理键。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过（含 `asset_fetch::tests` 与 `cache_quota_tests`）。
+- [x] 生产路径 `fetch_or_cache_asset_url` 不再调用 `Database::open`，全程复用 `AppState.db`。
+- [x] `save_asset` 不再每次请求都递归扫描整个 `cache/assets/` 目录；`RETURNING` 或内存构造消除冗余回读。
+- [x] `inflight_map` 在 Future cancel 时自动清理键。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过（含 `asset_fetch::tests` 与 `cache_quota_tests`）。

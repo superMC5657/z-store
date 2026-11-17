@@ -406,3 +406,88 @@ fn search_resolve_falls_back_to_selected_url_and_level4_requires_disk_file() {
     assert_eq!(healed.cache_file, fname);
     let _ = std::fs::remove_file(&disk_path);
 }
+
+#[test]
+fn base64_encode_matches_reference_for_all_remainders() {
+    // 覆盖 0/1/2 余数与全部字节值（含 `+` `/` 字母表尾部）。
+    let data: Vec<u8> = (0u8..=255).collect();
+    for len in 0..data.len() {
+        let got = base64_encode(&data[..len]);
+        assert_eq!(got.len(), len.div_ceil(3) * 4);
+        assert!(got.is_ascii());
+    }
+    assert_eq!(base64_encode(b"\xfb\xff\xbf"), "+/+/");
+    assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+    assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+    assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+}
+
+#[test]
+fn write_icon_file_failure_keeps_old_files_and_meta() {
+    let db = Database::open_in_memory().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let missing_dir = root.path().join("absent");
+    let png = b"\x89PNG\r\n\x1a\n12345678";
+    let url = "https://example.com/fail.png";
+    let fname = write_icon_file(
+        &missing_dir,
+        Some(&db),
+        &IconRef::new(url, "png"),
+        true,
+        png,
+    );
+    assert!(fname.is_empty(), "write into a missing dir must fail");
+    let expected = hash_icon_filename(url, "png");
+    assert_eq!(db.get_icon_cache_url(&expected).unwrap(), None);
+
+    let icons_dir = root.path().join("icons");
+    std::fs::create_dir_all(&icons_dir).unwrap();
+    let ok = write_icon_file(&icons_dir, Some(&db), &IconRef::new(url, "png"), true, png);
+    assert_eq!(ok, expected);
+    assert!(icons_dir.join(&ok).is_file());
+    assert_eq!(db.get_icon_cache_url(&ok).unwrap().as_deref(), Some(url));
+}
+
+#[tokio::test]
+async fn cache_icon_url_shared_downloads_once_for_concurrent_requests() {
+    use crate::test_support::{serve, Reply};
+    let server = serve(|_| {
+        Reply::ok(&b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR"[..]).header("Content-Type", "image/png")
+    })
+    .await;
+    let url = format!("{}/shared-icon.png", server.base);
+    let db = std::sync::Mutex::new(Database::open_in_memory().unwrap());
+    let root = tempfile::tempdir().unwrap();
+    let client = reqwest::Client::new();
+    let (a, b) = tokio::join!(
+        cache_icon_url_shared(&db, &client, root.path(), &url, false),
+        cache_icon_url_shared(&db, &client, root.path(), &url, false)
+    );
+    let a = a.expect("cached");
+    assert_eq!(Some(a.clone()), b);
+    assert_eq!(server.hits(), 1, "same selected_url downloads once");
+    assert!(root.path().join(&a).is_file());
+}
+
+#[tokio::test]
+async fn get_or_fetch_icon_rejects_non_image_data_uri() {
+    let state = crate::AppState {
+        db: std::sync::Arc::new(std::sync::Mutex::new(Database::open_in_memory().unwrap())),
+        catalog: crate::github::CatalogService::new_empty(),
+        mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
+        github_token: std::sync::Mutex::new(None),
+        sync_lock: tokio::sync::Mutex::new(()),
+    };
+    let img = "DATA:image/png;base64,AAAA";
+    assert_eq!(
+        get_or_fetch_icon(&state, None, img.to_string())
+            .await
+            .unwrap(),
+        img
+    );
+    assert!(
+        get_or_fetch_icon(&state, None, "data:text/html,<b>x</b>".to_string())
+            .await
+            .is_err()
+    );
+}

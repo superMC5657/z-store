@@ -1,6 +1,6 @@
 # Issue 02: Icon 落盘 LRU 节流、`spawn_cache_selected_icon` 单飞去重与 Base64 编码优化
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -35,6 +35,6 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `write_icon_file` 不再在每次写图标时遍历整个 `icons/` 目录，且不持有 `AppState.db` 锁执行磁盘遍历。
-- [ ] `spawn_cache_selected_icon` 对同一 `selected_url` 并发请求去重为单次网络下载。
-- [ ] `icons::tests` 与全量 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
+- [x] `write_icon_file` 不再在每次写图标时遍历整个 `icons/` 目录，且不持有 `AppState.db` 锁执行磁盘遍历。
+- [x] `spawn_cache_selected_icon` 对同一 `selected_url` 并发请求去重为单次网络下载。
+- [x] `icons::tests` 与全量 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。

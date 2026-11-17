@@ -1,6 +1,6 @@
 # Issue 03: HTTP D7 重试契约统一、开发者画像接入 `ETag Cache` 与连接池完善
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -39,6 +39,6 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `ForgeProvider`（GitHub / GitLab / Gitea / Codeberg）全部遵循统一的 D7 重试策略。
-- [ ] `get_developer_profile` 连续访问同一开发者主页时发送 `If-None-Match` 并在 304 时零配额复用 `api_etag_cache` 载荷。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 全部通过。
+- [x] `ForgeProvider`（GitHub / GitLab / Gitea / Codeberg）全部遵循统一的 D7 重试策略。
+- [x] `get_developer_profile` 连续访问同一开发者主页时发送 `If-None-Match` 并在 304 时零配额复用 `api_etag_cache` 载荷。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 全部通过。

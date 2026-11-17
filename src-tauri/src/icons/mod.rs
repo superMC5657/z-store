@@ -5,6 +5,8 @@ mod cycle;
 mod fetch;
 mod image_sniff;
 mod probe;
+mod quota_throttle;
+mod singleflight;
 
 #[cfg(test)]
 mod tests;
@@ -29,6 +31,8 @@ pub use image_sniff::{
     sniff_image_mime, url_ext_allowed, url_path_ext,
 };
 pub(crate) use probe::{probe_repo_logo, remember_repo_default_branch, ProbedIcon};
+pub(crate) use quota_throttle::QuotaThrottle;
+pub(crate) use singleflight::Flights;
 
 use crate::AppState;
 use serde::{Deserialize, Serialize};
@@ -66,27 +70,28 @@ impl<'a> IconRef<'a> {
     }
 }
 
+/// 标准 Base64（带 `=` 填充）：按 3 字节一组直接写入预分配字节缓冲。
 pub(crate) fn base64_encode(data: &[u8]) -> String {
-    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0];
-        let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] } else { 0 };
-
-        result.push(BASE64_ALPHABET[(b0 >> 2) as usize] as char);
-        result.push(BASE64_ALPHABET[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
-        if chunk.len() > 1 {
-            result.push(BASE64_ALPHABET[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
-        } else {
-            result.push('=');
-        }
-        if chunk.len() > 2 {
-            result.push(BASE64_ALPHABET[(b2 & 0x3f) as usize] as char);
-        } else {
-            result.push('=');
-        }
+    let sextet = |n: u32, shift: u32| BASE64_ALPHABET[((n >> shift) & 0x3f) as usize];
+    let mut out: Vec<u8> = Vec::with_capacity(data.len().div_ceil(3) * 4);
+    let (triples, remainder) = data.as_chunks::<3>();
+    for c in triples {
+        let n = (u32::from(c[0]) << 16) | (u32::from(c[1]) << 8) | u32::from(c[2]);
+        out.extend_from_slice(&[sextet(n, 18), sextet(n, 12), sextet(n, 6), sextet(n, 0)]);
     }
-    result
+    match *remainder {
+        [a] => {
+            let n = u32::from(a) << 16;
+            out.extend_from_slice(&[sextet(n, 18), sextet(n, 12), b'=', b'=']);
+        }
+        [a, b] => {
+            let n = (u32::from(a) << 16) | (u32::from(b) << 8);
+            out.extend_from_slice(&[sextet(n, 18), sextet(n, 12), sextet(n, 6), b'=']);
+        }
+        _ => {}
+    }
+    // 全部字节来自 ASCII 字母表与 `=`，校验必然通过。
+    String::from_utf8(out).unwrap_or_default()
 }
 
 pub(crate) fn bytes_to_data_uri(bytes: &[u8]) -> String {
@@ -291,37 +296,49 @@ fn cleanup_stale_cycle_variants(icons_dir: &std::path::Path, keep_filename: &str
     }
 }
 
-fn persist_catalog_icon(
+/// 图标落盘后待同步到 `icon_cache_meta` 的变更（仅收录图标产生）。
+#[derive(Debug, Default)]
+pub(crate) struct IconMetaSync {
+    /// 同 hash 其它后缀的旧键：删除。
+    stale_keys: Vec<String>,
+    /// `(最终文件名, 远端地址)`：写入。
+    save: Option<(String, String)>,
+}
+
+/// 图标落盘阶段产物：最终文件名 + 待同步元数据。
+#[derive(Debug)]
+pub(crate) struct IconWrite {
+    pub(crate) filename: String,
+    meta: IconMetaSync,
+}
+
+/// 收录图标落盘：先写最终文件，写入成功后才清理同 hash 其它后缀的旧文件。
+fn persist_catalog_icon_file(
     icons_dir: &std::path::Path,
-    db_opt: Option<&crate::db::Database>,
     icon: &IconRef<'_>,
     real_ext: &str,
     bytes: &[u8],
-) -> String {
+) -> Option<IconWrite> {
     let url_trimmed = icon.url.trim();
     if url_trimmed.is_empty() {
-        return String::new();
+        return None;
     }
-    let inferred_ext = icon.ext;
     let final_filename = hash_icon_filename(url_trimmed, real_ext);
     if final_filename.is_empty() {
-        return String::new();
+        return None;
     }
-    let _ = std::fs::write(icons_dir.join(&final_filename), bytes);
+    std::fs::write(icons_dir.join(&final_filename), bytes).ok()?;
 
-    let full = crate::sha256_digest_hex(url_trimmed.trim().as_bytes());
+    let full = crate::sha256_digest_hex(url_trimmed.as_bytes());
     let hash_stem = &full[..16.min(full.len())];
-    let initial_filename = format!("{}.{}", hash_stem, inferred_ext);
+    let initial_filename = format!("{}.{}", hash_stem, icon.ext);
+    let mut stale_keys = Vec::new();
     if initial_filename != final_filename {
         let p = icons_dir.join(&initial_filename);
         if p.is_file() {
             let _ = std::fs::remove_file(&p);
         }
-    }
-    if let Some(db) = db_opt {
-        if initial_filename != final_filename {
-            let _ = db.delete_icon_cache_url(&initial_filename);
-        }
+        stale_keys.push(initial_filename.clone());
     }
     for ext in KNOWN_ICON_EXTS {
         let alt = format!("{}.{}", hash_stem, ext);
@@ -330,20 +347,54 @@ fn persist_catalog_icon(
             if p.is_file() {
                 let _ = std::fs::remove_file(&p);
             }
-            if let Some(db) = db_opt {
-                let _ = db.delete_icon_cache_url(&alt);
-            }
+            stale_keys.push(alt);
         }
     }
-
-    if let Some(db) = db_opt {
-        let _ = db.save_icon_cache_url(&final_filename, url_trimmed);
-    }
-    enforce_icon_quota_lru(db_opt, icons_dir);
-    final_filename
+    Some(IconWrite {
+        filename: final_filename.clone(),
+        meta: IconMetaSync {
+            stale_keys,
+            save: Some((final_filename, url_trimmed.to_string())),
+        },
+    })
 }
 
-/// 写侧单一写入路径：`icons/` 落盘 + `icon_cache_meta` 同步 + 配额 LRU。
+/// 落盘阶段（不触 DB）：写图标文件并清理旧变体。
+/// 写入失败返回 `None`，旧文件保持不动。
+pub(crate) fn write_icon_files(
+    icons_dir: &std::path::Path,
+    icon: &IconRef<'_>,
+    is_cataloged: bool,
+    bytes: &[u8],
+) -> Option<IconWrite> {
+    let real_ext = mime_to_ext(detect_image_mime(bytes));
+    if is_cataloged {
+        return persist_catalog_icon_file(icons_dir, icon, real_ext, bytes);
+    }
+    let fname = hash_icon_filename(icon.url, real_ext);
+    if fname.is_empty() {
+        return None;
+    }
+    std::fs::write(icons_dir.join(&fname), bytes).ok()?;
+    cleanup_stale_cycle_variants(icons_dir, &fname);
+    Some(IconWrite {
+        filename: fname,
+        meta: IconMetaSync::default(),
+    })
+}
+
+/// 元数据阶段（调用方短锁内）：把落盘结果同步到 `icon_cache_meta`。
+pub(crate) fn apply_icon_write_meta(db: &crate::db::Database, write: &IconWrite) {
+    for key in &write.meta.stale_keys {
+        let _ = db.delete_icon_cache_url(key);
+    }
+    if let Some((key, url)) = &write.meta.save {
+        let _ = db.save_icon_cache_url(key, url);
+    }
+}
+
+/// 写侧单一写入路径：`icons/` 落盘 + `icon_cache_meta` 同步 + 节流配额 LRU。
+/// 写入失败返回空串：不删除旧文件，也不写入指向不存在文件的元数据。
 pub(crate) fn write_icon_file(
     icons_dir: &std::path::Path,
     db_opt: Option<&crate::db::Database>,
@@ -351,34 +402,62 @@ pub(crate) fn write_icon_file(
     is_cataloged: bool,
     bytes: &[u8],
 ) -> String {
-    let url_trimmed = icon.url;
-    let real_ext = mime_to_ext(detect_image_mime(bytes));
-    if is_cataloged {
-        persist_catalog_icon(icons_dir, db_opt, icon, real_ext, bytes)
-    } else {
-        let fname = hash_icon_filename(url_trimmed, real_ext);
-        if fname.is_empty() {
-            return String::new();
+    let Some(write) = write_icon_files(icons_dir, icon, is_cataloged, bytes) else {
+        return String::new();
+    };
+    if let Some(db) = db_opt {
+        apply_icon_write_meta(db, &write);
+    }
+    note_icon_write(db_opt, icons_dir, bytes.len());
+    write.filename
+}
+
+/// 运行期图标配额节流：每 25 次写入或距上次淘汰超过 5 分钟放行一次全目录扫描
+/// （启动期另有一次全量淘汰，见 `lib.rs`）。
+static ICON_QUOTA_THROTTLE: QuotaThrottle =
+    QuotaThrottle::new(25, u64::MAX, Some(std::time::Duration::from_secs(300)));
+
+/// 记一次图标写入。节流放行时只在当前上下文读取配额上限，目录扫描与删除交由阻塞
+/// 线程池执行，不占用调用方可能持有的 DB 锁（无 Tokio 运行时则就地执行）。
+fn note_icon_write(
+    db_opt: Option<&crate::db::Database>,
+    icons_dir: &std::path::Path,
+    written: usize,
+) {
+    if !ICON_QUOTA_THROTTLE.record(written as u64) {
+        return;
+    }
+    let limits = icon_quota_limits(db_opt);
+    let dir = icons_dir.to_path_buf();
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            handle.spawn_blocking(move || prune_icon_dir(&dir, limits));
         }
-        let _ = std::fs::write(icons_dir.join(&fname), bytes);
-        cleanup_stale_cycle_variants(icons_dir, &fname);
-        enforce_icon_quota_lru(db_opt, icons_dir);
-        fname
+        Err(_) => prune_icon_dir(&dir, limits),
     }
 }
 
-/// 配额 LRU（只清文件不删 DB URL，保持缺失后重下自愈能力）。
-pub(crate) fn enforce_icon_quota_lru(
-    db_opt: Option<&crate::db::Database>,
-    icons_dir: &std::path::Path,
-) {
-    let (max_files, max_bytes) = match db_opt {
+/// 图标配额上限 `(max_files, max_bytes)`：DB 设置优先，无 DB 回退基线常量。
+fn icon_quota_limits(db_opt: Option<&crate::db::Database>) -> (u64, u64) {
+    match db_opt {
         Some(db) => crate::db::cache::asset_quota_limits(db),
         None => (
             crate::db::cache::ASSET_CACHE_MAX_FILES as u64,
             crate::db::cache::ASSET_CACHE_MAX_BYTES,
         ),
-    };
+    }
+}
+
+/// 配额 LRU 全量淘汰（只清文件不删 DB URL，保持缺失后重下自愈能力）。
+pub(crate) fn enforce_icon_quota_lru(
+    db_opt: Option<&crate::db::Database>,
+    icons_dir: &std::path::Path,
+) {
+    prune_icon_dir(icons_dir, icon_quota_limits(db_opt));
+}
+
+/// 扫描 `icons/` 并按 mtime 最旧优先删除，直至文件数与总字节均落回上限内。
+fn prune_icon_dir(icons_dir: &std::path::Path, (max_files, max_bytes): (u64, u64)) {
     let max_files = max_files as usize;
     let Ok(rd) = std::fs::read_dir(icons_dir) else {
         return;
@@ -472,6 +551,9 @@ pub(crate) fn resolve_confirmed_icon_from_db(
     None
 }
 
+/// 远端图标响应体上限：5 MiB（有界流式读取，超限中断）。
+const MAX_ICON_BYTES: usize = 5 * 1024 * 1024;
+
 /// 图标字节拉取与魔数校验唯一落点（token-less 隔离客户端）。
 pub(crate) async fn download_icon_bytes(
     client: &reqwest::Client,
@@ -501,16 +583,20 @@ pub(crate) async fn download_icon_bytes(
                 } else {
                     ctype.trim().to_string()
                 };
-                if let Ok(bytes) = resp.bytes().await {
-                    if !bytes.is_empty() && is_valid_image(&bytes) {
-                        return Ok(bytes.to_vec());
-                    } else if bytes.is_empty() {
-                        format!("响应内容为空(content-type={})", ctype_log)
-                    } else {
-                        format!("响应内容不是有效图片格式(content-type={})", ctype_log)
+                match crate::forge::http::read_body_capped(resp, MAX_ICON_BYTES).await {
+                    Ok(bytes) if !bytes.is_empty() && is_valid_image(&bytes) => {
+                        return Ok(bytes);
                     }
-                } else {
-                    "读取响应内容失败".to_string()
+                    Ok(bytes) if bytes.is_empty() => {
+                        format!("响应内容为空(content-type={})", ctype_log)
+                    }
+                    Ok(_) => format!("响应内容不是有效图片格式(content-type={})", ctype_log),
+                    Err(crate::forge::http::BodyReadError::TooLarge) => {
+                        format!("响应内容超过 5 MiB 上限(content-type={})", ctype_log)
+                    }
+                    Err(crate::forge::http::BodyReadError::Transport(_)) => {
+                        "读取响应内容失败".to_string()
+                    }
                 }
             } else {
                 format!("HTTP 状态码: {}", resp.status())
@@ -548,7 +634,49 @@ fn ensure_icons_dir() -> std::path::PathBuf {
     icons_dir
 }
 
+/// 后台图标缓存单飞表：同一远端地址并发只下载、落盘一次，结果为落盘文件名。
+static ICON_CACHE_FLIGHTS: std::sync::LazyLock<Flights<Option<String>>> =
+    std::sync::LazyLock::new(Flights::new);
+
+/// 单飞下载并落盘 `url`：同地址并发调用共享一次下载；文件写入在阻塞线程池执行，
+/// DB 锁只覆盖 `icon_cache_meta` 同步。返回落盘文件名（失败为 `None`）。
+async fn cache_icon_url_shared(
+    db_arc: &std::sync::Mutex<crate::db::Database>,
+    client: &reqwest::Client,
+    icons_dir: &std::path::Path,
+    url: &str,
+    is_cataloged: bool,
+) -> Option<String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let flight = ICON_CACHE_FLIGHTS.join(format!("{}|{}", icons_dir.display(), url));
+    flight
+        .cell()
+        .get_or_init(|| async {
+            let bytes = download_icon_bytes(client, url).await.ok()?;
+            let written = bytes.len();
+            let dir = icons_dir.to_path_buf();
+            let owned_url = url.to_string();
+            let ext = infer_ext_from_url(url).unwrap_or("png");
+            let write = tokio::task::spawn_blocking(move || {
+                write_icon_files(&dir, &IconRef::new(&owned_url, ext), is_cataloged, &bytes)
+            })
+            .await
+            .ok()
+            .flatten()?;
+            let db = db_arc.lock().ok()?;
+            apply_icon_write_meta(&db, &write);
+            note_icon_write(Some(&db), icons_dir, written);
+            Some(write.filename)
+        })
+        .await
+        .clone()
+}
+
 /// 后台异步拉取选中图标并补齐磁盘 `icons/` 与 `cache_file`（详情落盘后自愈用）。
+/// 同一 `selected_url` 的并发请求只下载一次，各自回写自身 cycle 的 `cache_file`。
 pub(crate) fn spawn_cache_selected_icon(
     db_arc: std::sync::Arc<std::sync::Mutex<crate::db::Database>>,
     app_id: String,
@@ -558,21 +686,14 @@ pub(crate) fn spawn_cache_selected_icon(
 ) {
     tokio::spawn(async move {
         let client = new_configured_icon_client();
-        if let Ok(bytes) = download_icon_bytes(&client, &selected_url).await {
-            let icons_dir = ensure_icons_dir();
-            let ext = infer_ext_from_url(&selected_url).unwrap_or("png");
-            if let Ok(db) = db_arc.lock() {
-                let fname = write_icon_file(
-                    &icons_dir,
-                    Some(&db),
-                    &IconRef::new(&selected_url, ext),
-                    is_cataloged,
-                    &bytes,
-                );
-                if !fname.is_empty() {
-                    let _ = db.set_icon_cycle_selected(&app_id, level, &selected_url, &fname);
-                }
-            }
+        let icons_dir = ensure_icons_dir();
+        let Some(fname) =
+            cache_icon_url_shared(&db_arc, &client, &icons_dir, &selected_url, is_cataloged).await
+        else {
+            return;
+        };
+        if let Ok(db) = db_arc.lock() {
+            let _ = db.set_icon_cycle_selected(&app_id, level, &selected_url, &fname);
         }
     });
 }
@@ -758,8 +879,18 @@ pub async fn get_or_fetch_icon(
     if url_trimmed.is_empty() {
         return Err("图标链接不能为空".into());
     }
-    if url_trimmed.starts_with("data:") {
-        return Ok(url_trimmed.to_string());
+    if url_trimmed
+        .get(..5)
+        .is_some_and(|p| p.eq_ignore_ascii_case("data:"))
+    {
+        // 仅图片 data URI 直通，其余 `data:` 一律拒绝。
+        if url_trimmed
+            .get(..11)
+            .is_some_and(|p| p.eq_ignore_ascii_case("data:image/"))
+        {
+            return Ok(url_trimmed.to_string());
+        }
+        return Err("图标 data URI 不是图片".into());
     }
 
     let icons_dir = ensure_icons_dir();

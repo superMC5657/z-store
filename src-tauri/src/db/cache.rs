@@ -442,30 +442,18 @@ impl Database {
         if key.is_empty() {
             return Ok(None);
         }
-        let mut stmt = self.conn.prepare(
-            "SELECT url, hash, local_path, content_type, size, etag, last_modified, last_used, expires_at, hits
-             FROM asset_cache WHERE url = ?1 LIMIT 1",
-        )?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {ASSET_CACHE_COLUMNS} FROM asset_cache WHERE url = ?1 LIMIT 1"
+        ))?;
         let mut rows = stmt.query(params![key])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(AssetCacheRecord {
-                url: row.get(0)?,
-                hash: row.get(1)?,
-                local_path: row.get(2)?,
-                content_type: row.get(3)?,
-                size: row.get(4)?,
-                etag: row.get(5)?,
-                last_modified: row.get(6)?,
-                last_used: row.get(7)?,
-                expires_at: row.get(8)?,
-                hits: row.get(9)?,
-            }))
-        } else {
-            Ok(None)
+        match rows.next()? {
+            Some(row) => Ok(Some(asset_record_from_row(row)?)),
+            None => Ok(None),
         }
     }
 
-    /// 写入或更新缓存记录，返回落库后的完整行。
+    /// 写入或更新缓存记录，经 `RETURNING` 一次返回落库后的完整行（含冲突更新保留的 `hits`）。
+    /// 不触发磁盘配额淘汰：运行期由调用方节流触发，启动期全量执行一次。
     pub fn save_asset(
         &self,
         url: &str,
@@ -492,7 +480,7 @@ impl Database {
         let etag_clean = etag.map(|s| s.trim()).filter(|s| !s.is_empty());
         let last_modified_clean = last_modified.map(|s| s.trim()).filter(|s| !s.is_empty());
         let now = now_secs();
-        self.exec_write(
+        let sql = format!(
             r#"
             INSERT INTO asset_cache (url, hash, local_path, content_type, size, etag, last_modified, last_used, expires_at, hits)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)
@@ -504,8 +492,12 @@ impl Database {
                 etag = excluded.etag,
                 last_modified = excluded.last_modified,
                 last_used = excluded.last_used,
-                expires_at = excluded.expires_at;
-            "#,
+                expires_at = excluded.expires_at
+            RETURNING {ASSET_CACHE_COLUMNS}
+            "#
+        );
+        self.conn.query_row(
+            &sql,
             params![
                 raw,
                 hash,
@@ -517,13 +509,8 @@ impl Database {
                 now,
                 expires_at,
             ],
-        )?;
-        let saved = self
-            .get_asset(&raw)?
-            .ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        let dir = crate::get_app_data_dir().join("cache").join("assets");
-        let _ = self.enforce_asset_quota_lru(&dir);
-        Ok(saved)
+            asset_record_from_row,
+        )
     }
 
     /// 刷新缓存命中状态并记录引用关系。
@@ -567,6 +554,16 @@ impl Database {
 
     /// 配额淘汰：按使用时间最旧优先删除直至文件数与总字节双水位线下。
     pub fn enforce_asset_quota_lru(&self, assets_dir: &std::path::Path) -> Result<usize> {
+        self.enforce_asset_quota_lru_scanned(assets_dir, scan_asset_files(assets_dir))
+    }
+
+    /// 同 [`Self::enforce_asset_quota_lru`]，但磁盘清单由调用方预先扫描
+    /// （见 [`scan_asset_files`]），让递归目录扫描在 DB 锁外完成。
+    pub fn enforce_asset_quota_lru_scanned(
+        &self,
+        assets_dir: &std::path::Path,
+        mut scanned: Vec<(std::path::PathBuf, u64, std::time::SystemTime)>,
+    ) -> Result<usize> {
         let (max_files, max_bytes) = asset_quota_limits(self);
         let rows: Vec<(String, String, i64, i64)> = {
             let mut stmt = self.conn.prepare(
@@ -588,7 +585,6 @@ impl Database {
         };
         let mut db_count = rows.len() as u64;
         let mut db_bytes: u64 = rows.iter().map(|(_, _, s, _)| (*s).max(0) as u64).sum();
-        let mut scanned = scan_asset_files(assets_dir);
         let mut fs_count = scanned.len() as u64;
         let mut fs_bytes: u64 = scanned.iter().map(|(_, len, _)| *len).sum();
         if db_count <= max_files
@@ -660,8 +656,27 @@ impl Database {
     }
 }
 
-/// 递归扫描配额目录下全部文件。
-fn scan_asset_files(
+/// `asset_cache` 行的列顺序（与 [`asset_record_from_row`] 一致）。
+const ASSET_CACHE_COLUMNS: &str =
+    "url, hash, local_path, content_type, size, etag, last_modified, last_used, expires_at, hits";
+
+fn asset_record_from_row(row: &rusqlite::Row<'_>) -> Result<AssetCacheRecord> {
+    Ok(AssetCacheRecord {
+        url: row.get(0)?,
+        hash: row.get(1)?,
+        local_path: row.get(2)?,
+        content_type: row.get(3)?,
+        size: row.get(4)?,
+        etag: row.get(5)?,
+        last_modified: row.get(6)?,
+        last_used: row.get(7)?,
+        expires_at: row.get(8)?,
+        hits: row.get(9)?,
+    })
+}
+
+/// 递归扫描配额目录下全部文件：`(路径, 字节数, mtime)`。
+pub(crate) fn scan_asset_files(
     dir: &std::path::Path,
 ) -> Vec<(std::path::PathBuf, u64, std::time::SystemTime)> {
     let mut out = Vec::new();
@@ -735,6 +750,29 @@ mod cache_quota_tests {
                 expires,
             )
             .unwrap();
+        // 冲突更新经 RETURNING 返回同一行：hits 保留、元数据刷新。
+        db.touch_asset(&rec.hash, "o/r").unwrap();
+        let resaved = db
+            .save_asset(
+                "https://example.com/stale.png",
+                "image/png",
+                120,
+                Some("\"e2\""),
+                None,
+                expires,
+            )
+            .unwrap();
+        assert_eq!(resaved.hits, rec.hits + 1);
+        assert_eq!(resaved.size, 120);
+        assert_eq!(resaved.etag.as_deref(), Some("\"e2\""));
+        assert_eq!(
+            db.get_asset("https://example.com/stale.png")
+                .unwrap()
+                .unwrap()
+                .hits,
+            resaved.hits
+        );
+        let rec = resaved;
         // 默认配额宽松，不触发淘汰。
         assert_eq!(db.enforce_asset_quota_lru(&assets).unwrap(), 0);
         // touch 后 hits +1。

@@ -360,6 +360,8 @@ pub fn run() {
                 );
                 let assets_dir = db_dir.join("cache").join("assets");
                 let _ = db.enforce_asset_quota_lru(&assets_dir);
+                // 运行期图标写入按节流触发淘汰，启动期补一次全量。
+                crate::icons::enforce_icon_quota_lru(Some(&db), &db_dir.join("icons"));
             }
 
             let saved_token = db

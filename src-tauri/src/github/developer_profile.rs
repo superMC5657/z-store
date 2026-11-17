@@ -5,6 +5,16 @@ use reqwest::header::HeaderMap;
 
 pub(crate) use super::http::EtagGetOutcome;
 
+/// ETag 感知的开发者画像拉取结果。
+#[derive(Debug)]
+pub struct DeveloperProfileFetch {
+    pub profile: DeveloperProfile,
+    /// `200` 响应的 `(endpoint, etag, payload)`：调用方经 `save_etag` 落库。
+    pub etag_writes: Vec<(String, String, String)>,
+    /// `304` 且以缓存载荷恢复的端点：调用方经 `touch_etag` 刷新检查时间。
+    pub touched: Vec<String>,
+}
+
 impl CatalogService {
     /// 通用 ETag GET（委托到 `super::http::get_with_etag`）。
     pub(crate) async fn get_with_etag(
@@ -23,18 +33,19 @@ impl CatalogService {
         token: Option<&str>,
     ) -> Result<DeveloperProfile, String> {
         // 无缓存上下文的入口：etag 为 None 即普通 GET。
-        // 持有 DB 的调用方应使用 fetch_developer_profile_with_cache，并经
-        // db.get_etag/save_etag 持久化（与 commands::catalog_detail 的 ETag 调用模式一致）。
-        let (profile, _, _) = self
+        // 持有 DB 的调用方使用 fetch_developer_profile_with_cache，并经
+        // db.get_etag/save_etag 持久化（见 `commands::forge::get_developer_profile`）。
+        Ok(self
             .fetch_developer_profile_with_cache(developer, token, (None, None), (None, None), None)
-            .await?;
-        Ok(profile)
+            .await?
+            .profile)
     }
 
     /// ETag 感知的开发者画像拉取（与 `fetch_app_detail` 调用模式一致）：
-    /// 调用方经 SQLite `api_etag_cache` 取出 `(etag, payload)` 传入 → 本函数发送
-    /// `If-None-Match` → 304 时用 payload 恢复 → 200 时返回新 `(etag, payload)`
-    /// 供调用方 `save_etag` 持久化。失败/限流时降级 catalog 兜底 + 日志。
+    /// 调用方经 SQLite `api_etag_cache` 取出 `(etag, payload)` 传入 → 本函数并发拉取
+    /// `/users/{dev}` 与 `/users/{dev}/repos` 并发送 `If-None-Match` → 304 时用 payload 恢复
+    /// 并列入 `touched` → 200 时列入 `etag_writes` 供调用方持久化。
+    /// 带 Token 请求命中 401 时上报登录过期；失败/限流时降级 catalog 兜底。
     pub async fn fetch_developer_profile_with_cache(
         &self,
         developer: &str,
@@ -42,14 +53,7 @@ impl CatalogService {
         user_cache: (Option<String>, Option<String>),
         repos_cache: (Option<String>, Option<String>),
         api_base: Option<&str>,
-    ) -> Result<
-        (
-            DeveloperProfile,
-            Option<(String, String)>,
-            Option<(String, String)>,
-        ),
-        String,
-    > {
+    ) -> Result<DeveloperProfileFetch, String> {
         let dev = developer.trim();
         if dev.is_empty() {
             return Err("开发者账号不能为空".to_string());
@@ -60,28 +64,49 @@ impl CatalogService {
         let headers = super::http::bearer_headers(token);
 
         let user_key = Self::dev_user_endpoint(dev);
+        let repos_key = Self::dev_repos_endpoint(dev);
         let (user_etag, user_payload) = user_cache;
-        let (parsed_user, user_new_cache): (Option<GitHubUserResponse>, Option<(String, String)>) =
-            match Self::get_with_etag(&client, &user_key, api_base, &headers, user_etag.as_deref())
-                .await
-            {
-                EtagGetOutcome::Fresh { text, etag } => {
-                    let user: GitHubUserResponse = serde_json::from_str(&text)
-                        .map_err(|e| format!("解析 GitHub 用户数据失败: {}", e))?;
-                    (Some(user), etag.map(|et| (et, text)))
+        let (repos_etag, repos_payload) = repos_cache;
+        let (user_outcome, repos_outcome) = tokio::join!(
+            Self::get_with_etag(&client, &user_key, api_base, &headers, user_etag.as_deref()),
+            Self::get_with_etag(
+                &client,
+                &repos_key,
+                api_base,
+                &headers,
+                repos_etag.as_deref(),
+            ),
+        );
+        let has_token = token.is_some_and(|t| !t.trim().is_empty());
+        if has_token
+            && (matches!(user_outcome, EtagGetOutcome::Unauthorized)
+                || matches!(repos_outcome, EtagGetOutcome::Unauthorized))
+        {
+            crate::check_auth_expired(401, "developer_profile");
+        }
+        let mut etag_writes: Vec<(String, String, String)> = Vec::new();
+        let mut touched: Vec<String> = Vec::new();
+
+        let parsed_user: Option<GitHubUserResponse> = match user_outcome {
+            EtagGetOutcome::Fresh { text, etag } => {
+                let user: GitHubUserResponse = serde_json::from_str(&text)
+                    .map_err(|e| format!("解析 GitHub 用户数据失败: {}", e))?;
+                if let Some(et) = etag {
+                    etag_writes.push((user_key.clone(), et, text));
                 }
-                EtagGetOutcome::NotModified => {
-                    if let Some(payload) = user_payload {
-                        let user: GitHubUserResponse = serde_json::from_str(&payload)
-                            .map_err(|e| format!("解析本地 ETag 缓存失败: {}", e))?;
-                        (Some(user), None)
-                    } else {
-                        (None, None)
-                    }
+                Some(user)
+            }
+            EtagGetOutcome::NotModified => match user_payload {
+                Some(payload) => {
+                    let user: GitHubUserResponse = serde_json::from_str(&payload)
+                        .map_err(|e| format!("解析本地 ETag 缓存失败: {}", e))?;
+                    touched.push(user_key.clone());
+                    Some(user)
                 }
-                EtagGetOutcome::Failed => (None, None),
-                EtagGetOutcome::Unauthorized => (None, None),
-            };
+                None => None,
+            },
+            EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => None,
+        };
 
         let (
             login,
@@ -134,36 +159,25 @@ impl CatalogService {
             )
         };
 
-        // 获取仓库列表（ETag 条件请求：304 时用缓存 payload 恢复，失败时走 catalog 兜底）
-        let repos_key = Self::dev_repos_endpoint(dev);
-        let (repos_etag, repos_payload) = repos_cache;
-        let (repo_items, repos_new_cache): (Vec<GitHubRepoResponse>, Option<(String, String)>) =
-            match Self::get_with_etag(
-                &client,
-                &repos_key,
-                api_base,
-                &headers,
-                repos_etag.as_deref(),
-            )
-            .await
-            {
-                EtagGetOutcome::Fresh { text, etag } => {
-                    let items: Vec<GitHubRepoResponse> =
-                        serde_json::from_str(&text).unwrap_or_default();
-                    (items, etag.map(|et| (et, text)))
+        // 仓库列表（ETag 条件请求：304 时用缓存 payload 恢复，失败时走 catalog 兜底）
+        let repo_items: Vec<GitHubRepoResponse> = match repos_outcome {
+            EtagGetOutcome::Fresh { text, etag } => {
+                let items: Vec<GitHubRepoResponse> =
+                    serde_json::from_str(&text).unwrap_or_default();
+                if let Some(et) = etag {
+                    etag_writes.push((repos_key.clone(), et, text));
                 }
-                EtagGetOutcome::NotModified => {
-                    if let Some(payload) = repos_payload {
-                        let items: Vec<GitHubRepoResponse> =
-                            serde_json::from_str(&payload).unwrap_or_default();
-                        (items, None)
-                    } else {
-                        (Vec::new(), None)
-                    }
+                items
+            }
+            EtagGetOutcome::NotModified => match repos_payload {
+                Some(payload) => {
+                    touched.push(repos_key.clone());
+                    serde_json::from_str(&payload).unwrap_or_default()
                 }
-                EtagGetOutcome::Failed => (Vec::new(), None),
-                EtagGetOutcome::Unauthorized => (Vec::new(), None),
-            };
+                None => Vec::new(),
+            },
+            EtagGetOutcome::Failed | EtagGetOutcome::Unauthorized => Vec::new(),
+        };
 
         let mut repos: Vec<DeveloperRepoItem> = Vec::new();
         let catalog_list = self.get_catalog_items();
@@ -231,8 +245,8 @@ impl CatalogService {
         };
         let repos_truncated = effective_public_repos > repos.len() as u64;
 
-        Ok((
-            DeveloperProfile {
+        Ok(DeveloperProfileFetch {
+            profile: DeveloperProfile {
                 login,
                 name,
                 avatar_url,
@@ -247,9 +261,9 @@ impl CatalogService {
                 repos,
                 repos_truncated,
             },
-            user_new_cache,
-            repos_new_cache,
-        ))
+            etag_writes,
+            touched,
+        })
     }
 }
 
@@ -284,7 +298,7 @@ mod developer_profile_tests {
         let svc = test_service();
         let user_cache = (Some("\"cached-user-etag\"".to_string()), None);
         let repos_cache = (Some("\"cached-repos-etag\"".to_string()), None);
-        let (profile, user_new, repos_new) = svc
+        let fetched = svc
             .fetch_developer_profile_with_cache(
                 "someone",
                 None,
@@ -294,7 +308,7 @@ mod developer_profile_tests {
             )
             .await
             .unwrap();
-        assert_eq!(profile.login, "someone");
+        assert_eq!(fetched.profile.login, "someone");
         // 必须在两个接口上均发送 If-None-Match 请求头（ETag 条件请求路径）。
         let seen = srv.seen_inm.lock().unwrap();
         assert_eq!(
@@ -308,9 +322,23 @@ mod developer_profile_tests {
                 .as_deref(),
             Some("\"cached-repos-etag\"")
         );
-        // 200 响应必须返回全新的 (etag, payload) 元组，供调用方通过 save_etag 进行持久化。
-        assert_eq!(user_new.unwrap().0, "\"user-etag-1\"");
-        assert_eq!(repos_new.unwrap().0, "\"repos-etag-1\"");
+        // 200 响应必须返回全新的 (endpoint, etag, payload)，供调用方通过 save_etag 进行持久化。
+        let etag_of = |suffix: &str| {
+            fetched
+                .etag_writes
+                .iter()
+                .find(|(u, _, _)| u.ends_with(suffix))
+                .map(|(_, e, _)| e.clone())
+        };
+        assert_eq!(
+            etag_of("/users/someone").as_deref(),
+            Some("\"user-etag-1\"")
+        );
+        assert_eq!(
+            etag_of("/repos?sort=updated&per_page=30").as_deref(),
+            Some("\"repos-etag-1\"")
+        );
+        assert!(fetched.touched.is_empty());
     }
 
     #[tokio::test]
@@ -343,7 +371,7 @@ mod developer_profile_tests {
             Some(user_json("someone")),
         );
         let repos_cache = (Some("\"repos-etag-1\"".to_string()), Some(repos_json()));
-        let (profile, user_new, repos_new) = svc
+        let fetched = svc
             .fetch_developer_profile_with_cache(
                 "someone",
                 None,
@@ -353,10 +381,11 @@ mod developer_profile_tests {
             )
             .await
             .unwrap();
-        // 响应 304 时：沿用缓存载荷，无需持久化新的缓存元组。
+        // 响应 304 时：沿用缓存载荷，无需持久化新的缓存元组，两个端点均需刷新检查时间。
+        let profile = &fetched.profile;
         assert_eq!(profile.login, "someone");
-        assert!(user_new.is_none());
-        assert!(repos_new.is_none());
+        assert!(fetched.etag_writes.is_empty());
+        assert_eq!(fetched.touched.len(), 2);
         assert!(profile.repos.iter().any(|r| r.full_name == "someone/r1"));
     }
 
@@ -400,7 +429,7 @@ mod developer_profile_tests {
         );
         let srv = spawn_mock(routes).await;
         let svc = test_service();
-        let (profile, _, _) = svc
+        let profile = svc
             .fetch_developer_profile_with_cache(
                 "someone",
                 None,
@@ -409,7 +438,8 @@ mod developer_profile_tests {
                 Some(&srv.base),
             )
             .await
-            .unwrap();
+            .unwrap()
+            .profile;
         assert_eq!(profile.repos.len(), 1);
         assert!(profile.repos_truncated, "public_repos=5 > 1 行必须标注截断");
         assert_eq!(profile.public_repos, 5);
@@ -437,7 +467,7 @@ mod developer_profile_tests {
         );
         let srv = spawn_mock(routes).await;
         let svc = test_service();
-        let (profile, _, _) = svc
+        let profile = svc
             .fetch_developer_profile_with_cache(
                 "someone",
                 None,
@@ -446,7 +476,8 @@ mod developer_profile_tests {
                 Some(&srv.base),
             )
             .await
-            .unwrap();
+            .unwrap()
+            .profile;
         assert!(!profile.repos_truncated, "计数一致不误标");
         assert_eq!(profile.public_repos, 1);
     }

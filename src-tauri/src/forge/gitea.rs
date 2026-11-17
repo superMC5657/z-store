@@ -2,7 +2,7 @@ use futures_util::future::BoxFuture;
 
 use super::coord::ForgeType;
 use super::http::{
-    api_headers, get_with_retry_after_once, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE,
+    api_headers, get_with_d7_retry, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE,
 };
 use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use serde::Deserialize;
@@ -45,7 +45,7 @@ impl ForgeProvider for GiteaProvider {
                 urlencoding::encode(repo)
             );
             let span = HttpSpan::start();
-            let resp = get_with_retry_after_once(&client, &url, &headers)
+            let resp = get_with_d7_retry(&client, &url, &headers)
                 .await
                 .map_err(|e| e.to_string())?;
             // 三家限流口径对齐：x-ratelimit 头存在即上报配额事件（无头时为 no-op）。
@@ -104,7 +104,7 @@ impl ForgeProvider for GiteaProvider {
                 urlencoding::encode(repo)
             );
             let span = HttpSpan::start();
-            let resp = get_with_retry_after_once(&client, &url, &headers)
+            let resp = get_with_d7_retry(&client, &url, &headers)
                 .await
                 .map_err(|e| e.to_string())?;
             span.notify(&resp, host);

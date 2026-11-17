@@ -37,7 +37,57 @@ impl Drop for TempFileGuard {
 }
 
 const DOWNLOAD_CLIENT_POOL_CAP: usize = 8;
-static DOWNLOAD_CLIENTS: OnceLock<Mutex<HashMap<String, reqwest::Client>>> = OnceLock::new();
+static DOWNLOAD_CLIENTS: OnceLock<Mutex<LruPool<reqwest::Client>>> = OnceLock::new();
+
+/// 有界键值池：满容量插入新键时只驱逐最久未访问的一条，其余活跃条目保留。
+struct LruPool<V> {
+    cap: usize,
+    tick: u64,
+    entries: HashMap<String, (V, u64)>,
+}
+
+impl<V: Clone> LruPool<V> {
+    fn new(cap: usize) -> Self {
+        Self {
+            cap: cap.max(1),
+            tick: 0,
+            entries: HashMap::new(),
+        }
+    }
+
+    fn next_tick(&mut self) -> u64 {
+        self.tick = self.tick.wrapping_add(1);
+        self.tick
+    }
+
+    /// 命中即刷新访问序并返回克隆。
+    fn get(&mut self, key: &str) -> Option<V> {
+        let tick = self.next_tick();
+        let (value, last) = self.entries.get_mut(key)?;
+        *last = tick;
+        Some(value.clone())
+    }
+
+    fn insert(&mut self, key: String, value: V) {
+        if self.entries.len() >= self.cap && !self.entries.contains_key(&key) {
+            let oldest = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, last))| *last)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                self.entries.remove(&k);
+            }
+        }
+        let tick = self.next_tick();
+        self.entries.insert(key, (value, tick));
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
 
 fn build_download_client(
     snap: &crate::proxy::ProxySnapshot,
@@ -57,7 +107,7 @@ fn build_download_client(
         .map_err(|e| e.to_string())
 }
 
-/// 下载池键：含直连豁免 host 的代理签名；系统代理变化即换键重建，上限 8 条超限整体清空。
+/// 下载池键：含直连豁免 host 的代理签名；系统代理变化即换键重建，上限 8 条，超限驱逐最久未用一条。
 fn download_pool_key(snap: &crate::proxy::ProxySnapshot, dl_extra: &[String]) -> String {
     // 签名已合并 `dl_extra`（`np=` 段），无需另拼。
     snap.signature(dl_extra)
@@ -66,17 +116,14 @@ fn download_pool_key(snap: &crate::proxy::ProxySnapshot, dl_extra: &[String]) ->
 fn resolve_download_client(dl_extra: &[String]) -> Result<reqwest::Client, String> {
     let snap = crate::proxy::current_proxy_snapshot();
     let key = download_pool_key(&snap, dl_extra);
-    let pool = DOWNLOAD_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(guard) = pool.lock() {
+    let pool = DOWNLOAD_CLIENTS.get_or_init(|| Mutex::new(LruPool::new(DOWNLOAD_CLIENT_POOL_CAP)));
+    if let Ok(mut guard) = pool.lock() {
         if let Some(existing) = guard.get(&key) {
-            return Ok(existing.clone());
+            return Ok(existing);
         }
     }
     let client = build_download_client(&snap, dl_extra)?;
     if let Ok(mut guard) = pool.lock() {
-        if guard.len() >= DOWNLOAD_CLIENT_POOL_CAP && !guard.contains_key(&key) {
-            guard.clear();
-        }
         guard.insert(key, client.clone());
     }
     Ok(client)
@@ -419,7 +466,27 @@ pub async fn download_with_progress(
 
 #[cfg(test)]
 mod tests {
-    use super::{download_pool_key, TempFileGuard};
+    use super::{download_pool_key, LruPool, TempFileGuard};
+
+    #[test]
+    fn lru_pool_evicts_only_least_recently_used_entry_when_full() {
+        let mut pool = LruPool::new(3);
+        pool.insert("a".to_string(), 1);
+        pool.insert("b".to_string(), 2);
+        pool.insert("c".to_string(), 3);
+        // 访问 a：b 成为最久未用。
+        assert_eq!(pool.get("a"), Some(1));
+        pool.insert("d".to_string(), 4);
+        assert_eq!(pool.len(), 3);
+        assert_eq!(pool.get("b"), None, "least recently used entry is evicted");
+        assert_eq!(pool.get("a"), Some(1));
+        assert_eq!(pool.get("c"), Some(3));
+        assert_eq!(pool.get("d"), Some(4));
+        // 已存在键覆盖不驱逐其他条目。
+        pool.insert("a".to_string(), 10);
+        assert_eq!(pool.len(), 3);
+        assert_eq!(pool.get("a"), Some(10));
+    }
 
     #[test]
     fn temp_file_guard_removes_file_unless_disarmed() {

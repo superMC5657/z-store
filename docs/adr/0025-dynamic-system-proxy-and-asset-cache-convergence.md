@@ -26,14 +26,14 @@
   - Linux：GNOME `gsettings org.gnome.system.proxy`，仅 `manual` 取 http/https/socks（`socks5h://`）与 `ignore-hosts`；`none` / `auto` 为直连快照（不支持的模式同一模式只告警一次）。
   - macOS：`scutil --proxy` 的 `HTTP*` / `HTTPS*` / `SOCKS*`（`socks5h://`）与 `ExceptionsList`。
 - 生产代码不调用 `std::env::set_var` 写任何代理变量。
-- `current_proxy_snapshot()` 带 5 秒采样冷却（`PROXY_CACHE_TTL_MS`），只持锁做内存读写、绝不在锁内探测：过期即返回旧快照并由后台线程重探（同一时刻至多一个），仅进程首次调用同步探测；签名变化时记 `network / proxy changed`（只含 host 摘要）。连接失败或超时（`is_connect() || is_timeout()`）时传输层调用 `invalidate_proxy_snapshot()`；GitHub ETag 重试循环经 `refresh_after_transport_error()`（`spawn_blocking` 立即重探）判断签名是否变化，变化即换用重建后的 API 池重试（该通道调用方均为带 Token 的 API 请求，详情拉取亦走 API 池）；GitLab / Gitea Provider 的 `get_with_retry_after_once` 同口径，签名变化时用重建后的 API 池重发一次。传输错误记账统一经 `proxy::note_transport_error`。
+- `current_proxy_snapshot()` 带 5 秒采样冷却（`PROXY_CACHE_TTL_MS`），只持锁做内存读写、绝不在锁内探测：过期即返回旧快照并由后台线程重探（同一时刻至多一个），仅进程首次调用同步探测；签名变化时记 `network / proxy changed`（只含 host 摘要）。连接失败或超时（`is_connect() || is_timeout()`）时传输层调用 `invalidate_proxy_snapshot()`；GitHub ETag 通道与 GitLab / Gitea Provider 共用 `forge::http::get_with_d7_retry_observed`（D7 有限重试），传输错误时经 `refresh_after_transport_error()`（`spawn_blocking` 立即重探）判断签名是否变化，变化即换用重建后的 API 池重试（调用方均为 API 请求，详情拉取亦走 API 池）。传输错误记账统一经 `proxy::note_transport_error`。
 - `apply_proxy_snapshot` 恒先 `builder.no_proxy()` 关闭 reqwest 自身的系统代理读取：直连快照即纯直连；有代理时逐 scheme 挂载 `Proxy::http` / `Proxy::https`（缺省回退 `all`），附加合并 `NoProxy`（启动 env `NO_PROXY` + 快照绕过列表 + 默认豁免 `gh-proxy.com`/`localhost`/`127.0.0.1`/`::1` + 调用方 `extra_hosts`）。
 
 ### 2.2 连接池按签名热重建（D5 隔离不变）
 
 - `proxy::ClientSlot` 以「代理签名 + 构建参数」为键缓存单个 `reqwest::Client`：键不变复用连接池，变化即原子重建，构建失败不污染槽位。
 - API 池（`forge::http::new_api_client` / 不可失败版 `api_client`，`crate::shared_http_client` 同池，缺省 ZStore UA）、图标/CDN 池（`new_icon_client`，有限重定向，无 Token）、清单池（`CatalogService::http_client`，无 Token，pool 10）、趋势直连池（`trend_direct_client`，整体超时 5s，无 Token）各占一个槽位，池种类由 `PoolKind` 显式决定；`AppState` 不持有启动期 Client。构建失败时经 `proxy::fallback_client` 兜底，仍按快照挂代理，不回落 reqwest 自行读取 OS 代理。
-- 安装包下载池 `DOWNLOAD_CLIENTS` 以含直连豁免 host 的代理签名为键，上限 8，超限整体清空。
+- 安装包下载池 `DOWNLOAD_CLIENTS` 以含直连豁免 host 的代理签名为键，上限 8，超限只驱逐最久未用的一条。
 
 ### 2.3 镜像与系统代理正交：只豁免实际生效的镜像 host
 

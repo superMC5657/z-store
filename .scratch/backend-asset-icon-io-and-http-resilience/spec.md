@@ -1,6 +1,6 @@
 # Feature Spec: Asset/Icon 磁盘缓存管道治理、HTTP 重试契约统一与 ETag 补全
 
-> 状态：Proposed（`needs-triage`）
+> 状态：Implemented（`01`、`02`、`03` 均为 `resolved`）
 > 关联契约：`CONTEXT.md`（D5 双池复用、D7 有限重试、`ETag Cache`、`Confirmed Icon`）、ADR-0006（`ForgeProvider` 多托管源）、ADR-0012（网络性能 P0 连接池复用）、ADR-0025（动态系统代理与 Asset 缓存收敛）。
 
 ---

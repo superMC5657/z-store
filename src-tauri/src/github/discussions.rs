@@ -724,14 +724,18 @@ pub async fn fetch_discussion_anonymous(
     force_refresh: bool,
 ) -> (LaunchpadDiscussionDetail, bool) {
     let d_url = rest_discussion_url(owner, repo, number);
-    let (d_text, mut stale) =
-        match rest_get_cached(db, client, api_base, &d_url, force_refresh).await {
-            RestLoad::Fresh(t) => (t, false),
-            RestLoad::Cached(t) => (t, true),
-            RestLoad::Missing => return (degraded_shell(owner, repo, number), false),
-        };
     let c_url = rest_comments_url(owner, repo, number);
-    let c_text = match rest_get_cached(db, client, api_base, &c_url, force_refresh).await {
+    // 讨论正文与评论互不依赖：并发拉取。
+    let (d_load, c_load) = tokio::join!(
+        rest_get_cached(db, client, api_base, &d_url, force_refresh),
+        rest_get_cached(db, client, api_base, &c_url, force_refresh),
+    );
+    let (d_text, mut stale) = match d_load {
+        RestLoad::Fresh(t) => (t, false),
+        RestLoad::Cached(t) => (t, true),
+        RestLoad::Missing => return (degraded_shell(owner, repo, number), false),
+    };
+    let c_text = match c_load {
         RestLoad::Fresh(t) => Some(t),
         RestLoad::Cached(t) => {
             stale = true;

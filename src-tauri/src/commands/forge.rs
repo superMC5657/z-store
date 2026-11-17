@@ -3,16 +3,49 @@ use crate::models::{DeveloperProfile, StarredFeedCacheEntry, StarredPageResult};
 use crate::AppState;
 use tauri::{AppHandle, State};
 
+/// 开发者主页：`/users/{dev}` 与 `/users/{dev}/repos` 经 `api_etag_cache` 条件请求
+/// （有缓存载荷才发 `If-None-Match`，未变 `304` 零配额复用），`200` 落库、`304` 刷新检查时间。
 #[tauri::command]
 pub async fn get_developer_profile(
     state: State<'_, AppState>,
     developer: String,
 ) -> crate::AppResult<DeveloperProfile> {
     let token = resolve_active_github_token(&state);
-    Ok(state
+    let dev = developer.trim();
+    let user_key = crate::github::CatalogService::dev_user_endpoint(dev);
+    let repos_key = crate::github::CatalogService::dev_repos_endpoint(dev);
+    let (user_cache, repos_cache) = {
+        let db = state.db()?;
+        let read = |endpoint: &str| {
+            let payload = db
+                .get_cached_payload(endpoint)
+                .ok()
+                .flatten()
+                .filter(|p| !p.trim().is_empty());
+            // 无载荷可恢复时不发条件请求，避免 304 后无数据可用。
+            let etag = payload
+                .as_ref()
+                .and_then(|_| db.get_etag(endpoint).ok().flatten());
+            (etag, payload)
+        };
+        (read(&user_key), read(&repos_key))
+    };
+    let fetched = state
         .catalog
-        .fetch_developer_profile(&developer, token.as_deref())
-        .await?)
+        .fetch_developer_profile_with_cache(dev, token.as_deref(), user_cache, repos_cache, None)
+        .await?;
+    if !fetched.etag_writes.is_empty() || !fetched.touched.is_empty() {
+        if let Ok(db) = state.db() {
+            let now = crate::now_secs();
+            for (endpoint, etag, payload) in &fetched.etag_writes {
+                let _ = db.save_etag(endpoint, etag, payload, now);
+            }
+            for endpoint in &fetched.touched {
+                let _ = db.touch_etag(endpoint, now);
+            }
+        }
+    }
+    Ok(fetched.profile)
 }
 
 /// Star 列表单页查询（收藏页「Star 同步」）：任意用户名或当前登录账号，按 Star 时间倒序。

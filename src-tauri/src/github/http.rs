@@ -1,6 +1,5 @@
 //! GitHub 内本地 HTTP/日志/兜底 helpers（github + commands 共用）。
 
-use crate::forge::http::retry_after_delay_ms;
 use crate::models::{AppCore, AppSummary};
 use reqwest::header::{HeaderMap, HeaderValue, IF_NONE_MATCH};
 
@@ -83,61 +82,29 @@ async fn get_with_etag_diag_inner(
     let safe_url = crate::log_support::sanitize_url(&url);
     let host = crate::log_support::host_of(&url);
     let start = std::time::Instant::now();
-    // 有限重试：仅传输错误(is_timeout/is_connect)+429/5xx，最多 2 次；
-    // 429 消费 Retry-After（上限 60s 缺省 5s，对齐 D9），5xx/传输错误退避 200ms -> 800ms；
-    // 401/404/304 直接返回；限流上报逻辑不变（每轮响应照常上报）。
-    const RETRY_BACKOFF_MS: [u64; 2] = [200, 800];
-    let mut attempt: usize = 0;
+    // D7 有限重试经 `forge::http` 共享执行器；每轮响应照常上报限流。
     let mut rate_summary: Option<String> = None;
-    let mut active = client.clone();
-    let res = loop {
-        match active.get(&url).headers(headers.clone()).send().await {
-            Ok(r) => {
-                crate::notify_rate_limit("github.com", r.headers());
-                if let Some(rs) = crate::log_support::rate_limit_summary(r.headers()) {
-                    rate_summary = Some(rs);
-                }
-                let status = r.status();
-                let retryable_status = status.as_u16() == 429 || status.is_server_error();
-                if retryable_status && attempt < RETRY_BACKOFF_MS.len() {
-                    let delay_ms = if status.as_u16() == 429 {
-                        retry_after_delay_ms(r.headers())
-                    } else {
-                        RETRY_BACKOFF_MS[attempt]
-                    };
-                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                    attempt += 1;
-                    continue;
-                }
-                break r;
-            }
-            Err(e) => {
-                let retryable_err = e.is_timeout() || e.is_connect();
-                if retryable_err && attempt < RETRY_BACKOFF_MS.len() {
-                    // 立即重探系统代理：签名变化（用户刚开启/关闭代理）即改用重建后的 API 池重试
-                    //（本通道调用方均为带 Token 的 GitHub API 请求，传入的即 API 池 Client）。
-                    if crate::proxy::refresh_after_transport_error().await {
-                        if let Ok(fresh) = build_api_client() {
-                            active = fresh;
-                        }
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(RETRY_BACKOFF_MS[attempt]))
-                        .await;
-                    attempt += 1;
-                    continue;
-                }
-                let diag = crate::log_support::HttpDiag {
-                    status: None,
-                    elapsed_ms: start.elapsed().as_millis(),
-                    retries: attempt as u8,
-                    bytes: 0,
-                    host,
-                    safe_url,
-                    err_reason: Some(crate::log_support::http_err_reason(&e)),
-                    rate_summary,
-                };
-                return (EtagGetOutcome::Failed, diag, false);
-            }
+    let got = crate::forge::http::get_with_d7_retry_observed(client, &url, &headers, |r| {
+        crate::notify_rate_limit("github.com", r.headers());
+        if let Some(rs) = crate::log_support::rate_limit_summary(r.headers()) {
+            rate_summary = Some(rs);
+        }
+    })
+    .await;
+    let res = match got.result {
+        Ok(r) => r,
+        Err(e) => {
+            let diag = crate::log_support::HttpDiag {
+                status: None,
+                elapsed_ms: start.elapsed().as_millis(),
+                retries: got.retries,
+                bytes: 0,
+                host,
+                safe_url,
+                err_reason: Some(crate::log_support::http_err_reason(&e)),
+                rate_summary,
+            };
+            return (EtagGetOutcome::Failed, diag, false);
         }
     };
     let status = res.status();
@@ -149,7 +116,7 @@ async fn get_with_etag_diag_inner(
     let mut diag = crate::log_support::HttpDiag {
         status: Some(status.as_u16()),
         elapsed_ms: start.elapsed().as_millis(),
-        retries: attempt as u8,
+        retries: got.retries,
         bytes: 0,
         host,
         safe_url,

@@ -4,9 +4,7 @@
 //! （WebView 直接渲染，零文件系统协议暴露面）；非候选、超限或下载失败且无旧盘文件时回退原地址。
 
 use crate::icons::is_valid_image;
-use futures_util::StreamExt;
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// 磁盘缓存有效期（秒）：30 天，命中且未过期直接复用。
 const ASSET_TTL_SECS: u64 = 30 * 24 * 60 * 60;
@@ -115,15 +113,20 @@ fn touch_path(path: &std::path::Path) {
     }
 }
 
-/// 同一哈希的并发下载共享单元。
-fn inflight_map() -> &'static tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::OnceCell<String>>>>
-{
-    static MAP: OnceLock<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::OnceCell<String>>>>> =
-        OnceLock::new();
-    MAP.get_or_init(|| tokio::sync::Mutex::new(HashMap::new()))
-}
+/// 共享数据库句柄（生产为 `AppState.db`）。
+pub(crate) type SharedDb = Arc<Mutex<crate::db::Database>>;
 
-/// 已有数据库文件时打开连接，不存在返回空。
+/// 同一缓存键的并发下载单飞表（结果为 `data:` URI 或原地址）。
+static ASSET_FLIGHTS: LazyLock<crate::icons::Flights<String>> =
+    LazyLock::new(crate::icons::Flights::new);
+
+/// 运行期配额节流：每 32 次落盘或累计 64 MiB 新增字节触发一次后台淘汰
+/// （启动期另有一次全量淘汰，见 `lib.rs`）。
+static ASSET_QUOTA_THROTTLE: crate::icons::QuotaThrottle =
+    crate::icons::QuotaThrottle::new(32, 64 * 1024 * 1024, None);
+
+/// 缓存根目录下已有数据库文件时打开连接，不存在返回空（测试注入路径用）。
+#[cfg(test)]
 fn open_asset_db(root: &std::path::Path) -> Option<crate::db::Database> {
     let path = root.join("z_store.db");
     if !path.is_file() {
@@ -165,12 +168,6 @@ fn read_cached_asset_data_uri(path: &std::path::Path) -> Option<String> {
     crate::icons::read_valid_image_file(path).map(|bytes| crate::icons::bytes_to_data_uri(&bytes))
 }
 
-/// 旧盘文件兜底：可读即返回 `data:` URI，否则回退原地址。
-fn cached_or_original(path: Option<&std::path::Path>, trimmed: &str) -> String {
-    path.and_then(read_cached_asset_data_uri)
-        .unwrap_or_else(|| trimmed.to_string())
-}
-
 /// 共享新鲜命中确认：文件新鲜且可读即 touch 并返回 `data:` URI，否则 `None`
 /// （损坏文件落空后走重新下载）。与 `find_cached_file`（按 stem 找文件）区分：本函数只做新鲜度门控。
 fn find_cached(path: &std::path::Path) -> Option<String> {
@@ -182,14 +179,83 @@ fn find_cached(path: &std::path::Path) -> Option<String> {
     Some(uri)
 }
 
-/// 下载网关：`data:` URI 或原地址。
-pub async fn fetch_or_cache_asset_url_inner(url: &str, app_id: &str) -> String {
-    fetch_or_cache_asset_url_in(&crate::get_app_data_dir(), url, app_id).await
+/// 阻塞文件 IO 卸到阻塞线程池；任务 panic 视为 `None`。
+async fn blocking<T, F>(f: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    tokio::task::spawn_blocking(f).await.ok()
 }
 
-/// 下载网关内核（缓存根目录可注入：生产为应用数据目录，测试为临时目录）。
+/// 单次获取的上下文：缓存根、可选数据库与规范化坐标。
+struct AssetJob<'a> {
+    root: &'a std::path::Path,
+    db: Option<&'a SharedDb>,
+    trimmed: &'a str,
+    normalized: &'a str,
+    stem: &'a str,
+    app: &'a str,
+}
+
+impl AssetJob<'_> {
+    /// 短锁执行一次 DB 操作；无库或锁中毒返回 `None`。
+    fn with_db<T>(&self, f: impl FnOnce(&crate::db::Database) -> T) -> Option<T> {
+        let guard = self.db?.lock().ok()?;
+        Some(f(&guard))
+    }
+
+    fn touch_app(&self, hash: &str) {
+        if !self.app.is_empty() {
+            self.with_db(|d| {
+                let _ = d.touch_asset(hash, self.app);
+            });
+        }
+    }
+
+    /// 新鲜命中（阻塞线程池读盘 + touch）。
+    async fn fresh_hit(&self, path: &std::path::Path) -> Option<String> {
+        let path = path.to_path_buf();
+        blocking(move || find_cached(&path)).await.flatten()
+    }
+
+    /// 旧盘文件兜底：可读即返回 `data:` URI（可选先 touch 续期），否则回退原地址。
+    async fn cached_or_original(&self, path: Option<std::path::PathBuf>, touch: bool) -> String {
+        let read = match path {
+            Some(p) => blocking(move || {
+                if touch {
+                    touch_path(&p);
+                }
+                read_cached_asset_data_uri(&p)
+            })
+            .await
+            .flatten(),
+            None => None,
+        };
+        read.unwrap_or_else(|| self.trimmed.to_string())
+    }
+}
+
+/// 下载网关（生产入口）：复用共享 `AppState.db`，缓存根为应用数据目录。
+pub async fn fetch_or_cache_asset_url_inner(db: &SharedDb, url: &str, app_id: &str) -> String {
+    fetch_or_cache_asset_url_with(&crate::get_app_data_dir(), Some(db), url, app_id).await
+}
+
+/// 下载网关（缓存根可注入，测试用）：根目录下已有 `z_store.db` 时本次调用只打开一次并全程复用。
+#[cfg(test)]
 pub(crate) async fn fetch_or_cache_asset_url_in(
     root: &std::path::Path,
+    url: &str,
+    app_id: &str,
+) -> String {
+    let db = open_asset_db(root).map(|d| Arc::new(Mutex::new(d)));
+    fetch_or_cache_asset_url_with(root, db.as_ref(), url, app_id).await
+}
+
+/// 下载网关内核：`data:` URI 或原地址。
+pub(crate) async fn fetch_or_cache_asset_url_with(
+    root: &std::path::Path,
+    db: Option<&SharedDb>,
     url: &str,
     app_id: &str,
 ) -> String {
@@ -199,131 +265,98 @@ pub(crate) async fn fetch_or_cache_asset_url_in(
     }
     let normalized = normalize_asset_url(trimmed);
     let stem = cache_stem(&normalized);
-    // 单飞键含缓存根，避免不同根（测试并发）互相复用结果。
-    let flight_key = format!("{}|{}", root.to_string_lossy(), stem);
-    let cell = {
-        let map = inflight_map();
-        let mut guard = map.lock().await;
-        if let Some(existing) = guard.get(&flight_key) {
-            Arc::clone(existing)
-        } else {
-            let created = Arc::new(tokio::sync::OnceCell::new());
-            guard.insert(flight_key.clone(), Arc::clone(&created));
-            created
-        }
+    let job = AssetJob {
+        root,
+        db,
+        trimmed,
+        normalized: &normalized,
+        stem: &stem,
+        app: app_id.trim(),
     };
-    let result = cell
-        .get_or_init(|| fetch_asset_inner(root, trimmed, &normalized, &stem, app_id.trim()))
+    // 单飞键含缓存根，避免不同根（测试并发）互相复用结果；守卫析构即摘键（含取消）。
+    let flight = ASSET_FLIGHTS.join(format!("{}|{}", root.to_string_lossy(), stem));
+    flight
+        .cell()
+        .get_or_init(|| fetch_asset_inner(&job))
         .await
-        .clone();
-    {
-        let map = inflight_map();
-        let mut guard = map.lock().await;
-        if let Some(existing) = guard.get(&flight_key) {
-            if Arc::ptr_eq(existing, &cell) {
-                guard.remove(&flight_key);
-            }
-        }
-    }
-    result
+        .clone()
 }
 
 /// 单次获取内核：命中复用、过期条件请求、未命中下载落盘。
-async fn fetch_asset_inner(
-    root: &std::path::Path,
-    trimmed: &str,
-    normalized: &str,
-    stem: &str,
-    app: &str,
-) -> String {
-    let dir = shard_dir(root, stem);
-    let existing = find_cached_file(&dir, stem);
-    let record: Option<crate::db::AssetCacheRecord> =
-        open_asset_db(root).and_then(|d| d.get_asset(normalized).ok().flatten());
-    let now = crate::now_secs();
-    let touch_app = |hash: &str| {
-        if !app.is_empty() {
-            if let Some(d) = open_asset_db(root) {
-                let _ = d.touch_asset(hash, app);
-            }
-        }
+async fn fetch_asset_inner(job: &AssetJob<'_>) -> String {
+    let dir = shard_dir(job.root, job.stem);
+    let existing = {
+        let dir = dir.clone();
+        let stem = job.stem.to_string();
+        blocking(move || find_cached_file(&dir, &stem))
+            .await
+            .flatten()
     };
-    if let (Some(path), Some(rec)) = (existing.clone(), record.clone()) {
+    let record: Option<crate::db::AssetCacheRecord> = job
+        .with_db(|d| d.get_asset(job.normalized).ok().flatten())
+        .flatten();
+    let now = crate::now_secs();
+    if let (Some(path), Some(rec)) = (existing.clone(), record) {
         if rec.expires_at > now {
-            if let Some(hit) = find_cached(&path) {
-                touch_app(&rec.hash);
+            if let Some(hit) = job.fresh_hit(&path).await {
+                job.touch_app(&rec.hash);
                 return hit;
             }
         }
         if has_validators(&rec) {
-            let etag = rec.etag.clone();
-            let last_modified = rec.last_modified.clone();
-            let hash = rec.hash.clone();
-            match fetch_remote_asset(normalized, etag.as_deref(), last_modified.as_deref()).await {
+            match fetch_remote_asset(
+                job.normalized,
+                rec.etag.as_deref(),
+                rec.last_modified.as_deref(),
+            )
+            .await
+            {
                 Ok(ConditionalResult::NotModified) => {
                     let new_expires = crate::now_secs() + ASSET_TTL_SECS as i64;
-                    if let Some(d) = open_asset_db(root) {
-                        let _ = d.refresh_asset_revalidated(&hash, new_expires);
-                    }
-                    touch_path(&path);
-                    return cached_or_original(Some(&path), trimmed);
+                    job.with_db(|d| {
+                        let _ = d.refresh_asset_revalidated(&rec.hash, new_expires);
+                    });
+                    return job.cached_or_original(Some(path), true).await;
                 }
                 Ok(ConditionalResult::Fresh(fresh)) => {
-                    return store_fresh_asset(
-                        root, trimmed, normalized, stem, &dir, existing, fresh, app,
-                    );
+                    return store_fresh_asset(job, &dir, existing, fresh).await;
                 }
                 Err(_reason) => {
                     // 离线/上游失败：过期旧文件仍优于裸连远端。
-                    return cached_or_original(Some(&path), trimmed);
+                    return job.cached_or_original(Some(path), false).await;
                 }
             }
-        } else if let Some(hit) = find_cached(&path) {
-            touch_app(&rec.hash);
+        } else if let Some(hit) = job.fresh_hit(&path).await {
+            job.touch_app(&rec.hash);
             return hit;
         }
-    } else if let Some(path) = existing.clone() {
-        if let Some(hit) = find_cached(&path) {
+    } else if let Some(path) = existing.as_deref() {
+        if let Some(hit) = job.fresh_hit(path).await {
             return hit;
         }
     }
-    let fetched = match fetch_remote_asset(normalized, None, None).await {
+    let fetched = match fetch_remote_asset(job.normalized, None, None).await {
         Ok(ConditionalResult::Fresh(fresh)) => fresh,
         Ok(ConditionalResult::NotModified) | Err(_) => {
-            return cached_or_original(existing.as_deref(), trimmed);
+            return job.cached_or_original(existing, false).await;
         }
     };
-    store_fresh_asset(
-        root, trimmed, normalized, stem, &dir, existing, fetched, app,
-    )
+    store_fresh_asset(job, &dir, existing, fetched).await
 }
 
 /// 新字节校验落盘并同步数据库记录，返回 `data:` URI（落盘失败仍以内存字节渲染）。
-#[allow(clippy::too_many_arguments)]
-fn store_fresh_asset(
-    root: &std::path::Path,
-    trimmed: &str,
-    normalized: &str,
-    stem: &str,
+/// 编码与文件写入在阻塞线程池执行，DB 只在落盘后短锁写入一次。
+async fn store_fresh_asset(
+    job: &AssetJob<'_>,
     dir: &std::path::Path,
     existing: Option<std::path::PathBuf>,
     fresh: DownloadedAsset,
-    app: &str,
 ) -> String {
     if !is_valid_image(&fresh.bytes) {
-        return cached_or_original(existing.as_deref(), trimmed);
+        return job.cached_or_original(existing, false).await;
     }
-    let data_uri = crate::icons::bytes_to_data_uri(&fresh.bytes);
     let ext = resolve_asset_ext(&fresh);
-    let final_path = dir.join(format!("{}.{}", stem, ext));
-    if persist_asset_bytes(root, &fresh.bytes, &final_path, stem).is_err() {
-        return data_uri;
-    }
-    if let Some(old) = existing {
-        if old != final_path {
-            let _ = std::fs::remove_file(&old);
-        }
-    }
+    let final_path = dir.join(format!("{}.{}", job.stem, ext));
     let content_type = if fresh.content_type.trim().is_empty() {
         sniff_asset_mime(&fresh.bytes)
             .unwrap_or("image/png")
@@ -331,25 +364,77 @@ fn store_fresh_asset(
     } else {
         fresh.content_type
     };
+    let size = fresh.bytes.len();
+    let persisted = {
+        let root = job.root.to_path_buf();
+        let stem = job.stem.to_string();
+        let bytes = fresh.bytes;
+        blocking(move || {
+            let data_uri = crate::icons::bytes_to_data_uri(&bytes);
+            let ok = persist_asset_bytes(&root, &bytes, &final_path, &stem).is_ok();
+            if ok {
+                if let Some(old) = existing {
+                    if old != final_path {
+                        let _ = std::fs::remove_file(&old);
+                    }
+                }
+            }
+            (data_uri, ok)
+        })
+        .await
+    };
+    let Some((data_uri, ok)) = persisted else {
+        return job.trimmed.to_string();
+    };
+    if !ok {
+        return data_uri;
+    }
     let expires_at = crate::now_secs() + ASSET_TTL_SECS as i64;
-    if let Some(d) = open_asset_db(root) {
+    job.with_db(|d| {
         if let Ok(saved) = d.save_asset(
-            normalized,
+            job.normalized,
             &content_type,
-            fresh.bytes.len() as i64,
+            size as i64,
             fresh.etag.as_deref(),
             fresh.last_modified.as_deref(),
             expires_at,
         ) {
-            if !app.is_empty() {
-                let _ = d.touch_asset(&saved.hash, app);
+            if !job.app.is_empty() {
+                let _ = d.touch_asset(&saved.hash, job.app);
             }
+        }
+    });
+    if ASSET_QUOTA_THROTTLE.record(size as u64) {
+        if let Some(db) = job.db {
+            spawn_asset_quota_prune(Arc::clone(db), job.root.join("cache").join("assets"));
         }
     }
     data_uri
 }
 
+/// 后台配额淘汰：递归扫描在 DB 锁外完成，仅淘汰阶段短暂持锁。
+fn spawn_asset_quota_prune(db: SharedDb, assets_dir: std::path::PathBuf) {
+    tokio::task::spawn_blocking(move || {
+        let scanned = crate::db::cache::scan_asset_files(&assets_dir);
+        if let Ok(d) = db.lock() {
+            let _ = d.enforce_asset_quota_lru_scanned(&assets_dir, scanned);
+        }
+    });
+}
+
+/// 读取响应头文本值（去空白，空值视为缺失）。
+fn header_text(resp: &reqwest::Response, name: reqwest::header::HeaderName) -> Option<String> {
+    resp.headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// 条件下载：携带校验器，未修改返回空，成功返回字节与响应头。
+/// 无扩展名地址在读取响应体前按 `Content-Type` 拒绝非图片；`Content-Length` 超限与
+/// 流式累积超限同样在缓冲前中断。
 async fn fetch_remote_asset(
     download_url: &str,
     etag: Option<&str>,
@@ -360,28 +445,6 @@ async fn fetch_remote_asset(
         .api_timeout_seconds;
     let client =
         crate::forge::http::new_icon_client(secs).unwrap_or_else(|_| reqwest::Client::new());
-    if url_path_ext(download_url).is_none() {
-        if let Ok(head) = client
-            .head(download_url)
-            .headers(crate::forge::http::icon_headers())
-            .send()
-            .await
-        {
-            if head.status().is_success() {
-                if let Some(value) = head
-                    .headers()
-                    .get(reqwest::header::CONTENT_TYPE)
-                    .and_then(|v| v.to_str().ok())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    if !is_image_content_type(value) {
-                        return Err("non-image content-type".to_string());
-                    }
-                }
-            }
-        }
-    }
     let mut request = client
         .get(download_url)
         .headers(crate::forge::http::icon_headers());
@@ -398,42 +461,21 @@ async fn fetch_remote_asset(
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
-    let etag_new = resp
-        .headers()
-        .get(reqwest::header::ETAG)
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    let last_modified_new = resp
-        .headers()
-        .get(reqwest::header::LAST_MODIFIED)
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    let content_type_new = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_default();
-    if let Some(len) = resp.content_length() {
-        if len > MAX_ASSET_BYTES as u64 {
-            return Err("asset too large".to_string());
-        }
+    let content_type_new = header_text(&resp, reqwest::header::CONTENT_TYPE).unwrap_or_default();
+    if url_path_ext(download_url).is_none()
+        && !content_type_new.is_empty()
+        && !is_image_content_type(&content_type_new)
+    {
+        return Err("non-image content-type".to_string());
     }
-    let mut buf = Vec::new();
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let c = chunk.map_err(|e| e.to_string())?;
-        if buf.len() + c.len() > MAX_ASSET_BYTES {
-            return Err("asset too large".to_string());
-        }
-        buf.extend_from_slice(&c);
-    }
+    let etag_new = header_text(&resp, reqwest::header::ETAG);
+    let last_modified_new = header_text(&resp, reqwest::header::LAST_MODIFIED);
+    let buf = crate::forge::http::read_body_capped(resp, MAX_ASSET_BYTES)
+        .await
+        .map_err(|e| match e {
+            crate::forge::http::BodyReadError::TooLarge => "asset too large".to_string(),
+            crate::forge::http::BodyReadError::Transport(e) => e.to_string(),
+        })?;
     if buf.is_empty() {
         return Err("empty body".to_string());
     }
@@ -557,6 +599,68 @@ mod tests {
         let second = fetch_or_cache_asset_url_in(root.path(), &png, "o/r").await;
         assert_eq!(second, first);
         assert_eq!(server.hits(), after_store);
+    }
+
+    #[tokio::test]
+    async fn shared_db_records_asset_and_serves_hits_without_network() {
+        let root = tempfile::tempdir().unwrap();
+        let server = serve_images().await;
+        let png = format!("{}/shared.png", server.base);
+        let db: SharedDb = Arc::new(Mutex::new(crate::db::Database::open_in_memory().unwrap()));
+
+        let first = fetch_or_cache_asset_url_with(root.path(), Some(&db), &png, "o/r").await;
+        assert!(first.starts_with("data:image/png;base64,"), "{first}");
+        let rec = db
+            .lock()
+            .unwrap()
+            .get_asset(&png)
+            .unwrap()
+            .expect("record saved");
+        assert_eq!(rec.content_type, "image/png");
+        let after_store = server.hits();
+
+        let second = fetch_or_cache_asset_url_with(root.path(), Some(&db), &png, "o/r").await;
+        assert_eq!(second, first);
+        assert_eq!(server.hits(), after_store);
+        let touched = db.lock().unwrap().get_asset(&png).unwrap().unwrap();
+        assert!(
+            touched.hits > rec.hits,
+            "cache hit touches the shared record"
+        );
+    }
+
+    #[tokio::test]
+    async fn extensionless_non_image_is_rejected_with_single_get() {
+        use crate::test_support::{serve, Reply};
+        let root = tempfile::tempdir().unwrap();
+        let server = serve(|_| {
+            Reply::ok(&b"<!DOCTYPE html><html></html>"[..]).header("Content-Type", "text/html")
+        })
+        .await;
+        let url = format!("{}/user-attachments/assets/abc", server.base);
+        assert_eq!(
+            fetch_or_cache_asset_url_in(root.path(), &url, "").await,
+            url
+        );
+        let reqs = server.requests();
+        assert_eq!(reqs.len(), 1, "no HEAD preflight");
+        assert!(reqs[0].starts_with("GET "), "{}", reqs[0]);
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_share_one_download_and_leave_no_flight() {
+        let root = tempfile::tempdir().unwrap();
+        let server = serve_images().await;
+        let png = format!("{}/flight.png", server.base);
+        let (a, b) = tokio::join!(
+            fetch_or_cache_asset_url_in(root.path(), &png, ""),
+            fetch_or_cache_asset_url_in(root.path(), &png, "")
+        );
+        assert_eq!(a, b);
+        assert_eq!(server.hits(), 1);
+        // 单飞完成后摘键：再次加入得到全新的未初始化单元。
+        let key = format!("{}|{}", root.path().to_string_lossy(), cache_stem(&png));
+        assert!(ASSET_FLIGHTS.join(key).cell().get().is_none());
     }
 
     #[tokio::test]

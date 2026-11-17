@@ -281,14 +281,20 @@ pub async fn fetch_once(
         .get("etag")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| fail(format!("读取开源广场清单失败: {}", e), true))?;
-    if bytes.len() > crate::db::launchpad::LAUNCHPAD_FEED_CACHE_MAX_BYTES {
-        return Err(fail("开源广场清单超过 512 KiB 上限".to_string(), false));
-    }
-    let text = String::from_utf8(bytes.to_vec())
+    let bytes = crate::forge::http::read_body_capped(
+        resp,
+        crate::db::launchpad::LAUNCHPAD_FEED_CACHE_MAX_BYTES,
+    )
+    .await
+    .map_err(|e| match e {
+        crate::forge::http::BodyReadError::TooLarge => {
+            fail("开源广场清单超过 512 KiB 上限".to_string(), false)
+        }
+        crate::forge::http::BodyReadError::Transport(e) => {
+            fail(format!("读取开源广场清单失败: {}", e), true)
+        }
+    })?;
+    let text = String::from_utf8(bytes)
         .map_err(|_| fail("开源广场清单不是合法 UTF-8".to_string(), false))?;
     Ok(LaunchpadFetch {
         text: Some(text),
@@ -305,34 +311,34 @@ pub async fn fetch_with_fallback(
     cached_etag: Option<&str>,
     mirror_prefix: Option<&str>,
 ) -> Result<LaunchpadFetch, String> {
-    let primary_err = match fetch_once(primary, url, cached_etag).await {
-        Ok(f) => return Ok(f),
-        Err(e) if e.retryable => e.message,
-        Err(e) => return Err(e.message),
+    let first = async {
+        fetch_once(primary, url, cached_etag)
+            .await
+            .map_err(|e| (e.message, e.retryable))
     };
-    let Some(prefix) = mirror_prefix else {
-        return Err(primary_err);
-    };
-    let mirrored = crate::mirror::prefix_with_base(prefix, url);
-    let client = crate::github::CatalogService::build_catalog_client(
-        &crate::proxy::current_proxy_snapshot(),
-        &crate::proxy::proxy_hosts_for(&mirrored),
-    )?;
-    let fetched = fetch_once(&client, &mirrored, None)
-        .await
-        .map_err(|e| format!("{}；镜像重试失败: {}", primary_err, e.message))?;
-    let Some(text) = fetched.text else {
-        return Err(format!("{}；镜像未发条件请求却返回 304", primary_err));
-    };
-    let manifest = parse_manifest(&text)
-        .map_err(|reason| format!("{}；镜像清单校验失败: {}", primary_err, reason))?;
-    validate_manifest_strict(&manifest)
-        .map_err(|reason| format!("{}；镜像清单校验失败: {}", primary_err, reason))?;
-    Ok(LaunchpadFetch {
-        text: Some(text),
-        etag: None,
-        via_mirror: true,
-    })
+    crate::github::catalog_service::fetch_with_mirror_fallback(
+        first,
+        url,
+        mirror_prefix,
+        |client, mirrored| async move {
+            let fetched = fetch_once(&client, &mirrored, None)
+                .await
+                .map_err(|e| format!("镜像重试失败: {}", e.message))?;
+            let Some(text) = fetched.text else {
+                return Err("镜像未发条件请求却返回 304".to_string());
+            };
+            let manifest =
+                parse_manifest(&text).map_err(|reason| format!("镜像清单校验失败: {}", reason))?;
+            validate_manifest_strict(&manifest)
+                .map_err(|reason| format!("镜像清单校验失败: {}", reason))?;
+            Ok(LaunchpadFetch {
+                text: Some(text),
+                etag: None,
+                via_mirror: true,
+            })
+        },
+    )
+    .await
 }
 
 #[cfg(test)]

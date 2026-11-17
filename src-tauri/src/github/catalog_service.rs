@@ -108,6 +108,55 @@ fn fetch_local_catalog(url: &str, cached_etag: Option<&str>) -> Result<RemoteCat
     })
 }
 
+/// 远端清单响应体上限：16 MiB（现行清单约 0.4 MiB），超限视为不可重试失败。
+const MAX_CATALOG_BYTES: usize = 16 * 1024 * 1024;
+
+/// 镜像回退清单池：键为超时 + 代理签名（含镜像直连豁免 host），签名不变即复用连接池。
+static MIRROR_CATALOG_SLOT: crate::proxy::ClientSlot = crate::proxy::ClientSlot::new();
+
+/// 镜像地址对应的清单池 Client（无 Token；镜像 host 走 per-client `no_proxy` 直连）。
+pub(crate) fn mirror_catalog_client(mirrored_url: &str) -> Result<reqwest::Client, String> {
+    let snap = crate::proxy::current_proxy_snapshot();
+    let extra = crate::proxy::proxy_hosts_for(mirrored_url);
+    let key = format!(
+        "{}|{}",
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
+        snap.signature(&extra)
+    );
+    MIRROR_CATALOG_SLOT.get_or_build(&key, || CatalogService::build_catalog_client(&snap, &extra))
+}
+
+/// 镜像回退公共骨架（收录清单与开源广场清单共用）：首跳 `primary` 成功直接返回；
+/// 失败且 `retryable`、并给出 `mirror_prefix` 时，以镜像地址与复用的镜像池 Client 调用 `mirror`
+/// 重试一次，镜像失败文案以「首跳原因；镜像原因」拼接。不可重试失败或无镜像时返回首跳原因。
+pub(crate) async fn fetch_with_mirror_fallback<T, P, M, MFut>(
+    primary: P,
+    url: &str,
+    mirror_prefix: Option<&str>,
+    mirror: M,
+) -> Result<T, String>
+where
+    P: std::future::Future<Output = Result<T, (String, bool)>>,
+    M: FnOnce(reqwest::Client, String) -> MFut,
+    MFut: std::future::Future<Output = Result<T, String>>,
+{
+    let primary_err = match primary.await {
+        Ok(v) => return Ok(v),
+        Err((message, true)) => message,
+        Err((message, false)) => return Err(message),
+    };
+    let Some(prefix) = mirror_prefix else {
+        return Err(primary_err);
+    };
+    let mirrored = crate::mirror::prefix_with_base(prefix, url);
+    let client = mirror_catalog_client(&mirrored)?;
+    mirror(client, mirrored)
+        .await
+        .map_err(|reason| format!("{}；{}", primary_err, reason))
+}
+
 async fn fetch_catalog_once(
     client: &reqwest::Client,
     url: &str,
@@ -145,11 +194,17 @@ async fn fetch_catalog_once(
         .get("etag")
         .and_then(|h| h.to_str().ok())
         .map(|s| s.to_string());
-    let text = resp
-        .text()
+    let bytes = crate::forge::http::read_body_capped(resp, MAX_CATALOG_BYTES)
         .await
-        .map_err(|e| fail(format!("读取清单内容失败: {}", e), true))?;
-    let items: Vec<CatalogItem> = serde_json::from_str(&text)
+        .map_err(|e| match e {
+            crate::forge::http::BodyReadError::TooLarge => {
+                fail("收录清单超过 16 MiB 上限".to_string(), false)
+            }
+            crate::forge::http::BodyReadError::Transport(e) => {
+                fail(format!("读取清单内容失败: {}", e), true)
+            }
+        })?;
+    let items: Vec<CatalogItem> = serde_json::from_slice(&bytes)
         .map_err(|e| fail(format!("解析收录清单 JSON 失败: {}", e), false))?;
     Ok(RemoteCatalogFetch {
         items: Some(items),
@@ -567,39 +622,29 @@ impl CatalogService {
         cached_etag: Option<&str>,
         mirror_prefix: Option<&str>,
     ) -> Result<RemoteCatalogFetch, String> {
-        let primary =
-            fetch_catalog_once(&self.http_client(), url, cached_etag, CatalogVia::Direct).await;
-        let primary_err = match primary {
-            Ok(f) => return Ok(f),
-            Err(e) if e.retryable => e.message,
-            Err(e) => return Err(e.message),
+        let primary = async {
+            fetch_catalog_once(&self.http_client(), url, cached_etag, CatalogVia::Direct)
+                .await
+                .map_err(|e| (e.message, e.retryable))
         };
-        let Some(prefix) = mirror_prefix else {
-            return Err(primary_err);
-        };
-        let mirrored = crate::mirror::prefix_with_base(prefix, url);
-        let client = Self::build_catalog_client(
-            &crate::proxy::current_proxy_snapshot(),
-            &crate::proxy::proxy_hosts_for(&mirrored),
-        )?;
         // 镜像不发条件请求：恒取完整正文并严格校验，镜像无法以 304 冻结目录；
         // 镜像侧 ETag 不落库（下次同步仍以官方源为准）。
-        let fetched = fetch_catalog_once(&client, &mirrored, None, CatalogVia::Mirror)
-            .await
-            .map_err(|e| format!("{}；镜像重试失败: {}", primary_err, e.message))?;
-        let Some(items) = fetched.items else {
-            return Err(format!(
-                "{}；镜像清单校验失败: 未发条件请求却返回 304",
-                primary_err
-            ));
-        };
-        validate_mirrored_catalog(&items)
-            .map_err(|reason| format!("{}；镜像清单校验失败: {}", primary_err, reason))?;
-        Ok(RemoteCatalogFetch {
-            items: Some(items),
-            etag: None,
-            via: CatalogVia::Mirror,
+        fetch_with_mirror_fallback(primary, url, mirror_prefix, |client, mirrored| async move {
+            let fetched = fetch_catalog_once(&client, &mirrored, None, CatalogVia::Mirror)
+                .await
+                .map_err(|e| format!("镜像重试失败: {}", e.message))?;
+            let Some(items) = fetched.items else {
+                return Err("镜像清单校验失败: 未发条件请求却返回 304".to_string());
+            };
+            validate_mirrored_catalog(&items)
+                .map_err(|reason| format!("镜像清单校验失败: {}", reason))?;
+            Ok(RemoteCatalogFetch {
+                items: Some(items),
+                etag: None,
+                via: CatalogVia::Mirror,
+            })
         })
+        .await
     }
 
     pub fn search_local_catalog(&self, query: &str) -> Vec<AppSummary> {

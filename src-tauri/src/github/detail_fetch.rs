@@ -3,7 +3,7 @@ use crate::github::developer_profile::EtagGetOutcome;
 use crate::github::models::{CatalogItem, GitHubAssetResponse, GitHubRepoResponse};
 use crate::github::CatalogService;
 use crate::models::{AppCore, AppDetail, ReleaseAsset};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, IF_NONE_MATCH};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 use std::collections::HashMap;
 
 use crate::repositories::EtagWrite;
@@ -371,12 +371,22 @@ fn should_skip_checksum_fetch(
             .unwrap_or(false)
 }
 
-/// checksum 抓取 seam：消极缓存命中整路跳过，否则经 `extract_checksums_map`
+/// checksum 下载直链请求头：仅 UA。release 资产直链不是 GitHub API，
+/// 不携带 API `Accept`、`Authorization` 与任何 `If-None-Match`。
+fn checksum_download_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static(crate::github::http::GH_USER_AGENT),
+    );
+    headers
+}
+
+/// checksum 抓取 seam：消极缓存命中整路跳过，否则以干净下载头经 `extract_checksums_map`
 /// 返回 `(checksum_map, step_label, skip_or_fail_reason)`。
 async fn fetch_checksum_table(
     assets: &[GitHubAssetResponse],
     client: &reqwest::Client,
-    headers: &HeaderMap,
     skip_checksum: bool,
 ) -> (HashMap<String, String>, String, Option<String>) {
     if skip_checksum {
@@ -386,7 +396,7 @@ async fn fetch_checksum_table(
             Some("negative_cache_24h".to_string()),
         );
     }
-    CatalogService::extract_checksums_map(assets, client, headers).await
+    CatalogService::extract_checksums_map(assets, client, &checksum_download_headers()).await
 }
 
 /// release 资产组装 seam：校验过滤 → classify（`forge::provider::classify_asset_fields`
@@ -707,13 +717,6 @@ impl CatalogService {
 
         // header/client/log 经 github 内本地 helper。
         let base_headers = crate::github::http::token_headers(token);
-        let mut headers = base_headers.clone();
-
-        if let Some(ref etag) = prefetch.release_etag {
-            if let Ok(val) = HeaderValue::from_str(etag) {
-                headers.insert(IF_NONE_MATCH, val);
-            }
-        }
 
         let release_url = format!(
             "https://api.github.com/repos/{}/{}/releases/latest",
@@ -884,7 +887,7 @@ impl CatalogService {
                 &probe_branch,
                 has_token
             ),
-            fetch_checksum_table(&release_resp.assets, client, &headers, skip_checksum)
+            fetch_checksum_table(&release_resp.assets, client, skip_checksum)
         );
         if let Some(w) = readme_etag_write {
             etag_writes.push(w);
@@ -1091,6 +1094,26 @@ mod tests {
         let headers = reqwest::header::HeaderMap::new();
         let (map, _, _) = CatalogService::extract_checksums_map(&assets, &client, &headers).await;
         assert!(map.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_checksum_table_sends_clean_download_headers() {
+        use crate::test_support::{serve, Reply};
+        let hash = "b".repeat(64);
+        let body = format!("{}  app.msi\n", hash);
+        let server = serve(move |_| Reply::ok(body.clone())).await;
+        let assets = vec![crate::github::models::GitHubAssetResponse {
+            name: "checksums.sha256".to_string(),
+            size: 100,
+            browser_download_url: format!("{}/o/r/checksums.sha256", server.base),
+        }];
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let (map, _, _) = super::fetch_checksum_table(&assets, &client, false).await;
+        assert_eq!(map.get("app.msi").map(String::as_str), Some(hash.as_str()));
+        let req = server.requests().join("\n").to_ascii_lowercase();
+        assert!(!req.contains("authorization:"), "{req}");
+        assert!(!req.contains("if-none-match:"), "{req}");
+        assert!(!req.contains("application/vnd.github"), "{req}");
     }
 
     #[tokio::test]

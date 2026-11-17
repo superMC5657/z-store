@@ -15,6 +15,35 @@ type RootPathsCache = std::collections::HashMap<String, (Vec<String>, i64)>;
 static ROOT_PATHS_CACHE: LazyLock<std::sync::Mutex<RootPathsCache>> =
     LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
+/// 两张内存表各自的条目上限：长时运行不随浏览过的仓库数无限增长。
+const README_MEMO_CAP: usize = 512;
+
+/// 有界写入：表满且为新键时先清过期条目，仍满则驱逐写入时间最早的一条。
+fn insert_bounded<V>(
+    map: &mut std::collections::HashMap<String, (V, i64)>,
+    cap: usize,
+    ttl_secs: i64,
+    key: String,
+    value: V,
+    now: i64,
+) {
+    if !map.contains_key(&key) && map.len() >= cap {
+        if ttl_secs > 0 {
+            map.retain(|_, (_, at)| now.saturating_sub(*at) < ttl_secs);
+        }
+        if map.len() >= cap {
+            let oldest = map
+                .iter()
+                .min_by_key(|(_, (_, at))| *at)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = oldest {
+                map.remove(&k);
+            }
+        }
+    }
+    map.insert(key, (value, now));
+}
+
 /// 路径逐段 percent-encoding：`/` 保留作分隔，段内字符各编码一次。
 fn encode_path_segments(path: &str) -> String {
     path.trim_start_matches('/')
@@ -72,7 +101,14 @@ fn store_default_branch(owner: &str, repo: &str, branch: &str) {
     }
     let key = branch_cache_key(owner, repo);
     if let Ok(mut guard) = DEFAULT_BRANCH_CACHE.lock() {
-        guard.insert(key, (branch.to_string(), crate::github::http::now_secs()));
+        insert_bounded(
+            &mut guard,
+            README_MEMO_CAP,
+            readme_list_ttl_secs(),
+            key,
+            branch.to_string(),
+            crate::github::http::now_secs(),
+        );
     }
 }
 
@@ -92,7 +128,14 @@ fn cached_root_paths(owner: &str, repo: &str, branch: &str, ttl_secs: i64) -> Op
 fn store_root_paths(owner: &str, repo: &str, branch: &str, paths: &[String]) {
     let key = root_cache_key(owner, repo, branch);
     if let Ok(mut guard) = ROOT_PATHS_CACHE.lock() {
-        guard.insert(key, (paths.to_vec(), crate::github::http::now_secs()));
+        insert_bounded(
+            &mut guard,
+            README_MEMO_CAP,
+            readme_list_ttl_secs(),
+            key,
+            paths.to_vec(),
+            crate::github::http::now_secs(),
+        );
     }
 }
 
@@ -446,6 +489,25 @@ impl CatalogService {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn insert_bounded_purges_expired_then_evicts_oldest() {
+        let mut map = std::collections::HashMap::new();
+        super::insert_bounded(&mut map, 2, 100, "a".to_string(), 1, 0);
+        super::insert_bounded(&mut map, 2, 100, "b".to_string(), 2, 60);
+        // 满表写新键：a 已过期（150-0 >= 100）被清理，b 保留。
+        super::insert_bounded(&mut map, 2, 100, "c".to_string(), 3, 150);
+        assert_eq!(map.len(), 2);
+        assert!(!map.contains_key("a"));
+        // 无过期条目时驱逐最早写入的一条（b@60）。
+        super::insert_bounded(&mut map, 2, 100, "d".to_string(), 4, 151);
+        assert_eq!(map.len(), 2);
+        assert!(map.contains_key("c") && map.contains_key("d"));
+        // 覆盖已有键不驱逐。
+        super::insert_bounded(&mut map, 2, 100, "d".to_string(), 5, 152);
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["d"].0, 5);
+    }
+
     #[tokio::test]
     async fn test_fetch_readme_variants_contents_happy_path() {
         use crate::github::developer_starred::test_support::{spawn_mock, MockResp};

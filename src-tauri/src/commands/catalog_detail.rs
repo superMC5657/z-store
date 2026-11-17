@@ -1186,13 +1186,15 @@ fn persist_github_detail(
 }
 
 /// 通用图片磁盘缓存查询：已缓存或新下载落盘后返回 `data:` URI，非候选/失败回退原地址。
+/// 缓存记录读写复用共享 `AppState.db`（短锁），不另开数据库连接。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn fetch_or_cache_asset_url(
+    state: State<'_, AppState>,
     url: String,
     app_id: Option<String>,
 ) -> crate::AppResult<String> {
     let app = app_id.unwrap_or_default();
-    Ok(crate::github::asset_fetch::fetch_or_cache_asset_url_inner(&url, &app).await)
+    Ok(crate::github::asset_fetch::fetch_or_cache_asset_url_inner(&state.db, &url, &app).await)
 }
 
 #[tauri::command(rename_all = "camelCase")]
