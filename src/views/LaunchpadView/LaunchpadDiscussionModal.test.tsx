@@ -484,4 +484,124 @@ describe('LaunchpadDiscussionModal', () => {
     expect(screen.getByTestId('launchpad-reaction-trigger-DC_1')).toBeTruthy();
     expect(screen.getByTestId('launchpad-comment-reply-DC_1')).toBeTruthy();
   });
+
+  it('讨论弹窗内支持点击刷新按钮强制重拉并更新内容、计数与评论', async () => {
+    let resolveInitial!: (v: LaunchpadDiscussionDetail) => void;
+    let resolveRefresh!: (v: LaunchpadDiscussionDetail) => void;
+    api.getLaunchpadDiscussion
+      .mockImplementationOnce(
+        () =>
+          new Promise<LaunchpadDiscussionDetail>((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<LaunchpadDiscussionDetail>((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+
+    const onDiscussionSynced = vi.fn();
+    renderModal({ onDiscussionSynced });
+
+    const refreshBtn = screen.getByTestId('launchpad-discussion-refresh') as HTMLButtonElement;
+    expect(refreshBtn.disabled).toBe(true);
+    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeTruthy();
+
+    await act(async () => {
+      resolveInitial(detail());
+    });
+    await screen.findByTestId('launchpad-comment-DC_1');
+    expect(refreshBtn.disabled).toBe(false);
+    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeNull();
+
+    fireEvent.click(refreshBtn);
+    expect(refreshBtn.disabled).toBe(true);
+    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeTruthy();
+    // 刷新期间保留现有正文与评论，不回退骨架屏
+    expect(screen.getByTestId('launchpad-comment-DC_1')).toBeTruthy();
+    expect(api.getLaunchpadDiscussion).toHaveBeenLastCalledWith(
+      'superMC5657/z-store-launchpad',
+      7,
+      undefined,
+      true,
+    );
+
+    await act(async () => {
+      resolveRefresh(
+        detail({
+          body: '**更新后的正文**',
+          upvote_count: 8,
+          viewer_has_upvoted: true,
+          comments_total: 3,
+          comments: [
+            comment('DC_1', 'bob', 'nice'),
+            comment('DC_99', 'carol', 'fresh comment after refresh'),
+          ],
+        }),
+      );
+    });
+
+    expect(await screen.findByTestId('launchpad-comment-DC_99')).toBeTruthy();
+    expect(document.querySelector('.launchpad-discussion-body strong')?.textContent).toBe('更新后的正文');
+    expect(screen.getByTestId('launchpad-discussion-upvote').textContent).toBe('8');
+    expect(onDiscussionSynced).toHaveBeenLastCalledWith('acme/hyper', {
+      upvotes: 8,
+      commentsCount: 3,
+      viewerHasUpvoted: true,
+      nodeId: 'D_7',
+    });
+    expect(refreshBtn.disabled).toBe(false);
+    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeNull();
+  });
+
+  it('讨论弹窗刷新失败时保留已加载内容并恢复刷新按钮可用；首次加载失败后可点击刷新重试成功', async () => {
+    api.getLaunchpadDiscussion
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(detail())
+      .mockRejectedValueOnce(new Error('timeout'));
+
+    renderModal();
+    await screen.findByText(/network down/);
+    const refreshBtn = screen.getByTestId('launchpad-discussion-refresh') as HTMLButtonElement;
+    expect(refreshBtn.disabled).toBe(false);
+
+    // 首次失败后点击刷新重试成功
+    await act(async () => {
+      fireEvent.click(refreshBtn);
+    });
+    await screen.findByTestId('launchpad-comment-DC_1');
+
+    // 已加载后再次刷新失败：保留已有内容，按钮恢复可用
+    await act(async () => {
+      fireEvent.click(refreshBtn);
+    });
+    expect(screen.getByTestId('launchpad-comment-DC_1')).toBeTruthy();
+    expect(refreshBtn.disabled).toBe(false);
+    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeNull();
+  });
+
+  it('挂载到 .app-window 层叠上下文以覆盖标题栏虚化，不局限在 .app-body 内', async () => {
+    api.getLaunchpadDiscussion.mockResolvedValue(detail());
+    const appWindow = document.createElement('div');
+    appWindow.className = 'app-window';
+    const titlebar = document.createElement('div');
+    titlebar.className = 'titlebar';
+    const appBody = document.createElement('div');
+    appBody.className = 'app-body';
+    appWindow.append(titlebar, appBody);
+    document.body.appendChild(appWindow);
+
+    try {
+      renderModal();
+      await screen.findByTestId('launchpad-comment-DC_1');
+      const backdrop = appWindow.querySelector('.modal-backdrop.launchpad-discussion-backdrop');
+      expect(backdrop).toBeTruthy();
+      expect(backdrop?.parentElement).toBe(appWindow);
+      expect(appBody.querySelector('.modal-backdrop.launchpad-discussion-backdrop')).toBeNull();
+    } finally {
+      appWindow.remove();
+    }
+  });
 });

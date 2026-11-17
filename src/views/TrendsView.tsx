@@ -293,7 +293,7 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
             <RefreshCw
               size={14}
               aria-hidden="true"
-              className={isRefreshing ? 'trends-refresh-spin' : ''}
+              className={isLoading || isRefreshing ? 'trends-refresh-spin' : ''}
             />
           </button>
         </span>

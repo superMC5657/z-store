@@ -995,6 +995,33 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     expect(screen.getByText('acme/atlas')).toBeTruthy();
   });
 
+  it('进入趋势榜首次加载中：右侧刷新按钮同步禁用并转圈，落定后停止转圈', async () => {
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));
+    let release!: (v: string) => void;
+    trendSpy.mockImplementationOnce(async (url: string) => {
+      requestedUrls.push(String(url));
+      return new Promise<string>((resolve) => {
+        release = resolve;
+      });
+    });
+
+    const { container } = renderBoard();
+    const btn = screen.getByTestId('trends-refresh') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(container.querySelector('.trends-refresh-spin')).toBeTruthy();
+
+    await waitFor(() => {
+      expect(typeof release).toBe('function');
+    });
+    expect(btn.disabled).toBe(true);
+    expect(container.querySelector('.trends-refresh-spin')).toBeTruthy();
+
+    release(trendingHtmlFixture());
+    await screen.findByText('acme/atlas');
+    expect(btn.disabled).toBe(false);
+    expect(container.querySelector('.trends-refresh-spin')).toBeNull();
+  });
+
   it('刷新失败走现有 error lane（不弹框，按钮恢复可用）', async () => {
     trendingHtml = trendingHtmlFixture();
     enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockRejectedValue(new Error('offline'));

@@ -234,7 +234,7 @@
   font-size: var(--font-sm);
 }
 
-/* 讨论弹窗：与应用详情同形的居中浮窗（同处 .app-body 层叠上下文，略低一层让详情能叠在其上） */
+/* 讨论弹窗：与应用详情同形的居中浮窗（同处 .app-window 层叠上下文以统一虚化标题栏，z-index 90 低于详情弹窗 100） */
 .modal-backdrop.launchpad-discussion-backdrop {
   z-index: 90;
 }
@@ -316,6 +316,12 @@
   align-items: flex-end;
   gap: 10px;
   flex-shrink: 0;
+}
+
+.launchpad-dm-side-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* 主帖顶帖：竖排计票块 */

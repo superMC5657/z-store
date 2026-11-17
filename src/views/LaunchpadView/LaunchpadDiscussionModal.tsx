@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import '../../i18n';
-import { AppWindow, ArrowBigUp, ExternalLink, LogIn, MessageSquare, Reply, SmilePlus, X } from 'lucide-react';
+import { AppWindow, ArrowBigUp, ExternalLink, LogIn, MessageSquare, RefreshCw, Reply, SmilePlus, X } from 'lucide-react';
 import type {
   LaunchpadDiscussionComment,
   LaunchpadDiscussionDetail,
@@ -65,9 +65,9 @@ function patchComment(
   return list.map((c) => (c.id === id ? patch(c) : { ...c, replies: patchComment(c.replies, id, patch) }));
 }
 
-/** 弹窗挂载点：与应用详情同处 `.app-body` 层叠上下文，保证详情弹窗能盖在讨论之上。 */
+/** 弹窗挂载点：与应用详情同处 `.app-window` 层叠上下文，统一虚化覆盖标题栏并让详情弹窗（z-index 100）叠在讨论（z-index 90）之上。 */
 function portalTarget(): HTMLElement {
-  return (document.querySelector('.app-body') as HTMLElement | null) ?? document.body;
+  return (document.querySelector('.app-window') as HTMLElement | null) ?? document.body;
 }
 
 export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> = ({
@@ -89,6 +89,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [detail, setDetail] = useState<LaunchpadDiscussionDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [upvoting, setUpvoting] = useState(false);
@@ -132,46 +133,84 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
     onDiscussionSynced,
   };
 
+  const fetchSeqRef = useRef(0);
+  const detailRef = useRef<LaunchpadDiscussionDetail | null>(null);
+  detailRef.current = detail;
+
+  const applyDiscussionDetail = useCallback((d: LaunchpadDiscussionDetail) => {
+    setDetail(d);
+    // 匿名空壳无计数口径，保留卡片上的展示值；匿名 REST 缺原生 upvote_count 时不将已知顶帖数降回 0。
+    if (d.id) {
+      const ctx = syncCtxRef.current;
+      const resolvedUpvotes = d.auth_required_for_write
+        ? Math.max(ctx.entryUpvotes, d.upvote_count)
+        : d.upvote_count;
+      const resolvedUpvoted = d.auth_required_for_write
+        ? (loggedInRef.current ? ctx.initialUpvoted : false)
+        : d.viewer_has_upvoted;
+      setUpvoteCount(resolvedUpvotes);
+      setUpvoted(resolvedUpvoted);
+      if (!d.is_stale) {
+        ctx.onDiscussionSynced?.(ctx.appId, {
+          upvotes: resolvedUpvotes,
+          commentsCount: d.comments_total,
+          viewerHasUpvoted: resolvedUpvoted,
+          nodeId: d.id,
+        });
+      }
+    }
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
+    setRefreshing(false);
     setError(null);
     tauriApi
       .getLaunchpadDiscussion(entry.discussion_repo, entry.discussion_number)
       .then((d) => {
-        if (cancelled) return;
-        setDetail(d);
-        // 匿名空壳无计数口径，保留卡片上的展示值；匿名 REST 缺原生 upvote_count 时不将已知顶帖数降回 0。
-        if (d.id) {
-          const ctx = syncCtxRef.current;
-          const resolvedUpvotes = d.auth_required_for_write
-            ? Math.max(ctx.entryUpvotes, d.upvote_count)
-            : d.upvote_count;
-          const resolvedUpvoted = d.auth_required_for_write
-            ? (loggedInRef.current ? ctx.initialUpvoted : false)
-            : d.viewer_has_upvoted;
-          setUpvoteCount(resolvedUpvotes);
-          setUpvoted(resolvedUpvoted);
-          if (!d.is_stale) {
-            ctx.onDiscussionSynced?.(ctx.appId, {
-              upvotes: resolvedUpvotes,
-              commentsCount: d.comments_total,
-              viewerHasUpvoted: resolvedUpvoted,
-              nodeId: d.id,
-            });
-          }
-        }
+        if (fetchSeqRef.current !== seq) return;
+        applyDiscussionDetail(d);
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e));
+        if (fetchSeqRef.current !== seq) return;
+        setError(String(e));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (fetchSeqRef.current === seq) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      fetchSeqRef.current += 1;
     };
-  }, [entry.discussion_repo, entry.discussion_number, authKey]);
+  }, [entry.discussion_repo, entry.discussion_number, authKey, applyDiscussionDetail]);
+
+  const handleRefresh = useCallback(async () => {
+    if (loading || refreshing) return;
+    const seq = ++fetchSeqRef.current;
+    const hadDetail = detailRef.current !== null;
+    setRefreshing(true);
+    if (!hadDetail) setError(null);
+    try {
+      const d = await tauriApi.getLaunchpadDiscussion(
+        entry.discussion_repo,
+        entry.discussion_number,
+        undefined,
+        true,
+      );
+      if (fetchSeqRef.current !== seq) return;
+      setError(null);
+      applyDiscussionDetail(d);
+    } catch (e) {
+      if (fetchSeqRef.current !== seq) return;
+      if (hadDetail) {
+        notifyToast(t('launchpad.load_failed', { error: String(e) }), 'error');
+      } else {
+        setError(String(e));
+      }
+    } finally {
+      if (fetchSeqRef.current === seq) setRefreshing(false);
+    }
+  }, [loading, refreshing, entry.discussion_repo, entry.discussion_number, applyDiscussionDetail, t]);
 
   // 应用详情 / 开发者画像叠在讨论之上时，Esc 归最上层弹窗；本层 Esc 先收起表情面板。
   useModalA11y(panelRef, {
@@ -328,6 +367,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
 
   const handleLoadMore = async () => {
     if (!detail?.has_next_page || !detail.end_cursor || loadingMore) return;
+    const seq = fetchSeqRef.current;
     setLoadingMore(true);
     try {
       const page = await tauriApi.getLaunchpadDiscussion(
@@ -335,6 +375,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
         entry.discussion_number,
         detail.end_cursor,
       );
+      if (fetchSeqRef.current !== seq) return;
       setDetail((prev) =>
         prev
           ? {
@@ -346,6 +387,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
           : prev,
       );
     } catch (e) {
+      if (fetchSeqRef.current !== seq) return;
       notifyToast(t('launchpad.load_failed', { error: String(e) }), 'error');
     } finally {
       setLoadingMore(false);
@@ -673,15 +715,33 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
             </div>
           </div>
           <div className="launchpad-dm-side">
-            <button
-              type="button"
-              className="modal-header-btn modal-close-btn"
-              title={t('launchpad.close')}
-              aria-label={t('launchpad.close')}
-              onClick={onClose}
-            >
-              <X size={16} strokeWidth={1.5} aria-hidden="true" />
-            </button>
+            <div className="launchpad-dm-side-top">
+              <button
+                type="button"
+                className="modal-header-btn"
+                data-testid="launchpad-discussion-refresh"
+                title={t('launchpad.refresh')}
+                aria-label={t('launchpad.refresh')}
+                disabled={loading || refreshing}
+                onClick={() => void handleRefresh()}
+              >
+                <RefreshCw
+                  size={14}
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                  className={loading || refreshing ? 'launchpad-refresh-spin' : ''}
+                />
+              </button>
+              <button
+                type="button"
+                className="modal-header-btn modal-close-btn"
+                title={t('launchpad.close')}
+                aria-label={t('launchpad.close')}
+                onClick={onClose}
+              >
+                <X size={16} strokeWidth={1.5} aria-hidden="true" />
+              </button>
+            </div>
             <button
               type="button"
               className={`launchpad-vote-box${upvoted ? ' active' : ''}`}
