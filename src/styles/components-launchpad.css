@@ -27,10 +27,6 @@
   display: inline-flex;
 }
 
-.launchpad-refresh-spin {
-  animation: spinInfinite 0.8s linear infinite;
-}
-
 .launchpad-stale-bar {
   display: flex;
   align-items: center;
@@ -234,11 +230,7 @@
   font-size: var(--font-sm);
 }
 
-/* 讨论弹窗：与应用详情同形的居中浮窗（同处 .app-window 层叠上下文以统一虚化标题栏，z-index 90 低于详情弹窗 100） */
-.modal-backdrop.launchpad-discussion-backdrop {
-  z-index: 90;
-}
-
+/* 讨论弹窗：与应用详情同形的居中浮窗（ModalShell sub 层，低于应用详情） */
 .detail-modal.launchpad-discussion-modal {
   max-width: 820px;
   height: 88%;

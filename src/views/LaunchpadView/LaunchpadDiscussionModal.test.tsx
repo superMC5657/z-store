@@ -2,7 +2,7 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import i18n from '../../i18n';
-import { useModalA11y } from '../../components/useModalA11y';
+import { ModalShell } from '../../components/ModalShell';
 import type {
   LaunchpadDiscussionComment,
   LaunchpadDiscussionDetail,
@@ -263,12 +263,11 @@ describe('LaunchpadDiscussionModal', () => {
     expect(props.onOpenDetail).toHaveBeenCalledWith('acme/hyper');
 
     const onCloseDetail = vi.fn();
-    const StackedDetail = () => {
-      const ref = React.useRef<HTMLDivElement>(null);
-      useModalA11y(ref, { onEscape: onCloseDetail });
-      return <div ref={ref} role="dialog" aria-modal="true" tabIndex={-1} />;
-    };
-    const overlay = render(<StackedDetail />);
+    const overlay = render(
+      <ModalShell ariaLabel="detail" onClose={onCloseDetail}>
+        <p>detail</p>
+      </ModalShell>,
+    );
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onCloseDetail).toHaveBeenCalledTimes(1);
     expect(props.onClose).not.toHaveBeenCalled();
@@ -507,18 +506,18 @@ describe('LaunchpadDiscussionModal', () => {
 
     const refreshBtn = screen.getByTestId('launchpad-discussion-refresh') as HTMLButtonElement;
     expect(refreshBtn.disabled).toBe(true);
-    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeTruthy();
+    expect(refreshBtn.querySelector('.icon-spin')).toBeTruthy();
 
     await act(async () => {
       resolveInitial(detail());
     });
     await screen.findByTestId('launchpad-comment-DC_1');
     expect(refreshBtn.disabled).toBe(false);
-    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeNull();
+    expect(refreshBtn.querySelector('.icon-spin')).toBeNull();
 
     fireEvent.click(refreshBtn);
     expect(refreshBtn.disabled).toBe(true);
-    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeTruthy();
+    expect(refreshBtn.querySelector('.icon-spin')).toBeTruthy();
     // 刷新期间保留现有正文与评论，不回退骨架屏
     expect(screen.getByTestId('launchpad-comment-DC_1')).toBeTruthy();
     expect(api.getLaunchpadDiscussion).toHaveBeenLastCalledWith(
@@ -553,7 +552,7 @@ describe('LaunchpadDiscussionModal', () => {
       nodeId: 'D_7',
     });
     expect(refreshBtn.disabled).toBe(false);
-    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeNull();
+    expect(refreshBtn.querySelector('.icon-spin')).toBeNull();
   });
 
   it('讨论弹窗刷新失败时保留已加载内容并恢复刷新按钮可用；首次加载失败后可点击刷新重试成功', async () => {
@@ -579,7 +578,7 @@ describe('LaunchpadDiscussionModal', () => {
     });
     expect(screen.getByTestId('launchpad-comment-DC_1')).toBeTruthy();
     expect(refreshBtn.disabled).toBe(false);
-    expect(refreshBtn.querySelector('.launchpad-refresh-spin')).toBeNull();
+    expect(refreshBtn.querySelector('.icon-spin')).toBeNull();
   });
 
   it('挂载到 .app-window 层叠上下文以覆盖标题栏虚化，不局限在 .app-body 内', async () => {
@@ -596,12 +595,61 @@ describe('LaunchpadDiscussionModal', () => {
     try {
       renderModal();
       await screen.findByTestId('launchpad-comment-DC_1');
-      const backdrop = appWindow.querySelector('.modal-backdrop.launchpad-discussion-backdrop');
+      const backdrop = appWindow.querySelector('.modal-backdrop.modal-layer-sub');
       expect(backdrop).toBeTruthy();
       expect(backdrop?.parentElement).toBe(appWindow);
-      expect(appBody.querySelector('.modal-backdrop.launchpad-discussion-backdrop')).toBeNull();
+      expect(appBody.querySelector('.modal-backdrop.modal-layer-sub')).toBeNull();
     } finally {
       appWindow.remove();
     }
+  });
+
+  it('真实 .app-window 布局下应用详情（base 层）叠在讨论（sub 层）之上，Esc 逐层关闭', async () => {
+    api.getLaunchpadDiscussion.mockResolvedValue(detail());
+    const appWindow = document.createElement('div');
+    appWindow.className = 'app-window';
+    const appBody = document.createElement('div');
+    appBody.className = 'app-body';
+    appWindow.append(appBody);
+    document.body.appendChild(appWindow);
+
+    try {
+      const props = renderModal();
+      await screen.findByTestId('launchpad-comment-DC_1');
+      const onCloseDetail = vi.fn();
+      const overlay = render(
+        <ModalShell ariaLabel="detail" onClose={onCloseDetail}>
+          <p>detail</p>
+        </ModalShell>,
+        { container: appBody },
+      );
+
+      const backdrops = Array.from(appWindow.querySelectorAll(':scope > .modal-backdrop'));
+      expect(backdrops).toHaveLength(2);
+      expect(backdrops[0].classList.contains('modal-layer-sub')).toBe(true);
+      expect(Array.from(backdrops[1].classList)).toEqual(['modal-backdrop']);
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(onCloseDetail).toHaveBeenCalledTimes(1);
+      expect(props.onClose).not.toHaveBeenCalled();
+      overlay.unmount();
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(props.onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      appWindow.remove();
+    }
+  });
+
+  it('在面板内按下、松开到遮罩上不关闭讨论；按下与松开都在遮罩上才关闭', async () => {
+    api.getLaunchpadDiscussion.mockResolvedValue(detail());
+    const props = renderModal();
+    await screen.findByTestId('launchpad-comment-DC_1');
+    const backdrop = document.querySelector('.modal-backdrop.modal-layer-sub') as HTMLElement;
+    fireEvent.mouseDown(screen.getByTestId('launchpad-comment-DC_1'));
+    fireEvent.click(backdrop);
+    expect(props.onClose).not.toHaveBeenCalled();
+    fireEvent.mouseDown(backdrop);
+    fireEvent.click(backdrop);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 });

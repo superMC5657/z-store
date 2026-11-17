@@ -1,0 +1,118 @@
+import React, { useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useModalA11y } from './useModalA11y';
+
+/**
+ * 弹窗叠放层级，对应 `components-modal.css` 中的层级修饰类：
+ * `sub`(90) < `base`(100) < `confirm`(200) < `top`(1000)，均高于标题栏 / 缩放手柄、低于 Toast。
+ */
+export type ModalLayer = 'sub' | 'base' | 'confirm' | 'top';
+
+const LAYER_CLASS: Record<ModalLayer, string | null> = {
+  sub: 'modal-layer-sub',
+  base: null,
+  confirm: 'modal-layer-confirm',
+  top: 'modal-layer-top',
+};
+
+export interface ModalShellProps {
+  /** 默认 `true`；常驻挂载、靠开关控制显隐的弹窗传入当前开关，为 `false` 时不渲染。 */
+  open?: boolean;
+  layer?: ModalLayer;
+  /** 为 `false` 时点击遮罩不关闭（如导入进行中）。 */
+  closeOnBackdrop?: boolean;
+  /** 遮罩点击关闭；未传 `onEscape` 时也作为 Esc 行为。 */
+  onClose?: () => void;
+  /** 覆盖 Esc 行为（如先收起内部浮层）；与 `onClose` 均未传时 Esc 不响应。 */
+  onEscape?: () => void;
+  backdropClassName?: string;
+  panelClassName?: string;
+  panelStyle?: React.CSSProperties;
+  panelRef?: React.Ref<HTMLDivElement>;
+  ariaLabel?: string;
+  ariaLabelledBy?: string;
+  children: React.ReactNode;
+}
+
+/** `.app-window` 是整窗层叠上下文：挂在这里才能盖住标题栏并继承 `--app-zoom`。 */
+function findAppWindow(): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  return document.querySelector<HTMLElement>('.app-window');
+}
+
+function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
+  if (!ref) return;
+  if (typeof ref === 'function') ref(value);
+  else (ref as React.MutableRefObject<T | null>).current = value;
+}
+
+/**
+ * 全站模态弹窗的外层壳：遮罩 + `.detail-modal` 面板、Portal 到 `.app-window`、
+ * 层级修饰类、遮罩点击关闭与栈式 Esc / 焦点陷阱（`useModalA11y`）。
+ * 面板内部的 Header / Body / Footer 由各弹窗自行组合。
+ */
+export const ModalShell: React.FC<ModalShellProps> = ({
+  open = true,
+  layer = 'base',
+  closeOnBackdrop = true,
+  onClose,
+  onEscape,
+  backdropClassName,
+  panelClassName,
+  panelStyle,
+  panelRef,
+  ariaLabel,
+  ariaLabelledBy,
+  children,
+}) => {
+  const internalRef = useRef<HTMLDivElement | null>(null);
+  const mouseDownOnBackdropRef = useRef(false);
+
+  const panelRefRef = useRef(panelRef);
+  panelRefRef.current = panelRef;
+  const setPanel = useCallback((node: HTMLDivElement | null) => {
+    internalRef.current = node;
+    assignRef(panelRefRef.current, node);
+  }, []);
+
+  useModalA11y(internalRef, { open, onEscape: onEscape ?? onClose });
+
+  // 每次打开时解析一次挂载点，打开期间保持不变，避免挂载点切换导致子树重挂。
+  const portalTarget = useMemo(() => (open ? findAppWindow() : null), [open]);
+
+  if (!open) return null;
+
+  const backdropClass = ['modal-backdrop', LAYER_CLASS[layer], backdropClassName].filter(Boolean).join(' ');
+  const panelClass = ['detail-modal', panelClassName].filter(Boolean).join(' ');
+
+  const shell = (
+    <div
+      className={backdropClass}
+      onMouseDown={(e) => {
+        mouseDownOnBackdropRef.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        // 只有按下与松开都落在遮罩本身才关闭：在面板里拖选文本松手到遮罩上不算。
+        const pressedOnBackdrop = mouseDownOnBackdropRef.current;
+        mouseDownOnBackdropRef.current = false;
+        if (closeOnBackdrop && pressedOnBackdrop && e.target === e.currentTarget) onClose?.();
+      }}
+    >
+      <div
+        ref={setPanel}
+        className={panelClass}
+        style={panelStyle}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
+        tabIndex={-1}
+      >
+        {children}
+      </div>
+    </div>
+  );
+
+  return portalTarget ? createPortal(shell, portalTarget) : shell;
+};

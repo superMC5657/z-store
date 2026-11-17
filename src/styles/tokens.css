@@ -195,8 +195,8 @@
   --border-highlight: rgba(255, 255, 255, 0.14);
   --card-bg-subtle: rgba(255, 255, 255, 0.02);
 
-  /* 遮罩（Dark Overlay rgba(0,0,0,0.85)） */
-  --overlay-bg: rgba(0, 0, 0, 0.85);
+  /* 遮罩：深色画布本身已暗，半透遮罩 + 模糊让背后界面隐约可见，前景靠 --shadow-modal 描边分离 */
+  --overlay-bg: rgba(8, 9, 10, 0.6);
 
   /* 导航项 */
   --bg-nav-active: rgba(255, 255, 255, 0.07);

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppWindow, ArrowBigUp, ExternalLink, LogIn, MessageSquare, RefreshCw, Reply, SmilePlus, X } from 'lucide-react';
@@ -16,7 +15,7 @@ import { notifyToast } from '../../useToasts';
 import { AppIconFrame } from '../../components/AppIconFrame';
 import { CachedAvatar } from '../../components/CachedAvatar';
 import { CountBadge } from '../../components/CountBadge';
-import { useModalA11y } from '../../components/useModalA11y';
+import { ModalShell } from '../../components/ModalShell';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../../components/VerifiedBadge';
 import { getCategoryLabel } from '../../utils/appHelper';
 import { LaunchpadStarButton, formatLaunchedLabel, makerNoteFor } from './LaunchpadCard';
@@ -63,11 +62,6 @@ function patchComment(
   patch: (c: LaunchpadDiscussionComment) => LaunchpadDiscussionComment,
 ): LaunchpadDiscussionComment[] {
   return list.map((c) => (c.id === id ? patch(c) : { ...c, replies: patchComment(c.replies, id, patch) }));
-}
-
-/** 弹窗挂载点：与应用详情同处 `.app-window` 层叠上下文，统一虚化覆盖标题栏并让详情弹窗（z-index 100）叠在讨论（z-index 90）之上。 */
-function portalTarget(): HTMLElement {
-  return (document.querySelector('.app-window') as HTMLElement | null) ?? document.body;
 }
 
 export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> = ({
@@ -213,12 +207,10 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
   }, [loading, refreshing, entry.discussion_repo, entry.discussion_number, applyDiscussionDetail, t]);
 
   // 应用详情 / 开发者画像叠在讨论之上时，Esc 归最上层弹窗；本层 Esc 先收起表情面板。
-  useModalA11y(panelRef, {
-    onEscape: () => {
-      if (openReactionRef.current) setOpenReactionFor(null);
-      else onClose();
-    },
-  });
+  const handleEscape = () => {
+    if (openReactionRef.current) setOpenReactionFor(null);
+    else onClose();
+  };
 
   useEffect(() => {
     if (!openReactionFor) return;
@@ -643,220 +635,215 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
   const upvoteLabel = upvoted ? t('launchpad.upvoted') : t('launchpad.upvote');
   const starLabel = entry.viewer_has_starred ? t('launchpad.unstar') : t('launchpad.star');
 
-  return createPortal(
-    <div
-      className="modal-backdrop launchpad-discussion-backdrop"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+  // 讨论是父级弹窗（sub 层）：从中打开的应用详情 / 开发者主页叠在其上。
+  return (
+    <ModalShell
+      layer="sub"
+      onClose={onClose}
+      onEscape={handleEscape}
+      panelRef={panelRef}
+      panelClassName="launchpad-discussion-modal"
+      ariaLabelledBy={titleId}
     >
-      <div
-        ref={panelRef}
-        className="detail-modal launchpad-discussion-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-      >
-        <header className="launchpad-dm-header">
-          <AppIconFrame size="lg" icon={app.icon} name={app.name} appId={app.id} iconBg={app.icon_bg} />
-          <div className="launchpad-dm-heading">
-            <div className="launchpad-dm-title">
-              <h3 id={titleId}>{app.name}</h3>
-              {badgeVariant === 'verified' && <VerifiedBadge size="sm" variant="verified" />}
-              {badgeVariant === 'local' && <VerifiedBadge size="sm" variant="local" />}
-              {entry.is_pinned && <span className="status-tag">{t('launchpad.spotlight_tag')}</span>}
-            </div>
-            <div className="launchpad-dm-meta">
-              <button
-                type="button"
-                className="launchpad-maker-link"
-                title={t('launchpad.maker_profile', { login: makerLogin })}
-                aria-label={t('launchpad.maker_profile', { login: makerLogin })}
-                onClick={() => onOpenDeveloper(makerLogin)}
-              >
-                <CachedAvatar src={entry.maker.avatar_url} login={makerLogin} size={18} />
-                <span>@{makerLogin}</span>
-              </button>
-              {launchedText && <span>· {launchedText}</span>}
-              <span>· {getCategoryLabel(app.category, app.category_name, t)}</span>
-            </div>
-            {note && (
-              <p className="launchpad-dm-note" title={note}>
-                {note}
-              </p>
-            )}
-            <div className="launchpad-dm-actions">
-              <button
-                type="button"
-                className="btn-fluent btn-primary btn-compact"
-                data-testid="launchpad-open-detail"
-                onClick={() => onOpenDetail(app.id)}
-              >
-                <AppWindow size={13} strokeWidth={1.5} aria-hidden="true" />
-                <span>{t('launchpad.view_app_detail')}</span>
-              </button>
-              {isGithub && onToggleStar && (
-                <LaunchpadStarButton
-                  starred={entry.viewer_has_starred}
-                  stars={app.stars}
-                  disabled={isStarring}
-                  label={starLabel}
-                  onClick={() => onToggleStar(entry)}
-                />
-              )}
-              <button
-                type="button"
-                className="btn-fluent btn-secondary btn-compact"
-                title={t('launchpad.open_on_github')}
-                onClick={openWeb}
-              >
-                <ExternalLink size={13} strokeWidth={1.5} aria-hidden="true" />
-                <span>{t('launchpad.open_on_github')}</span>
-              </button>
-            </div>
+      <header className="launchpad-dm-header">
+        <AppIconFrame size="lg" icon={app.icon} name={app.name} appId={app.id} iconBg={app.icon_bg} />
+        <div className="launchpad-dm-heading">
+          <div className="launchpad-dm-title">
+            <h3 id={titleId}>{app.name}</h3>
+            {badgeVariant === 'verified' && <VerifiedBadge size="sm" variant="verified" />}
+            {badgeVariant === 'local' && <VerifiedBadge size="sm" variant="local" />}
+            {entry.is_pinned && <span className="status-tag">{t('launchpad.spotlight_tag')}</span>}
           </div>
-          <div className="launchpad-dm-side">
-            <div className="launchpad-dm-side-top">
-              <button
-                type="button"
-                className="modal-header-btn"
-                data-testid="launchpad-discussion-refresh"
-                title={t('launchpad.refresh')}
-                aria-label={t('launchpad.refresh')}
-                disabled={loading || refreshing}
-                onClick={() => void handleRefresh()}
-              >
-                <RefreshCw
-                  size={14}
-                  strokeWidth={1.5}
-                  aria-hidden="true"
-                  className={loading || refreshing ? 'launchpad-refresh-spin' : ''}
-                />
-              </button>
-              <button
-                type="button"
-                className="modal-header-btn modal-close-btn"
-                title={t('launchpad.close')}
-                aria-label={t('launchpad.close')}
-                onClick={onClose}
-              >
-                <X size={16} strokeWidth={1.5} aria-hidden="true" />
-              </button>
-            </div>
+          <div className="launchpad-dm-meta">
             <button
               type="button"
-              className={`launchpad-vote-box${upvoted ? ' active' : ''}`}
-              data-testid="launchpad-discussion-upvote"
-              aria-pressed={upvoted}
-              disabled={upvoting}
-              title={upvoteLabel}
-              aria-label={upvoteLabel}
-              onClick={handleUpvote}
+              className="launchpad-maker-link"
+              title={t('launchpad.maker_profile', { login: makerLogin })}
+              aria-label={t('launchpad.maker_profile', { login: makerLogin })}
+              onClick={() => onOpenDeveloper(makerLogin)}
             >
-              <ArrowBigUp
-                size={20}
-                strokeWidth={1.5}
-                fill={upvoted ? 'currentColor' : 'none'}
-                aria-hidden="true"
+              <CachedAvatar src={entry.maker.avatar_url} login={makerLogin} size={18} />
+              <span>@{makerLogin}</span>
+            </button>
+            {launchedText && <span>· {launchedText}</span>}
+            <span>· {getCategoryLabel(app.category, app.category_name, t)}</span>
+          </div>
+          {note && (
+            <p className="launchpad-dm-note" title={note}>
+              {note}
+            </p>
+          )}
+          <div className="launchpad-dm-actions">
+            <button
+              type="button"
+              className="btn-fluent btn-primary btn-compact"
+              data-testid="launchpad-open-detail"
+              onClick={() => onOpenDetail(app.id)}
+            >
+              <AppWindow size={13} strokeWidth={1.5} aria-hidden="true" />
+              <span>{t('launchpad.view_app_detail')}</span>
+            </button>
+            {isGithub && onToggleStar && (
+              <LaunchpadStarButton
+                starred={entry.viewer_has_starred}
+                stars={app.stars}
+                disabled={isStarring}
+                label={starLabel}
+                onClick={() => onToggleStar(entry)}
               />
-              <span>{upvoteCount}</span>
+            )}
+            <button
+              type="button"
+              className="btn-fluent btn-secondary btn-compact"
+              title={t('launchpad.open_on_github')}
+              onClick={openWeb}
+            >
+              <ExternalLink size={13} strokeWidth={1.5} aria-hidden="true" />
+              <span>{t('launchpad.open_on_github')}</span>
             </button>
           </div>
-        </header>
-
-        <div className="launchpad-dm-body">
-          {loading ? (
-            <div className="launchpad-dm-skeleton" role="status" aria-label={t('launchpad.loading_discussion')}>
-              <span />
-              <span />
-              <span />
-            </div>
-          ) : error ? (
-            <div className="launchpad-modal-status">
-              <p>{t('launchpad.load_failed', { error })}</p>
-              <button type="button" className="btn-fluent btn-secondary btn-compact" onClick={openWeb}>
-                {t('launchpad.open_on_github')}
-              </button>
-            </div>
-          ) : detail ? (
-            <>
-              <article className="launchpad-dm-post">
-                <div className="launchpad-dm-post-head">
-                  <MessageSquare size={14} strokeWidth={1.5} aria-hidden="true" />
-                  <span>{t('launchpad.post_title')}</span>
-                  {detail.created_at && timeLabel(detail.created_at)}
-                </div>
-                {detail.body ? (
-                  <DiscussionMarkdown body={detail.body} className="launchpad-discussion-body" />
-                ) : (
-                  <div className="launchpad-modal-status">
-                    <p>{t('launchpad.read_on_github_hint')}</p>
-                    <button type="button" className="btn-fluent btn-secondary btn-compact" onClick={openWeb}>
-                      {t('launchpad.open_on_github')}
-                    </button>
-                  </div>
-                )}
-                {detail.id && (
-                  <div className="launchpad-post-reactions">
-                    {renderReactions(detail.id, detail.reaction_groups)}
-                  </div>
-                )}
-              </article>
-              <h4 className="launchpad-comments-title">
-                <span>{t('launchpad.comments_title')}</span>
-                <CountBadge value={detail.comments_total} />
-              </h4>
-              {detail.comments.length === 0 ? (
-                <div className="launchpad-comments-empty">
-                  <MessageSquare size={22} strokeWidth={1.25} aria-hidden="true" />
-                  <p>{t('launchpad.no_comments')}</p>
-                </div>
-              ) : (
-                <ul className="launchpad-comments">{detail.comments.map((c) => renderComment(c, false))}</ul>
-              )}
-              {detail.has_next_page && detail.end_cursor && (
-                <button
-                  type="button"
-                  className="btn-fluent btn-secondary btn-compact launchpad-load-more"
-                  disabled={loadingMore}
-                  onClick={handleLoadMore}
-                >
-                  {t('launchpad.load_more_comments')}
-                </button>
-              )}
-            </>
-          ) : null}
         </div>
-
-        <footer className="launchpad-dm-footer">
-          {detail?.locked ? (
-            <p className="launchpad-modal-muted">{t('launchpad.locked_notice')}</p>
-          ) : canWrite ? (
-            <DiscussionComposer
-              draft={draft}
-              onDraftChange={setDraft}
-              sending={sending}
-              onSend={() => void handleSend()}
-              viewerLogin={viewerLogin}
-              viewerAvatar={oauthUser?.avatar_url ?? undefined}
-              replyToLogin={replyTo ? replyTo.targetLogin : null}
-              replyKey={replyTo?.seq}
-              onCancelReply={() => setReplyTo(null)}
+        <div className="launchpad-dm-side">
+          <div className="launchpad-dm-side-top">
+            <button
+              type="button"
+              className="modal-header-btn"
+              data-testid="launchpad-discussion-refresh"
+              title={t('launchpad.refresh')}
+              aria-label={t('launchpad.refresh')}
+              disabled={loading || refreshing}
+              onClick={() => void handleRefresh()}
+            >
+              <RefreshCw
+                size={14}
+                strokeWidth={1.5}
+                aria-hidden="true"
+                className={loading || refreshing ? 'icon-spin' : ''}
+              />
+            </button>
+            <button
+              type="button"
+              className="modal-header-btn modal-close-btn"
+              title={t('launchpad.close')}
+              aria-label={t('launchpad.close')}
+              onClick={onClose}
+            >
+              <X size={16} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          </div>
+          <button
+            type="button"
+            className={`launchpad-vote-box${upvoted ? ' active' : ''}`}
+            data-testid="launchpad-discussion-upvote"
+            aria-pressed={upvoted}
+            disabled={upvoting}
+            title={upvoteLabel}
+            aria-label={upvoteLabel}
+            onClick={handleUpvote}
+          >
+            <ArrowBigUp
+              size={20}
+              strokeWidth={1.5}
+              fill={upvoted ? 'currentColor' : 'none'}
+              aria-hidden="true"
             />
-          ) : (
-            <div className={`launchpad-login-bar${loginNudge ? ' nudged' : ''}`} data-testid="launchpad-login-bar">
-              <span>{t('launchpad.login_bar')}</span>
-              <button type="button" className="btn-fluent btn-primary btn-compact" onClick={goLogin}>
-                <LogIn size={13} strokeWidth={1.5} aria-hidden="true" />
-                <span>{t('launchpad.go_login')}</span>
+            <span>{upvoteCount}</span>
+          </button>
+        </div>
+      </header>
+
+      <div className="launchpad-dm-body">
+        {loading ? (
+          <div className="launchpad-dm-skeleton" role="status" aria-label={t('launchpad.loading_discussion')}>
+            <span />
+            <span />
+            <span />
+          </div>
+        ) : error ? (
+          <div className="launchpad-modal-status">
+            <p>{t('launchpad.load_failed', { error })}</p>
+            <button type="button" className="btn-fluent btn-secondary btn-compact" onClick={openWeb}>
+              {t('launchpad.open_on_github')}
+            </button>
+          </div>
+        ) : detail ? (
+          <>
+            <article className="launchpad-dm-post">
+              <div className="launchpad-dm-post-head">
+                <MessageSquare size={14} strokeWidth={1.5} aria-hidden="true" />
+                <span>{t('launchpad.post_title')}</span>
+                {detail.created_at && timeLabel(detail.created_at)}
+              </div>
+              {detail.body ? (
+                <DiscussionMarkdown body={detail.body} className="launchpad-discussion-body" />
+              ) : (
+                <div className="launchpad-modal-status">
+                  <p>{t('launchpad.read_on_github_hint')}</p>
+                  <button type="button" className="btn-fluent btn-secondary btn-compact" onClick={openWeb}>
+                    {t('launchpad.open_on_github')}
+                  </button>
+                </div>
+              )}
+              {detail.id && (
+                <div className="launchpad-post-reactions">
+                  {renderReactions(detail.id, detail.reaction_groups)}
+                </div>
+              )}
+            </article>
+            <h4 className="launchpad-comments-title">
+              <span>{t('launchpad.comments_title')}</span>
+              <CountBadge value={detail.comments_total} />
+            </h4>
+            {detail.comments.length === 0 ? (
+              <div className="launchpad-comments-empty">
+                <MessageSquare size={22} strokeWidth={1.25} aria-hidden="true" />
+                <p>{t('launchpad.no_comments')}</p>
+              </div>
+            ) : (
+              <ul className="launchpad-comments">{detail.comments.map((c) => renderComment(c, false))}</ul>
+            )}
+            {detail.has_next_page && detail.end_cursor && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary btn-compact launchpad-load-more"
+                disabled={loadingMore}
+                onClick={handleLoadMore}
+              >
+                {t('launchpad.load_more_comments')}
               </button>
-              <button type="button" className="btn-fluent btn-secondary btn-compact" onClick={openWeb}>
-                {t('launchpad.join_on_github')}
-              </button>
-            </div>
-          )}
-        </footer>
+            )}
+          </>
+        ) : null}
       </div>
-    </div>,
-    portalTarget(),
+
+      <footer className="launchpad-dm-footer">
+        {detail?.locked ? (
+          <p className="launchpad-modal-muted">{t('launchpad.locked_notice')}</p>
+        ) : canWrite ? (
+          <DiscussionComposer
+            draft={draft}
+            onDraftChange={setDraft}
+            sending={sending}
+            onSend={() => void handleSend()}
+            viewerLogin={viewerLogin}
+            viewerAvatar={oauthUser?.avatar_url ?? undefined}
+            replyToLogin={replyTo ? replyTo.targetLogin : null}
+            replyKey={replyTo?.seq}
+            onCancelReply={() => setReplyTo(null)}
+          />
+        ) : (
+          <div className={`launchpad-login-bar${loginNudge ? ' nudged' : ''}`} data-testid="launchpad-login-bar">
+            <span>{t('launchpad.login_bar')}</span>
+            <button type="button" className="btn-fluent btn-primary btn-compact" onClick={goLogin}>
+              <LogIn size={13} strokeWidth={1.5} aria-hidden="true" />
+              <span>{t('launchpad.go_login')}</span>
+            </button>
+            <button type="button" className="btn-fluent btn-secondary btn-compact" onClick={openWeb}>
+              {t('launchpad.join_on_github')}
+            </button>
+          </div>
+        )}
+      </footer>
+    </ModalShell>
   );
 };

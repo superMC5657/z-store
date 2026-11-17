@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import {
   ScanLine,
   AlertTriangle,
@@ -18,7 +18,7 @@ import {
 } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
-import { useModalA11y } from './useModalA11y';
+import { ModalShell } from './ModalShell';
 import { AppIconFrame } from './AppIconFrame';
 import { stripVersionPrefix } from '../utils/appHelper';
 import { useTranslation } from 'react-i18next';
@@ -78,9 +78,7 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  useModalA11y(dialogRef, { open: isOpen, onEscape: isImporting ? undefined : onClose });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -162,374 +160,365 @@ export const AppImportModal: React.FC<AppImportModalProps> = ({
   };
 
   return (
-    <div
-      className="modal-backdrop"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isImporting) onClose();
+    <ModalShell
+      layer="top"
+      onClose={onClose}
+      // 导入进行中不可打断：遮罩点击与 Esc 都不关闭。
+      closeOnBackdrop={!isImporting}
+      onEscape={isImporting ? () => {} : onClose}
+      ariaLabelledBy={titleId}
+      panelStyle={{
+        width: '100%',
+        maxWidth: '740px',
+        maxHeight: 'min(86vh, calc(100% - 32px))',
+        height: matches.length > 2 ? 'min(82vh, 700px)' : 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
-      style={{ zIndex: 1000 }}
     >
+      {/* 弹窗头部 */}
       <div
-        className="detail-modal"
+        className="modal-header"
         style={{
-          width: '100%',
-          maxWidth: '740px',
-          maxHeight: 'min(86vh, calc(100% - 32px))',
-          height: matches.length > 2 ? 'min(82vh, 700px)' : 'auto',
+          padding: '18px 24px 14px',
+          borderBottom: '1px solid var(--border-color)',
           display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          background: 'var(--bg-acrylic-thin)',
+          flexShrink: 0,
         }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
       >
-        {/* 弹窗头部 */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ScanLine size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
+            <h3 id={titleId} style={{ margin: 0, fontSize: 'var(--font-xl)', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
+              {t('import_modal.title')}
+            </h3>
+          </div>
+          <p
+            style={{
+              margin: '4px 0 0 0',
+              fontSize: 'var(--font-base)',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            {t('import_modal.description')}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={isImporting}
+          className="modal-header-btn modal-close-btn"
+          aria-label={t('import_modal.close')}
+        >
+          <X size={14} strokeWidth={1.5} />
+        </button>
+      </div>
+
+      {/* 批量操作工具栏（固定在头部下方） */}
+      {!isLoading && !error && matches.length > 0 && (
         <div
-          className="modal-header"
           style={{
-            padding: '18px 24px 14px',
-            borderBottom: '1px solid var(--border-color)',
             display: 'flex',
-            alignItems: 'flex-start',
+            alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'var(--bg-acrylic-thin)',
+            padding: '10px 24px',
+            background: 'var(--bg-acrylic)',
+            borderBottom: '1px solid var(--border-color)',
+            fontSize: 'var(--font-base)',
             flexShrink: 0,
+            color: 'var(--text-primary)',
           }}
         >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ScanLine size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-              <h3 id={titleId} style={{ margin: 0, fontSize: 'var(--font-xl)', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
-                {t('import_modal.title')}
-              </h3>
-            </div>
-            <p
-              style={{
-                margin: '4px 0 0 0',
-                fontSize: 'var(--font-base)',
-                color: 'var(--text-secondary)',
-              }}
-            >
-              {t('import_modal.description')}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isImporting}
-            className="modal-header-btn modal-close-btn"
-            aria-label={t('import_modal.close')}
-          >
-            <X size={14} strokeWidth={1.5} />
-          </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-primary)', fontWeight: 500 }}>
+            <input
+              type="checkbox"
+              checked={selectedIds.size === matches.length && matches.length > 0}
+              onChange={handleSelectAll}
+              style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
+            />
+            <span>{t('import_modal.select_all')}</span>
+          </label>
+          <span style={{ color: 'var(--text-secondary)' }}>
+            {t('import_modal.summary', { total: matches.length, selected: selectedIds.size })}
+          </span>
         </div>
+      )}
 
-        {/* 批量操作工具栏（固定在头部下方） */}
-        {!isLoading && !error && matches.length > 0 && (
+      {/* 内容区域（可滚动列表） */}
+      <div
+        className="modal-scroll-area"
+        style={{
+          padding: matches.length > 0 ? '16px 24px' : '20px 24px',
+          flex: '1 1 auto',
+          minHeight: 0,
+          overflowY: 'auto',
+        }}
+      >
+        {isLoading ? (
           <div
             style={{
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 24px',
-              background: 'var(--bg-acrylic)',
-              borderBottom: '1px solid var(--border-color)',
-              fontSize: 'var(--font-base)',
-              flexShrink: 0,
-              color: 'var(--text-primary)',
+              justifyContent: 'center',
+              padding: '60px 20px',
+              gap: '16px',
             }}
           >
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none', color: 'var(--text-primary)', fontWeight: 500 }}>
-              <input
-                type="checkbox"
-                checked={selectedIds.size === matches.length && matches.length > 0}
-                onChange={handleSelectAll}
-                style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
-              />
-              <span>{t('import_modal.select_all')}</span>
-            </label>
-            <span style={{ color: 'var(--text-secondary)' }}>
-              {t('import_modal.summary', { total: matches.length, selected: selectedIds.size })}
-            </span>
-          </div>
-        )}
-
-        {/* 内容区域（可滚动列表） */}
-        <div
-          className="modal-scroll-area"
-          style={{
-            padding: matches.length > 0 ? '16px 24px' : '20px 24px',
-            flex: '1 1 auto',
-            minHeight: 0,
-            overflowY: 'auto',
-          }}
-        >
-          {isLoading ? (
             <div
               style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '60px 20px',
-                gap: '16px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '50%',
+                border: '3px solid var(--border-color)',
+                borderTopColor: 'var(--brand-primary)',
+                animation: 'spin 1s linear infinite',
               }}
-            >
-              <div
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '50%',
-                  border: '3px solid var(--border-color)',
-                  borderTopColor: 'var(--brand-primary)',
-                  animation: 'spin 1s linear infinite',
-                }}
-              />
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
-                  {t('import_modal.scanning')}
-                </div>
-                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                  {t('import_modal.comparing')}
-                </div>
+            />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+                {t('import_modal.scanning')}
+              </div>
+              <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                {t('import_modal.comparing')}
               </div>
             </div>
-          ) : error ? (
-            <div
-              style={{
-                padding: '16px',
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: '8px',
-                color: '#ef4444',
-                fontSize: 'var(--font-base)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <AlertTriangle size={16} />
-              <span>{error}</span>
-            </div>
-          ) : matches.length === 0 ? (
-            <EmptyState
-              icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
-              title={t('import_modal.empty_title')}
-              description={t('import_modal.empty_desc')}
-            />
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {matches.map((item) => {
-                const isSelected = selectedIds.has(item.catalog_id);
-                const tier = TIER_BADGE_STYLE[item.confidence_tier] ? item.confidence_tier : 'low';
-                const TierIcon = TIER_ICON[tier];
-                const detectedName = detectedNameOf(item);
-                const publisher = item.scanned.publisher?.trim();
-                const reasons = (item.match_reasons ?? [])
-                  .filter(isKnownMatchReason)
-                  .slice(0, MAX_REASON_TAGS);
-                return (
-                  <div
-                    key={item.catalog_id}
-                    className={`fluent-list-row ${isSelected ? 'active' : ''}`.trim()}
-                    onClick={() => handleToggleSelect(item.catalog_id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '14px',
-                      padding: '14px 16px',
-                      background: isSelected ? 'var(--brand-subtle)' : undefined,
-                      border: `1px solid ${isSelected ? 'var(--brand-primary)' : 'var(--border-color)'}`,
-                      cursor: 'pointer',
-                      boxShadow: isSelected ? '0 0 0 1px var(--brand-primary), var(--shadow-rest)' : undefined,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}} // 由行点击事件统一处理
-                      style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
-                    />
+          </div>
+        ) : error ? (
+          <div
+            style={{
+              padding: '16px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '8px',
+              color: '#ef4444',
+              fontSize: 'var(--font-base)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <AlertTriangle size={16} />
+            <span>{error}</span>
+          </div>
+        ) : matches.length === 0 ? (
+          <EmptyState
+            icon={<CheckCircle2 size={40} strokeWidth={1.5} style={{ color: 'var(--status-success)' }} />}
+            title={t('import_modal.empty_title')}
+            description={t('import_modal.empty_desc')}
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {matches.map((item) => {
+              const isSelected = selectedIds.has(item.catalog_id);
+              const tier = TIER_BADGE_STYLE[item.confidence_tier] ? item.confidence_tier : 'low';
+              const TierIcon = TIER_ICON[tier];
+              const detectedName = detectedNameOf(item);
+              const publisher = item.scanned.publisher?.trim();
+              const reasons = (item.match_reasons ?? [])
+                .filter(isKnownMatchReason)
+                .slice(0, MAX_REASON_TAGS);
+              return (
+                <div
+                  key={item.catalog_id}
+                  className={`fluent-list-row ${isSelected ? 'active' : ''}`.trim()}
+                  onClick={() => handleToggleSelect(item.catalog_id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    padding: '14px 16px',
+                    background: isSelected ? 'var(--brand-subtle)' : undefined,
+                    border: `1px solid ${isSelected ? 'var(--brand-primary)' : 'var(--border-color)'}`,
+                    cursor: 'pointer',
+                    boxShadow: isSelected ? '0 0 0 1px var(--brand-primary), var(--shadow-rest)' : undefined,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {}} // 由行点击事件统一处理
+                    style={{ cursor: 'pointer', accentColor: 'var(--brand-primary)', width: '16px', height: '16px' }}
+                  />
 
-                    {/* 图标 */}
-                    <AppIconFrame
-                      icon={item.icon}
-                      name={item.name}
-                      appId={item.catalog_id}
-                      iconBg={item.icon_bg || 'var(--brand-subtle)'}
-                      size="md"
-                    />
+                  {/* 图标 */}
+                  <AppIconFrame
+                    icon={item.icon}
+                    name={item.name}
+                    appId={item.catalog_id}
+                    iconBg={item.icon_bg || 'var(--brand-subtle)'}
+                    size="md"
+                  />
 
-                    {/* 应用信息 */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
-                          {item.name}
+                  {/* 应用信息 */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+                        {item.name}
+                      </span>
+                      <span
+                        data-tier={tier}
+                        title={t(`import_modal.confidence_${tier}`)}
+                        style={{
+                          fontSize: 'var(--font-xs)',
+                          padding: '2px 6px',
+                          borderRadius: 'var(--radius-xs)',
+                          ...TIER_BADGE_STYLE[tier],
+                          fontWeight: 510,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                        }}
+                      >
+                        <TierIcon size={11} strokeWidth={1.5} />
+                        <span>{t('import_modal.match_rate', { rate: Math.round(item.confidence * 100) })}</span>
+                      </span>
+                      {tier === 'low' && (
+                        <span style={{ fontSize: 'var(--font-xs)', color: 'var(--status-warning)' }}>
+                          {t('import_modal.low_confidence_hint')}
                         </span>
-                        <span
-                          data-tier={tier}
-                          title={t(`import_modal.confidence_${tier}`)}
-                          style={{
-                            fontSize: 'var(--font-xs)',
-                            padding: '2px 6px',
-                            borderRadius: 'var(--radius-xs)',
-                            ...TIER_BADGE_STYLE[tier],
-                            fontWeight: 510,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                          }}
-                        >
-                          <TierIcon size={11} strokeWidth={1.5} />
-                          <span>{t('import_modal.match_rate', { rate: Math.round(item.confidence * 100) })}</span>
-                        </span>
-                        {tier === 'low' && (
-                          <span style={{ fontSize: 'var(--font-xs)', color: 'var(--status-warning)' }}>
-                            {t('import_modal.low_confidence_hint')}
-                          </span>
-                        )}
-                      </div>
-
-                      {(detectedName || publisher || reasons.length > 0) && (
-                        <div
-                          style={{
-                            fontSize: 'var(--font-sm)',
-                            color: 'var(--text-secondary)',
-                            marginTop: '4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            flexWrap: 'wrap',
-                          }}
-                        >
-                          {detectedName && <span>{t('import_modal.detected_name', { name: detectedName })}</span>}
-                          {publisher && (
-                            <span style={{ color: 'var(--text-tertiary)' }}>
-                              {t('import_modal.detected_publisher', { publisher })}
-                            </span>
-                          )}
-                          {reasons.map((r) => (
-                            <span
-                              key={r}
-                              data-reason={r}
-                              style={{
-                                fontSize: 'var(--font-xs)',
-                                padding: '1px 6px',
-                                borderRadius: 'var(--radius-xs)',
-                                border: '1px solid var(--border-subtle)',
-                                color: 'var(--text-tertiary)',
-                              }}
-                            >
-                              {t(`import_modal.reasons.${r}`)}
-                            </span>
-                          ))}
-                        </div>
                       )}
+                    </div>
 
+                    {(detectedName || publisher || reasons.length > 0) && (
                       <div
                         style={{
                           fontSize: 'var(--font-sm)',
                           color: 'var(--text-secondary)',
                           marginTop: '4px',
                           display: 'flex',
-                          gap: '12px',
+                          alignItems: 'center',
+                          gap: '8px',
+                          flexWrap: 'wrap',
                         }}
                       >
-                        <span>
-                          {item.local_version
-                            ? t('import_modal.local_version', { version: stripVersionPrefix(item.local_version) })
-                            : t('import_modal.local_version_unknown')}
-                        </span>
-                        <span>·</span>
-                        <span>{t('import_modal.catalog_repo', { repo: item.catalog_id })}</span>
+                        {detectedName && <span>{t('import_modal.detected_name', { name: detectedName })}</span>}
+                        {publisher && (
+                          <span style={{ color: 'var(--text-tertiary)' }}>
+                            {t('import_modal.detected_publisher', { publisher })}
+                          </span>
+                        )}
+                        {reasons.map((r) => (
+                          <span
+                            key={r}
+                            data-reason={r}
+                            style={{
+                              fontSize: 'var(--font-xs)',
+                              padding: '1px 6px',
+                              borderRadius: 'var(--radius-xs)',
+                              border: '1px solid var(--border-subtle)',
+                              color: 'var(--text-tertiary)',
+                            }}
+                          >
+                            {t(`import_modal.reasons.${r}`)}
+                          </span>
+                        ))}
                       </div>
+                    )}
 
-                      {(item.resolved_executable_path || item.scanned.install_location) && (
-                        <div
-                          className="text-mono"
-                          style={{
-                            fontSize: 'var(--font-xs)',
-                            color: 'var(--text-tertiary)',
-                            marginTop: '3px',
-                          }}
-                          title={item.resolved_executable_path || item.scanned.install_location}
-                        >
-                          {item.resolved_executable_path ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <Terminal size={11} />
-                              <span>{t('import_modal.executable', { path: item.resolved_executable_path })}</span>
-                            </span>
-                          ) : (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <Folder size={11} />
-                              <span>{t('import_modal.location', { path: item.scanned.install_location })}</span>
-                            </span>
-                          )}
-                        </div>
-                      )}
+                    <div
+                      style={{
+                        fontSize: 'var(--font-sm)',
+                        color: 'var(--text-secondary)',
+                        marginTop: '4px',
+                        display: 'flex',
+                        gap: '12px',
+                      }}
+                    >
+                      <span>
+                        {item.local_version
+                          ? t('import_modal.local_version', { version: stripVersionPrefix(item.local_version) })
+                          : t('import_modal.local_version_unknown')}
+                      </span>
+                      <span>·</span>
+                      <span>{t('import_modal.catalog_repo', { repo: item.catalog_id })}</span>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
-        {/* 底部操作栏 */}
-        <div
-          className="modal-footer"
+                    {(item.resolved_executable_path || item.scanned.install_location) && (
+                      <div
+                        className="text-mono"
+                        style={{
+                          fontSize: 'var(--font-xs)',
+                          color: 'var(--text-tertiary)',
+                          marginTop: '3px',
+                        }}
+                        title={item.resolved_executable_path || item.scanned.install_location}
+                      >
+                        {item.resolved_executable_path ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <Terminal size={11} />
+                            <span>{t('import_modal.executable', { path: item.resolved_executable_path })}</span>
+                          </span>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <Folder size={11} />
+                            <span>{t('import_modal.location', { path: item.scanned.install_location })}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 底部操作栏 */}
+      <div
+        className="modal-footer"
+        style={{
+          justifyContent: 'space-between',
+        }}
+      >
+        <span
           style={{
-            justifyContent: 'space-between',
+            fontSize: 'var(--font-sm)',
+            color: 'var(--text-tertiary)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            marginRight: '16px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
           }}
         >
-          <span
-            style={{
-              fontSize: 'var(--font-sm)',
-              color: 'var(--text-tertiary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flex: 1,
-              marginRight: '16px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '5px',
-            }}
+          <Info size={13} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
+          <span>{t('import_modal.hint')}</span>
+        </span>
+        <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
+          <button
+            type="button"
+            className="btn-fluent btn-secondary"
+            onClick={onClose}
+            disabled={isImporting}
           >
-            <Info size={13} style={{ color: 'var(--brand-primary)', flexShrink: 0 }} />
-            <span>{t('import_modal.hint')}</span>
-          </span>
-          <div style={{ display: 'flex', gap: '10px', flexShrink: 0 }}>
-            <button
-              type="button"
-              className="btn-fluent btn-secondary"
-              onClick={onClose}
-              disabled={isImporting}
-            >
-              {t('import_modal.cancel')}
-            </button>
-            <button
-              type="button"
-              className="btn-fluent btn-primary"
-              onClick={handleImport}
-              disabled={selectedIds.size === 0 || isImporting || isLoading}
-            >
-              {isImporting ? (
-                <>
-                  <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
-                  <span>{t('import_modal.importing')}</span>
-                </>
-              ) : (
-                <span>{t('import_modal.import_btn')}</span>
-              )}
-            </button>
-          </div>
+            {t('import_modal.cancel')}
+          </button>
+          <button
+            type="button"
+            className="btn-fluent btn-primary"
+            onClick={handleImport}
+            disabled={selectedIds.size === 0 || isImporting || isLoading}
+          >
+            {isImporting ? (
+              <>
+                <span className="spinner-icon" style={{ width: '12px', height: '12px', borderWidth: '1.5px' }} />
+                <span>{t('import_modal.importing')}</span>
+              </>
+            ) : (
+              <span>{t('import_modal.import_btn')}</span>
+            )}
+          </button>
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 };

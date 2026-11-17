@@ -983,7 +983,7 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     });
     fireEvent.click(btn);
     expect(btn.disabled).toBe(true);
-    expect(container.querySelector('.trends-refresh-spin')).toBeTruthy();
+    expect(container.querySelector('.icon-spin')).toBeTruthy();
     expect(screen.getByText('acme/atlas')).toBeTruthy();
 
     release(trendingHtml as string);
@@ -1008,18 +1008,18 @@ describe('TrendsView 榜单刷新按钮（forceRefresh 直抓）', () => {
     const { container } = renderBoard();
     const btn = screen.getByTestId('trends-refresh') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
-    expect(container.querySelector('.trends-refresh-spin')).toBeTruthy();
+    expect(container.querySelector('.icon-spin')).toBeTruthy();
 
     await waitFor(() => {
       expect(typeof release).toBe('function');
     });
     expect(btn.disabled).toBe(true);
-    expect(container.querySelector('.trends-refresh-spin')).toBeTruthy();
+    expect(container.querySelector('.icon-spin')).toBeTruthy();
 
     release(trendingHtmlFixture());
     await screen.findByText('acme/atlas');
     expect(btn.disabled).toBe(false);
-    expect(container.querySelector('.trends-refresh-spin')).toBeNull();
+    expect(container.querySelector('.icon-spin')).toBeNull();
   });
 
   it('刷新失败走现有 error lane（不弹框，按钮恢复可用）', async () => {

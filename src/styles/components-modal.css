@@ -39,6 +39,12 @@
   outline: none;
 }
 
+/* 深色下遮罩更通透，轻微提饱和让背后图标 / 文字轮廓在模糊后仍可辨。 */
+[data-theme="dark"] .modal-backdrop {
+  backdrop-filter: blur(var(--acrylic-blur-modal)) saturate(1.12);
+  -webkit-backdrop-filter: blur(var(--acrylic-blur-modal)) saturate(1.12);
+}
+
 [data-theme="dark"] .detail-modal {
   background: var(--bg-acrylic);
   border-color: var(--border-color);
@@ -353,11 +359,21 @@
   font-weight: 510;
 }
 
-/* 安装确认弹窗（深链 / 静默安装共用）：必须压住详情弹窗等基础浮层（同为
- * modal-backdrop，仅靠层级取胜），仍低于 Toast 通知。
- * 层级约定：页面内容/浮出菜单 ≤100 < 基础弹窗 100 < 安装确认 200 < Toast 9999。 */
-.modal-backdrop.modal-confirm-above {
+/* 弹窗层级（ModalShell `layer`）：均高于标题栏 20 / 缩放手柄 30，低于 Toast 9999。
+ * sub 90：可被应用详情 / 开发者主页压住的父级弹窗（广场讨论）；
+ * base 100：`.modal-backdrop` 默认（应用详情、开发者主页）；
+ * confirm 200：二次确认门禁（安装确认），压住详情等基础弹窗；
+ * top 1000：全局工具弹窗（导入、更新规则）。 */
+.modal-backdrop.modal-layer-sub {
+  z-index: 90;
+}
+
+.modal-backdrop.modal-layer-confirm {
   z-index: 200;
+}
+
+.modal-backdrop.modal-layer-top {
+  z-index: 1000;
 }
 
 .modal-body {

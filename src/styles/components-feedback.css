@@ -36,6 +36,13 @@
   animation: spinInfinite 0.8s linear infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .spinner-icon,
+  .icon-spin {
+    animation: none;
+  }
+}
+
 .status-dot {
   display: inline-block;
   width: 6px;

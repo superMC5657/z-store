@@ -1,6 +1,6 @@
-import React, { useId, useRef, useState } from 'react';
+import React, { useId, useState } from 'react';
 import { CountLabel } from './CountBadge';
-import { useModalA11y } from './useModalA11y';
+import { ModalShell } from './ModalShell';
 import {
   Shield,
   Plus,
@@ -71,9 +71,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   const [skipVersion, setSkipVersion] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  useModalA11y(dialogRef, { open: isOpen, onEscape: onClose });
 
   if (!isOpen) return null;
 
@@ -175,514 +173,502 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   const totalCount = updateRules.length + dismissedWatches.length;
 
   return (
-    <div
-      className="modal-backdrop"
-      style={{ zIndex: 1000 }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+    <ModalShell
+      layer="top"
+      onClose={onClose}
+      ariaLabelledBy={titleId}
+      panelStyle={{
+        width: '100%',
+        maxWidth: '760px',
+        height: 'min(640px, 86vh, calc(100% - 32px))',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
+      {/* 弹窗头部 */}
       <div
-        className="detail-modal"
+        className="modal-header"
         style={{
-          width: '100%',
-          maxWidth: '760px',
-          height: 'min(640px, 86vh, calc(100% - 32px))',
+          padding: '18px 24px 14px',
+          borderBottom: '1px solid var(--border-color)',
           display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'var(--bg-acrylic-thin)',
+          flexShrink: 0,
         }}
-        onClick={(e) => e.stopPropagation()}
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
       >
-        {/* 弹窗头部 */}
-        <div
-          className="modal-header"
-          style={{
-            padding: '18px 24px 14px',
-            borderBottom: '1px solid var(--border-color)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: 'var(--bg-acrylic-thin)',
-            flexShrink: 0,
-          }}
-        >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Shield size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-              <h3 id={titleId} style={{ margin: 0, fontSize: 'calc(17px * var(--font-scale))', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
-                {t('rules.title')}
-              </h3>
-            </div>
-          </div>
+        <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              type="button"
-              className={`btn-fluent btn-compact ${isAddOpen ? 'btn-secondary' : 'btn-primary'}`}
-              onClick={() => setIsAddOpen(!isAddOpen)}
-            >
-              {isAddOpen ? (
-                <>
-                  <ChevronUp size={13} strokeWidth={1.5} />
-                  <span>{t('rules.collapse_add')}</span>
-                </>
-              ) : (
-                <>
-                  <Plus size={13} strokeWidth={1.5} />
-                  <span>{t('rules.add_rule')}</span>
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="modal-header-btn modal-close-btn"
-              aria-label={t('rules.close_modal')}
-            >
-              <X size={14} strokeWidth={1.5} />
-            </button>
+            <Shield size={18} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
+            <h3 id={titleId} style={{ margin: 0, fontSize: 'calc(17px * var(--font-scale))', fontWeight: 590, color: 'var(--text-primary)', letterSpacing: '-0.018em' }}>
+              {t('rules.title')}
+            </h3>
           </div>
         </div>
-
-        {/* 可折叠的手动添加规则表单 */}
-        {isAddOpen && (
-          <div
-            style={{
-              padding: '16px 24px',
-              background: 'var(--card-bg-subtle, rgba(255, 255, 255, 0.03))',
-              borderBottom: '1px solid var(--border-color)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-              animation: 'fadeIn 0.2s ease-out',
-              // 窗口较矮时表单自身滚动，让出空间保住下方规则列表的最小高度
-              flex: '0 1 auto',
-              minHeight: 0,
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ fontSize: 'var(--font-base)', fontWeight: 590, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
-              <Plus size={14} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
-              <span>{t('rules.form_manual_title')}</span>
-            </div>
-
-            {/* 目标应用选择行 */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                {t('rules.form_step_target')}
-              </label>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {installedApps.length > 0 && (
-                  <select
-                    className="select-fluent"
-                    value={selectedAppId}
-                    onChange={(e) => setSelectedAppId(e.target.value)}
-                    style={{ flex: '1 1 240px', width: 'auto' }}
-                  >
-                    <option value="">{t('rules.form_select_installed', { count: installedApps.length })}</option>
-                    {installedApps.map((a) => (
-                      <option key={a.app_id} value={a.app_id}>
-                        {a.app_name} (ID: {a.app_id}{a.version.trim() ? ` · v${stripVersionPrefix(a.version)}` : ''})
-                      </option>
-                    ))}
-                    <option value="__custom__">{t('rules.form_custom_input')}</option>
-                  </select>
-                )}
-
-                {(selectedAppId === '__custom__' || installedApps.length === 0 || !selectedAppId) && (
-                  <input
-                    type="text"
-                    className="settings-input"
-                    placeholder={t('rules.form_custom_input_placeholder')}
-                    value={customAppId}
-                    onChange={(e) => setCustomAppId(e.target.value)}
-                    style={{ flex: '1 1 200px', fontSize: 'var(--font-sm)' }}
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* 规则策略类型 */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                {t('rules.form_step_action')}
-              </label>
-              <SegmentedControl
-                value={ruleType}
-                onChange={(val) => setRuleType(val as 'frozen' | 'hidden' | 'skip')}
-                style={{ alignSelf: 'flex-start' }}
-                options={[
-                  {
-                    value: 'frozen',
-                    label: (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                        <Lock size={12} />
-                        <span>{t('rules.form_type_frozen')}</span>
-                      </span>
-                    ),
-                  },
-                  {
-                    value: 'hidden',
-                    label: (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                        <EyeOff size={12} />
-                        <span>{t('rules.form_type_hidden')}</span>
-                      </span>
-                    ),
-                  },
-                  {
-                    value: 'skip',
-                    label: (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                        <SkipForward size={12} />
-                        <span>{t('rules.form_type_skip')}</span>
-                      </span>
-                    ),
-                  },
-                ]}
-              />
-
-              {ruleType === 'skip' && (
-                <div style={{ marginTop: '4px' }}>
-                  <input
-                    type="text"
-                    className="settings-input"
-                    placeholder={t('rules.form_skip_version_placeholder')}
-                    value={skipVersion}
-                    onChange={(e) => setSkipVersion(e.target.value)}
-                    style={{ width: '260px', fontSize: 'var(--font-sm)' }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* 操作按钮 */}
-            <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent', padding: '8px 0 0 0', marginTop: '4px' }}>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary"
-                onClick={() => {
-                  setIsAddOpen(false);
-                  setSelectedAppId('');
-                  setCustomAppId('');
-                }}
-              >
-                {t('rules.cancel')}
-              </button>
-              <button
-                type="button"
-                className="btn-fluent btn-primary"
-                onClick={handleCreateRule}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? t('rules.form_saving') : t('rules.confirm_add')}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 过滤工具栏 */}
-        <div
-          style={{
-            padding: '12px 24px',
-            display: 'flex',
-            gap: '8px',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.05))',
-            flexWrap: 'wrap',
-          }}
-        >
-          <SegmentedControl
-            value={rulesTab}
-            onChange={(val) => setRulesTab(val as RulesTab)}
-            size="compact"
-            options={[
-              {
-                value: 'all',
-                label: (
-                  <CountLabel
-                    label={t('rules.tab_all_short')}
-                    count={totalCount}
-                    active={rulesTab === 'all'}
-                  />
-                ),
-              },
-              {
-                value: 'skipped',
-                label: (
-                  <CountLabel
-                    icon={<SkipForward size={11} strokeWidth={1.5} />}
-                    label={t('rules.tab_skipped_short')}
-                    count={updateRules.filter((r) => Boolean(r.skipped_version)).length}
-                    active={rulesTab === 'skipped'}
-                  />
-                ),
-              },
-              {
-                value: 'frozen',
-                label: (
-                  <CountLabel
-                    icon={<Lock size={11} strokeWidth={1.5} />}
-                    label={t('rules.tab_frozen_short')}
-                    count={updateRules.filter((r) => r.is_frozen).length}
-                    active={rulesTab === 'frozen'}
-                  />
-                ),
-              },
-              {
-                value: 'hidden',
-                label: (
-                  <CountLabel
-                    icon={<EyeOff size={11} strokeWidth={1.5} />}
-                    label={t('rules.tab_hidden_short')}
-                    count={updateRules.filter((r) => r.is_hidden).length}
-                    active={rulesTab === 'hidden'}
-                  />
-                ),
-              },
-              {
-                value: 'watch',
-                label: (
-                  <CountLabel
-                    icon={<Eye size={11} strokeWidth={1.5} />}
-                    label={t('rules.tab_watch_short')}
-                    count={dismissedWatches.length}
-                    active={rulesTab === 'watch'}
-                  />
-                ),
-              },
-            ]}
-          />
-
-          <div className="fluent-input-search" style={{ width: '200px' }}>
-            <Search size={13} />
-            <input
-              type="text"
-              placeholder={t('rules.search_placeholder')}
-              value={filterQuery}
-              onChange={(e) => setFilterQuery(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* 规则列表内容区 */}
-        <div
-          className="modal-scroll-area"
-          style={{
-            flex: '1 1 auto',
-            minHeight: '160px',
-            overflowY: 'auto',
-            padding: '16px 24px',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {filteredRules.length === 0 && filteredWatches.length === 0 ? (
-            <EmptyState
-              icon={<ShieldAlert size={40} strokeWidth={1.5} />}
-              style={{ flex: 1 }}
-              title={totalCount === 0 ? t('rules.empty_no_rules') : t('rules.empty_filtered')}
-              action={
-                totalCount === 0 && !isAddOpen ? (
-                  <button
-                    type="button"
-                    className="btn-fluent btn-primary"
-                    onClick={() => setIsAddOpen(true)}
-                  >
-                    <Plus size={14} strokeWidth={1.5} />
-                    <span>{t('rules.add_first_rule')}</span>
-                  </button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <div className="fluent-list-container">
-              {filteredRules.map(({ rule, iconInfo, displayName, showId }) => {
-                const skipLabel = rule.skipped_version
-                  ? t('rules.badge_skipped', { version: rule.skipped_version })
-                  : '';
-                // 已锁定的应用不检测更新，不会出现在快照里
-                const pendingUpdate = updatesById.get(rule.app_id.toLowerCase());
-                return (
-                  <div key={rule.app_id} className="fluent-list-row rules-row">
-                    <AppIconFrame
-                      icon={iconInfo.icon}
-                      name={displayName}
-                      appId={rule.app_id}
-                      iconBg={iconInfo.iconBg}
-                      size="md"
-                    />
-                    <div className="rules-row-info">
-                      <div className="rules-row-title">
-                        <span className="rules-row-name" title={displayName}>{displayName}</span>
-                        {showId && (
-                          <span className="rules-row-id text-mono" title={rule.app_id}>{rule.app_id}</span>
-                        )}
-                      </div>
-                      <div className="rules-row-meta">
-                        {rule.skipped_version && (
-                          <span className="app-tag app-tag-skipped rules-row-tag" title={skipLabel}>
-                            <SkipForward size={10} strokeWidth={1.5} />
-                            <span>{skipLabel}</span>
-                          </span>
-                        )}
-                        {rule.is_frozen && (
-                          <span className="app-tag app-tag-locked rules-row-tag">
-                            <Lock size={10} strokeWidth={1.5} />
-                            <span>{t('rules.badge_frozen')}</span>
-                          </span>
-                        )}
-                        {rule.is_hidden && (
-                          <span className="app-tag app-tag-hidden rules-row-tag">
-                            <EyeOff size={10} strokeWidth={1.5} />
-                            <span>{t('rules.badge_hidden')}</span>
-                          </span>
-                        )}
-                        <span className="rules-row-date">
-                          {t('rules.effective_at', { date: formatRuleDate(rule.updated_at) })}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="rules-row-actions">
-                      {pendingUpdate && onSkipVersion && (
-                        <button
-                          type="button"
-                          className="btn-fluent btn-secondary btn-sm"
-                          title={t('rules.skip_version_title', { version: pendingUpdate.latest_version })}
-                          onClick={async () => {
-                            try {
-                              await onSkipVersion(rule.app_id, pendingUpdate.latest_version);
-                              showNotice(t('rules.notice_skip_success', { id: rule.app_id, version: pendingUpdate.latest_version }));
-                            } catch (err) {
-                              showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
-                            }
-                          }}
-                        >
-                          {t('rules.skip_version')}
-                        </button>
-                      )}
-                      {rule.skipped_version && (
-                        <button
-                          type="button"
-                          className="btn-fluent btn-secondary btn-sm"
-                          onClick={async () => {
-                            await onClearRuleSkip(rule.app_id);
-                            showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
-                          }}
-                        >
-                          {t('rules.restore_reminder')}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-fluent btn-secondary btn-sm"
-                        onClick={async () => {
-                          await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
-                          showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
-                        }}
-                      >
-                        {rule.is_frozen ? t('rules.unlock_version') : t('rules.lock_version')}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-fluent btn-secondary btn-sm"
-                        onClick={async () => {
-                          await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
-                          showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
-                        }}
-                      >
-                        {rule.is_hidden ? t('rules.unhide_app') : t('rules.hide_app')}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              {filteredWatches.map(({ entry, iconInfo, displayName, showId }) => {
-                const readLabel = t('rules.badge_watch_read', { version: entry.version });
-                return (
-                  <div key={`watch:${entry.app_id}`} className="fluent-list-row rules-row">
-                    <AppIconFrame
-                      icon={iconInfo.icon}
-                      name={displayName}
-                      appId={entry.app_id}
-                      iconBg={iconInfo.iconBg}
-                      size="md"
-                    />
-                    <div className="rules-row-info">
-                      <div className="rules-row-title">
-                        <span className="rules-row-name" title={displayName}>{displayName}</span>
-                        {showId && (
-                          <span className="rules-row-id text-mono" title={entry.app_id}>{entry.app_id}</span>
-                        )}
-                      </div>
-                      <div className="rules-row-meta">
-                        <span className="app-tag app-tag-watch rules-row-tag" title={readLabel}>
-                          <Eye size={10} strokeWidth={1.5} />
-                          <span>{readLabel}</span>
-                        </span>
-                        <span className="rules-row-date">
-                          {t('rules.dismissed_at', { date: formatRuleDate(entry.dismissed_at) })}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="rules-row-actions">
-                      {onRestoreWatch && (
-                        <button
-                          type="button"
-                          className="btn-fluent btn-secondary btn-sm"
-                          onClick={async () => {
-                            try {
-                              await onRestoreWatch(entry.app_id);
-                              showNotice(t('rules.restore_watch_notice_success', { id: entry.app_id }));
-                            } catch (err) {
-                              showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
-                            }
-                          }}
-                        >
-                          {t('rules.restore_reminder')}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* 底部状态与操作栏 */}
-        <div
-          className="modal-footer"
-          style={{
-            padding: '12px 24px',
-            background: 'var(--card-bg-subtle, rgba(0,0,0,0.15))',
-            justifyContent: 'space-between',
-          }}
-        >
-          <span
-            className={`rules-notice${notice ? (notice.isError ? ' is-error' : ' is-success') : ''}`}
-            role="status"
-            aria-live="polite"
-          >
-            {notice?.text}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
-            className="btn-fluent btn-primary"
-            onClick={onClose}
+            className={`btn-fluent btn-compact ${isAddOpen ? 'btn-secondary' : 'btn-primary'}`}
+            onClick={() => setIsAddOpen(!isAddOpen)}
           >
-            {t('rules.done')}
+            {isAddOpen ? (
+              <>
+                <ChevronUp size={13} strokeWidth={1.5} />
+                <span>{t('rules.collapse_add')}</span>
+              </>
+            ) : (
+              <>
+                <Plus size={13} strokeWidth={1.5} />
+                <span>{t('rules.add_rule')}</span>
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="modal-header-btn modal-close-btn"
+            aria-label={t('rules.close_modal')}
+          >
+            <X size={14} strokeWidth={1.5} />
           </button>
         </div>
       </div>
-    </div>
+
+      {/* 可折叠的手动添加规则表单 */}
+      {isAddOpen && (
+        <div
+          style={{
+            padding: '16px 24px',
+            background: 'var(--card-bg-subtle, rgba(255, 255, 255, 0.03))',
+            borderBottom: '1px solid var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            animation: 'fadeIn 0.2s ease-out',
+            // 窗口较矮时表单自身滚动，让出空间保住下方规则列表的最小高度
+            flex: '0 1 auto',
+            minHeight: 0,
+            overflowY: 'auto',
+          }}
+        >
+          <div style={{ fontSize: 'var(--font-base)', fontWeight: 590, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
+            <Plus size={14} strokeWidth={1.5} style={{ color: 'var(--brand-primary)' }} />
+            <span>{t('rules.form_manual_title')}</span>
+          </div>
+
+          {/* 目标应用选择行 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>
+              {t('rules.form_step_target')}
+            </label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {installedApps.length > 0 && (
+                <select
+                  className="select-fluent"
+                  value={selectedAppId}
+                  onChange={(e) => setSelectedAppId(e.target.value)}
+                  style={{ flex: '1 1 240px', width: 'auto' }}
+                >
+                  <option value="">{t('rules.form_select_installed', { count: installedApps.length })}</option>
+                  {installedApps.map((a) => (
+                    <option key={a.app_id} value={a.app_id}>
+                      {a.app_name} (ID: {a.app_id}{a.version.trim() ? ` · v${stripVersionPrefix(a.version)}` : ''})
+                    </option>
+                  ))}
+                  <option value="__custom__">{t('rules.form_custom_input')}</option>
+                </select>
+              )}
+
+              {(selectedAppId === '__custom__' || installedApps.length === 0 || !selectedAppId) && (
+                <input
+                  type="text"
+                  className="settings-input"
+                  placeholder={t('rules.form_custom_input_placeholder')}
+                  value={customAppId}
+                  onChange={(e) => setCustomAppId(e.target.value)}
+                  style={{ flex: '1 1 200px', fontSize: 'var(--font-sm)' }}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* 规则策略类型 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: 500 }}>
+              {t('rules.form_step_action')}
+            </label>
+            <SegmentedControl
+              value={ruleType}
+              onChange={(val) => setRuleType(val as 'frozen' | 'hidden' | 'skip')}
+              style={{ alignSelf: 'flex-start' }}
+              options={[
+                {
+                  value: 'frozen',
+                  label: (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <Lock size={12} />
+                      <span>{t('rules.form_type_frozen')}</span>
+                    </span>
+                  ),
+                },
+                {
+                  value: 'hidden',
+                  label: (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <EyeOff size={12} />
+                      <span>{t('rules.form_type_hidden')}</span>
+                    </span>
+                  ),
+                },
+                {
+                  value: 'skip',
+                  label: (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <SkipForward size={12} />
+                      <span>{t('rules.form_type_skip')}</span>
+                    </span>
+                  ),
+                },
+              ]}
+            />
+
+            {ruleType === 'skip' && (
+              <div style={{ marginTop: '4px' }}>
+                <input
+                  type="text"
+                  className="settings-input"
+                  placeholder={t('rules.form_skip_version_placeholder')}
+                  value={skipVersion}
+                  onChange={(e) => setSkipVersion(e.target.value)}
+                  style={{ width: '260px', fontSize: 'var(--font-sm)' }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* 操作按钮 */}
+          <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent', padding: '8px 0 0 0', marginTop: '4px' }}>
+            <button
+              type="button"
+              className="btn-fluent btn-secondary"
+              onClick={() => {
+                setIsAddOpen(false);
+                setSelectedAppId('');
+                setCustomAppId('');
+              }}
+            >
+              {t('rules.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn-fluent btn-primary"
+              onClick={handleCreateRule}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? t('rules.form_saving') : t('rules.confirm_add')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 过滤工具栏 */}
+      <div
+        style={{
+          padding: '12px 24px',
+          display: 'flex',
+          gap: '8px',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--border-subtle, rgba(255,255,255,0.05))',
+          flexWrap: 'wrap',
+        }}
+      >
+        <SegmentedControl
+          value={rulesTab}
+          onChange={(val) => setRulesTab(val as RulesTab)}
+          size="compact"
+          options={[
+            {
+              value: 'all',
+              label: (
+                <CountLabel
+                  label={t('rules.tab_all_short')}
+                  count={totalCount}
+                  active={rulesTab === 'all'}
+                />
+              ),
+            },
+            {
+              value: 'skipped',
+              label: (
+                <CountLabel
+                  icon={<SkipForward size={11} strokeWidth={1.5} />}
+                  label={t('rules.tab_skipped_short')}
+                  count={updateRules.filter((r) => Boolean(r.skipped_version)).length}
+                  active={rulesTab === 'skipped'}
+                />
+              ),
+            },
+            {
+              value: 'frozen',
+              label: (
+                <CountLabel
+                  icon={<Lock size={11} strokeWidth={1.5} />}
+                  label={t('rules.tab_frozen_short')}
+                  count={updateRules.filter((r) => r.is_frozen).length}
+                  active={rulesTab === 'frozen'}
+                />
+              ),
+            },
+            {
+              value: 'hidden',
+              label: (
+                <CountLabel
+                  icon={<EyeOff size={11} strokeWidth={1.5} />}
+                  label={t('rules.tab_hidden_short')}
+                  count={updateRules.filter((r) => r.is_hidden).length}
+                  active={rulesTab === 'hidden'}
+                />
+              ),
+            },
+            {
+              value: 'watch',
+              label: (
+                <CountLabel
+                  icon={<Eye size={11} strokeWidth={1.5} />}
+                  label={t('rules.tab_watch_short')}
+                  count={dismissedWatches.length}
+                  active={rulesTab === 'watch'}
+                />
+              ),
+            },
+          ]}
+        />
+
+        <div className="fluent-input-search" style={{ width: '200px' }}>
+          <Search size={13} />
+          <input
+            type="text"
+            placeholder={t('rules.search_placeholder')}
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* 规则列表内容区 */}
+      <div
+        className="modal-scroll-area"
+        style={{
+          flex: '1 1 auto',
+          minHeight: '160px',
+          overflowY: 'auto',
+          padding: '16px 24px',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {filteredRules.length === 0 && filteredWatches.length === 0 ? (
+          <EmptyState
+            icon={<ShieldAlert size={40} strokeWidth={1.5} />}
+            style={{ flex: 1 }}
+            title={totalCount === 0 ? t('rules.empty_no_rules') : t('rules.empty_filtered')}
+            action={
+              totalCount === 0 && !isAddOpen ? (
+                <button
+                  type="button"
+                  className="btn-fluent btn-primary"
+                  onClick={() => setIsAddOpen(true)}
+                >
+                  <Plus size={14} strokeWidth={1.5} />
+                  <span>{t('rules.add_first_rule')}</span>
+                </button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="fluent-list-container">
+            {filteredRules.map(({ rule, iconInfo, displayName, showId }) => {
+              const skipLabel = rule.skipped_version
+                ? t('rules.badge_skipped', { version: rule.skipped_version })
+                : '';
+              // 已锁定的应用不检测更新，不会出现在快照里
+              const pendingUpdate = updatesById.get(rule.app_id.toLowerCase());
+              return (
+                <div key={rule.app_id} className="fluent-list-row rules-row">
+                  <AppIconFrame
+                    icon={iconInfo.icon}
+                    name={displayName}
+                    appId={rule.app_id}
+                    iconBg={iconInfo.iconBg}
+                    size="md"
+                  />
+                  <div className="rules-row-info">
+                    <div className="rules-row-title">
+                      <span className="rules-row-name" title={displayName}>{displayName}</span>
+                      {showId && (
+                        <span className="rules-row-id text-mono" title={rule.app_id}>{rule.app_id}</span>
+                      )}
+                    </div>
+                    <div className="rules-row-meta">
+                      {rule.skipped_version && (
+                        <span className="app-tag app-tag-skipped rules-row-tag" title={skipLabel}>
+                          <SkipForward size={10} strokeWidth={1.5} />
+                          <span>{skipLabel}</span>
+                        </span>
+                      )}
+                      {rule.is_frozen && (
+                        <span className="app-tag app-tag-locked rules-row-tag">
+                          <Lock size={10} strokeWidth={1.5} />
+                          <span>{t('rules.badge_frozen')}</span>
+                        </span>
+                      )}
+                      {rule.is_hidden && (
+                        <span className="app-tag app-tag-hidden rules-row-tag">
+                          <EyeOff size={10} strokeWidth={1.5} />
+                          <span>{t('rules.badge_hidden')}</span>
+                        </span>
+                      )}
+                      <span className="rules-row-date">
+                        {t('rules.effective_at', { date: formatRuleDate(rule.updated_at) })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="rules-row-actions">
+                    {pendingUpdate && onSkipVersion && (
+                      <button
+                        type="button"
+                        className="btn-fluent btn-secondary btn-sm"
+                        title={t('rules.skip_version_title', { version: pendingUpdate.latest_version })}
+                        onClick={async () => {
+                          try {
+                            await onSkipVersion(rule.app_id, pendingUpdate.latest_version);
+                            showNotice(t('rules.notice_skip_success', { id: rule.app_id, version: pendingUpdate.latest_version }));
+                          } catch (err) {
+                            showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
+                          }
+                        }}
+                      >
+                        {t('rules.skip_version')}
+                      </button>
+                    )}
+                    {rule.skipped_version && (
+                      <button
+                        type="button"
+                        className="btn-fluent btn-secondary btn-sm"
+                        onClick={async () => {
+                          await onClearRuleSkip(rule.app_id);
+                          showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
+                        }}
+                      >
+                        {t('rules.restore_reminder')}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-fluent btn-secondary btn-sm"
+                      onClick={async () => {
+                        await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
+                        showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
+                      }}
+                    >
+                      {rule.is_frozen ? t('rules.unlock_version') : t('rules.lock_version')}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-fluent btn-secondary btn-sm"
+                      onClick={async () => {
+                        await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
+                        showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
+                      }}
+                    >
+                      {rule.is_hidden ? t('rules.unhide_app') : t('rules.hide_app')}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredWatches.map(({ entry, iconInfo, displayName, showId }) => {
+              const readLabel = t('rules.badge_watch_read', { version: entry.version });
+              return (
+                <div key={`watch:${entry.app_id}`} className="fluent-list-row rules-row">
+                  <AppIconFrame
+                    icon={iconInfo.icon}
+                    name={displayName}
+                    appId={entry.app_id}
+                    iconBg={iconInfo.iconBg}
+                    size="md"
+                  />
+                  <div className="rules-row-info">
+                    <div className="rules-row-title">
+                      <span className="rules-row-name" title={displayName}>{displayName}</span>
+                      {showId && (
+                        <span className="rules-row-id text-mono" title={entry.app_id}>{entry.app_id}</span>
+                      )}
+                    </div>
+                    <div className="rules-row-meta">
+                      <span className="app-tag app-tag-watch rules-row-tag" title={readLabel}>
+                        <Eye size={10} strokeWidth={1.5} />
+                        <span>{readLabel}</span>
+                      </span>
+                      <span className="rules-row-date">
+                        {t('rules.dismissed_at', { date: formatRuleDate(entry.dismissed_at) })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="rules-row-actions">
+                    {onRestoreWatch && (
+                      <button
+                        type="button"
+                        className="btn-fluent btn-secondary btn-sm"
+                        onClick={async () => {
+                          try {
+                            await onRestoreWatch(entry.app_id);
+                            showNotice(t('rules.restore_watch_notice_success', { id: entry.app_id }));
+                          } catch (err) {
+                            showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
+                          }
+                        }}
+                      >
+                        {t('rules.restore_reminder')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 底部状态与操作栏 */}
+      <div
+        className="modal-footer"
+        style={{
+          padding: '12px 24px',
+          background: 'var(--card-bg-subtle, rgba(0,0,0,0.15))',
+          justifyContent: 'space-between',
+        }}
+      >
+        <span
+          className={`rules-notice${notice ? (notice.isError ? ' is-error' : ' is-success') : ''}`}
+          role="status"
+          aria-live="polite"
+        >
+          {notice?.text}
+        </span>
+        <button
+          type="button"
+          className="btn-fluent btn-primary"
+          onClick={onClose}
+        >
+          {t('rules.done')}
+        </button>
+      </div>
+    </ModalShell>
   );
 };

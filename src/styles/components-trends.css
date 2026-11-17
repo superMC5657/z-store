@@ -102,22 +102,6 @@
   outline-offset: 1px;
 }
 
-.trends-refresh-spin {
-  animation: trends-refresh-spin 0.8s linear infinite;
-}
-
-@keyframes trends-refresh-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .trends-refresh-spin {
-    animation: none;
-  }
-}
-
 /* 错误面板：复用 FilterEmptyState 结构，仅图标染警示色以区分真正的空状态 */
 .trends-error .empty-state-icon {
   color: #dc2626;

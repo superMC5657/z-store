@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../../types';
@@ -8,7 +8,7 @@ import { Header, handleOpenExternal } from './Header';
 import { InstallActions } from './InstallActions';
 import { AssetList } from './AssetList';
 import { ReadmeSection } from './ReadmeSection';
-import { useModalA11y } from '../useModalA11y';
+import { ModalShell } from '../ModalShell';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -76,8 +76,6 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [isRevealingFolder, setIsRevealingFolder] = useState(false);
   const effectiveIsInstalling = isInstalling || isInstallingGlobal;
   const effectiveIsBusy = effectiveIsInstalling || isDownloadingOnly;
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useModalA11y(dialogRef, { onEscape: onClose });
 
   useEffect(() => {
     setSelectedAssetName(null);
@@ -269,93 +267,83 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        ref={dialogRef}
-        className="detail-modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={displayName}
-        tabIndex={-1}
-      >
-        {/* 顶部概览横幅 */}
-        <Header
+    <ModalShell onClose={onClose} ariaLabel={displayName}>
+      {/* 顶部概览横幅 */}
+      <Header
+        app={app}
+        displayName={displayName}
+        displayDesc={displayDesc}
+        displayCategory={displayCategory}
+        primaryAsset={primaryAsset}
+        platformLoading={platformLoading}
+        oauthUser={oauthUser}
+        isFavorite={isFavorite}
+        isWatched={isWatched}
+        onClose={onClose}
+        onRefresh={onRefresh}
+        onToggleFavorite={onToggleFavorite}
+        onToggleWatch={onToggleWatch}
+        onOpenDeveloperProfile={onOpenDeveloperProfile}
+      />
+
+      {/* 弹窗主体内容区 */}
+      <div className="modal-body">
+        {/* 操作交互卡片 */}
+        <InstallActions
           app={app}
           displayName={displayName}
-          displayDesc={displayDesc}
-          displayCategory={displayCategory}
+          releases={releases}
           primaryAsset={primaryAsset}
-          platformLoading={platformLoading}
-          oauthUser={oauthUser}
-          isFavorite={isFavorite}
-          isWatched={isWatched}
+          hasNoReleases={hasNoReleases}
+          isAuthExpired={isAuthExpired}
+          canInstallPrimary={canInstallPrimary}
+          currentOs={currentOs}
+          currentArch={currentArch}
+          selectedAssetName={selectedAssetName}
+          showSkeleton={showSkeleton}
+          downloadProgress={downloadProgress}
+          installError={installError}
+          showAllAssets={showAllAssets}
+          onToggleShowAllAssets={() => setShowAllAssets((prev) => !prev)}
+          isInstalled={isInstalled}
+          isManaged={isManaged}
+          isExploreMode={isExploreMode}
+          isUninstallingGlobal={isUninstallingGlobal}
+          downloadedFile={downloadedFile}
+          isRevealingFolder={isRevealingFolder}
+          isDownloadingOnly={isDownloadingOnly}
+          effectiveIsInstalling={effectiveIsInstalling}
+          effectiveIsBusy={effectiveIsBusy}
+          onLaunch={onLaunch}
+          onUninstall={onUninstall}
+          onUnmanage={onUnmanage}
+          onOpenAccountSettings={onOpenAccountSettings}
           onClose={onClose}
-          onRefresh={onRefresh}
-          onToggleFavorite={onToggleFavorite}
-          onToggleWatch={onToggleWatch}
-          onOpenDeveloperProfile={onOpenDeveloperProfile}
+          onRevealDownload={handleRevealDownload}
+          onDownloadPrimary={handleDownloadPrimary}
+          onAction={handleLaunchOrInstall}
         />
 
-        {/* 弹窗主体内容区 */}
-        <div className="modal-body">
-          {/* 操作交互卡片 */}
-          <InstallActions
-            app={app}
-            displayName={displayName}
-            releases={releases}
-            primaryAsset={primaryAsset}
-            hasNoReleases={hasNoReleases}
-            isAuthExpired={isAuthExpired}
-            canInstallPrimary={canInstallPrimary}
-            currentOs={currentOs}
-            currentArch={currentArch}
-            selectedAssetName={selectedAssetName}
-            showSkeleton={showSkeleton}
-            downloadProgress={downloadProgress}
-            installError={installError}
-            showAllAssets={showAllAssets}
-            onToggleShowAllAssets={() => setShowAllAssets((prev) => !prev)}
-            isInstalled={isInstalled}
-            isManaged={isManaged}
-            isExploreMode={isExploreMode}
-            isUninstallingGlobal={isUninstallingGlobal}
-            downloadedFile={downloadedFile}
-            isRevealingFolder={isRevealingFolder}
-            isDownloadingOnly={isDownloadingOnly}
-            effectiveIsInstalling={effectiveIsInstalling}
-            effectiveIsBusy={effectiveIsBusy}
-            onLaunch={onLaunch}
-            onUninstall={onUninstall}
-            onUnmanage={onUnmanage}
-            onOpenAccountSettings={onOpenAccountSettings}
-            onClose={onClose}
-            onRevealDownload={handleRevealDownload}
-            onDownloadPrimary={handleDownloadPrimary}
-            onAction={handleLaunchOrInstall}
-          />
+        {/* 完整发布产物抽屉列表（按宿主相关度排序；列表区独立滚动最多展示 3 行，标题常驻） */}
+        <AssetList
+          showAllAssets={showAllAssets}
+          releases={releases}
+          primaryAsset={primaryAsset}
+          currentOs={currentOs}
+          currentArch={currentArch}
+          effectiveIsBusy={effectiveIsBusy}
+          onSelectAsset={setSelectedAssetName}
+          onOpenExternal={handleOpenExternal}
+        />
 
-          {/* 完整发布产物抽屉列表（按宿主相关度排序；列表区独立滚动最多展示 3 行，标题常驻） */}
-          <AssetList
-            showAllAssets={showAllAssets}
-            releases={releases}
-            primaryAsset={primaryAsset}
-            currentOs={currentOs}
-            currentArch={currentArch}
-            effectiveIsBusy={effectiveIsBusy}
-            onSelectAsset={setSelectedAssetName}
-            onOpenExternal={handleOpenExternal}
-          />
-
-          {/* 自述文档区块 */}
-          <ReadmeSection
-            app={app}
-            displayDesc={displayDesc}
-            showSkeleton={showSkeleton}
-            onRetry={onRetry}
-          />
-        </div>
+        {/* 自述文档区块 */}
+        <ReadmeSection
+          app={app}
+          displayDesc={displayDesc}
+          showSkeleton={showSkeleton}
+          onRetry={onRetry}
+        />
       </div>
-    </div>
+    </ModalShell>
   );
 };

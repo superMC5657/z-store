@@ -1,6 +1,6 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useModalA11y } from '../components/useModalA11y';
+import { ModalShell } from '../components/ModalShell';
 
 interface InstallConfirmDialogProps {
   intro: string;
@@ -26,60 +26,51 @@ export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
   onConfirm,
 }) => {
   const { t } = useTranslation();
-  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   // 置顶于详情弹窗之上：Esc 只取消本层，详情弹窗仍留在底下。
-  useModalA11y(dialogRef, { onEscape: onCancel });
-
   return (
-    <div className="modal-backdrop modal-confirm-above" onClick={onCancel}>
-      <div
-        ref={dialogRef}
-        className="detail-modal"
-        style={{ maxWidth: '480px', width: '92%', padding: '24px 28px', outline: 'none' }}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('install_confirm.title')}
-        tabIndex={-1}
-      >
-        <div className="modal-header" style={{ position: 'relative', padding: 0, marginBottom: '12px' }}>
-          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>{t('install_confirm.title')}</h2>
-        </div>
-        <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>
-          {intro}
-        </p>
-        <div style={{ margin: '0 0 8px', lineHeight: 1.8 }}>
-          <div>
-            {t('install_confirm.app_label')}{appName}
-          </div>
-          <div>
-            {t('install_confirm.repo_label')}{repoLine}
-          </div>
-          <div>
-            {t('install_confirm.source_label')}{source}
-          </div>
-          {sha256 && (
-            <div className="text-mono" style={{ wordBreak: 'break-all' }}>
-              {t('install_confirm.sha256_label')}{sha256}
-            </div>
-          )}
-        </div>
-        <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent', padding: '16px 0 0 0', marginTop: '16px' }}>
-          <button
-            className="btn-fluent btn-secondary"
-            onClick={onCancel}
-          >
-            {t('install_confirm.cancel')}
-          </button>
-          <button
-            className="btn-fluent btn-primary"
-            onClick={onConfirm}
-          >
-            {t('install_confirm.confirm')}
-          </button>
-        </div>
+    <ModalShell
+      layer="confirm"
+      onClose={onCancel}
+      ariaLabel={t('install_confirm.title')}
+      panelStyle={{ maxWidth: '480px', width: '92%', padding: '24px 28px', outline: 'none' }}
+    >
+      <div className="modal-header" style={{ position: 'relative', padding: 0, marginBottom: '12px' }}>
+        <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>{t('install_confirm.title')}</h2>
       </div>
-    </div>
+      <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>
+        {intro}
+      </p>
+      <div style={{ margin: '0 0 8px', lineHeight: 1.8 }}>
+        <div>
+          {t('install_confirm.app_label')}{appName}
+        </div>
+        <div>
+          {t('install_confirm.repo_label')}{repoLine}
+        </div>
+        <div>
+          {t('install_confirm.source_label')}{source}
+        </div>
+        {sha256 && (
+          <div className="text-mono" style={{ wordBreak: 'break-all' }}>
+            {t('install_confirm.sha256_label')}{sha256}
+          </div>
+        )}
+      </div>
+      <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent', padding: '16px 0 0 0', marginTop: '16px' }}>
+        <button
+          className="btn-fluent btn-secondary"
+          onClick={onCancel}
+        >
+          {t('install_confirm.cancel')}
+        </button>
+        <button
+          className="btn-fluent btn-primary"
+          onClick={onConfirm}
+        >
+          {t('install_confirm.confirm')}
+        </button>
+      </div>
+    </ModalShell>
   );
 };

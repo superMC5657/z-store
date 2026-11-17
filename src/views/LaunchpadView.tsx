@@ -463,7 +463,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
             disabled={loading}
             onClick={() => load(true)}
           >
-            <RefreshCw size={13} strokeWidth={1.5} aria-hidden="true" className={loading ? 'launchpad-refresh-spin' : ''} />
+            <RefreshCw size={13} strokeWidth={1.5} aria-hidden="true" className={loading ? 'icon-spin' : ''} />
           </button>
           {submitButton('header', 'secondary', 'right')}
         </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CountBadge } from './CountBadge';
 import { Package, Users, Building2, MapPin, Link, FolderOpen, Star, GitFork, Code2, ExternalLink, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -7,7 +7,7 @@ import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 import { isInstalled, selectManagedState } from '../app/selectors';
 import { CachedAvatar } from './CachedAvatar';
-import { useModalA11y } from './useModalA11y';
+import { ModalShell } from './ModalShell';
 
 interface DeveloperProfileModalProps {
   developer: string;
@@ -65,9 +65,6 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
     };
   }, [developer, isOpen]);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useModalA11y(dialogRef, { open: isOpen, onEscape: onClose });
-
   if (!isOpen) return null;
 
   const handleInstall = async (appId: string) => {
@@ -80,326 +77,319 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        ref={dialogRef}
-        className="detail-modal"
-        style={{ maxWidth: '780px', width: '92%', maxHeight: '88vh' }}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={profile?.name || developer}
-        tabIndex={-1}
-      >
-        {/* 顶部个人概览横幅 */}
-        <div className="modal-header" style={{ position: 'relative', padding: '24px 28px' }}>
-          <button
-            type="button"
-            className="modal-header-btn modal-close-btn"
-            onClick={onClose}
-            aria-label={t('developer_profile.close')}
-            style={{ position: 'absolute', top: '16px', right: '16px' }}
-          >
-            <X size={14} strokeWidth={1.5} />
-          </button>
+    <ModalShell
+      onClose={onClose}
+      ariaLabel={profile?.name || developer}
+      panelStyle={{ maxWidth: '780px', width: '92%', maxHeight: '88vh' }}
+    >
+      {/* 顶部个人概览横幅 */}
+      <div className="modal-header" style={{ position: 'relative', padding: '24px 28px' }}>
+        <button
+          type="button"
+          className="modal-header-btn modal-close-btn"
+          onClick={onClose}
+          aria-label={t('developer_profile.close')}
+          style={{ position: 'absolute', top: '16px', right: '16px' }}
+        >
+          <X size={14} strokeWidth={1.5} />
+        </button>
 
-          {loading ? (
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-              <div
-                style={{
-                  width: '72px',
-                  height: '72px',
-                  borderRadius: '50%',
-                  background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.08))',
-                  animation: 'pulse 1.5s infinite',
-                }}
-              />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ width: '160px', height: '22px', background: 'var(--bg-acrylic-thin)', borderRadius: '4px' }} />
-                <div style={{ width: '240px', height: '14px', background: 'var(--bg-acrylic-thin)', borderRadius: '4px' }} />
+        {loading ? (
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+            <div
+              style={{
+                width: '72px',
+                height: '72px',
+                borderRadius: '50%',
+                background: 'var(--bg-acrylic-thin, rgba(255, 255, 255, 0.08))',
+                animation: 'pulse 1.5s infinite',
+              }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ width: '160px', height: '22px', background: 'var(--bg-acrylic-thin)', borderRadius: '4px' }} />
+              <div style={{ width: '240px', height: '14px', background: 'var(--bg-acrylic-thin)', borderRadius: '4px' }} />
+            </div>
+          </div>
+        ) : error ? (
+          <div>
+            <h3 style={{ margin: 0, fontSize: 'var(--font-xl)', color: '#f87171' }}>{t('developer_profile.load_failed')}</h3>
+            <p style={{ margin: '6px 0 0 0', fontSize: 'var(--font-base)', color: 'var(--text-tertiary)' }}>{error}</p>
+          </div>
+        ) : profile ? (
+          <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+            <CachedAvatar
+              src={profile.avatar_url}
+              login={profile.login}
+              size={76}
+              style={{
+                border: '2px solid var(--border-highlight, rgba(255, 255, 255, 0.15))',
+                boxShadow: 'var(--shadow-rest)',
+              }}
+            />
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0, fontSize: 'calc(20px * var(--font-scale))', fontWeight: 590, letterSpacing: '-0.018em' }}>
+                  {profile.name || profile.login}
+                </h3>
+                <span style={{ fontSize: 'var(--font-base)', color: 'var(--text-tertiary)' }}>
+                  @{profile.login}
+                </span>
+                <a
+                  href={profile.html_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-fluent btn-secondary btn-sm"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void tauriApi.openUrl(profile.html_url);
+                  }}
+                >
+                  <span>GitHub</span>
+                  <ExternalLink size={12} />
+                </a>
               </div>
-            </div>
-          ) : error ? (
-            <div>
-              <h3 style={{ margin: 0, fontSize: 'var(--font-xl)', color: '#f87171' }}>{t('developer_profile.load_failed')}</h3>
-              <p style={{ margin: '6px 0 0 0', fontSize: 'var(--font-base)', color: 'var(--text-tertiary)' }}>{error}</p>
-            </div>
-          ) : profile ? (
-            <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
-              <CachedAvatar
-                src={profile.avatar_url}
-                login={profile.login}
-                size={76}
-                style={{
-                  border: '2px solid var(--border-highlight, rgba(255, 255, 255, 0.15))',
-                  boxShadow: 'var(--shadow-rest)',
-                }}
-              />
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                  <h3 style={{ margin: 0, fontSize: 'calc(20px * var(--font-scale))', fontWeight: 590, letterSpacing: '-0.018em' }}>
-                    {profile.name || profile.login}
-                  </h3>
-                  <span style={{ fontSize: 'var(--font-base)', color: 'var(--text-tertiary)' }}>
-                    @{profile.login}
+
+              {profile.bio && (
+                <p style={{ margin: '8px 0 10px 0', fontSize: 'var(--font-base)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  {profile.bio}
+                </p>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: 'var(--font-sm)' }}>
+                <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Package size={12} />
+                  <span>{t('developer_profile.public_repos', { count: profile.public_repos })}</span>
+                </span>
+                <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Users size={12} />
+                  <span>{t('developer_profile.followers', { count: profile.followers })}</span>
+                </span>
+                {profile.company && (
+                  <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Building2 size={12} />
+                    <span>{profile.company}</span>
                   </span>
+                )}
+                {profile.location && (
+                  <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <MapPin size={12} />
+                    <span>{profile.location}</span>
+                  </span>
+                )}
+                {profile.blog && (
                   <a
-                    href={profile.html_url}
+                    href={profile.blog.startsWith('http') ? profile.blog : `https://${profile.blog}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="btn-fluent btn-secondary btn-sm"
+                    className="modal-tag"
+                    style={{ textDecoration: 'none', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                     onClick={(e) => {
                       e.preventDefault();
-                      void tauriApi.openUrl(profile.html_url);
+                      const blog = profile.blog;
+                      if (!blog) return;
+                      const url = blog.startsWith('http') ? blog : `https://${blog}`;
+                      void tauriApi.openUrl(url);
                     }}
                   >
-                    <span>GitHub</span>
-                    <ExternalLink size={12} />
+                    <Link size={12} />
+                    <span>{profile.blog}</span>
                   </a>
-                </div>
-
-                {profile.bio && (
-                  <p style={{ margin: '8px 0 10px 0', fontSize: 'var(--font-base)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    {profile.bio}
-                  </p>
                 )}
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: 'var(--font-sm)' }}>
-                  <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <Package size={12} />
-                    <span>{t('developer_profile.public_repos', { count: profile.public_repos })}</span>
-                  </span>
-                  <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <Users size={12} />
-                    <span>{t('developer_profile.followers', { count: profile.followers })}</span>
-                  </span>
-                  {profile.company && (
-                    <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <Building2 size={12} />
-                      <span>{profile.company}</span>
-                    </span>
-                  )}
-                  {profile.location && (
-                    <span className="modal-tag" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <MapPin size={12} />
-                      <span>{profile.location}</span>
-                    </span>
-                  )}
-                  {profile.blog && (
-                    <a
-                      href={profile.blog.startsWith('http') ? profile.blog : `https://${profile.blog}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="modal-tag"
-                      style={{ textDecoration: 'none', color: 'var(--brand-primary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        const blog = profile.blog;
-                        if (!blog) return;
-                        const url = blog.startsWith('http') ? blog : `https://${blog}`;
-                        void tauriApi.openUrl(url);
-                      }}
-                    >
-                      <Link size={12} />
-                      <span>{profile.blog}</span>
-                    </a>
-                  )}
-                </div>
               </div>
             </div>
-          ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      {/* 弹窗内容区：代码仓库列表 */}
+      <div className="modal-body" style={{ padding: '24px 28px', maxHeight: '55vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h4 style={{ margin: 0, fontSize: 'calc(15px * var(--font-scale))', fontWeight: 590, display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
+            <FolderOpen size={15} strokeWidth={1.5} />
+            <span>{t('developer_profile.projects_matrix')}</span>
+            <CountBadge value={profile?.repos.length ?? 0} />
+            {/* 截断明示：仓库列表单次拉取无翻页，public_repos > 行数即标注，不伪装全量 */}
+            {profile?.repos_truncated && (
+              <span style={{ fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--text-tertiary)' }}>
+                {t('developer_profile.truncated_hint', { count: profile.repos.length })}
+              </span>
+            )}
+          </h4>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)' }}>
+            {t('developer_profile.cataloged_hint')}
+          </span>
         </div>
 
-        {/* 弹窗内容区：代码仓库列表 */}
-        <div className="modal-body" style={{ padding: '24px 28px', maxHeight: '55vh', overflowY: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h4 style={{ margin: 0, fontSize: 'calc(15px * var(--font-scale))', fontWeight: 590, display: 'flex', alignItems: 'center', gap: '6px', letterSpacing: '-0.015em' }}>
-              <FolderOpen size={15} strokeWidth={1.5} />
-              <span>{t('developer_profile.projects_matrix')}</span>
-              <CountBadge value={profile?.repos.length ?? 0} />
-              {/* 截断明示：仓库列表单次拉取无翻页，public_repos > 行数即标注，不伪装全量 */}
-              {profile?.repos_truncated && (
-                <span style={{ fontSize: 'var(--font-xs)', fontWeight: 400, color: 'var(--text-tertiary)' }}>
-                  {t('developer_profile.truncated_hint', { count: profile.repos.length })}
-                </span>
-              )}
-            </h4>
-            <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-tertiary)' }}>
-              {t('developer_profile.cataloged_hint')}
-            </span>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>
+            {t('developer_profile.loading_repos')}
           </div>
+        ) : profile && profile.repos.length === 0 ? (
+          <EmptyState
+            title={t('developer_profile.empty_repos')}
+          />
+        ) : profile ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {profile.repos.map((repo) => {
+              const isInstalling = installingId === repo.id;
+              // 已纳管绿已安装，未纳管走安装；
+              // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
+              // + 已安装命中 = 未知，中性占位。
+              const installed = isInstalled(repo.id, installedIds);
+              const managed = selectManagedState(repo.id, managedIds);
+              const isUnknownRow = installed && managed === null;
+              const showManaged = !isUnknownRow && managed === true;
 
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-tertiary)' }}>
-              {t('developer_profile.loading_repos')}
-            </div>
-          ) : profile && profile.repos.length === 0 ? (
-            <EmptyState
-              title={t('developer_profile.empty_repos')}
-            />
-          ) : profile ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {profile.repos.map((repo) => {
-                const isInstalling = installingId === repo.id;
-                // 已纳管绿已安装，未纳管走安装；
-                // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
-                // + 已安装命中 = 未知，中性占位。
-                const installed = isInstalled(repo.id, installedIds);
-                const managed = selectManagedState(repo.id, managedIds);
-                const isUnknownRow = installed && managed === null;
-                const showManaged = !isUnknownRow && managed === true;
-
-                return (
-                  <div
-                    key={repo.id}
-                    className="fluent-list-row"
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '12px 16px',
-                    }}
-                  >
-                    <div style={{ flex: 1, marginRight: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                        <span style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
-                          {repo.name}
+              return (
+                <div
+                  key={repo.id}
+                  className="fluent-list-row"
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '12px 16px',
+                  }}
+                >
+                  <div style={{ flex: 1, marginRight: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 590, fontSize: 'var(--font-md)', color: 'var(--text-primary)', letterSpacing: '-0.015em' }}>
+                        {repo.name}
+                      </span>
+                      {repo.in_catalog && (
+                        <span
+                          style={{
+                            fontSize: 'var(--font-xs)',
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-xs)',
+                            background: 'var(--brand-subtle)',
+                            color: 'var(--brand-primary)',
+                            fontWeight: 510,
+                          }}
+                        >
+                          {t('developer_profile.cataloged_badge')}
                         </span>
-                        {repo.in_catalog && (
-                          <span
-                            style={{
-                              fontSize: 'var(--font-xs)',
-                              padding: '2px 6px',
-                              borderRadius: 'var(--radius-xs)',
-                              background: 'var(--brand-subtle)',
-                              color: 'var(--brand-primary)',
-                              fontWeight: 510,
-                            }}
-                          >
-                            {t('developer_profile.cataloged_badge')}
-                          </span>
-                        )}
-                        {repo.latest_release_tag && (
-                          <span style={{ fontSize: 'calc(11.5px * var(--font-scale))', color: 'var(--brand-primary)', fontWeight: 510 }}>
-                            {repo.latest_release_tag}
-                          </span>
-                        )}
-                      </div>
-
-                      {repo.description && (
-                        <p style={{ margin: '0 0 6px 0', fontSize: 'calc(12.5px * var(--font-scale))', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                          {repo.description}
-                        </p>
                       )}
-
-                      <div style={{ display: 'flex', gap: '12px', fontSize: 'calc(11.5px * var(--font-scale))', color: 'var(--text-tertiary)', alignItems: 'center' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                          <Star size={11} fill="currentColor" />
-                          <span>{repo.stars}</span>
+                      {repo.latest_release_tag && (
+                        <span style={{ fontSize: 'calc(11.5px * var(--font-scale))', color: 'var(--brand-primary)', fontWeight: 510 }}>
+                          {repo.latest_release_tag}
                         </span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                          <GitFork size={11} />
-                          <span>{repo.forks}</span>
-                        </span>
-                        {repo.language && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <Code2 size={11} />
-                            <span>{repo.language}</span>
-                          </span>
-                        )}
-                      </div>
+                      )}
                     </div>
 
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {repo.in_catalog ? (
-                        <>
-                          <button
-                            type="button"
-                            className="btn-fluent btn-secondary btn-compact"
-                            onClick={() => {
-                              onClose();
-                              onOpenAppDetail(repo.id);
-                            }}
-                          >
-                            {t('developer_profile.view')}
-                          </button>
-                          {isUnknownRow ? (
-                            // 未知态中性占位（单色骨架，不可交互）
-                            <button
-                              type="button"
-                              className="btn-fluent btn-secondary btn-compact"
-                              data-badge="unknown"
-                              style={{ opacity: 0.65, cursor: 'default' }}
-                              disabled
-                              title={t('developer_profile.checking_status')}
-                              aria-label={t('developer_profile.checking_status')}
-                            >
-                              <span
-                                aria-hidden="true"
-                                className="skeleton-box"
-                                style={{ width: '52px', height: '11px', borderRadius: '3px', display: 'inline-block' }}
-                              />
-                            </button>
-                          ) : showManaged ? (
-                            <button
-                              type="button"
-                              className="btn-fluent btn-install btn-installed btn-compact"
-                              data-badge="managed"
-                              onClick={() => {
-                                onClose();
-                                onOpenAppDetail(repo.id);
-                              }}
-                              title={t('developer_profile.ready_tooltip')}
-                            >
-                              {t('developer_profile.installed')}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn-fluent btn-primary btn-compact"
-                              disabled={isInstalling}
-                              onClick={() => handleInstall(repo.id)}
-                            >
-                              {isInstalling ? t('developer_profile.installing') : t('developer_profile.install')}
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="btn-fluent btn-secondary btn-compact"
-                            onClick={() => {
-                              onClose();
-                              onOpenAppDetail(repo.id);
-                            }}
-                          >
-                            {t('developer_profile.view')}
-                          </button>
-                          <a
-                            href={repo.html_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn-fluent btn-secondary btn-compact btn-icon-only"
-                            title={t('developer_profile.open_github')}
-                            aria-label={t('developer_profile.open_github')}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              void tauriApi.openUrl(repo.html_url);
-                            }}
-                          >
-                            <ExternalLink size={13} />
-                          </a>
-                        </>
+                    {repo.description && (
+                      <p style={{ margin: '0 0 6px 0', fontSize: 'calc(12.5px * var(--font-scale))', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                        {repo.description}
+                      </p>
+                    )}
+
+                    <div style={{ display: 'flex', gap: '12px', fontSize: 'calc(11.5px * var(--font-scale))', color: 'var(--text-tertiary)', alignItems: 'center' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        <Star size={11} fill="currentColor" />
+                        <span>{repo.stars}</span>
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        <GitFork size={11} />
+                        <span>{repo.forks}</span>
+                      </span>
+                      {repo.language && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <Code2 size={11} />
+                          <span>{repo.language}</span>
+                        </span>
                       )}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {repo.in_catalog ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-fluent btn-secondary btn-compact"
+                          onClick={() => {
+                            onClose();
+                            onOpenAppDetail(repo.id);
+                          }}
+                        >
+                          {t('developer_profile.view')}
+                        </button>
+                        {isUnknownRow ? (
+                          // 未知态中性占位（单色骨架，不可交互）
+                          <button
+                            type="button"
+                            className="btn-fluent btn-secondary btn-compact"
+                            data-badge="unknown"
+                            style={{ opacity: 0.65, cursor: 'default' }}
+                            disabled
+                            title={t('developer_profile.checking_status')}
+                            aria-label={t('developer_profile.checking_status')}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="skeleton-box"
+                              style={{ width: '52px', height: '11px', borderRadius: '3px', display: 'inline-block' }}
+                            />
+                          </button>
+                        ) : showManaged ? (
+                          <button
+                            type="button"
+                            className="btn-fluent btn-install btn-installed btn-compact"
+                            data-badge="managed"
+                            onClick={() => {
+                              onClose();
+                              onOpenAppDetail(repo.id);
+                            }}
+                            title={t('developer_profile.ready_tooltip')}
+                          >
+                            {t('developer_profile.installed')}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn-fluent btn-primary btn-compact"
+                            disabled={isInstalling}
+                            onClick={() => handleInstall(repo.id)}
+                          >
+                            {isInstalling ? t('developer_profile.installing') : t('developer_profile.install')}
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="btn-fluent btn-secondary btn-compact"
+                          onClick={() => {
+                            onClose();
+                            onOpenAppDetail(repo.id);
+                          }}
+                        >
+                          {t('developer_profile.view')}
+                        </button>
+                        <a
+                          href={repo.html_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn-fluent btn-secondary btn-compact btn-icon-only"
+                          title={t('developer_profile.open_github')}
+                          aria-label={t('developer_profile.open_github')}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            void tauriApi.openUrl(repo.html_url);
+                          }}
+                        >
+                          <ExternalLink size={13} />
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
-    </div>
+    </ModalShell>
   );
 };
