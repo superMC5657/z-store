@@ -506,7 +506,12 @@ impl ScannedView {
 
 impl<'a> IndexedEntry<'a> {
     /// `primary_owners`：全库名称/repo 紧凑键 → 所属条目下标（判定别名是否为其他收录项的名字）。
-    fn new(cat: &'a CatalogItem, idx: usize, primary_owners: &HashMap<String, Vec<usize>>) -> Self {
+    fn new(
+        cat: &'a CatalogItem,
+        idx: usize,
+        primary_owners: &HashMap<String, Vec<usize>>,
+        platform: &str,
+    ) -> Self {
         let name_key = token_key(&normalize_app_title(&cat.name));
         let repo_key = token_key(&cat.repo);
         let mut exact_keys = vec![name_key.clone(), repo_key.clone()];
@@ -548,7 +553,7 @@ impl<'a> IndexedEntry<'a> {
             .collect();
 
         let mut curated_exe_stems: Vec<String> = cat
-            .get_native_identifiers()
+            .get_identifiers_for_platform(platform)
             .into_iter()
             .filter(|id| !is_installer_asset_identifier(id, &cat.repo, &cat.name))
             .map(|id| exe_stem(&id))
@@ -846,8 +851,16 @@ fn push_bucket(map: &mut HashMap<String, Vec<usize>>, key: String, idx: usize) {
 }
 
 impl<'a> CatalogMatchIndex<'a> {
-    /// 预归一化条目并建立四路倒排桶。
+    /// 预归一化条目并建立四路倒排桶（使用当前编译目标平台的主程序标识）。
     pub fn build(catalog: impl IntoIterator<Item = &'a CatalogItem>) -> Self {
+        Self::build_for_platform(catalog, CatalogItem::current_platform_key())
+    }
+
+    /// 按指定平台键（`windows` / `linux` / `macos`）的原生主程序标识构建倒排索引。
+    pub fn build_for_platform(
+        catalog: impl IntoIterator<Item = &'a CatalogItem>,
+        platform: &str,
+    ) -> Self {
         let items: Vec<&CatalogItem> = catalog.into_iter().collect();
         let mut primary_owners: HashMap<String, Vec<usize>> = HashMap::new();
         for (idx, c) in items.iter().enumerate() {
@@ -862,7 +875,7 @@ impl<'a> CatalogMatchIndex<'a> {
         let mut entries = Vec::with_capacity(items.len());
 
         for (idx, cat) in items.iter().enumerate() {
-            let entry = IndexedEntry::new(cat, idx, &primary_owners);
+            let entry = IndexedEntry::new(cat, idx, &primary_owners, platform);
 
             for seq in &entry.name_token_seqs {
                 for t in seq {

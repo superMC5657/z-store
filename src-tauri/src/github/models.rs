@@ -69,17 +69,17 @@ impl CatalogItem {
             .unwrap_or_default()
     }
 
-    /// 获取当前平台原生标识符列表（Windows 行为与 `get_identifiers("windows")` 完全一致；
-    /// Linux 下优先取 `linux`，为空时把 `windows` 的 `.exe` 退化为裸名，避免 deb 应用嗅探恒空）。
-    pub fn get_native_identifiers(&self) -> Vec<String> {
-        let key = Self::current_platform_key();
-        let native = self.get_identifiers(key);
+    /// 获取指定平台原生标识符列表；`linux` 下为空时把 `windows` 的 `.exe` 退化为裸名，
+    /// 避免 deb 应用嗅探恒空。
+    pub fn get_identifiers_for_platform(&self, platform: &str) -> Vec<String> {
+        let key = platform.trim().to_ascii_lowercase();
+        let native = self.get_identifiers(&key);
         if !native.is_empty() {
             return native;
         }
         // 非 Windows 回退：windows 标识去扩展名后仍可用于 PATH/desktop 匹配。
         // Windows 自身直接返回空（exe_candidates(repo) 兜底语义）。
-        if cfg!(target_os = "linux") {
+        if key == "linux" {
             let win = self.get_identifiers("windows");
             if !win.is_empty() {
                 return win
@@ -97,6 +97,12 @@ impl CatalogItem {
             }
         }
         Vec::new()
+    }
+
+    /// 获取当前平台原生标识符列表（Windows 行为与 `get_identifiers("windows")` 完全一致；
+    /// Linux 下优先取 `linux`，为空时把 `windows` 的 `.exe` 退化为裸名，避免 deb 应用嗅探恒空）。
+    pub fn get_native_identifiers(&self) -> Vec<String> {
+        self.get_identifiers_for_platform(Self::current_platform_key())
     }
 
     pub fn to_summary(&self) -> AppSummary {

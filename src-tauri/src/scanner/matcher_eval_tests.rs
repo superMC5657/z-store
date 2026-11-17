@@ -32,7 +32,8 @@ fn assign_ids(
     scanned: &[ScannedRawApp],
     catalog: &[CatalogItem],
 ) -> Vec<(String, String, f32, String)> {
-    let index = CatalogMatchIndex::build(catalog);
+    // 测试样本均为 Windows 注册表/安装路径形态，跨平台 CI（Linux/macOS）需固定按 windows 标识建索引。
+    let index = CatalogMatchIndex::build_for_platform(catalog, "windows");
     index
         .assign(scanned)
         .into_iter()
@@ -446,4 +447,57 @@ fn variant_guard_requires_whole_token_evidence() {
             });
         assert_eq!(hit.1, *expected_id, "{hit:?}");
     }
+}
+
+#[test]
+fn linux_platform_index_recalls_linux_identifiers_and_windows_fallback() {
+    use super::MatchReason;
+    let catalog = real_catalog();
+    let index = CatalogMatchIndex::build_for_platform(&catalog, "linux");
+    let scanned = vec![
+        app(
+            "Clash Verge Rev",
+            "2.5.10",
+            None,
+            Some("/usr/bin/clash-verge"),
+            None,
+        ),
+        app(
+            "Notepad++",
+            "8.6.9",
+            None,
+            Some("/opt/notepad++/notepad++"),
+            None,
+        ),
+    ];
+    let matches: Vec<(String, String, Vec<MatchReason>)> = index
+        .assign(&scanned)
+        .into_iter()
+        .map(|a| {
+            (
+                scanned[a.scanned_index].display_name.clone(),
+                a.catalog.id.clone(),
+                a.reasons().to_vec(),
+            )
+        })
+        .collect();
+    let clash = matches
+        .iter()
+        .find(|(name, ..)| name == "Clash Verge Rev")
+        .expect("Clash Verge Rev matched");
+    assert_eq!(clash.1, "clash-verge-rev/clash-verge-rev");
+    assert!(
+        clash.2.contains(&MatchReason::Executable),
+        "expected linux native identifier match: {clash:?}"
+    );
+
+    let npp = matches
+        .iter()
+        .find(|(name, ..)| name == "Notepad++")
+        .expect("Notepad++ matched");
+    assert_eq!(npp.1, "notepad-plus-plus/notepad-plus-plus");
+    assert!(
+        npp.2.contains(&MatchReason::Executable),
+        "expected linux fallback from windows .exe identifier: {npp:?}"
+    );
 }
