@@ -198,7 +198,7 @@ pub(crate) async fn run_sync_catalog(
 
             if let Some((items, candidate)) = local_fallback {
                 let count = items.len();
-                let graduated = apply_manifest_to_db(&state, &items, None)?;
+                let graduated = apply_manifest_to_db(state, &items, None)?;
                 let mut ev =
                     crate::z_log::WideEvent::new("catalog", "sync fallback").with_started(start);
                 ev.field("source", "local")
@@ -237,7 +237,7 @@ pub(crate) async fn run_sync_catalog(
         let sync_ts = crate::now_secs();
         let etag_entry = new_etag.as_deref().map(|et| (url.as_str(), et, sync_ts));
         // ETag 与目录写入同一事务提交：只有 catalog_apps 成功落库后才保存新 ETag 并刷新内存索引。
-        let graduated = apply_manifest_to_db(&state, &items, etag_entry)?;
+        let graduated = apply_manifest_to_db(state, &items, etag_entry)?;
         if let Ok(db) = state.db() {
             record_catalog_sync_cycle(&db, &url, &cycle_day);
         }

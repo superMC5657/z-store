@@ -158,7 +158,8 @@ pub fn open_desktop_path(path: &std::path::Path, select_file: bool) -> Result<bo
     {
         if select_file {
             std::process::Command::new("open")
-                .args(["-R", &path.to_string_lossy().to_string()])
+                .arg("-R")
+                .arg(path)
                 .spawn()
                 .map_err(|e| format!("无法在访达中定位文件: {}", e))?;
         } else {

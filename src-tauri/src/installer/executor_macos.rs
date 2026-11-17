@@ -108,6 +108,7 @@ impl DmgMountGuard {
             #[cfg(test)]
             if let Some(cb) = self.on_detach.take() {
                 cb(argv);
+                #[cfg(target_os = "macos")]
                 return;
             }
             #[cfg(target_os = "macos")]
@@ -126,6 +127,7 @@ impl Drop for DmgMountGuard {
         #[cfg(test)]
         if let Some(cb) = self.on_detach.take() {
             cb(argv);
+            #[cfg(target_os = "macos")]
             return;
         }
         #[cfg(target_os = "macos")]
