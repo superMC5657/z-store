@@ -8,8 +8,8 @@ pub mod models;
 pub use models::{
     LaunchpadDiscussionAuthor, LaunchpadDiscussionComment, LaunchpadDiscussionDetail,
     LaunchpadEntry, LaunchpadFeedResponse, LaunchpadMaker, LaunchpadPulseItem,
-    LaunchpadUpvoteResult, LaunchpadVoteMode, RawLaunchpadItem, RawLaunchpadManifest,
-    RawLaunchpadPin,
+    LaunchpadReactionGroup, LaunchpadUpvoteResult, LaunchpadVoteMode, RawLaunchpadItem,
+    RawLaunchpadManifest, RawLaunchpadPin,
 };
 
 use models::non_empty;

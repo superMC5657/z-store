@@ -11,9 +11,9 @@ import { FlyoutMenu } from '../components/FlyoutMenu';
 import { FilterEmptyState, ViewShell } from './ViewShell';
 import { LaunchpadCard } from './LaunchpadView/LaunchpadCard';
 import {
-  LaunchpadDiscussionDrawer,
+  LaunchpadDiscussionModal,
   type LaunchpadDiscussionSyncedPayload,
-} from './LaunchpadView/LaunchpadDiscussionDrawer';
+} from './LaunchpadView/LaunchpadDiscussionModal';
 import { sortLaunchpadItems } from './LaunchpadView/sortLaunchpad';
 import {
   matchPlatformSetWithLoading,
@@ -320,9 +320,15 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
     else if (entry.discussion_url) void tauriApi.openUrl(entry.discussion_url);
   };
 
+  // 卡片主点击：有绑定讨论时打开讨论弹窗（详情从讨论内跳转），否则直接打开应用详情。
+  const handleOpenCard = (entry: LaunchpadEntry) => {
+    if (hasDiscussion(entry)) setDiscussionAppId(entry.summary.id.toLowerCase());
+    else onOpenDetail(entry.summary.id);
+  };
+
   const handleUpvote = async (entry: LaunchpadEntry) => {
     const id = entry.summary.id;
-    // 未登录或无讨论绑定：打开讨论抽屉（含登录引导），不发写请求。
+    // 未登录或无讨论绑定：打开讨论弹窗（含登录引导），不发写请求。
     if (!loggedIn || !hasDiscussion(entry)) {
       handleOpenDiscussion(entry);
       return;
@@ -381,6 +387,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
         upvoted={Boolean(entry.viewer_has_upvoted)}
         isMovingIn={isMovingIn(id)}
         isCustomExisting={hasIdAliasMatch(entry.summary, customIds)}
+        onOpen={handleOpenCard}
         onOpenDetail={onOpenDetail}
         onQuickInstall={onQuickInstall}
         onOpenMaker={handleOpenMaker}
@@ -534,13 +541,16 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
       )}
 
       {discussionEntry && (
-        <LaunchpadDiscussionDrawer
+        <LaunchpadDiscussionModal
           entry={discussionEntry}
           oauthUser={oauthUser}
           initialUpvoted={Boolean(discussionEntry.viewer_has_upvoted)}
+          isStarring={starring.has(discussionEntry.summary.id)}
           onClose={closeDiscussion}
+          onOpenDetail={onOpenDetail}
           onOpenDeveloper={onOpenDeveloper}
           onOpenAccount={onOpenAccount}
+          onToggleStar={handleToggleStar}
           onUpvoteChange={applyUpvote}
           onCommentAdded={handleCommentAdded}
           onDiscussionSynced={handleDiscussionSynced}

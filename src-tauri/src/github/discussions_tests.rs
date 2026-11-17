@@ -80,6 +80,21 @@ fn graphql_discussion_with_nested_replies_parses() {
     assert_eq!(d.id, "D_1");
     assert_eq!(d.category_name, "Launches");
     assert_eq!((d.upvote_count, d.viewer_has_upvoted), (12, true));
+    assert_eq!(
+        d.reaction_groups,
+        vec![
+            LaunchpadReactionGroup {
+                content: "HEART".to_string(),
+                count: 99,
+                viewer_has_reacted: true,
+            },
+            LaunchpadReactionGroup {
+                content: "THUMBS_UP".to_string(),
+                count: 5,
+                viewer_has_reacted: false,
+            },
+        ]
+    );
     assert!(d.viewer_can_comment && !d.auth_required_for_write);
     assert_eq!(d.comments_total, 31);
     assert!(d.has_next_page);
@@ -228,6 +243,39 @@ async fn preflight_without_subject_uses_reaction_when_upvote_unavailable() {
     assert!(!r.viewer_has_upvoted);
 }
 
+#[test]
+fn comment_node_ids_are_validated() {
+    assert_eq!(validate_comment_node_id("  DC_kwDOAbc-1_x ").unwrap(), "DC_kwDOAbc-1_x");
+    for bad in ["", "DC_", "D_kwDOAbc", "DC_a b", "DC_x\"}", &format!("DC_{}", "a".repeat(200))] {
+        assert!(validate_comment_node_id(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[tokio::test]
+async fn comment_upvote_uses_native_upvote_without_reaction_fallback() {
+    let server = serve(|req| {
+        if req.contains("removeUpvote") {
+            Reply::ok(
+                r#"{"data":{"removeUpvote":{"subject":{"id":"DC_1","upvoteCount":2,"viewerHasUpvoted":false}}}}"#,
+            )
+        } else {
+            Reply::ok(r#"{"errors":[{"type":"FORBIDDEN","message":"Upvoting disabled"}]}"#)
+        }
+    })
+    .await;
+    let http = client();
+    let ctx = DiscussionClient { client: &http, api_base: &server.base, token: "tok" };
+    let r = toggle_comment_upvote(ctx, "DC_1", true).await.unwrap();
+    assert_eq!(r.mode, LaunchpadVoteMode::Upvote);
+    assert_eq!((r.upvote_count, r.viewer_has_upvoted), (2, false));
+
+    let err = toggle_comment_upvote(ctx, "DC_1", false).await.unwrap_err();
+    assert!(!err.is_empty());
+    assert_eq!(server.hits(), 2, "FORBIDDEN must not fall back to addReaction");
+    assert!(toggle_comment_upvote(ctx, "D_1", false).await.is_err());
+    assert_eq!(server.hits(), 2, "invalid id must not hit the network");
+}
+
 #[tokio::test]
 async fn add_comment_on_locked_discussion_is_refused() {
     let server = serve(|_| {
@@ -354,4 +402,50 @@ async fn anonymous_failure_reuses_cached_payload_as_stale() {
     assert_eq!(d.title, "Cached");
     assert!(d.is_stale);
     assert!(d.auth_required_for_write);
+}
+
+#[tokio::test]
+async fn toggle_reaction_validates_subject_and_content_and_parses_groups() {
+    let server = serve(|req| {
+        if req.contains("addReaction") {
+            Reply::ok(
+                r#"{"data":{"addReaction":{"subject":{"id":"DC_2","reactionGroups":[
+                  {"content":"THUMBS_UP","viewerHasReacted":true,"reactors":{"totalCount":1}},
+                  {"content":"HEART","viewerHasReacted":false,"reactors":{"totalCount":0}}
+                ]}}}}"#,
+            )
+        } else {
+            Reply::ok(
+                r#"{"data":{"removeReaction":{"subject":{"id":"D_1","reactionGroups":[
+                  {"content":"LAUGH","viewerHasReacted":false,"reactors":{"totalCount":2}}
+                ]}}}}"#,
+            )
+        }
+    })
+    .await;
+    let http = client();
+    let ctx = DiscussionClient { client: &http, api_base: &server.base, token: "tok" };
+
+    let added = toggle_reaction(ctx, "DC_2", "thumbs_up", false).await.unwrap();
+    assert_eq!(
+        added,
+        vec![LaunchpadReactionGroup {
+            content: "THUMBS_UP".to_string(),
+            count: 1,
+            viewer_has_reacted: true,
+        }]
+    );
+    let removed = toggle_reaction(ctx, "D_1", "LAUGH", true).await.unwrap();
+    assert_eq!(
+        removed,
+        vec![LaunchpadReactionGroup {
+            content: "LAUGH".to_string(),
+            count: 2,
+            viewer_has_reacted: false,
+        }]
+    );
+
+    assert!(toggle_reaction(ctx, "BAD_1", "THUMBS_UP", false).await.is_err());
+    assert!(toggle_reaction(ctx, "DC_2", "INVALID_EMOJI", false).await.is_err());
+    assert_eq!(server.hits(), 2);
 }

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import '../../i18n';
 import { ArrowBigUp, ExternalLink, Inbox, MessageSquare } from 'lucide-react';
 import type { AppSummary, LaunchpadEntry } from '../../types';
@@ -24,6 +25,8 @@ export interface LaunchpadCardProps {
   upvoted?: boolean;
   isMovingIn?: boolean;
   isCustomExisting?: boolean;
+  /** 卡片主点击（讨论优先，无讨论回落详情）。 */
+  onOpen: (entry: LaunchpadEntry) => void;
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
   onOpenMaker: (entry: LaunchpadEntry) => void;
@@ -43,6 +46,54 @@ export function launchedDaysAgo(launchedAt: string, nowMs: number = Date.now()):
   return Math.max(0, Math.floor((nowMs - t) / DAY_MS));
 }
 
+export function formatLaunchedLabel(launchedAt: string, t: TFunction): string {
+  const days = launchedDaysAgo(launchedAt);
+  if (days === null) return '';
+  return days === 0 ? t('launchpad.launched_today') : t('launchpad.launched_days_ago', { count: days });
+}
+
+export interface LaunchpadStarButtonProps {
+  starred: boolean;
+  stars: number;
+  disabled?: boolean;
+  label: string;
+  testId?: string;
+  onClick: () => void;
+}
+
+export const LaunchpadStarButton: React.FC<LaunchpadStarButtonProps> = ({
+  starred,
+  stars,
+  disabled = false,
+  label,
+  testId,
+  onClick,
+}) => (
+  <button
+    type="button"
+    className={`btn-fluent btn-secondary btn-compact launchpad-action${starred ? ' starred' : ''}`}
+    data-testid={testId}
+    aria-pressed={starred}
+    disabled={disabled}
+    title={label}
+    aria-label={label}
+    onClick={onClick}
+  >
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill={starred ? '#eab308' : 'none'}
+      stroke={starred ? '#eab308' : 'currentColor'}
+      strokeWidth="1.5"
+      aria-hidden="true"
+    >
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+    <span>{formatStars(stars)}</span>
+  </button>
+);
+
 /** 当前界面语言下的作者自荐语（英文界面优先非空 `maker_note_en`）。 */
 export function makerNoteFor(entry: LaunchpadEntry, language: string | undefined): string {
   const en = entry.maker_note_en?.trim();
@@ -51,6 +102,16 @@ export function makerNoteFor(entry: LaunchpadEntry, language: string | undefined
 }
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
+const normalizeText = (s: string) => s.replace(/\s+/g, '').replace(/[.。…!！]+$/u, '').toLowerCase();
+
+/** 描述与自荐语同义（相同或互为包含）时只展示自荐语，避免卡片重复两遍同一句话。 */
+export function isRedundantDescription(desc: string, note: string): boolean {
+  const d = normalizeText(desc);
+  const n = normalizeText(note);
+  if (!d || !n) return false;
+  return d === n || n.includes(d) || d.includes(n);
+}
 
 export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
   entry,
@@ -65,6 +126,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
   upvoted = false,
   isMovingIn = false,
   isCustomExisting = false,
+  onOpen,
   onOpenDetail,
   onQuickInstall,
   onOpenMaker,
@@ -81,13 +143,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
   const desc = getAppDescription(app, i18n.language);
   const displayDesc =
     typeof desc === 'string' && desc.trim() && !isPlaceholderDescription(desc) ? desc : '';
-  const days = launchedDaysAgo(entry.launched_at);
-  const launchedText =
-    days === null
-      ? ''
-      : days === 0
-        ? t('launchpad.launched_today')
-        : t('launchpad.launched_days_ago', { count: days });
+  const launchedText = formatLaunchedLabel(entry.launched_at, t);
   const badgeVariant = resolveVerifiedBadgeVariant(app as { is_verified?: unknown; source?: unknown; status?: unknown });
   const hasPlatforms = app.platforms.length > 0;
   const showUnknown = isInstalled && isManaged === null;
@@ -118,11 +174,14 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
       className={classes.join(' ')}
       data-testid={`launchpad-card-${app.id}`}
       data-launchpad-id={app.id.toLowerCase()}
-      onClick={() => onOpenDetail(app.id)}
+      onClick={() => onOpen(entry)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) onOpenDetail(app.id);
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onOpen(entry);
+        }
       }}
     >
       <div className="app-card-header">
@@ -160,7 +219,9 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
           {note}
         </blockquote>
       )}
-      {displayDesc && <p className="app-desc" title={displayDesc}>{displayDesc}</p>}
+      {displayDesc && !isRedundantDescription(displayDesc, note) && (
+        <p className="app-desc" title={displayDesc}>{displayDesc}</p>
+      )}
 
       <div className="app-card-footer launchpad-card-footer">
         <div className="app-tags">
@@ -209,7 +270,12 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
             aria-label={upvoteLabel}
             onClick={() => onUpvote(entry)}
           >
-            <ArrowBigUp size={13} strokeWidth={1.5} aria-hidden="true" />
+            <ArrowBigUp
+              size={13}
+              strokeWidth={1.5}
+              fill={upvoted ? 'currentColor' : 'none'}
+              aria-hidden="true"
+            />
             <span>{entry.discussion_upvotes}</span>
           </button>
           <button
@@ -224,29 +290,14 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
             <span>{entry.discussion_comments_count}</span>
           </button>
           {isGithub ? (
-            <button
-              type="button"
-              className={`btn-fluent btn-secondary btn-compact launchpad-action${entry.viewer_has_starred ? ' starred' : ''}`}
-              data-testid={`launchpad-star-${app.id}`}
-              aria-pressed={entry.viewer_has_starred}
+            <LaunchpadStarButton
+              starred={entry.viewer_has_starred}
+              stars={app.stars}
               disabled={isStarring}
-              title={starLabel}
-              aria-label={starLabel}
+              label={starLabel}
+              testId={`launchpad-star-${app.id}`}
               onClick={() => onToggleStar(entry)}
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill={entry.viewer_has_starred ? '#eab308' : 'none'}
-                stroke={entry.viewer_has_starred ? '#eab308' : 'currentColor'}
-                strokeWidth="1.5"
-                aria-hidden="true"
-              >
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-              </svg>
-              <span>{formatStars(app.stars)}</span>
-            </button>
+            />
           ) : (
             <>
               {app.stars > 0 && (

@@ -62,7 +62,9 @@ const MIGRATED_FILES = [
   '../app/InstallConfirmDialog.tsx',
   '../views/LaunchpadView.tsx',
   '../views/LaunchpadView/LaunchpadCard.tsx',
-  '../views/LaunchpadView/LaunchpadDiscussionDrawer.tsx',
+  '../views/LaunchpadView/LaunchpadDiscussionModal.tsx',
+  '../views/LaunchpadView/DiscussionComposer.tsx',
+  '../views/LaunchpadView/DiscussionMarkdown.tsx',
 ];
 
 interface Violation {

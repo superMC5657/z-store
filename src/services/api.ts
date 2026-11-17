@@ -107,6 +107,8 @@ export const CMD = {
   getLaunchpadDiscussion: 'get_launchpad_discussion',
   addLaunchpadComment: 'add_launchpad_comment',
   toggleLaunchpadUpvote: 'toggle_launchpad_upvote',
+  toggleLaunchpadCommentUpvote: 'toggle_launchpad_comment_upvote',
+  toggleLaunchpadReaction: 'toggle_launchpad_reaction',
   getAffinityProfileSummary: 'get_affinity_profile_summary',
   getFeaturedPage: 'get_featured_page',
   saveInterestSeeds: 'save_interest_seeds',
@@ -301,6 +303,8 @@ export const tauriApi = {
   getLaunchpadDiscussion: launchpadApi.getLaunchpadDiscussion,
   addLaunchpadComment: launchpadApi.addLaunchpadComment,
   toggleLaunchpadUpvote: launchpadApi.toggleLaunchpadUpvote,
+  toggleLaunchpadCommentUpvote: launchpadApi.toggleLaunchpadCommentUpvote,
+  toggleLaunchpadReaction: launchpadApi.toggleLaunchpadReaction,
 
   // Diagnostics / Logs
   getLogDir: settingsApi.getLogDir,

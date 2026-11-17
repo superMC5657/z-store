@@ -244,6 +244,7 @@ describe('LaunchpadView', () => {
     api.toggleLaunchpadUpvote.mockResolvedValue({ subject_id: 'D_1', upvote_count: 4, viewer_has_upvoted: true, mode: 'upvote' });
     renderView();
     const btn = await screen.findByTestId('launchpad-upvote-acme/hyper');
+    expect(btn.querySelector('svg')?.getAttribute('fill')).toBe('none');
     await act(async () => {
       fireEvent.click(btn);
     });
@@ -255,9 +256,51 @@ describe('LaunchpadView', () => {
     });
     await waitFor(() => expect(screen.getByTestId('launchpad-upvote-acme/hyper').textContent).toBe('4'));
     expect(screen.getByTestId('launchpad-upvote-acme/hyper').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('launchpad-upvote-acme/hyper').querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
   });
 
-  it('打开讨论抽屉拿到最新 discussions 数据后同步更新卡片顶帖数、已顶态与评论数', async () => {
+  it('点击卡片默认打开讨论弹窗，详情从讨论内跳转；无讨论绑定的卡片直接打开详情', async () => {
+    api.getLaunchpadFeed.mockResolvedValue(
+      feed([], [entry('acme/hyper'), entry('solo/tool', { discussion_number: 0, discussion_repo: '' })]),
+    );
+    api.getLaunchpadDiscussion.mockResolvedValue({
+      id: 'D_1',
+      number: 1,
+      title: 'hyper',
+      body: 'post body',
+      url: 'https://github.com/superMC5657/z-store-launchpad/discussions/1',
+      created_at: '2027-01-10T00:00:00Z',
+      locked: false,
+      closed: false,
+      author: { login: 'zstore-bot', avatar_url: '', html_url: '' },
+      category_name: 'Launches',
+      upvote_count: 0,
+      viewer_has_upvoted: false,
+      viewer_can_upvote: true,
+      viewer_can_comment: true,
+      auth_required_for_write: false,
+      comments_total: 0,
+      has_next_page: false,
+      end_cursor: null,
+      comments: [],
+      is_stale: false,
+    });
+    const { props } = renderView();
+    fireEvent.click(await screen.findByTestId('launchpad-card-acme/hyper'));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.className).toContain('launchpad-discussion-modal');
+    expect(props.onOpenDetail).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByTestId('launchpad-open-detail'));
+    expect(props.onOpenDetail).toHaveBeenCalledWith('acme/hyper');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.click(screen.getByTestId('launchpad-card-solo/tool'));
+    expect(props.onOpenDetail).toHaveBeenLastCalledWith('solo/tool');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('打开讨论弹窗拿到最新 discussions 数据后同步更新卡片顶帖数、已顶态与评论数', async () => {
     api.getLaunchpadFeed.mockResolvedValue(
       feed([], [entry('acme/hyper', { discussion_upvotes: 0, discussion_comments_count: 0 })]),
     );
@@ -290,7 +333,7 @@ describe('LaunchpadView', () => {
 
     fireEvent.click(within(card).getByTestId('launchpad-discussion-acme/hyper'));
     await screen.findByRole('dialog');
-    await waitFor(() => expect(screen.getByTestId('launchpad-drawer-upvote').textContent).toBe('7'));
+    await waitFor(() => expect(screen.getByTestId('launchpad-discussion-upvote').textContent).toBe('7'));
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(screen.getByTestId('launchpad-upvote-acme/hyper').textContent).toBe('7');
@@ -545,8 +588,8 @@ describe('LaunchpadView', () => {
     );
 
     expect(await screen.findByTestId('launchpad-comment-input')).toBeTruthy();
-    expect(screen.getByTestId('launchpad-drawer-upvote').textContent).toBe('2');
-    expect(screen.getByTestId('launchpad-drawer-upvote').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('launchpad-discussion-upvote').textContent).toBe('2');
+    expect(screen.getByTestId('launchpad-discussion-upvote').getAttribute('aria-pressed')).toBe('true');
   });
 });
 

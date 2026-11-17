@@ -237,6 +237,14 @@ pub struct LaunchpadDiscussionAuthor {
     pub html_url: String,
 }
 
+/// GitHub Discussions 表情回应分组（`content` 为 GitHub `ReactionContent` 枚举值）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchpadReactionGroup {
+    pub content: String,
+    pub count: u64,
+    pub viewer_has_reacted: bool,
+}
+
 /// 讨论评论（一级评论含二级 `replies`，二级回复的 `replies` 恒为空）。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct LaunchpadDiscussionComment {
@@ -247,6 +255,8 @@ pub struct LaunchpadDiscussionComment {
     pub author: Option<LaunchpadDiscussionAuthor>,
     pub upvote_count: u64,
     pub viewer_has_upvoted: bool,
+    #[serde(default)]
+    pub reaction_groups: Vec<LaunchpadReactionGroup>,
     pub replies: Vec<LaunchpadDiscussionComment>,
 }
 
@@ -271,6 +281,8 @@ pub struct LaunchpadDiscussionDetail {
     pub comments_total: u64,
     pub has_next_page: bool,
     pub end_cursor: Option<String>,
+    #[serde(default)]
+    pub reaction_groups: Vec<LaunchpadReactionGroup>,
     pub comments: Vec<LaunchpadDiscussionComment>,
     pub is_stale: bool,
 }

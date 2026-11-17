@@ -5,6 +5,8 @@ import type {
   LaunchpadEntry,
   LaunchpadFeedResponse,
   LaunchpadPulseItem,
+  LaunchpadReactionContent,
+  LaunchpadReactionGroup,
   LaunchpadUpvoteResult,
 } from '../../types';
 import { getStarSet } from '../demoState';
@@ -147,9 +149,10 @@ function toEntry(seed: DemoSeed, pinned: boolean, order: number): LaunchpadEntry
   };
 }
 
-// 内存态：顶帖与评论交互在会话内可见。
+// 内存态：顶帖、表情回应与评论交互在会话内可见。
 const upvoteState = new Map<number, { count: number; mine: boolean }>();
 const commentState = new Map<number, LaunchpadDiscussionComment[]>();
+const postReactionState = new Map<number, LaunchpadReactionGroup[]>();
 let commentSeq = 0;
 
 function allSeeds(): DemoSeed[] {
@@ -179,6 +182,7 @@ function demoComments(seed: DemoSeed): LaunchpadDiscussionComment[] {
       author: author('early-adopter'),
       upvote_count: 3,
       viewer_has_upvoted: false,
+      reaction_groups: [{ content: 'THUMBS_UP', count: 1, viewer_has_reacted: false }],
       replies: [
         {
           id: `DC_${seed.number}_2`,
@@ -188,14 +192,35 @@ function demoComments(seed: DemoSeed): LaunchpadDiscussionComment[] {
           author: author(owner),
           upvote_count: 1,
           viewer_has_upvoted: false,
+          reaction_groups: [{ content: 'HEART', count: 1, viewer_has_reacted: false }],
           replies: [],
         },
       ],
+    },
+    {
+      id: `DC_${seed.number}_3`,
+      body: [
+        '几点建议 :rocket:',
+        '',
+        '- 支持 `Ctrl+F` 快速搜索',
+        '- 暗色主题再柔和一点',
+        '',
+        '> 已经设为默认工具了 :+1:',
+      ].join('\n'),
+      created_at: isoDaysAgo(0),
+      author_association: 'NONE',
+      author: author('pixel-fan'),
+      upvote_count: 1,
+      viewer_has_upvoted: false,
+      replies: [],
     },
   ];
   commentState.set(seed.number, initial);
   return initial;
 }
+
+/** 每条讨论预置的演示评论数（含二级回复），超出部分计入评论数。 */
+const DEMO_SEED_COMMENTS = 3;
 
 function countCommentsWithReplies(list: LaunchpadDiscussionComment[]): number {
   return list.reduce((sum, c) => sum + 1 + c.replies.length, 0);
@@ -207,7 +232,7 @@ function withLiveState(entry: LaunchpadEntry): LaunchpadEntry {
   const starred = getStarSet().has(entry.summary.id.toLowerCase());
   const votes = upvotes(seed);
   const existing = commentState.get(seed.number);
-  const extraComments = existing ? Math.max(0, countCommentsWithReplies(existing) - 2) : 0;
+  const extraComments = existing ? Math.max(0, countCommentsWithReplies(existing) - DEMO_SEED_COMMENTS) : 0;
   return {
     ...entry,
     discussion_upvotes: votes.count,
@@ -277,9 +302,10 @@ export function handleGetLaunchpadDiscussion(a: InvokeArgs): LaunchpadDiscussion
     viewer_can_upvote: true,
     viewer_can_comment: true,
     auth_required_for_write: false,
-    comments_total: seed.comments + Math.max(0, countCommentsWithReplies(comments) - 2),
+    comments_total: seed.comments + Math.max(0, countCommentsWithReplies(comments) - DEMO_SEED_COMMENTS),
     has_next_page: false,
     end_cursor: null,
+    reaction_groups: postReactionState.get(seed.number) ?? [],
     comments,
     is_stale: false,
   };
@@ -328,4 +354,76 @@ export function handleToggleLaunchpadUpvote(a: InvokeArgs): LaunchpadUpvoteResul
     viewer_has_upvoted: next.mine,
     mode: 'upvote',
   };
+}
+
+export function handleToggleLaunchpadCommentUpvote(a: InvokeArgs): LaunchpadUpvoteResult {
+  warnUnknownArgs(['discussionRepo', 'discussionNumber', 'commentId', 'currentlyUpvoted'], a, 'toggle_launchpad_comment_upvote');
+  const seed = seedByNumber(argNum(a, 'discussionNumber') ?? 0);
+  if (!seed) throw new Error('讨论不存在');
+  const id = argStr(a, 'commentId');
+  const target = demoComments(seed).find((c) => c.id === id);
+  if (!target) throw new Error('无效的评论 ID');
+  const want = a.currentlyUpvoted !== true;
+  if (want !== target.viewer_has_upvoted) {
+    target.upvote_count = Math.max(0, target.upvote_count + (want ? 1 : -1));
+    target.viewer_has_upvoted = want;
+  }
+  return { subject_id: id, upvote_count: target.upvote_count, viewer_has_upvoted: target.viewer_has_upvoted, mode: 'upvote' };
+}
+
+function toggleReactionList(
+  groups: LaunchpadReactionGroup[] | undefined,
+  content: LaunchpadReactionContent,
+  currentlyReacted: boolean,
+): LaunchpadReactionGroup[] {
+  const list = [...(groups ?? [])];
+  const idx = list.findIndex((g) => g.content === content);
+  if (currentlyReacted) {
+    if (idx < 0) return list;
+    const nextCount = Math.max(0, list[idx].count - 1);
+    if (nextCount === 0) list.splice(idx, 1);
+    else list[idx] = { ...list[idx], count: nextCount, viewer_has_reacted: false };
+    return list;
+  }
+  if (idx >= 0) {
+    list[idx] = {
+      ...list[idx],
+      count: list[idx].viewer_has_reacted ? list[idx].count : list[idx].count + 1,
+      viewer_has_reacted: true,
+    };
+  } else {
+    list.push({ content, count: 1, viewer_has_reacted: true });
+  }
+  return list;
+}
+
+function findCommentDeep(list: LaunchpadDiscussionComment[], id: string): LaunchpadDiscussionComment | undefined {
+  for (const c of list) {
+    if (c.id === id) return c;
+    const nested = findCommentDeep(c.replies, id);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+export function handleToggleLaunchpadReaction(a: InvokeArgs): LaunchpadReactionGroup[] {
+  warnUnknownArgs(
+    ['discussionRepo', 'discussionNumber', 'subjectId', 'content', 'currentlyReacted'],
+    a,
+    'toggle_launchpad_reaction',
+  );
+  const seed = seedByNumber(argNum(a, 'discussionNumber') ?? 0);
+  if (!seed) throw new Error('讨论不存在');
+  const subjectId = argStr(a, 'subjectId');
+  const content = argStr(a, 'content').toUpperCase() as LaunchpadReactionContent;
+  const currentlyReacted = a.currentlyReacted === true;
+  if (subjectId === `D_demo_${seed.number}`) {
+    const next = toggleReactionList(postReactionState.get(seed.number), content, currentlyReacted);
+    postReactionState.set(seed.number, next);
+    return next;
+  }
+  const target = findCommentDeep(demoComments(seed), subjectId);
+  if (!target) throw new Error('无效的讨论或评论 ID');
+  target.reaction_groups = toggleReactionList(target.reaction_groups, content, currentlyReacted);
+  return target.reaction_groups;
 }

@@ -6,7 +6,7 @@
 use crate::db::Database;
 use crate::launchpad::{
     LaunchpadDiscussionAuthor, LaunchpadDiscussionComment, LaunchpadDiscussionDetail,
-    LaunchpadUpvoteResult, LaunchpadVoteMode,
+    LaunchpadReactionGroup, LaunchpadUpvoteResult, LaunchpadVoteMode,
 };
 use serde_json::{json, Value};
 use std::sync::Mutex;
@@ -48,12 +48,14 @@ query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
           id body createdAt authorAssociation
           author { login avatarUrl url }
           upvoteCount viewerHasUpvoted
+          reactionGroups { content viewerHasReacted reactors { totalCount } }
           replies(first: 20) {
             totalCount
             nodes {
               id body createdAt authorAssociation
               author { login avatarUrl url }
               upvoteCount viewerHasUpvoted
+              reactionGroups { content viewerHasReacted reactors { totalCount } }
             }
           }
         }
@@ -76,6 +78,7 @@ mutation($discussionId: ID!, $body: String!, $replyToId: ID) {
       id body createdAt authorAssociation
       author { login avatarUrl url }
       upvoteCount viewerHasUpvoted
+      reactionGroups { content viewerHasReacted reactors { totalCount } }
     }
   }
 }"#;
@@ -95,18 +98,40 @@ mutation($subjectId: ID!) {
 }"#;
 
 const ADD_REACTION_MUTATION: &str = r#"
-mutation($subjectId: ID!) {
-  addReaction(input: { subjectId: $subjectId, content: THUMBS_UP }) {
+mutation($subjectId: ID!, $content: ReactionContent!) {
+  addReaction(input: { subjectId: $subjectId, content: $content }) {
     subject { id reactionGroups { content viewerHasReacted reactors { totalCount } } }
   }
 }"#;
 
 const REMOVE_REACTION_MUTATION: &str = r#"
-mutation($subjectId: ID!) {
-  removeReaction(input: { subjectId: $subjectId, content: THUMBS_UP }) {
+mutation($subjectId: ID!, $content: ReactionContent!) {
+  removeReaction(input: { subjectId: $subjectId, content: $content }) {
     subject { id reactionGroups { content viewerHasReacted reactors { totalCount } } }
   }
 }"#;
+
+const ALLOWED_REACTION_CONTENTS: &[&str] = &[
+    "THUMBS_UP",
+    "THUMBS_DOWN",
+    "LAUGH",
+    "HOORAY",
+    "CONFUSED",
+    "HEART",
+    "ROCKET",
+    "EYES",
+];
+
+const REST_REACTION_KEYS: &[(&str, &str)] = &[
+    ("+1", "THUMBS_UP"),
+    ("-1", "THUMBS_DOWN"),
+    ("laugh", "LAUGH"),
+    ("hooray", "HOORAY"),
+    ("confused", "CONFUSED"),
+    ("heart", "HEART"),
+    ("rocket", "ROCKET"),
+    ("eyes", "EYES"),
+];
 
 /// 讨论仓坐标校验：仅接受双段 GitHub `owner/repo`，拒绝路径穿越、查询/锚点、
 /// forge 前缀与控制字符（防 SSRF 与路径注入）。
@@ -308,6 +333,50 @@ fn gql_author(v: &Value) -> Option<LaunchpadDiscussionAuthor> {
     })
 }
 
+fn gql_reaction_groups(subject: &Value) -> Vec<LaunchpadReactionGroup> {
+    subject
+        .get("reactionGroups")
+        .and_then(|g| g.as_array())
+        .map(|groups| {
+            groups
+                .iter()
+                .filter_map(|g| {
+                    let content = g.get("content").and_then(|c| c.as_str())?;
+                    if !ALLOWED_REACTION_CONTENTS.contains(&content) {
+                        return None;
+                    }
+                    let count = g.get("reactors").map(|r| u64_field(r, "totalCount")).unwrap_or(0);
+                    if count == 0 {
+                        return None;
+                    }
+                    Some(LaunchpadReactionGroup {
+                        content: content.to_string(),
+                        count,
+                        viewer_has_reacted: bool_field(g, "viewerHasReacted"),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn rest_reaction_groups(v: &Value) -> Vec<LaunchpadReactionGroup> {
+    let Some(reactions) = v.get("reactions").and_then(|r| r.as_object()) else {
+        return Vec::new();
+    };
+    REST_REACTION_KEYS
+        .iter()
+        .filter_map(|(rest_key, gql_name)| {
+            let count = reactions.get(*rest_key).and_then(|n| n.as_u64()).unwrap_or(0);
+            (count > 0).then(|| LaunchpadReactionGroup {
+                content: (*gql_name).to_string(),
+                count,
+                viewer_has_reacted: false,
+            })
+        })
+        .collect()
+}
+
 fn gql_comment(node: &Value) -> LaunchpadDiscussionComment {
     let replies = node
         .get("replies")
@@ -323,6 +392,7 @@ fn gql_comment(node: &Value) -> LaunchpadDiscussionComment {
         author: gql_author(node),
         upvote_count: u64_field(node, "upvoteCount"),
         viewer_has_upvoted: bool_field(node, "viewerHasUpvoted"),
+        reaction_groups: gql_reaction_groups(node),
         replies,
     }
 }
@@ -388,6 +458,7 @@ pub fn parse_graphql_discussion(data: &Value) -> Result<LaunchpadDiscussionDetai
             .get("endCursor")
             .and_then(|c| c.as_str())
             .map(str::to_string),
+        reaction_groups: gql_reaction_groups(d),
         comments: comments
             .get("nodes")
             .and_then(|n| n.as_array())
@@ -488,6 +559,7 @@ pub fn parse_rest_discussion(
         author: rest_author(c),
         upvote_count: rest_plus_one(c),
         viewer_has_upvoted: false,
+        reaction_groups: rest_reaction_groups(c),
         replies: Vec::new(),
     };
     let mut comments: Vec<LaunchpadDiscussionComment> = Vec::new();
@@ -542,6 +614,7 @@ pub fn parse_rest_discussion(
             comments_total: total,
             has_next_page: total > raw_count,
             end_cursor: None,
+            reaction_groups: rest_reaction_groups(&d),
             comments,
             is_stale: false,
         },
@@ -747,19 +820,29 @@ async fn vote_once(
     currently_upvoted: bool,
     mode: LaunchpadVoteMode,
 ) -> Result<LaunchpadUpvoteResult, GqlError> {
-    let (query, mutation) = match (mode, currently_upvoted) {
-        (LaunchpadVoteMode::Reaction, false) => (ADD_REACTION_MUTATION, "addReaction"),
-        (LaunchpadVoteMode::Reaction, true) => (REMOVE_REACTION_MUTATION, "removeReaction"),
-        (LaunchpadVoteMode::Upvote, false) => (ADD_UPVOTE_MUTATION, "addUpvote"),
-        (LaunchpadVoteMode::Upvote, true) => (REMOVE_UPVOTE_MUTATION, "removeUpvote"),
+    let (query, mutation, variables) = match (mode, currently_upvoted) {
+        (LaunchpadVoteMode::Reaction, false) => (
+            ADD_REACTION_MUTATION,
+            "addReaction",
+            json!({ "subjectId": subject_id, "content": "THUMBS_UP" }),
+        ),
+        (LaunchpadVoteMode::Reaction, true) => (
+            REMOVE_REACTION_MUTATION,
+            "removeReaction",
+            json!({ "subjectId": subject_id, "content": "THUMBS_UP" }),
+        ),
+        (LaunchpadVoteMode::Upvote, false) => (
+            ADD_UPVOTE_MUTATION,
+            "addUpvote",
+            json!({ "subjectId": subject_id }),
+        ),
+        (LaunchpadVoteMode::Upvote, true) => (
+            REMOVE_UPVOTE_MUTATION,
+            "removeUpvote",
+            json!({ "subjectId": subject_id }),
+        ),
     };
-    let data = graphql_post(
-        ctx,
-        query,
-        json!({ "subjectId": subject_id }),
-        "launchpad_vote",
-    )
-    .await?;
+    let data = graphql_post(ctx, query, variables, "launchpad_vote").await?;
     parse_vote_result(&data, mutation, mode).map_err(GqlError::Other)
 }
 
@@ -788,6 +871,84 @@ pub async fn toggle_upvote(
         }
     }
     vote_once(ctx, &subject, currently_upvoted, LaunchpadVoteMode::Reaction)
+        .await
+        .map_err(GqlError::into_message)
+}
+
+/// 校验评论节点 ID：仅接受 `DC_` 前缀的 GraphQL 节点 ID（防止误把讨论主帖或任意节点当评论投票）。
+pub fn validate_comment_node_id(raw: &str) -> Result<String, String> {
+    let id = raw.trim();
+    let well_formed = id.len() > 3
+        && id.len() <= 128
+        && id.starts_with("DC_")
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !well_formed {
+        return Err("无效的评论 ID".to_string());
+    }
+    Ok(id.to_string())
+}
+
+/// 校验讨论或评论节点 ID：仅接受 `D_` / `DC_` 前缀的非空 GraphQL 节点 ID。
+pub fn validate_discussion_subject_id(raw: &str) -> Result<String, String> {
+    let id = raw.trim();
+    let body = id.strip_prefix("DC_").or_else(|| id.strip_prefix("D_"));
+    let well_formed = body.is_some_and(|rest| !rest.is_empty())
+        && id.len() <= 128
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !well_formed {
+        return Err("无效的讨论或评论 ID".to_string());
+    }
+    Ok(id.to_string())
+}
+
+/// 校验 GitHub `ReactionContent` 枚举值。
+pub fn validate_reaction_content(raw: &str) -> Result<String, String> {
+    let norm = raw.trim().to_ascii_uppercase();
+    if !ALLOWED_REACTION_CONTENTS.contains(&norm.as_str()) {
+        return Err("不支持的表情类型".to_string());
+    }
+    Ok(norm)
+}
+
+/// 切换讨论主帖或评论（含二级回复）的 Emoji Reaction。
+pub async fn toggle_reaction(
+    ctx: DiscussionClient<'_>,
+    subject_id: &str,
+    content: &str,
+    currently_reacted: bool,
+) -> Result<Vec<LaunchpadReactionGroup>, String> {
+    let id = validate_discussion_subject_id(subject_id)?;
+    let content = validate_reaction_content(content)?;
+    let (query, mutation) = if currently_reacted {
+        (REMOVE_REACTION_MUTATION, "removeReaction")
+    } else {
+        (ADD_REACTION_MUTATION, "addReaction")
+    };
+    let data = graphql_post(
+        ctx,
+        query,
+        json!({ "subjectId": id, "content": content }),
+        "launchpad_reaction",
+    )
+    .await
+    .map_err(GqlError::into_message)?;
+    let subject = data
+        .get(mutation)
+        .and_then(|r| r.get("subject"))
+        .filter(|s| s.is_object())
+        .ok_or_else(|| "表情回应失败：响应缺少目标实体".to_string())?;
+    Ok(gql_reaction_groups(subject))
+}
+
+/// 评论顶帖 / 取消顶帖：仅走原生 `addUpvote`/`removeUpvote`（评论计数只读原生 `upvoteCount`，
+/// 不回退 👍 Reaction，避免写入与展示口径不一致）。
+pub async fn toggle_comment_upvote(
+    ctx: DiscussionClient<'_>,
+    comment_id: &str,
+    currently_upvoted: bool,
+) -> Result<LaunchpadUpvoteResult, String> {
+    let id = validate_comment_node_id(comment_id)?;
+    vote_once(ctx, &id, currently_upvoted, LaunchpadVoteMode::Upvote)
         .await
         .map_err(GqlError::into_message)
 }

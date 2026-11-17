@@ -672,6 +672,22 @@ export interface LaunchpadDiscussionAuthor {
   html_url: string;
 }
 
+export type LaunchpadReactionContent =
+  | 'THUMBS_UP'
+  | 'THUMBS_DOWN'
+  | 'LAUGH'
+  | 'HOORAY'
+  | 'CONFUSED'
+  | 'HEART'
+  | 'ROCKET'
+  | 'EYES';
+
+export interface LaunchpadReactionGroup {
+  content: LaunchpadReactionContent;
+  count: number;
+  viewer_has_reacted: boolean;
+}
+
 export interface LaunchpadDiscussionComment {
   id: string;
   body: string;
@@ -680,6 +696,7 @@ export interface LaunchpadDiscussionComment {
   author: LaunchpadDiscussionAuthor | null;
   upvote_count: number;
   viewer_has_upvoted: boolean;
+  reaction_groups?: LaunchpadReactionGroup[];
   replies: LaunchpadDiscussionComment[];
 }
 
@@ -702,6 +719,7 @@ export interface LaunchpadDiscussionDetail {
   comments_total: number;
   has_next_page: boolean;
   end_cursor: string | null;
+  reaction_groups?: LaunchpadReactionGroup[];
   comments: LaunchpadDiscussionComment[];
   is_stale: boolean;
 }

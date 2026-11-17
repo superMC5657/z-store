@@ -1,6 +1,7 @@
 //! 开源广场（Launchpad）命令：清单同步水合（`get_launchpad_feed`）、实时讨论脉冲同步
 //! （`sync_launchpad_discussions`）与 GitHub Discussions 讨论/评论/顶帖
-//! （`get_launchpad_discussion`、`add_launchpad_comment`、`toggle_launchpad_upvote`）。
+//! （`get_launchpad_discussion`、`add_launchpad_comment`、`toggle_launchpad_upvote`、
+//! `toggle_launchpad_comment_upvote`）。
 //!
 //! 只读写 `launchpad_feed_cache`、`launchpad_discussion_cache`、`api_etag_cache`、`user_stars`
 //! 与未收录 `repo_card_cache`；精选目录表（`catalog_apps` / `custom_apps`）永不写入。
@@ -744,6 +745,69 @@ pub async fn toggle_launchpad_upvote(
         let _ = db.delete_etag(&gd::rest_discussion_url(&owner, &repo, number));
     }
     Ok(result)
+}
+
+/// 评论 `+1` 顶帖 / 取消顶帖（需登录，仅一级评论）；不写讨论脉冲表，仅失效匿名评论缓存。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn toggle_launchpad_comment_upvote(
+    state: State<'_, AppState>,
+    discussion_repo: String,
+    discussion_number: u64,
+    comment_id: String,
+    currently_upvoted: bool,
+) -> crate::AppResult<crate::launchpad::LaunchpadUpvoteResult> {
+    use crate::github::discussions as gd;
+    let token = require_token(&state, "请先登录 GitHub 账号后再顶帖")?;
+    let (owner, repo) = gd::validate_discussion_repo(&discussion_repo)?;
+    let number = gd::validate_discussion_number(discussion_number)?;
+    let http = crate::shared_http_client();
+    let result = gd::toggle_comment_upvote(
+        gd::DiscussionClient {
+            client: &http,
+            api_base: crate::github::GITHUB_API_BASE,
+            token: &token,
+        },
+        &comment_id,
+        currently_upvoted,
+    )
+    .await?;
+    if let Ok(db) = state.db() {
+        let _ = db.delete_etag(&gd::rest_comments_url(&owner, &repo, number));
+    }
+    Ok(result)
+}
+
+/// 讨论主帖 / 评论（含二级回复）Emoji Reaction 切换（需登录）；失效匿名 ETag 缓存。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn toggle_launchpad_reaction(
+    state: State<'_, AppState>,
+    discussion_repo: String,
+    discussion_number: u64,
+    subject_id: String,
+    content: String,
+    currently_reacted: bool,
+) -> crate::AppResult<Vec<crate::launchpad::LaunchpadReactionGroup>> {
+    use crate::github::discussions as gd;
+    let token = require_token(&state, "请先登录 GitHub 账号后再添加表情回应")?;
+    let (owner, repo) = gd::validate_discussion_repo(&discussion_repo)?;
+    let number = gd::validate_discussion_number(discussion_number)?;
+    let http = crate::shared_http_client();
+    let groups = gd::toggle_reaction(
+        gd::DiscussionClient {
+            client: &http,
+            api_base: crate::github::GITHUB_API_BASE,
+            token: &token,
+        },
+        &subject_id,
+        &content,
+        currently_reacted,
+    )
+    .await?;
+    if let Ok(db) = state.db() {
+        let _ = db.delete_etag(&gd::rest_discussion_url(&owner, &repo, number));
+        let _ = db.delete_etag(&gd::rest_comments_url(&owner, &repo, number));
+    }
+    Ok(groups)
 }
 
 #[cfg(test)]

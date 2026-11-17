@@ -3,6 +3,8 @@ import type {
   LaunchpadDiscussionDetail,
   LaunchpadFeedResponse,
   LaunchpadPulseItem,
+  LaunchpadReactionContent,
+  LaunchpadReactionGroup,
   LaunchpadUpvoteResult,
 } from '../../types';
 import { CMD } from '../api';
@@ -79,5 +81,45 @@ export async function toggleLaunchpadUpvote(
     discussionNumber: args.discussionNumber,
     subjectId: args.subjectId ?? undefined,
     currentlyUpvoted: args.currentlyUpvoted,
+  });
+}
+
+export interface ToggleLaunchpadCommentUpvoteArgs {
+  discussionRepo: string;
+  discussionNumber: number;
+  commentId: string;
+  currentlyUpvoted: boolean;
+}
+
+/** 一级评论原生顶帖 / 取消顶帖（不影响讨论主帖计数）。 */
+export async function toggleLaunchpadCommentUpvote(
+  args: ToggleLaunchpadCommentUpvoteArgs,
+): Promise<LaunchpadUpvoteResult> {
+  return tauriInvoke<LaunchpadUpvoteResult>(CMD.toggleLaunchpadCommentUpvote, {
+    discussionRepo: args.discussionRepo,
+    discussionNumber: args.discussionNumber,
+    commentId: args.commentId,
+    currentlyUpvoted: args.currentlyUpvoted,
+  });
+}
+
+export interface ToggleLaunchpadReactionArgs {
+  discussionRepo: string;
+  discussionNumber: number;
+  subjectId: string;
+  content: LaunchpadReactionContent;
+  currentlyReacted: boolean;
+}
+
+/** 讨论主帖 / 评论（含二级回复）Emoji Reaction 切换。 */
+export async function toggleLaunchpadReaction(
+  args: ToggleLaunchpadReactionArgs,
+): Promise<LaunchpadReactionGroup[]> {
+  return tauriInvoke<LaunchpadReactionGroup[]>(CMD.toggleLaunchpadReaction, {
+    discussionRepo: args.discussionRepo,
+    discussionNumber: args.discussionNumber,
+    subjectId: args.subjectId,
+    content: args.content,
+    currentlyReacted: args.currentlyReacted,
   });
 }

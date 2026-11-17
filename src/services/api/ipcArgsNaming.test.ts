@@ -284,6 +284,23 @@ describe('ipc args naming (camelCase)', () => {
         currentlyUpvoted: false,
       }),
     );
+    await swallow(
+      launchpad.toggleLaunchpadCommentUpvote({
+        discussionRepo: 'o/r',
+        discussionNumber: 7,
+        commentId: 'DC_1',
+        currentlyUpvoted: true,
+      }),
+    );
+    await swallow(
+      launchpad.toggleLaunchpadReaction({
+        discussionRepo: 'o/r',
+        discussionNumber: 7,
+        subjectId: 'DC_1',
+        content: 'THUMBS_UP',
+        currentlyReacted: false,
+      }),
+    );
 
     expect(captured.map((c) => c.cmd)).toEqual([
       'get_launchpad_feed',
@@ -292,6 +309,8 @@ describe('ipc args naming (camelCase)', () => {
       'get_launchpad_discussion',
       'add_launchpad_comment',
       'toggle_launchpad_upvote',
+      'toggle_launchpad_comment_upvote',
+      'toggle_launchpad_reaction',
     ]);
     expect(captured[0].args).toEqual({ forceRefresh: true });
     expect(captured[1].args).toEqual({ forceRefresh: true });
@@ -299,6 +318,14 @@ describe('ipc args naming (camelCase)', () => {
     expect(captured[3].args).toMatchObject({ cursor: 'Y3Vy', forceRefresh: true });
     expect(captured[4].args).toMatchObject({ discussionId: 'D_1', body: 'hi', replyToId: 'DC_1' });
     expect(captured[5].args).toMatchObject({ subjectId: 'D_1', currentlyUpvoted: false });
+    expect(captured[6].args).toEqual({ discussionRepo: 'o/r', discussionNumber: 7, commentId: 'DC_1', currentlyUpvoted: true });
+    expect(captured[7].args).toEqual({
+      discussionRepo: 'o/r',
+      discussionNumber: 7,
+      subjectId: 'DC_1',
+      content: 'THUMBS_UP',
+      currentlyReacted: false,
+    });
     expectAllCamel();
   });
 

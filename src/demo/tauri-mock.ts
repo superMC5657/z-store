@@ -41,6 +41,8 @@ import {
   handleGetLaunchpadFeed,
   handleSyncLaunchpadDiscussions,
   handleToggleLaunchpadUpvote,
+  handleToggleLaunchpadCommentUpvote,
+  handleToggleLaunchpadReaction,
 } from './handlers/launchpad';
 import {
   handleClearSearchHistory,
@@ -457,6 +459,10 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleAddLaunchpadComment(a);
     case 'toggle_launchpad_upvote':
       return handleToggleLaunchpadUpvote(a);
+    case 'toggle_launchpad_comment_upvote':
+      return handleToggleLaunchpadCommentUpvote(a);
+    case 'toggle_launchpad_reaction':
+      return handleToggleLaunchpadReaction(a);
 
     default:
       warnOnce(cmd);
