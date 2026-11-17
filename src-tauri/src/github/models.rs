@@ -72,8 +72,15 @@ impl CatalogItem {
     /// 获取指定平台原生标识符列表；`linux` 下为空时把 `windows` 的 `.exe` 退化为裸名，
     /// 避免 deb 应用嗅探恒空。
     pub fn get_identifiers_for_platform(&self, platform: &str) -> Vec<String> {
-        let key = platform.trim().to_ascii_lowercase();
-        let native = self.get_identifiers(&key);
+        let trimmed = platform.trim();
+        let owned;
+        let key = if trimmed.bytes().all(|b| !b.is_ascii_uppercase()) {
+            trimmed
+        } else {
+            owned = trimmed.to_ascii_lowercase();
+            &owned
+        };
+        let native = self.get_identifiers(key);
         if !native.is_empty() {
             return native;
         }

@@ -366,8 +366,9 @@ fn inverted_index_matches_full_catalog_in_bounded_time() {
     let elapsed = start.elapsed();
     let second = assign_ids(&scanned, &catalog);
     assert_eq!(first, second, "matching must be deterministic");
+    // debug 模式下 2-vCPU CI 并发跑全量单测约 100~200ms；放宽至 500ms 消除抖动，仍可捕获 O(N*M) 退化。
     assert!(
-        elapsed < std::time::Duration::from_millis(100),
+        elapsed < std::time::Duration::from_millis(500),
         "full-catalog match took {elapsed:?}"
     );
 }
