@@ -2,76 +2,70 @@ use crate::AppState;
 use std::collections::HashMap;
 use tauri::State;
 
+enum SettingDefault {
+    Static(&'static str),
+    FromConfig(fn(&crate::config::ProjectConfig) -> String),
+}
+
+/// 受管设置键与默认值的唯一定义表（零堆分配校验 + 默认映射生成同源，防漂移）：
+/// `save_setting` 只接受这些键、`get_settings` 只回传这些键；OAuth 令牌/用户键由 oauth 模块专用命令经独立路径
+/// 读写，永不经通用设置 IPC 面进出（XSS 一发 IPC 拿不到凭据，也不能借设置面覆写）。
+const MANAGED_SETTING_DEFS: &[(&str, SettingDefault)] = &[
+    ("theme", SettingDefault::Static("system")),
+    ("language", SettingDefault::Static("zh-CN")),
+    ("ui_scale", SettingDefault::Static("100")),
+    ("font_size", SettingDefault::Static("14")),
+    (
+        "portable_dir",
+        SettingDefault::Static("%LOCALAPPDATA%\\Programs\\z-store-apps"),
+    ),
+    ("download_dir", SettingDefault::Static("~/Downloads")),
+    ("active_mirror", SettingDefault::Static("ghproxy")),
+    ("launch_on_startup", SettingDefault::Static("false")),
+    ("update_frequency", SettingDefault::Static("startup")),
+    (
+        "detail_cache_ttl_minutes",
+        SettingDefault::FromConfig(|cfg| cfg.cache.detail_ttl_minutes.to_string()),
+    ),
+    (
+        "asset_cache_max_mb",
+        SettingDefault::FromConfig(|cfg| cfg.cache.asset_max_mb.to_string()),
+    ),
+    (
+        "asset_cache_max_files",
+        SettingDefault::FromConfig(|cfg| cfg.cache.asset_max_files.to_string()),
+    ),
+    (
+        "catalog_source_url",
+        SettingDefault::FromConfig(|cfg| cfg.catalog.default_source_url.clone()),
+    ),
+    ("watch_notify_frequency", SettingDefault::Static("daily")),
+    // 自维护 overlay 开关（默认开；关闭即隐藏全部 custom 行）。
+    ("show_custom", SettingDefault::Static("true")),
+    // 推荐画像的两个信号源：本地应用信息 / GitHub 用户信息。
+    ("enable_local_affinity", SettingDefault::Static("true")),
+    ("enable_github_affinity", SettingDefault::Static("true")),
+    (
+        "strict_errors",
+        SettingDefault::FromConfig(|cfg| cfg.runtime.strict_errors.to_string()),
+    ),
+];
+
 fn get_default_settings() -> HashMap<String, String> {
     let cfg = crate::config::get_project_config();
-    let mut map = HashMap::new();
-    map.insert("theme".to_string(), "system".to_string());
-    map.insert("language".to_string(), "zh-CN".to_string());
-    map.insert("ui_scale".to_string(), "100".to_string());
-    map.insert("font_size".to_string(), "14".to_string());
-    map.insert(
-        "portable_dir".to_string(),
-        "%LOCALAPPDATA%\\Programs\\z-store-apps".to_string(),
-    );
-    map.insert("download_dir".to_string(), "~/Downloads".to_string());
-    map.insert("active_mirror".to_string(), "ghproxy".to_string());
-    map.insert("launch_on_startup".to_string(), "false".to_string());
-    map.insert("update_frequency".to_string(), "startup".to_string());
-    map.insert(
-        "detail_cache_ttl_minutes".to_string(),
-        cfg.cache.detail_ttl_minutes.to_string(),
-    );
-    map.insert(
-        "asset_cache_max_mb".to_string(),
-        cfg.cache.asset_max_mb.to_string(),
-    );
-    map.insert(
-        "asset_cache_max_files".to_string(),
-        cfg.cache.asset_max_files.to_string(),
-    );
-    map.insert(
-        "catalog_source_url".to_string(),
-        cfg.catalog.default_source_url.clone(),
-    );
-    map.insert("watch_notify_frequency".to_string(), "daily".to_string());
-    // 自维护 overlay 开关（默认开；关闭即隐藏全部 custom 行）。
-    map.insert("show_custom".to_string(), "true".to_string());
-    // 推荐画像的两个信号源：本地应用信息 / GitHub 用户信息。
-    map.insert("enable_local_affinity".to_string(), "true".to_string());
-    map.insert("enable_github_affinity".to_string(), "true".to_string());
-    map.insert(
-        "strict_errors".to_string(),
-        cfg.runtime.strict_errors.to_string(),
-    );
+    let mut map = HashMap::with_capacity(MANAGED_SETTING_DEFS.len());
+    for (key, default) in MANAGED_SETTING_DEFS {
+        let value = match default {
+            SettingDefault::Static(s) => (*s).to_string(),
+            SettingDefault::FromConfig(f) => f(cfg),
+        };
+        map.insert((*key).to_string(), value);
+    }
     map
 }
 
-/// 设置键白名单，与 `get_default_settings` 键集一致（单测锁定）：`save_setting` 只接受这些键、
-/// `get_settings` 只回传这些键；OAuth 令牌/用户键由 oauth 模块专用命令经独立路径
-/// 读写，永不经通用设置 IPC 面进出（XSS 一发 IPC 拿不到凭据，也不能借设置面覆写）。
-const MANAGED_SETTING_KEYS: &[&str] = &[
-    "theme",
-    "language",
-    "ui_scale",
-    "font_size",
-    "portable_dir",
-    "download_dir",
-    "active_mirror",
-    "launch_on_startup",
-    "update_frequency",
-    "detail_cache_ttl_minutes",
-    "asset_cache_max_mb",
-    "asset_cache_max_files",
-    "catalog_source_url",
-    "watch_notify_frequency",
-    "show_custom",
-    "enable_local_affinity",
-    "enable_github_affinity",
-    "strict_errors",
-];
-
 fn is_managed_setting_key(key: &str) -> bool {
-    MANAGED_SETTING_KEYS.contains(&key)
+    MANAGED_SETTING_DEFS.iter().any(|(k, _)| *k == key)
 }
 
 #[tauri::command]
@@ -222,7 +216,7 @@ pub async fn select_folder(
 #[cfg(test)]
 mod setting_gate_tests {
     use super::{
-        get_default_settings, is_managed_setting_key, validate_setting_value, MANAGED_SETTING_KEYS,
+        get_default_settings, is_managed_setting_key, validate_setting_value, MANAGED_SETTING_DEFS,
     };
 
     #[test]
@@ -315,8 +309,8 @@ mod setting_gate_tests {
         use std::collections::BTreeSet;
         let defaults = get_default_settings();
         let from_defaults: BTreeSet<&str> = defaults.keys().map(String::as_str).collect();
-        let managed: BTreeSet<&str> = MANAGED_SETTING_KEYS.iter().copied().collect();
-        assert_eq!(managed.len(), MANAGED_SETTING_KEYS.len(), "白名单含重复键");
+        let managed: BTreeSet<&str> = MANAGED_SETTING_DEFS.iter().map(|(k, _)| *k).collect();
+        assert_eq!(managed.len(), MANAGED_SETTING_DEFS.len(), "白名单含重复键");
         assert_eq!(managed, from_defaults);
     }
 

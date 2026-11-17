@@ -1,4 +1,5 @@
 use super::CatalogService;
+use crate::github::models::GitHubLicense;
 use crate::models::AppSummary;
 use serde::Deserialize;
 
@@ -16,7 +17,7 @@ struct OnlineSearchItem {
     stargazers_count: u64,
     forks_count: u64,
     #[serde(default)]
-    license: Option<OnlineRepoLicense>,
+    license: Option<GitHubLicense>,
     #[serde(default)]
     homepage: Option<String>,
     #[serde(default)]
@@ -40,24 +41,12 @@ struct OnlineRepoResponse {
     description: Option<String>,
     stargazers_count: Option<u64>,
     forks_count: Option<u64>,
-    license: Option<OnlineRepoLicense>,
+    license: Option<GitHubLicense>,
     homepage: Option<String>,
     #[serde(default)]
     default_branch: Option<String>,
     #[serde(default)]
     topics: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OnlineRepoLicense {
-    #[serde(default)]
-    key: Option<String>,
-    spdx_id: Option<String>,
-}
-
-fn resolve_online_license(lic: Option<&OnlineRepoLicense>) -> Option<String> {
-    let l = lic?;
-    crate::github::models::resolve_repo_license(l.spdx_id.as_deref(), l.key.as_deref())
 }
 
 /// 仓库 JSON 私有标记：`private == true` 或 `visibility == "private"`。
@@ -100,8 +89,11 @@ async fn summaries_from_search(
         let description_en = it.description.clone();
         let description = it.description.unwrap_or_else(|| "开源软件项目".to_string());
         let topics = it.topics.unwrap_or_default();
-        let license =
-            resolve_online_license(it.license.as_ref()).unwrap_or_else(|| "OpenSource".to_string());
+        let license = it
+            .license
+            .as_ref()
+            .and_then(GitHubLicense::resolve)
+            .unwrap_or_else(|| "OpenSource".to_string());
         let homepage = it.homepage.filter(|h| !h.trim().is_empty());
         summaries.push(
             super::http::fallback_summary(
@@ -269,7 +261,10 @@ impl CatalogService {
         }
         let repo_desc = repo_data.description.clone();
         let description = repo_desc.clone().unwrap_or_default();
-        let license = resolve_online_license(repo_data.license.as_ref())
+        let license = repo_data
+            .license
+            .as_ref()
+            .and_then(GitHubLicense::resolve)
             .unwrap_or_else(|| "unknown".to_string());
         let topics = repo_data.topics.unwrap_or_default();
         let cat = super::http::guess_category(Some(&description), repo_desc.as_deref(), &topics);
@@ -318,7 +313,10 @@ impl CatalogService {
             crate::icons::remember_repo_default_branch(owner, repo, b);
         }
         let repo_desc = repo_data.description.clone();
-        let license = resolve_online_license(repo_data.license.as_ref())
+        let license = repo_data
+            .license
+            .as_ref()
+            .and_then(GitHubLicense::resolve)
             .unwrap_or_else(|| "unknown".to_string());
         let topics = repo_data.topics.unwrap_or_default();
         let item = super::http::fallback_summary(

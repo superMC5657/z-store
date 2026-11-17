@@ -585,9 +585,9 @@ fn resolve_detail_stats(
         .map(|i| i.license.trim())
         .filter(|l| CatalogItem::is_concrete_license(l))
         .map(str::to_string);
-    let remote_license = repo_info.and_then(|r| r.license.as_ref()).and_then(|l| {
-        crate::github::models::resolve_repo_license(l.spdx_id.as_deref(), l.key.as_deref())
-    });
+    let remote_license = repo_info
+        .and_then(|r| r.license.as_ref())
+        .and_then(crate::github::models::GitHubLicense::resolve);
     let license = curated_license
         .or(remote_license)
         .or_else(|| catalog_item.map(|i| i.license.trim().to_string()))

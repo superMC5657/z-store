@@ -637,8 +637,11 @@ pub fn install_panic_hook() {
 
 /// 获取 LogDir 路径（前端设置页 / 问题反馈用）。
 #[tauri::command]
-pub fn zlog_get_dir(app: AppHandle) -> Result<String, String> {
-    let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+pub fn zlog_get_dir(app: AppHandle) -> crate::AppResult<String> {
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| crate::AppError::new(e.to_string()))?;
     let _ = std::fs::create_dir_all(&dir);
     Ok(dir.to_string_lossy().to_string())
 }
@@ -700,13 +703,16 @@ fn write_log_bundle_zip(log_dir: &Path, out_path: &Path) -> Result<String, Strin
 
 /// 导出日志包：弹出系统保存文件对话框（默认目录指向 `LogDir`），把 `LogDir` 内日志脱敏打成 zip 并返回文件路径；取消时返回 `None`。
 #[tauri::command]
-pub async fn zlog_export_bundle(app: AppHandle) -> Result<Option<String>, String> {
-    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+pub async fn zlog_export_bundle(app: AppHandle) -> crate::AppResult<Option<String>> {
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| crate::AppError::new(e.to_string()))?;
+    std::fs::create_dir_all(&log_dir)?;
     let stamp = crate::now_secs();
     let default_name = format!("zstore-logs-{}.zip", stamp);
 
-    tokio::task::spawn_blocking(move || {
+    let res = tokio::task::spawn_blocking(move || {
         let picked = rfd::FileDialog::new()
             .set_directory(&log_dir)
             .set_file_name(&default_name)
@@ -718,7 +724,8 @@ pub async fn zlog_export_bundle(app: AppHandle) -> Result<Option<String>, String
         write_log_bundle_zip(&log_dir, &out_path).map(Some)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| crate::AppError::new(e.to_string()))?;
+    Ok(res?)
 }
 
 #[cfg(test)]

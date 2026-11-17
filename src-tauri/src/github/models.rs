@@ -30,21 +30,6 @@ pub(crate) fn is_placeholder_version(v: &str) -> bool {
     t.is_empty() || t == "..." || t.eq_ignore_ascii_case("latest")
 }
 
-/// GitHub 仓库 `license` 对象 → 协议名：优先非 `NOASSERTION` 的 `spdx_id`，
-/// 否则 `key` 大小写不敏感命中 `DEFAULT_LICENSE_ALLOWLIST` 时取名单内规范写法。
-pub(crate) fn resolve_repo_license(spdx_id: Option<&str>, key: Option<&str>) -> Option<String> {
-    if let Some(spdx) = spdx_id.map(str::trim) {
-        if !spdx.is_empty() && !spdx.eq_ignore_ascii_case("NOASSERTION") {
-            return Some(spdx.to_string());
-        }
-    }
-    let key = key?.trim();
-    crate::config::DEFAULT_LICENSE_ALLOWLIST
-        .iter()
-        .find(|allowed| allowed.eq_ignore_ascii_case(key))
-        .map(|matched| matched.to_string())
-}
-
 /// 开源协议占位判断：空串、`...`、`unknown`、`NOASSERTION` 或 `OpenSource`（大小写不敏感）。
 pub(crate) fn is_placeholder_license(l: &str) -> bool {
     let t = l.trim();
@@ -388,6 +373,23 @@ pub(crate) struct GitHubLicense {
     pub spdx_id: Option<String>,
 }
 
+impl GitHubLicense {
+    /// GitHub 仓库 `license` 对象 → 协议名：优先非 `NOASSERTION` 的 `spdx_id`，
+    /// 否则 `key` 大小写不敏感命中 `DEFAULT_LICENSE_ALLOWLIST` 时取名单内规范写法。
+    pub(crate) fn resolve(&self) -> Option<String> {
+        if let Some(spdx) = self.spdx_id.as_deref().map(str::trim) {
+            if !spdx.is_empty() && !spdx.eq_ignore_ascii_case("NOASSERTION") {
+                return Some(spdx.to_string());
+            }
+        }
+        let key = self.key.as_deref()?.trim();
+        crate::config::DEFAULT_LICENSE_ALLOWLIST
+            .iter()
+            .find(|allowed| allowed.eq_ignore_ascii_case(key))
+            .map(|matched| matched.to_string())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct GitHubReleaseResponse {
     pub tag_name: String,
@@ -453,17 +455,21 @@ mod tests {
     }
 
     #[test]
-    fn resolve_repo_license_prefers_spdx_then_allowlisted_key() {
+    fn github_license_resolve_prefers_spdx_then_allowlisted_key() {
+        let lic = |spdx_id: Option<&str>, key: Option<&str>| GitHubLicense {
+            key: key.map(str::to_string),
+            spdx_id: spdx_id.map(str::to_string),
+        };
         assert_eq!(
-            resolve_repo_license(Some(" MIT "), Some("apache-2.0")).as_deref(),
+            lic(Some(" MIT "), Some("apache-2.0")).resolve().as_deref(),
             Some("MIT")
         );
         assert_eq!(
-            resolve_repo_license(Some("NOASSERTION"), Some("mit")).as_deref(),
+            lic(Some("NOASSERTION"), Some("mit")).resolve().as_deref(),
             Some("MIT")
         );
-        assert_eq!(resolve_repo_license(None, Some("other")), None);
-        assert_eq!(resolve_repo_license(Some(""), None), None);
+        assert_eq!(lic(None, Some("other")).resolve(), None);
+        assert_eq!(lic(Some(""), None).resolve(), None);
     }
 
     #[test]

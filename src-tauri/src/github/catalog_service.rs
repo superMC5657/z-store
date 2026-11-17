@@ -745,10 +745,7 @@ impl CatalogService {
         {
             core.latest_version = detail.core.latest_version.clone();
         }
-        let cur_desc_placeholder = core.description.trim().is_empty()
-            || crate::github::models::is_placeholder_description(&core.description);
-        if cur_desc_placeholder
-            && !detail.core.description.trim().is_empty()
+        if crate::github::models::is_placeholder_description(&core.description)
             && !crate::github::models::is_placeholder_description(&detail.core.description)
         {
             core.description = detail.core.description.clone();
@@ -756,11 +753,10 @@ impl CatalogService {
         let cur_en_placeholder = core
             .description_en
             .as_deref()
-            .map(|s| s.trim().is_empty() || crate::github::models::is_placeholder_description(s))
-            .unwrap_or(true);
+            .is_none_or(crate::github::models::is_placeholder_description);
         if cur_en_placeholder {
             if let Some(ref en) = detail.core.description_en {
-                if !en.trim().is_empty() && !crate::github::models::is_placeholder_description(en) {
+                if !crate::github::models::is_placeholder_description(en) {
                     core.description_en = Some(en.clone());
                 }
             }
