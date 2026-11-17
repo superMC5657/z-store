@@ -44,8 +44,6 @@ export interface LaunchpadViewProps extends AppContextProps {
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
-const EMPTY_SET: ReadonlySet<string> = new Set<string>();
-
 // 讨论弹窗连同 Markdown 渲染（marked）单独分块，打开讨论时才加载。
 const LaunchpadDiscussionModal = lazyNamed(
   () => import('./LaunchpadView/LaunchpadDiscussionModal'),
@@ -69,7 +67,7 @@ function patchEntry(
 export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
   const {
     selectedPlatforms = ALL_PLATFORMS,
-    platformResolvedOtherIds = EMPTY_SET,
+    platformResolvedOtherIds = EMPTY_IDS,
     installedIds = EMPTY_IDS,
     installingIds,
     managedIds = null,
@@ -90,8 +88,8 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
   const [error, setError] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<LaunchpadSortMode>('recommended');
   const [openSubmitMenu, setOpenSubmitMenu] = useState<'header' | 'empty' | null>(null);
-  const [starring, setStarring] = useState<ReadonlySet<string>>(EMPTY_SET);
-  const [upvoting, setUpvoting] = useState<ReadonlySet<string>>(EMPTY_SET);
+  const [starring, setStarring] = useState<ReadonlySet<string>>(EMPTY_IDS);
+  const [upvoting, setUpvoting] = useState<ReadonlySet<string>>(EMPTY_IDS);
   const [discussionAppId, setDiscussionAppId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const reqRef = useRef(0);

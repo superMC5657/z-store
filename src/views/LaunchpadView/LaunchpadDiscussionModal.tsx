@@ -728,7 +728,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
               aria-label={t('launchpad.close')}
               onClick={onClose}
             >
-              <X size={16} strokeWidth={1.5} aria-hidden="true" />
+              <X size={14} strokeWidth={1.5} aria-hidden="true" />
             </button>
           </div>
           <button

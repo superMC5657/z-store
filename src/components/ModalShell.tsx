@@ -16,8 +16,6 @@ const LAYER_CLASS: Record<ModalLayer, string | null> = {
 };
 
 export interface ModalShellProps {
-  /** 默认 `true`；常驻挂载、靠开关控制显隐的弹窗传入当前开关，为 `false` 时不渲染。 */
-  open?: boolean;
   layer?: ModalLayer;
   /** 为 `false` 时点击遮罩不关闭（如导入进行中）。 */
   closeOnBackdrop?: boolean;
@@ -52,7 +50,6 @@ function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
  * 面板内部的 Header / Body / Footer 由各弹窗自行组合。
  */
 export const ModalShell: React.FC<ModalShellProps> = ({
-  open = true,
   layer = 'base',
   closeOnBackdrop = true,
   onClose,
@@ -75,12 +72,10 @@ export const ModalShell: React.FC<ModalShellProps> = ({
     assignRef(panelRefRef.current, node);
   }, []);
 
-  useModalA11y(internalRef, { open, onEscape: onEscape ?? onClose });
+  useModalA11y(internalRef, { open: true, onEscape: onEscape ?? onClose });
 
-  // 每次打开时解析一次挂载点，打开期间保持不变，避免挂载点切换导致子树重挂。
-  const portalTarget = useMemo(() => (open ? findAppWindow() : null), [open]);
-
-  if (!open) return null;
+  // 每次挂载时解析一次挂载点，打开期间保持不变，避免挂载点切换导致子树重挂。
+  const portalTarget = useMemo(() => findAppWindow(), []);
 
   const backdropClass = ['modal-backdrop', LAYER_CLASS[layer], backdropClassName].filter(Boolean).join(' ');
   const panelClass = ['detail-modal', panelClassName].filter(Boolean).join(' ');

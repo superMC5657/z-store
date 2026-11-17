@@ -28,7 +28,7 @@ import {
   UpdateRule,
 } from '../types';
 import { EmptyState } from '../components/EmptyState';
-import { FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
+import { EMPTY_IDS, FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
 import { useAppContextProps, type AppContextProps } from '../app/AppContext';
 import type { PlatformId } from '../lib/platformFilter';
 import { selectPlatformCounts, type InstalledPlatformRow } from '../app/selectors';
@@ -59,8 +59,6 @@ import {
   type InstalledFilterTabId,
   type InstalledSortOrder,
 } from './manage/manageModel';
-
-const EMPTY_RESOLVED_IDS: ReadonlySet<string> = new Set<string>();
 
 // 更新日志抽屉连同 Markdown 渲染（marked）单独分块，展开日志时才加载。
 const ChangelogDrawer = lazyNamed(() => import('./InstalledView/ChangelogDrawer'), 'ChangelogDrawer');
@@ -131,7 +129,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     onRetryLoad,
     totalInstalledCount,
     installedPlatformRows,
-    platformResolvedOtherIds = EMPTY_RESOLVED_IDS,
+    platformResolvedOtherIds = EMPTY_IDS,
     onResetPlatformFilter,
     onDisplayPlatformCounts,
   } = useAppContextProps(props);

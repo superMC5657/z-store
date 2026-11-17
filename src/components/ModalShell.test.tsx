@@ -45,15 +45,6 @@ describe('ModalShell', () => {
     expect(container.querySelector('.modal-backdrop > .detail-modal')).toBeTruthy();
   });
 
-  it('renders nothing when open is false', () => {
-    const { container } = render(
-      <ModalShell open={false} ariaLabel="demo" onClose={() => {}}>
-        <p>body</p>
-      </ModalShell>,
-    );
-    expect(container.innerHTML).toBe('');
-  });
-
   it('puts dialog semantics and extra classes on the panel', () => {
     render(
       <ModalShell
@@ -169,12 +160,16 @@ describe('ModalShell', () => {
         const [upper, setUpper] = useState(true);
         return (
           <>
-            <ModalShell open={lower} layer="sub" ariaLabel="lower" onClose={() => setLower(false)}>
-              <button type="button">lower-btn</button>
-            </ModalShell>
-            <ModalShell open={upper} ariaLabel="upper" onClose={() => setUpper(false)}>
-              <button type="button">upper-btn</button>
-            </ModalShell>
+            {lower && (
+              <ModalShell layer="sub" ariaLabel="lower" onClose={() => setLower(false)}>
+                <button type="button">lower-btn</button>
+              </ModalShell>
+            )}
+            {upper && (
+              <ModalShell ariaLabel="upper" onClose={() => setUpper(false)}>
+                <button type="button">upper-btn</button>
+              </ModalShell>
+            )}
           </>
         );
       };

@@ -1,9 +1,9 @@
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 import type { AppSummary, OAuthUser } from '../types';
 
 /**
  * 跨视图共享的库状态：安装/收藏/关注等成员集合、本地收录与全局平台筛选。
- * App 是唯一提供方；视图经 `useAppContextProps` 读取，不再逐层透传。
+ * App 是唯一提供方，视图经 `useAppContextProps` 读取。
  */
 export interface LibraryState {
   installedIds: Set<string>;
@@ -37,8 +37,7 @@ export interface AppActions {
 /** 视图可从上下文取得的全部字段；视图 Props 继承它，显式传入的值优先于上下文。 */
 export type AppContextProps = Partial<LibraryState & AppActions>;
 
-const LibraryContext = createContext<Partial<LibraryState>>({});
-const AppActionsContext = createContext<Partial<AppActions>>({});
+const AppContext = createContext<AppContextProps>({});
 
 interface AppContextProviderProps {
   library: LibraryState;
@@ -46,21 +45,19 @@ interface AppContextProviderProps {
   children: React.ReactNode;
 }
 
-/** 库状态与动作分两个上下文：动作引用稳定，仅库状态变化不连带只读动作的消费方。 */
-export const AppContextProvider: React.FC<AppContextProviderProps> = ({ library, actions, children }) => (
-  <AppActionsContext.Provider value={actions}>
-    <LibraryContext.Provider value={library}>{children}</LibraryContext.Provider>
-  </AppActionsContext.Provider>
-);
+/** 向各视图统一提供共享库状态与动作回调。 */
+export const AppContextProvider: React.FC<AppContextProviderProps> = ({ library, actions, children }) => {
+  const value = useMemo<AppContextProps>(() => ({ ...library, ...actions }), [library, actions]);
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+};
 
 /**
  * 以上下文补齐视图 Props：显式传入（非 `undefined`）的字段优先，其余取自上下文。
  * 无提供方时（单测/独立渲染）上下文为空，字段缺席语义与直接传 Props 一致。
  */
 export function useAppContextProps<P extends AppContextProps>(props: P): P {
-  const library = useContext(LibraryContext);
-  const actions = useContext(AppActionsContext);
-  const merged: Record<string, unknown> = { ...library, ...actions };
+  const ctx = useContext(AppContext);
+  const merged: Record<string, unknown> = { ...ctx };
   for (const [key, value] of Object.entries(props)) {
     if (value !== undefined) merged[key] = value;
   }
