@@ -9,6 +9,9 @@
 //! - `last_accessed_at` 有界 LRU；`is_private = 1` 行随登出清除。
 
 use super::{clean, now_secs, Database, BATCH_CHUNK};
+use crate::github::models::{
+    is_placeholder_description, is_placeholder_license, is_placeholder_version,
+};
 use crate::models::{AppCore, AppSummary};
 use rusqlite::{params, OptionalExtension, Result};
 use std::collections::{HashMap, HashSet};
@@ -152,43 +155,30 @@ pub(crate) fn sanitize_card_icon(icon: &str) -> String {
     }
 }
 
-fn is_placeholder_text(s: &str) -> bool {
-    let t = s.trim();
-    if crate::github::detail_fetch::is_placeholder_description(t) {
-        return true;
-    }
-    t.eq_ignore_ascii_case("no description")
-}
-
 fn sanitize_description(s: &str) -> String {
-    if is_placeholder_text(s) {
+    if is_placeholder_description(s) {
         String::new()
     } else {
         s.trim().to_string()
     }
 }
 
+/// 协议占位归一为空串；GitHub 源保留搜索回退写入的 `OpenSource` 原值。
 fn sanitize_license(s: &str, forge: &str) -> String {
     let t = s.trim();
-    if t.is_empty()
-        || t == "..."
-        || t.eq_ignore_ascii_case("unknown")
-        || t.eq_ignore_ascii_case("noassertion")
-        || (forge != "github" && t == "OpenSource")
-    {
+    if is_placeholder_license(t) && !(forge == "github" && t == "OpenSource") {
         String::new()
     } else {
         t.to_string()
     }
 }
 
-/// 版本占位（空 / `latest` / `...`）归一为空串。
+/// 版本占位（见 [`is_placeholder_version`]）归一为空串。
 pub(crate) fn sanitize_card_version(s: &str) -> String {
-    let t = s.trim();
-    if t.is_empty() || t == "..." || t.eq_ignore_ascii_case("latest") {
+    if is_placeholder_version(s) {
         String::new()
     } else {
-        t.to_string()
+        s.trim().to_string()
     }
 }
 

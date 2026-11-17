@@ -559,11 +559,7 @@ pub(crate) async fn resolve_probe_branches(
     if let Some(known) = known_repo_default_branch(owner, repo) {
         return vec![known];
     }
-    let repo_api = format!(
-        "https://api.github.com/repos/{}/{}",
-        urlencoding::encode(owner),
-        urlencoding::encode(repo)
-    );
+    let repo_api = crate::github::github_repo_endpoint(owner, repo);
     if let Ok(Ok(resp)) = tokio::time::timeout(
         crate::config::api_timeout_or(std::time::Duration::from_secs(5)),
         client.get(&repo_api).headers(headers.clone()).send(),

@@ -47,3 +47,9 @@ Blocked by: none
 - [ ] 全仓不再存在未经过 `urlencoding::encode` 的手写 `/repos/{}/{}/releases/latest` 或 `/repos/{}/{}` URL 拼接。
 - [ ] 占位描述/版本/协议判定及协议名归一仅保留单一实现并有单元测试覆盖。
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+
+## Comments
+
+- 2026-11-18 实现：端点构造器为 `crate::github::{github_repo_endpoint, github_latest_release_endpoint, github_readme_endpoint}`（`github/mod.rs`）；占位判定与 `resolve_repo_license` 在 `github/models.rs`，`CatalogItem::is_concrete_*` 委托占位判定取反；`normalize_license_token` 在 `config.rs` 由 `db/custom_apps.rs` 复用。
+- `guess_category` 与 `CATEGORY_RULES` 评估后不合并：前者为子串首个命中、返回展示用 `CategoryMeta`（名称与渐变），后者为整词/短语/中文加权多分类打分；合并会改变未收录卡片的分类结果，二者保持独立。
+- `repo_cards::sanitize_license` 保留 GitHub 源 `OpenSource` 原值（搜索回退写入值），其余占位走共享 `is_placeholder_license`。

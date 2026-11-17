@@ -1,3 +1,6 @@
+use crate::github::models::{
+    is_placeholder_description, is_placeholder_license, is_placeholder_version,
+};
 use crate::models::{AppCore, AppSummary};
 use crate::AppState;
 use std::collections::HashMap;
@@ -231,18 +234,12 @@ impl PrefetchKeys {
         ));
         self.ids.push(coord.id.clone());
         if with_endpoint {
-            self.urls.push(repo_endpoint(&coord.owner, &coord.repo));
+            self.urls.push(crate::github::github_repo_endpoint(
+                &coord.owner,
+                &coord.repo,
+            ));
         }
     }
-}
-
-/// GitHub `/repos/{owner}/{repo}` 端点（`api_etag_cache` 键）。
-fn repo_endpoint(owner: &str, repo: &str) -> String {
-    format!(
-        "https://api.github.com/repos/{}/{}",
-        urlencoding::encode(owner),
-        urlencoding::encode(repo)
-    )
 }
 
 /// `releases/latest` 端点的原大小写与小写形态（非 GitHub 源或坐标缺失为 `None`）。
@@ -258,11 +255,9 @@ fn release_latest_urls(item: &AppSummary) -> Option<(String, String)> {
     if !is_github || owner.is_empty() || repo.is_empty() {
         return None;
     }
-    let exact = format!(
-        "https://api.github.com/repos/{}/{}/releases/latest",
-        owner, repo
-    );
-    let lower = exact.to_lowercase();
+    let exact = crate::github::github_latest_release_endpoint(owner, repo);
+    let lower =
+        crate::github::github_latest_release_endpoint(&owner.to_lowercase(), &repo.to_lowercase());
     Some((exact, lower))
 }
 
@@ -413,15 +408,6 @@ fn backfill_uncataloged_card(
     backfill_uncataloged_card_in(&ctx, item)
 }
 
-fn is_placeholder_license(v: &str) -> bool {
-    let t = v.trim();
-    t.is_empty()
-        || t == "..."
-        || t.eq_ignore_ascii_case("unknown")
-        || t.eq_ignore_ascii_case("noassertion")
-        || t == "OpenSource"
-}
-
 /// 零网络单仓富卡回填：只补入站行的空缺或占位字段（平台、真实版本、简介、协议、主页、远端图标）；
 /// 平台与版本含 `get_platforms_lite` 预写的平台壳。平台态与完整卡片取自同一行快照。
 fn backfill_from_repo_card(ctx: &BackfillCtx, item: &mut AppSummary) {
@@ -442,11 +428,15 @@ fn backfill_from_repo_card(ctx: &BackfillCtx, item: &mut AppSummary) {
         return;
     };
     let c = &card.summary.core;
-    let is_placeholder = crate::github::detail_fetch::is_placeholder_description;
-    if is_placeholder(&core.description) && !c.description.trim().is_empty() {
+    if is_placeholder_description(&core.description) && !c.description.trim().is_empty() {
         core.description = c.description.clone();
     }
-    if core.description_en.as_deref().is_none_or(is_placeholder) && c.description_en.is_some() {
+    if core
+        .description_en
+        .as_deref()
+        .is_none_or(is_placeholder_description)
+        && c.description_en.is_some()
+    {
         core.description_en = c.description_en.clone();
     }
     if is_placeholder_license(&core.license) && !c.license.trim().is_empty() {
@@ -490,12 +480,6 @@ fn flush_repo_cards(db: &crate::db::Database, staged: &[crate::db::RepoCardUpser
     if !staged.is_empty() {
         let _ = db.upsert_uncataloged_repo_cards_batch(staged);
     }
-}
-
-/// 版本号是否仍为占位（空串或 `latest`），需要从缓存的 Release 补齐。
-fn is_placeholder_version(v: &str) -> bool {
-    let t = v.trim();
-    t.is_empty() || t.eq_ignore_ascii_case("latest")
 }
 
 /// 零网络 Release 回填：`app_details` 未提供平台或真实版本时，读 `api_etag_cache` 中
@@ -597,7 +581,7 @@ async fn direct_github_lookup(
         owner: coord.owner.clone(),
         repo: coord.repo.clone(),
     };
-    let repo_url = repo_endpoint(&target.owner, &target.repo);
+    let repo_url = crate::github::github_repo_endpoint(&target.owner, &target.repo);
     // 短锁预读（批量读表）→ 无锁读图标文件 → 本地富卡命中判定；owned 值跨 `await`。
     let mut pre_keys = PrefetchKeys::default();
     pre_keys.add_coord(&target, true);
@@ -1197,7 +1181,7 @@ fn resolve_local_enrich_hit_in(
     let detail = ctx.detail(&coord.id);
     if let Some(detail) = detail {
         let desc_ok = !detail.core.description.trim().is_empty()
-            && !crate::github::detail_fetch::is_placeholder_description(&detail.core.description);
+            && !crate::github::models::is_placeholder_description(&detail.core.description);
         if desc_ok {
             let mut core = detail.core.clone();
             if let Some(ci) = pre_icon {
@@ -1341,7 +1325,7 @@ pub async fn enrich_trend_repos(
     let mut pre_etags: Vec<(Option<String>, Option<String>, Option<AppSummary>)> =
         vec![(None, None, None); targets.len()];
     for (idx, coord) in targets.iter().enumerate() {
-        let repo_url = repo_endpoint(&coord.owner, &coord.repo);
+        let repo_url = crate::github::github_repo_endpoint(&coord.owner, &coord.repo);
         let cached_etag = if is_force {
             None
         } else {

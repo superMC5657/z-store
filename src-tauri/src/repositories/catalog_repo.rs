@@ -9,12 +9,22 @@ pub struct CatalogRepository;
 
 impl CatalogRepository {
     /// 首次启动播种：仅当 `catalog_apps` 为空时从配置种子 `catalog.json` 写入数据库。
+    /// 种子反序列化失败记 warn 并按空种子继续（目录随后由远端清单同步补齐）。
     pub fn seed_from_config_if_empty(db: &Database) -> Result<bool> {
         if db.count_catalog_apps()? > 0 {
             return Ok(false);
         }
         let cfg = crate::config::get_project_config();
-        let seed_items: Vec<CatalogItem> = cfg.catalog.load_catalog_items().unwrap_or_default();
+        let json = cfg.catalog.load_catalog_json();
+        let seed_items: Vec<CatalogItem> = match serde_json::from_str(&json) {
+            Ok(items) => items,
+            Err(e) => {
+                let mut ev = crate::z_log::WideEvent::new("catalog", "seed parse failed");
+                ev.field("reason", &e);
+                ev.warn();
+                Vec::new()
+            }
+        };
         db.seed_catalog_apps_if_empty(&seed_items)
     }
 

@@ -376,7 +376,7 @@ pub fn save_custom_app(
     let canonical = crate::db::custom_apps::validate_custom_item(
         &item,
         ValidateMode::DraftLenient,
-        &LicenseGateConfig::default(),
+        &crate::db::custom_apps::resolve_license_gate(),
     )
     .map_err(crate::AppError::new)?;
     let mut normalized = item;

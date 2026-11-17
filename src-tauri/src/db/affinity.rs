@@ -405,12 +405,12 @@ impl Database {
             )?);
         }
         for (id, mut brief) in rows {
-            if crate::github::detail_fetch::is_placeholder_description(&brief.description) {
+            if crate::github::models::is_placeholder_description(&brief.description) {
                 brief.description.clear();
             }
             brief.description_en = brief
                 .description_en
-                .filter(|en| !crate::github::detail_fetch::is_placeholder_description(en));
+                .filter(|en| !crate::github::models::is_placeholder_description(en));
             out.insert(id, brief);
         }
         Ok(out)

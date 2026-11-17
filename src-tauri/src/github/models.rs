@@ -2,6 +2,59 @@ use crate::models::{AppCore, AppSummary};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// 简介占位判断（未收录仓 external_synth / search 回退占位）。
+/// 空白视为占位（前端渲染兜底）；命中任一已知占位子串或整串 `no description` 即视为占位。
+/// 已收录仓人工精校简介优先，调用方需以 `catalog_item.is_none()` 门控后再回填。
+pub(crate) fn is_placeholder_description(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() {
+        return true;
+    }
+    const PLACEHOLDERS: &[&str] = &[
+        "GitHub 社区开源项目",
+        "开源软件项目",
+        "跨平台开源项目",
+        "暂无简介",
+        "暂无描述",
+    ];
+    if PLACEHOLDERS.iter().any(|p| t.contains(p)) {
+        return true;
+    }
+    t.eq_ignore_ascii_case("no description")
+        || t.to_ascii_lowercase().contains("no description available")
+}
+
+/// 版本号占位判断：空串、`...` 或 `latest`（大小写不敏感）。
+pub(crate) fn is_placeholder_version(v: &str) -> bool {
+    let t = v.trim();
+    t.is_empty() || t == "..." || t.eq_ignore_ascii_case("latest")
+}
+
+/// GitHub 仓库 `license` 对象 → 协议名：优先非 `NOASSERTION` 的 `spdx_id`，
+/// 否则 `key` 大小写不敏感命中 `DEFAULT_LICENSE_ALLOWLIST` 时取名单内规范写法。
+pub(crate) fn resolve_repo_license(spdx_id: Option<&str>, key: Option<&str>) -> Option<String> {
+    if let Some(spdx) = spdx_id.map(str::trim) {
+        if !spdx.is_empty() && !spdx.eq_ignore_ascii_case("NOASSERTION") {
+            return Some(spdx.to_string());
+        }
+    }
+    let key = key?.trim();
+    crate::config::DEFAULT_LICENSE_ALLOWLIST
+        .iter()
+        .find(|allowed| allowed.eq_ignore_ascii_case(key))
+        .map(|matched| matched.to_string())
+}
+
+/// 开源协议占位判断：空串、`...`、`unknown`、`NOASSERTION` 或 `OpenSource`（大小写不敏感）。
+pub(crate) fn is_placeholder_license(l: &str) -> bool {
+    let t = l.trim();
+    t.is_empty()
+        || t == "..."
+        || t.eq_ignore_ascii_case("unknown")
+        || t.eq_ignore_ascii_case("noassertion")
+        || t.eq_ignore_ascii_case("opensource")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogItem {
     pub id: String,
@@ -205,16 +258,14 @@ impl CatalogItem {
         }
     }
 
-    /// 判定版本号是否为非空且非 `"latest"` 占位的真实版本号。
+    /// 判定版本号是否为真实版本号（非 [`is_placeholder_version`] 占位）。
     pub(crate) fn is_concrete_version(v: &str) -> bool {
-        let t = v.trim();
-        !t.is_empty() && !t.eq_ignore_ascii_case("latest")
+        !is_placeholder_version(v)
     }
 
-    /// 判定开源协议是否为非空且非 `"unknown"` / `"opensource"` 占位的真实协议。
+    /// 判定开源协议是否为真实协议（非 [`is_placeholder_license`] 占位）。
     pub(crate) fn is_concrete_license(l: &str) -> bool {
-        let t = l.trim();
-        !t.is_empty() && !t.eq_ignore_ascii_case("unknown") && !t.eq_ignore_ascii_case("opensource")
+        !is_placeholder_license(l)
     }
 
     /// 判定图标是否为远端 `http(s)://` URL（排除空串与 `data:`）。
@@ -365,6 +416,76 @@ pub struct AppRepoCoordinates {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn placeholder_description_covers_known_markers() {
+        for p in [
+            "",
+            "   ",
+            "GitHub 社区开源项目",
+            "跨平台开源项目（extra）",
+            "No description available",
+            "no description available here",
+            "No Description",
+            " no description ",
+        ] {
+            assert!(is_placeholder_description(p), "{p:?}");
+        }
+        for real in [
+            "Real repo description",
+            "树莓派工具",
+            "no description needed tool",
+        ] {
+            assert!(!is_placeholder_description(real), "{real:?}");
+        }
+    }
+
+    #[test]
+    fn placeholder_version_and_concrete_version_are_complements() {
+        for p in ["", "  ", "...", "latest", "LATEST"] {
+            assert!(is_placeholder_version(p), "{p:?}");
+            assert!(!CatalogItem::is_concrete_version(p), "{p:?}");
+        }
+        for v in ["v1.2.3", "1.0", "latest-beta"] {
+            assert!(!is_placeholder_version(v), "{v:?}");
+            assert!(CatalogItem::is_concrete_version(v), "{v:?}");
+        }
+    }
+
+    #[test]
+    fn resolve_repo_license_prefers_spdx_then_allowlisted_key() {
+        assert_eq!(
+            resolve_repo_license(Some(" MIT "), Some("apache-2.0")).as_deref(),
+            Some("MIT")
+        );
+        assert_eq!(
+            resolve_repo_license(Some("NOASSERTION"), Some("mit")).as_deref(),
+            Some("MIT")
+        );
+        assert_eq!(resolve_repo_license(None, Some("other")), None);
+        assert_eq!(resolve_repo_license(Some(""), None), None);
+    }
+
+    #[test]
+    fn placeholder_license_and_concrete_license_are_complements() {
+        for p in [
+            "",
+            " ",
+            "...",
+            "unknown",
+            "Unknown",
+            "NOASSERTION",
+            "OpenSource",
+            "opensource",
+        ] {
+            assert!(is_placeholder_license(p), "{p:?}");
+            assert!(!CatalogItem::is_concrete_license(p), "{p:?}");
+        }
+        for l in ["MIT", "Apache-2.0", "GPL-3.0-or-later"] {
+            assert!(!is_placeholder_license(l), "{l:?}");
+            assert!(CatalogItem::is_concrete_license(l), "{l:?}");
+        }
+    }
 
     fn dummy_item(platforms: Vec<String>) -> CatalogItem {
         // 构造字段顺序与 CatalogItem 定义（catalog.json 磁盘顺序）对齐，行为不变。

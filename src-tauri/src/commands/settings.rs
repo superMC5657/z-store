@@ -46,11 +46,32 @@ fn get_default_settings() -> HashMap<String, String> {
     map
 }
 
-/// 设置键白名单 = `get_default_settings` 键集：`save_setting` 只接受这些键、
+/// 设置键白名单，与 `get_default_settings` 键集一致（单测锁定）：`save_setting` 只接受这些键、
 /// `get_settings` 只回传这些键；OAuth 令牌/用户键由 oauth 模块专用命令经独立路径
 /// 读写，永不经通用设置 IPC 面进出（XSS 一发 IPC 拿不到凭据，也不能借设置面覆写）。
+const MANAGED_SETTING_KEYS: &[&str] = &[
+    "theme",
+    "language",
+    "ui_scale",
+    "font_size",
+    "portable_dir",
+    "download_dir",
+    "active_mirror",
+    "launch_on_startup",
+    "update_frequency",
+    "detail_cache_ttl_minutes",
+    "asset_cache_max_mb",
+    "asset_cache_max_files",
+    "catalog_source_url",
+    "watch_notify_frequency",
+    "show_custom",
+    "enable_local_affinity",
+    "enable_github_affinity",
+    "strict_errors",
+];
+
 fn is_managed_setting_key(key: &str) -> bool {
-    get_default_settings().contains_key(key)
+    MANAGED_SETTING_KEYS.contains(&key)
 }
 
 #[tauri::command]
@@ -200,7 +221,9 @@ pub async fn select_folder(
 
 #[cfg(test)]
 mod setting_gate_tests {
-    use super::{is_managed_setting_key, validate_setting_value};
+    use super::{
+        get_default_settings, is_managed_setting_key, validate_setting_value, MANAGED_SETTING_KEYS,
+    };
 
     #[test]
     fn active_mirror_via_save_setting_requires_https() {
@@ -285,6 +308,16 @@ mod setting_gate_tests {
         ] {
             assert!(is_managed_setting_key(key), "{} 应当在白名单内", key);
         }
+    }
+
+    #[test]
+    fn managed_keys_match_default_settings_exactly() {
+        use std::collections::BTreeSet;
+        let defaults = get_default_settings();
+        let from_defaults: BTreeSet<&str> = defaults.keys().map(String::as_str).collect();
+        let managed: BTreeSet<&str> = MANAGED_SETTING_KEYS.iter().copied().collect();
+        assert_eq!(managed.len(), MANAGED_SETTING_KEYS.len(), "白名单含重复键");
+        assert_eq!(managed, from_defaults);
     }
 
     #[test]

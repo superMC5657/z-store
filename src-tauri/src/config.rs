@@ -469,10 +469,9 @@ const _: () = assert!(
     "license_gate.allowed 为空/非法，请填OSI名单或显式 enabled=false"
 );
 
-/// 归一口径与 `db::custom_apps::normalize_license` 一致：
+/// 协议名归一（纯函数，门禁名单比对与嵌入配置校验共用）：
 /// 去空白 → 大写 → 空格/下划线折 `-` → 尾 `+` 视为或后续版本。
-/// 校验侧只用它判空（有效条目即归一后非空），名单命中比对仍走校验侧。
-fn normalize_license_token(raw: &str) -> String {
+pub(crate) fn normalize_license_token(raw: &str) -> String {
     let mut s = raw.trim().to_ascii_uppercase().replace([' ', '_'], "-");
     if s.ends_with('+') {
         s.pop();
@@ -711,6 +710,19 @@ pub(crate) fn api_timeout_or(fallback: std::time::Duration) -> std::time::Durati
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalize_license_token_folds_case_space_and_plus() {
+        assert_eq!(normalize_license_token(" mit "), "MIT");
+        assert_eq!(normalize_license_token("apache 2.0"), "APACHE-2.0");
+        assert_eq!(normalize_license_token("gpl_3.0"), "GPL-3.0");
+        assert_eq!(normalize_license_token("GPL-2.0+"), "GPL-2.0-OR-LATER");
+        assert_eq!(
+            normalize_license_token("GPL-2.0-or-later+"),
+            "GPL-2.0-OR-LATER"
+        );
+        assert_eq!(normalize_license_token("   "), "");
+    }
 
     #[test]
     fn test_embedded_config_parses_successfully() {

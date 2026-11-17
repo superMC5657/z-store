@@ -250,7 +250,7 @@ pub fn get_home_feed(
     offset: usize,
     seed: Option<u64>,
     strategy: Option<String>,
-) -> Result<FeedPage, String> {
+) -> crate::AppResult<FeedPage> {
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state)?;
     let filtered: Vec<AppSummary> = state

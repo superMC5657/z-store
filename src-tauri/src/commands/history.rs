@@ -231,19 +231,18 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
 }
 
 /// 最近浏览简介占位后端根治：summary 占位简介回填 repo 真值，无真值置空。
-/// - 占位判定复用 `detail_fetch::is_placeholder_description`（含空串与已知占位子串）；
+/// - 占位判定复用 `models::is_placeholder_description`（含空串与已知占位子串）；
 /// - 真值来源为 SQLite ETag repo payload 同步读（不触网），命中非占位真值即回填；
 /// - 无真值时占位转 `""`/`Some("")`，前端走“暂无简介”渲染而不显示占位文案；
 ///   `""` 仍被前端 `needDesc` 视为待治愈，可由富卡 enrich 快照二次治愈；
 /// - 非占位（已收录人工简介等）原样保留。
 fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
-    let need_desc =
-        crate::github::detail_fetch::is_placeholder_description(&summary.core.description);
+    let need_desc = crate::github::models::is_placeholder_description(&summary.core.description);
     let need_en = summary
         .core
         .description_en
         .as_deref()
-        .map(crate::github::detail_fetch::is_placeholder_description)
+        .map(crate::github::models::is_placeholder_description)
         .unwrap_or(false);
     if !need_desc && !need_en {
         return;

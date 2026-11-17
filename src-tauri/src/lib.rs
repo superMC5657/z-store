@@ -436,8 +436,11 @@ pub fn run() {
                 strict_errors,
                 db_mode,
             });
-            if db_fallback_err.is_some() {
-                log::error!(target: "app", "db open failed fallback to in-memory");
+            if let Some(reason) = db_fallback_err {
+                let mut ev = z_log::WideEvent::new("app", "db open failed fallback to in-memory");
+                ev.field("db_mode", db_mode)
+                    .field("reason", crate::log_support::short_reason(&reason));
+                ev.error();
             }
             for warn_msg in crate::config::take_startup_warnings() {
                 log::warn!(target: "app", "{}", warn_msg);

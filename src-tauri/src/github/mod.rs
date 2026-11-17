@@ -36,6 +36,27 @@ pub const GITHUB_STARRED_MAX_PAGE_SIZE: usize = 100;
 /// `api_etag_cache` 表中既有 `https://api.github.com/...` 键一致）。
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
 
+/// GitHub `/repos/{owner}/{repo}` 端点（`api_etag_cache` 键）。`owner`/`repo` 段一律
+/// percent-encoding，所有调用点共用以保证缓存键与请求 URL 同形。
+pub fn github_repo_endpoint(owner: &str, repo: &str) -> String {
+    format!(
+        "{}/repos/{}/{}",
+        GITHUB_API_BASE,
+        urlencoding::encode(owner),
+        urlencoding::encode(repo)
+    )
+}
+
+/// GitHub `/repos/{owner}/{repo}/releases/latest` 端点（编码口径同 [`github_repo_endpoint`]）。
+pub fn github_latest_release_endpoint(owner: &str, repo: &str) -> String {
+    format!("{}/releases/latest", github_repo_endpoint(owner, repo))
+}
+
+/// GitHub `/repos/{owner}/{repo}/readme` 端点（编码口径同 [`github_repo_endpoint`]）。
+pub fn github_readme_endpoint(owner: &str, repo: &str) -> String {
+    format!("{}/readme", github_repo_endpoint(owner, repo))
+}
+
 pub struct CatalogService {
     /// 远端精选目录与本地收录 overlay（`custom_apps` 中 collected 系/`submitted` 且未归档行）
     /// 的带索引存储；同一把锁保证两侧与派生缓存（IDF、别名）一致。

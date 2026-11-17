@@ -1,6 +1,8 @@
 use super::detail_assets::is_valid_installer_asset;
 use crate::github::developer_profile::EtagGetOutcome;
-use crate::github::models::{CatalogItem, GitHubAssetResponse, GitHubRepoResponse};
+use crate::github::models::{
+    is_placeholder_description, CatalogItem, GitHubAssetResponse, GitHubRepoResponse,
+};
 use crate::github::CatalogService;
 use crate::models::{AppCore, AppDetail, ReleaseAsset};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
@@ -33,29 +35,6 @@ fn parse_repo_payload(payload: Option<&String>) -> Option<GitHubRepoResponse> {
     payload.and_then(|pl| serde_json::from_str::<GitHubRepoResponse>(pl).ok())
 }
 
-/// 详情简介占位判断（未收录仓 external_synth / search 回退占位）。
-/// 空白视为占位（前端渲染兜底）；命中任一已知占位子串即视为占位。
-/// 已收录仓人工精校简介优先，调用方需以 `catalog_item.is_none()` 门控后再回填。
-pub(crate) fn is_placeholder_description(s: &str) -> bool {
-    let t = s.trim();
-    if t.is_empty() {
-        return true;
-    }
-    const PLACEHOLDERS: &[&str] = &[
-        "GitHub 社区开源项目",
-        "开源软件项目",
-        "跨平台开源项目",
-        "暂无简介",
-        "暂无描述",
-        "No description available",
-    ];
-    if PLACEHOLDERS.iter().any(|p| t.contains(p)) {
-        return true;
-    }
-    // 英文占位大小写不敏感兜底
-    t.to_lowercase().contains("no description available")
-}
-
 /// 最近浏览简介占位后端根治共用：从 SQLite ETag 缓存读 repo 真简介（同步读，不触网）。
 /// - key 为 `https://api.github.com/repos/{owner}/{repo}`（原值 + 小写各试一次）；
 /// - payload 按 `GitHubRepoResponse.description` 解析，trim 后空或仍占位视为无真值；
@@ -70,16 +49,8 @@ pub(crate) fn repo_real_description_from_etag(
     if owner.is_empty() || repo.is_empty() {
         return None;
     }
-    let raw = format!(
-        "https://api.github.com/repos/{}/{}",
-        urlencoding::encode(owner),
-        urlencoding::encode(repo)
-    );
-    let lowered = format!(
-        "https://api.github.com/repos/{}/{}",
-        urlencoding::encode(&owner.to_lowercase()),
-        urlencoding::encode(&repo.to_lowercase())
-    );
+    let raw = crate::github::github_repo_endpoint(owner, repo);
+    let lowered = crate::github::github_repo_endpoint(&owner.to_lowercase(), &repo.to_lowercase());
     let mut urls = vec![raw];
     if !urls.contains(&lowered) {
         urls.push(lowered);
@@ -615,22 +586,7 @@ fn resolve_detail_stats(
         .filter(|l| CatalogItem::is_concrete_license(l))
         .map(str::to_string);
     let remote_license = repo_info.and_then(|r| r.license.as_ref()).and_then(|l| {
-        if let Some(ref spdx) = l.spdx_id {
-            let trimmed = spdx.trim();
-            if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("NOASSERTION") {
-                return Some(trimmed.to_string());
-            }
-        }
-        if let Some(ref key) = l.key {
-            let trimmed = key.trim();
-            if let Some(&matched) = crate::config::DEFAULT_LICENSE_ALLOWLIST
-                .iter()
-                .find(|&&allowed| allowed.eq_ignore_ascii_case(trimmed))
-            {
-                return Some(matched.to_string());
-            }
-        }
-        None
+        crate::github::models::resolve_repo_license(l.spdx_id.as_deref(), l.key.as_deref())
     });
     let license = curated_license
         .or(remote_license)
@@ -718,16 +674,8 @@ impl CatalogService {
         // header/client/log 经 github 内本地 helper。
         let base_headers = crate::github::http::token_headers(token);
 
-        let release_url = format!(
-            "https://api.github.com/repos/{}/{}/releases/latest",
-            urlencoding::encode(&owner),
-            urlencoding::encode(&repo)
-        );
-        let repo_url = format!(
-            "https://api.github.com/repos/{}/{}",
-            urlencoding::encode(&owner),
-            urlencoding::encode(&repo)
-        );
+        let release_url = crate::github::github_latest_release_endpoint(&owner, &repo);
+        let repo_url = crate::github::github_repo_endpoint(&owner, &repo);
         let ((release_outcome, rel_diag), (repo_info, repo_etag_write, repo_diag)) = tokio::join!(
             crate::github::http::get_with_etag_diag(
                 client,
@@ -841,11 +789,7 @@ impl CatalogService {
             .unwrap_or(false);
         let cached_readme = cached_detail.as_ref().map(|c| c.readme_markdown.clone());
 
-        let readme_url = format!(
-            "https://api.github.com/repos/{}/{}/readme",
-            urlencoding::encode(&owner),
-            urlencoding::encode(&repo)
-        );
+        let readme_url = crate::github::github_readme_endpoint(&owner, &repo);
         let mut readme_headers = base_headers.clone();
         readme_headers.insert(
             ACCEPT,
@@ -1145,16 +1089,6 @@ mod tests {
             Some(hash.as_str()),
             "{step} {reason:?}"
         );
-    }
-
-    #[test]
-    fn test_is_placeholder_description_covers_known_cases() {
-        assert!(super::is_placeholder_description(""));
-        assert!(super::is_placeholder_description("   "));
-        assert!(super::is_placeholder_description("GitHub 社区开源项目"));
-        assert!(super::is_placeholder_description("跨平台开源项目（extra）"));
-        assert!(!super::is_placeholder_description("Real repo description"));
-        assert!(!super::is_placeholder_description("树莓派工具"));
     }
 
     #[test]

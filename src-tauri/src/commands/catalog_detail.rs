@@ -35,7 +35,7 @@ pub async fn get_app_details(
     id: String,
     force_refresh: Option<bool>,
 ) -> crate::AppResult<AppDetail> {
-    Ok(get_app_details_impl(&state, id, force_refresh).await?)
+    get_app_details_impl(&state, id, force_refresh).await
 }
 
 /// 平台轻量回填（`get_platforms_lite`）：列表平台懒回填专用通道。
@@ -310,10 +310,7 @@ async fn platforms_lite_from_github(
             return Err(e.into());
         }
         let coords = state.catalog.get_repo_coordinates(&clean_id)?;
-        let ep = format!(
-            "https://api.github.com/repos/{}/{}/releases/latest",
-            coords.owner, coords.repo
-        );
+        let ep = crate::github::github_latest_release_endpoint(&coords.owner, &coords.repo);
         let (etag, payload) = state
             .db()?
             .get_etag_and_payload(&ep)
@@ -761,7 +758,7 @@ pub async fn get_app_details_impl(
     state: &AppState,
     id: String,
     force_refresh: Option<bool>,
-) -> Result<AppDetail, String> {
+) -> crate::AppResult<AppDetail> {
     // ADR-0010：入站 id 统一归一化为 canonical（小写 owner/repo / forge 前缀坐标）；未知标识直接拒绝
     let clean_id = crate::commands::require_app_id(&id)?;
     let is_force = force_refresh.unwrap_or(false);
@@ -782,12 +779,12 @@ pub async fn get_app_details_impl(
     // 2. 多源 forge lite 段（Codeberg/Gitea 等）：repo + latest release 合成。
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
-            return fetch_detail_from_forge(state, clean_id, coord, is_force, start).await;
+            return Ok(fetch_detail_from_forge(state, clean_id, coord, is_force, start).await?);
         }
     }
 
     // 3. GitHub full 段：ETag 条件请求 + repo/README/平台/Checksum 全量组装落库。
-    fetch_detail_from_github(state, &clean_id, is_force, start).await
+    Ok(fetch_detail_from_github(state, &clean_id, is_force, start).await?)
 }
 
 /// 将非空平台补写进目录库（精选库与活跃本地库），任一落库成功即同步刷新内存目录。
@@ -979,20 +976,9 @@ async fn fetch_detail_from_github(
                 return Err(e);
             }
         };
-        let ep = format!(
-            "https://api.github.com/repos/{}/{}/releases/latest",
-            coords.owner, coords.repo
-        );
-        let repo_ep = format!(
-            "https://api.github.com/repos/{}/{}",
-            urlencoding::encode(&coords.owner),
-            urlencoding::encode(&coords.repo)
-        );
-        let readme_ep = format!(
-            "https://api.github.com/repos/{}/{}/readme",
-            urlencoding::encode(&coords.owner),
-            urlencoding::encode(&coords.repo)
-        );
+        let ep = crate::github::github_latest_release_endpoint(&coords.owner, &coords.repo);
+        let repo_ep = crate::github::github_repo_endpoint(&coords.owner, &coords.repo);
+        let readme_ep = crate::github::github_readme_endpoint(&coords.owner, &coords.repo);
         let db = state.db()?;
         let cached_detail = if is_force {
             None
@@ -1153,14 +1139,13 @@ fn persist_github_detail(
         }
         if !should_skip_persist(detail.is_stale) {
             if state.catalog.get_catalog_item(clean_id).is_none() {
-                let need_desc = crate::github::detail_fetch::is_placeholder_description(
-                    &detail.core.description,
-                );
+                let need_desc =
+                    crate::github::models::is_placeholder_description(&detail.core.description);
                 let need_en = detail
                     .core
                     .description_en
                     .as_deref()
-                    .map(crate::github::detail_fetch::is_placeholder_description)
+                    .map(crate::github::models::is_placeholder_description)
                     .unwrap_or(false);
                 let need_en_missing = detail
                     .core

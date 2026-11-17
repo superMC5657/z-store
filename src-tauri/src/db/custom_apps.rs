@@ -34,25 +34,13 @@ pub struct CustomAppEntry {
 /// D1 纯粹开源：默认仅接受 OSI 认证开源协议（SPDX，大写归一后比对）。
 /// 名单一源于 `crate::config::DEFAULT_LICENSE_ALLOWLIST`（ADR-0018 可配）；
 /// 目录现存 `CC-BY-4.0`（非 OSI）、`NOASSERTION`/`Unknown` 默认一律拒绝。
-use crate::config::LicenseGateConfig;
+use crate::config::{normalize_license_token, LicenseGateConfig};
 
-/// 协议归一（纯函数）：去空白 → 大写 → 空格/下划线折 `-` → 尾 `+` 视为或后续版本。
-fn normalize_license(raw: &str) -> String {
-    let mut s = raw.trim().to_ascii_uppercase().replace([' ', '_'], "-");
-    if s.ends_with('+') {
-        s.pop();
-        if !s.ends_with("-OR-LATER") {
-            s.push_str("-OR-LATER");
-        }
-    }
-    s
-}
-
-/// 是否命中许可名单（ADR-0018）：两侧均经 `normalize_license` 归一后比对，
+/// 是否命中许可名单（ADR-0018）：两侧均经 `normalize_license_token` 归一后比对，
 /// config 子集大小写/空格形态同样命中。
 pub fn is_allowed_license(license: &str, allowed: &[String]) -> bool {
-    let norm = normalize_license(license);
-    allowed.iter().any(|a| normalize_license(a) == norm)
+    let norm = normalize_license_token(license);
+    allowed.iter().any(|a| normalize_license_token(a) == norm)
 }
 
 /// 门禁唯一源（编译时 config）：行为只由 `config.toml [license_gate]` 在编译发行时

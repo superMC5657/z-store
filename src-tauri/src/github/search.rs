@@ -57,22 +57,7 @@ struct OnlineRepoLicense {
 
 fn resolve_online_license(lic: Option<&OnlineRepoLicense>) -> Option<String> {
     let l = lic?;
-    if let Some(ref spdx) = l.spdx_id {
-        let trimmed = spdx.trim();
-        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("NOASSERTION") {
-            return Some(trimmed.to_string());
-        }
-    }
-    if let Some(ref key) = l.key {
-        let trimmed = key.trim();
-        if let Some(&matched) = crate::config::DEFAULT_LICENSE_ALLOWLIST
-            .iter()
-            .find(|&&allowed| allowed.eq_ignore_ascii_case(trimmed))
-        {
-            return Some(matched.to_string());
-        }
-    }
-    None
+    crate::github::models::resolve_repo_license(l.spdx_id.as_deref(), l.key.as_deref())
 }
 
 /// 仓库 JSON 私有标记：`private == true` 或 `visibility == "private"`。
@@ -400,11 +385,7 @@ impl CatalogService {
         let client = crate::shared_http_client();
         let headers = super::http::token_headers(token);
 
-        let url = format!(
-            "https://api.github.com/repos/{}/{}",
-            urlencoding::encode(owner),
-            urlencoding::encode(repo)
-        );
+        let url = crate::github::github_repo_endpoint(owner, repo);
 
         match super::http::get_with_etag(&client, &url, api_base, &headers, cached_etag.as_deref())
             .await

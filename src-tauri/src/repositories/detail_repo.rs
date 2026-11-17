@@ -179,11 +179,7 @@ fn repo_private_flag(db: &Database, core: &AppCore, etag_writes: &[EtagWrite]) -
     if !forge.eq_ignore_ascii_case("github") {
         return None;
     }
-    let url = format!(
-        "https://api.github.com/repos/{}/{}",
-        urlencoding::encode(core.owner.trim()),
-        urlencoding::encode(core.repo.trim())
-    );
+    let url = crate::github::github_repo_endpoint(core.owner.trim(), core.repo.trim());
     let fresh = etag_writes
         .iter()
         .find(|w| w.url.eq_ignore_ascii_case(&url))

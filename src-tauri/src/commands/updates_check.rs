@@ -77,10 +77,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         }
     };
 
-    let ep = format!(
-        "https://api.github.com/repos/{}/{}/releases/latest",
-        coords.owner, coords.repo
-    );
+    let ep = crate::github::github_latest_release_endpoint(&coords.owner, &coords.repo);
 
     // 手动刷新条件重验：跳过详情 Cache TTL 短路，但携带本地 ETag 发送 If-None-Match，
     // 远端 304 Not Modified 时零配额消耗从 cached_payload 恢复最新版本。
@@ -559,10 +556,7 @@ fn release_published_at_from_payload(payload: &str, version: &str) -> Option<i64
 /// 无载荷或非 GitHub 来源时为 None。
 fn cached_release_published_at(state: &AppState, app_id: &str, version: &str) -> Option<i64> {
     let coords = state.catalog.get_repo_coordinates(app_id).ok()?;
-    let ep = format!(
-        "https://api.github.com/repos/{}/{}/releases/latest",
-        coords.owner, coords.repo
-    );
+    let ep = crate::github::github_latest_release_endpoint(&coords.owner, &coords.repo);
     let payload = state.db().ok()?.get_cached_payload(&ep).ok().flatten()?;
     release_published_at_from_payload(&payload, version)
 }

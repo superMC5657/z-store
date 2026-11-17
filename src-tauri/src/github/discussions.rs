@@ -449,9 +449,9 @@ pub fn parse_graphql_discussion(data: &Value) -> Result<LaunchpadDiscussionDetai
     } else {
         thumbs_up(d)
     };
-    let comments = d.get("comments").cloned().unwrap_or(Value::Null);
-    let page = comments.get("pageInfo").cloned().unwrap_or(Value::Null);
-    let replies_total = sum_reply_totals(&comments);
+    let comments = d.get("comments").unwrap_or(&Value::Null);
+    let page = comments.get("pageInfo").unwrap_or(&Value::Null);
+    let replies_total = sum_reply_totals(comments);
     let locked = bool_field(d, "locked");
     Ok(LaunchpadDiscussionDetail {
         id: str_field(d, "id"),
@@ -472,8 +472,8 @@ pub fn parse_graphql_discussion(data: &Value) -> Result<LaunchpadDiscussionDetai
         viewer_can_upvote: can_upvote,
         viewer_can_comment: !locked,
         auth_required_for_write: false,
-        comments_total: u64_field(&comments, "totalCount").saturating_add(replies_total),
-        has_next_page: bool_field(&page, "hasNextPage"),
+        comments_total: u64_field(comments, "totalCount").saturating_add(replies_total),
+        has_next_page: bool_field(page, "hasNextPage"),
         end_cursor: page
             .get("endCursor")
             .and_then(|c| c.as_str())
@@ -568,7 +568,10 @@ pub fn parse_rest_discussion(
     }
     let raw_comments = comments_json
         .and_then(|t| serde_json::from_str::<Value>(t).ok())
-        .and_then(|v| v.as_array().cloned())
+        .and_then(|v| match v {
+            Value::Array(items) => Some(items),
+            _ => None,
+        })
         .unwrap_or_default();
     let raw_count = raw_comments.len() as u64;
     let to_comment = |c: &Value| LaunchpadDiscussionComment {
@@ -1133,13 +1136,13 @@ pub async fn fetch_pulse_batch_authed(
                     } else {
                         thumbs_up(d)
                     };
-                    let comments = d.get("comments").cloned().unwrap_or(Value::Null);
-                    let replies_sum = sum_reply_totals(&comments);
+                    let comments = d.get("comments").unwrap_or(&Value::Null);
+                    let replies_sum = sum_reply_totals(comments);
                     let id = str_field(d, "id");
                     (
                         (!id.is_empty()).then_some(id),
                         up,
-                        Some(u64_field(&comments, "totalCount").saturating_add(replies_sum)),
+                        Some(u64_field(comments, "totalCount").saturating_add(replies_sum)),
                         Some(mine),
                     )
                 }

@@ -236,7 +236,10 @@ async fn send_direct_first(
 /// `api.github.com`（`new` 榜 Search API）附带当前活跃 GitHub Token 并上报限流，
 /// 已登录用户计入自身的认证 Search 配额而非匿名配额；`github.com` HTML 与 doforce 永不携带凭据。
 #[tauri::command]
-pub async fn fetch_trends_text(state: State<'_, AppState>, url: String) -> Result<String, String> {
+pub async fn fetch_trends_text(
+    state: State<'_, AppState>,
+    url: String,
+) -> crate::AppResult<String> {
     let start = std::time::Instant::now();
     let parsed = check_trends_text_url(&url).inspect_err(|e| {
         let mut ev = crate::z_log::WideEvent::new("trends", "fetch rejected").with_started(start);
@@ -284,7 +287,7 @@ pub async fn fetch_trends_text(state: State<'_, AppState>, url: String) -> Resul
     let resp = match outcome {
         TrendSend::Timeout => {
             trends_warn_event("fetch timeout", &host, &path, via, start).warn();
-            return Err("trends: request timeout: timeout".to_string());
+            return Err(crate::AppError::new("trends: request timeout: timeout"));
         }
         TrendSend::Failed(e) => {
             let reason = crate::log_support::http_err_reason(&e);
@@ -297,9 +300,15 @@ pub async fn fetch_trends_text(state: State<'_, AppState>, url: String) -> Resul
             ev.field("reason", &reason);
             ev.warn();
             if e.is_timeout() {
-                return Err(format!("trends: request timeout: {}", reason));
+                return Err(crate::AppError::new(format!(
+                    "trends: request timeout: {}",
+                    reason
+                )));
             }
-            return Err(format!("trends: network error: {}", reason));
+            return Err(crate::AppError::new(format!(
+                "trends: network error: {}",
+                reason
+            )));
         }
         TrendSend::Resp(resp) => resp,
     };
@@ -326,21 +335,24 @@ pub async fn fetch_trends_text(state: State<'_, AppState>, url: String) -> Resul
             }
             ev.warn();
             return match (raw_retry_after.is_empty(), retry_after_ms_opt) {
-                (true, _) => Err("trends: upstream status 429".to_string()),
-                (false, Some(ms)) => Err(format!(
+                (true, _) => Err(crate::AppError::new("trends: upstream status 429")),
+                (false, Some(ms)) => Err(crate::AppError::new(format!(
                     "trends: upstream status 429 retry-after: {} retry_after_ms={}",
                     raw_retry_after, ms
-                )),
-                (false, None) => Err(format!(
+                ))),
+                (false, None) => Err(crate::AppError::new(format!(
                     "trends: upstream status 429 retry-after: {}",
                     raw_retry_after
-                )),
+                ))),
             };
         }
         let mut ev = trends_warn_event("fetch failed", &host, &path, via, start);
         ev.field("status", status.as_u16());
         ev.warn();
-        return Err(format!("trends: upstream status {}", status.as_u16()));
+        return Err(crate::AppError::new(format!(
+            "trends: upstream status {}",
+            status.as_u16()
+        )));
     }
     // 流式读取并截断至 2MB（D9 截断语义）：避免全量缓冲超大响应体，
     // 超限即停止读取并返回前 2MB（前端对截断 body 具备解析兜底）。
