@@ -10,7 +10,7 @@
 Discover trending tools, try fresh indie releases, and star or discuss them without leaving the app —<br>
 then let ZStore install, verify, and keep them updated for you.
 
-[![Release](https://img.shields.io/github/v/release/superMC5657/z-store?label=release&color=111111)](https://github.com/superMC5657/z-store/releases/latest) [![Stars](https://img.shields.io/github/stars/superMC5657/z-store?style=flat&color=111111)](https://github.com/superMC5657/z-store/stargazers) [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-111111)](LICENSE)<br>
+[![Release](https://img.shields.io/github/v/release/superMC5657/z-store?label=release&color=111111)](https://github.com/superMC5657/z-store/releases/latest) [![Stars](https://img.shields.io/github/stars/superMC5657/z-store?style=flat&color=111111)](https://github.com/superMC5657/z-store/stargazers) [![License](https://img.shields.io/badge/license-GPL--3.0--only-111111)](LICENSE)<br>
 ![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black) ![macOS](https://img.shields.io/badge/macOS_(source)-000000?logo=apple&logoColor=white)
 
 **[Download](https://z-store.app/en/download)** &nbsp;·&nbsp; **[Live Demo](https://z-store-demo.pages.dev)** &nbsp;·&nbsp; **[Docs](https://z-store.app/en/docs)** &nbsp;·&nbsp; **[Catalog](https://github.com/superMC5657/z-store-catalog)** &nbsp;·&nbsp; **[Launchpad](https://github.com/superMC5657/z-store-launchpad)** &nbsp;·&nbsp; **English** · [简体中文](README.zh-CN.md)
@@ -65,7 +65,7 @@ Built something useful with Vibe Coding and cut a release, but not sure how to r
 - **Launch with one Issue**: Open an Issue on [z-store-launchpad](https://github.com/superMC5657/z-store-launchpad) (public repo, OSI-approved license, installable release). Automated checks validate the repo and publish your card along with your one-line **Maker Note**.
 - **Engagement inside the app**: Users can read your note, upvote with `+1`, discuss via GitHub Discussions, **Star** the repo, and **Install** it — without leaving ZStore.
 - **Shareable deep links**: Every launch gets a `zstore://launchpad/owner/repo` link for your README or release notes.
-- **Spotlight, not ads**: Up to 4 Spotlight slots at the top follow the same open-source and release rules as everything else — no closed-source products, no ad networks, no tracking.
+- **Transparent Spotlight & sponsorships**: Up to 4 Spotlight slots at the top sustain the project through curated open-source highlights and clearly labeled developer-oriented commercial sponsorships. Sponsored entries are strictly isolated from the curated catalog and recommendation scoring, with no ad networks and no behavioral tracking.
 
 ### 3 · Installs and updates, handled
 
@@ -121,4 +121,7 @@ Architecture notes and design decisions (ADRs) live in [CONTEXT.md](CONTEXT.md),
 
 ## License
 
-Dual-licensed under [MIT](LICENSE) or [Apache-2.0](LICENSE), at your option.
+Licensed under the [GNU General Public License v3.0 only (`GPL-3.0-only`)](LICENSE).
+
+- **Commercial licensing**: Proprietary, OEM, or private enterprise distributions without `GPL-3.0-only` copyleft obligations are available under a separate commercial license (see [`NOTICE`](NOTICE) and [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+- **Trademarks**: The `ZStore` name and official icons are not licensed under the GPL; forks must use distinct branding.

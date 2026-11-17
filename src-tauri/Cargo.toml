@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Cross-platform open-source app store based on GitHub Releases"
 authors = ["superMC"]
 edition = "2021"
+license = "GPL-3.0-only"
 
 [lib]
 name = "zstore_lib"

@@ -10,7 +10,7 @@
 逛热门、淘新作，在应用里顺手 Star 和讨论——<br>
 找到之后，选包、校验、安装和更新也一并交给它。
 
-[![Release](https://img.shields.io/github/v/release/superMC5657/z-store?label=release&color=111111)](https://github.com/superMC5657/z-store/releases/latest) [![Stars](https://img.shields.io/github/stars/superMC5657/z-store?style=flat&color=111111)](https://github.com/superMC5657/z-store/stargazers) [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-111111)](LICENSE)<br>
+[![Release](https://img.shields.io/github/v/release/superMC5657/z-store?label=release&color=111111)](https://github.com/superMC5657/z-store/releases/latest) [![Stars](https://img.shields.io/github/stars/superMC5657/z-store?style=flat&color=111111)](https://github.com/superMC5657/z-store/stargazers) [![License](https://img.shields.io/badge/license-GPL--3.0--only-111111)](LICENSE)<br>
 ![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black) ![macOS](https://img.shields.io/badge/macOS_(源码编译)-000000?logo=apple&logoColor=white)
 
 **[下载](https://z-store.app/zh/download)** &nbsp;·&nbsp; **[在线体验](https://z-store-demo.pages.dev)** &nbsp;·&nbsp; **[文档](https://z-store.app/zh/docs)** &nbsp;·&nbsp; **[精选收录库](https://github.com/superMC5657/z-store-catalog)** &nbsp;·&nbsp; **[开源广场](https://github.com/superMC5657/z-store-launchpad)** &nbsp;·&nbsp; [English](README.md) · **简体中文**
@@ -65,7 +65,7 @@ ZStore 把这两头连在了一起，而且不依赖任何中心服务器：
 - **一个 Issue 免费上架**：在 [z-store-launchpad](https://github.com/superMC5657/z-store-launchpad) 按模板提交（要求公开仓库、OSI 认可的开源协议、可安装的 Release）。自动化检查通过并合入后立即上架，展示你的**作者自荐语**。
 - **应用内直接互动**：用户在 ZStore 里就能看介绍、点 `+1` 顶帖、通过 GitHub Discussions 提建议、点 **Star**，还能直接点**安装**试用。
 - **自带直达链接与徽章**：上架后自动生成 `zstore://launchpad/owner/repo` 深层链接，贴进项目 README 或发布帖，就能把读者直接带到你的应用卡片。
-- **没有广告的置顶位**：顶部最多 4 个**置顶推荐（Spotlight）**，同样只对公开开源且可安装的仓库开放，不接闭源软件和商业广告，客户端零埋点。
+- **克制透明的置顶赞助**：顶部最多 4 个**置顶推荐（Spotlight）**，用于支持项目长期维护——既展示优质开源新品，也接受经人工审核的开发者向商业赞助与广告（明确标注状态标签）。赞助位与精选收录库、搜索和推荐算法完全隔离，不接第三方广告联盟，客户端零埋点、零追踪。
 
 ### 3 · 安装和更新，顺手搞定
 
@@ -121,4 +121,7 @@ pnpm check
 
 ## 许可协议
 
-本项目采用 [MIT](LICENSE) 与 [Apache-2.0](LICENSE) 双协议授权，你可以任选其一。
+本项目源码基于 [GNU General Public License v3.0 only（`GPL-3.0-only`）](LICENSE) 开源。
+
+- **商业授权**：如需将 ZStore 用于闭源商业产品、OEM 预装或企业内网私有分发（豁免 GPLv3 开源传染义务），请联系作者获取商业双授权（详见 [`NOTICE`](NOTICE) 与 [`CONTRIBUTING.md`](CONTRIBUTING.md)）。
+- **商标声明**：`GPL-3.0-only` 仅授予代码著作权许可，不包含 `ZStore` 名称与官方图标的商标授权；基于源码修改分发的衍生版本须更换独立名称与图标。

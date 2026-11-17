@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-11-16
 - 关联：ADR-0006（多托管源 `ForgeProvider`）、ADR-0009（独立生态清单仓库）、ADR-0010（规范应用标识）、ADR-0018（开源协议门禁）、ADR-0020（OAuth 令牌边界）、ADR-0025（动态系统代理与资产缓存收敛；本 ADR 受控扩展其镜像回退范围）、ADR-0027（单仓富卡独立缓存表）
+- 修订：§2.2 的置顶边界已调整为允许 Launchpad 顶部 `Spotlight` 赞助位接入经审核的开发者向商业赞助与广告，仍与 `catalog_apps` / 推荐算法物理隔离且保持客户端零埋点。
 - 落地计划：`.scratch/feature-launchpad/`
 - 实现：`src-tauri/src/launchpad/`、`src-tauri/src/commands/launchpad.rs`、`src-tauri/src/github/discussions.rs`、`src-tauri/src/db/launchpad.rs`、`src-tauri/src/deeplink.rs`、`src-tauri/config.toml`、`src/views/LaunchpadView.tsx`、`src/views/LaunchpadView/`、`src/services/api/launchpad.ts`、`src/demo/handlers/launchpad.ts`；独立数据仓：`superMC5657/z-store-launchpad`（本地 `z:\web_workplace\z-store-launchpad`）
 
@@ -20,11 +21,12 @@
 - 未收录条目按 ADR-0027 非破坏写入 `repo_card_cache`（已收录跳过、`data:` 图标剥空），点击后复用 `AppDetailModal` + `ForgeProvider` 拉取 Release 与 README，安装仍走 SHA-256 校验与镜像通道。已转正进入目录的条目经 `CatalogService::stamp_summary` 透出收录态；未收录卡片提供「移入待收录」衔接转正流程。
 - 上游不可达、返回 429/5xx 或畸形数据时只降级广场视图：回退快照并置 `is_stale`，无快照时页内重试。
 
-### 2.2 D1 与置顶推荐的边界
+### 2.2 D1 与置顶赞助的边界
 
-- 置顶推荐（`Spotlight`）只向满足同等门槛的开源项目开放：公开仓库、37 项 OSI 协议白名单（与 `[license_gate]` 同源）、最新 Release 含可安装构建资产。闭源软件与异业广告不能入场。
-- 坑位上限 4 个。`pin_until` 双端过期守卫：数据仓每日工作流撤下到期置顶；客户端解析时对 `pin_until <= now` 的条目实时撤回「最新上架」流，并保证整页同一 `id` 只出现一次。
-- 置顶卡片恒带单色 `.status-tag`（`置顶推荐` / `Spotlight`），不使用彩色实心广告标；置顶不进入精选目录，也不参与个性化推荐打分。
+- 开源广场的免费普通上架流仍面向公开开源仓库、37 项 OSI 协议白名单（与 `[license_gate]` 同源）且含可安装构建资产的开源项目。
+- 顶部置顶推荐（`Spotlight`，坑位上限 4 个）为项目的商业赞助展示区：既可展示开源新品置顶，也可接入经维护者人工审核的开发者向商业赞助与广告，用于支持项目可持续维护。商业赞助不写入 `catalog_apps` / `custom_apps`，不参与首页与分类推荐打分，也不污染精选收录库的纯净性。
+- `pin_until` 双端过期守卫：数据仓每日工作流撤下到期置顶；客户端解析时对 `pin_until <= now` 的条目实时撤回「最新上架」流，并保证整页同一 `id` 只出现一次。
+- 置顶卡片恒带单色 `.status-tag`（`置顶推荐` / `Spotlight` 或赞助标识），保持 Linear 单色视觉克制，不使用彩色实心广告标、弹窗或强干扰广告形式。
 - 客户端零行为埋点：不采集、不上报曝光、点击、安装转化或赞助归因。
 
 ### 2.3 零重授权的 GitHub Discussions 混合通道
