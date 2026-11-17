@@ -312,12 +312,12 @@ pub async fn fetch_with_fallback(
     mirror_prefix: Option<&str>,
 ) -> Result<LaunchpadFetch, String> {
     let first = async {
-        fetch_once(primary, url, cached_etag)
-            .await
-            .map_err(|e| crate::github::catalog_service::MirrorPrimaryError {
+        fetch_once(primary, url, cached_etag).await.map_err(|e| {
+            crate::github::catalog_service::MirrorPrimaryError {
                 message: e.message,
                 retryable: e.retryable,
-            })
+            }
+        })
     };
     crate::github::catalog_service::fetch_with_mirror_fallback(
         first,

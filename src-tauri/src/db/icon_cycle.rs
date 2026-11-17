@@ -1,4 +1,4 @@
-use super::{dedup_clean_refs, clean, now_secs, Database};
+use super::{clean, dedup_clean_refs, now_secs, Database};
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
