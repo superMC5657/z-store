@@ -81,26 +81,32 @@ pub async fn install_app(
     .await?
     .into_result()?;
 
-    // 智能解析真实安装路径，避免存入临时安装包路径
-    let mut real_install_path = match kind {
-        crate::installer::AssetKind::PortableZip | crate::installer::AssetKind::PortableTarball => {
-            let app_dir = crate::installer::dirs_or_fallback_with_base(
-                &detail.core.id,
-                effective_portable_dir.as_deref(),
-            );
-            crate::scanner::AppScanner::resolve_executable_path(
-                Some(&app_dir.to_string_lossy()),
-                None,
-                &detail.core.repo,
-            )
-            .unwrap_or_else(|| app_dir.to_string_lossy().to_string())
-        }
-        _ => crate::scanner::AppScanner::resolve_installed_app_path(
-            &detail.core.name,
-            &detail.core.id,
-            Some(&detail.core.repo),
-        )
-        .unwrap_or_default(),
+    // 智能解析真实安装路径，避免存入临时安装包路径（注册表 / 跨盘符探测在阻塞线程池执行）
+    let (core_id, core_name, core_repo) = (
+        detail.core.id.clone(),
+        detail.core.name.clone(),
+        detail.core.repo.clone(),
+    );
+    let mut real_install_path = {
+        let (id, name, repo) = (core_id.clone(), core_name.clone(), core_repo.clone());
+        let kind = kind.clone();
+        let portable_dir = effective_portable_dir.clone();
+        super::installer_query::run_blocking(move || match kind {
+            crate::installer::AssetKind::PortableZip
+            | crate::installer::AssetKind::PortableTarball => {
+                let app_dir =
+                    crate::installer::dirs_or_fallback_with_base(&id, portable_dir.as_deref());
+                crate::scanner::AppScanner::resolve_executable_path(
+                    Some(&app_dir.to_string_lossy()),
+                    None,
+                    &repo,
+                )
+                .unwrap_or_else(|| app_dir.to_string_lossy().to_string())
+            }
+            _ => crate::scanner::AppScanner::resolve_installed_app_path(&name, &id, Some(&repo))
+                .unwrap_or_default(),
+        })
+        .await?
     };
 
     // 针对外部向导安装，若未立即捕获路径，进行短暂重试嗅探 (最多 5 次，每次 500ms)
@@ -110,11 +116,12 @@ pub async fn install_app(
     {
         for _ in 0..5 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            if let Some(p) = crate::scanner::AppScanner::resolve_installed_app_path(
-                &detail.core.name,
-                &detail.core.id,
-                Some(&detail.core.repo),
-            ) {
+            let (id, name, repo) = (core_id.clone(), core_name.clone(), core_repo.clone());
+            let found = super::installer_query::run_blocking(move || {
+                crate::scanner::AppScanner::resolve_installed_app_path(&name, &id, Some(&repo))
+            })
+            .await?;
+            if let Some(p) = found {
                 real_install_path = p;
                 break;
             }
@@ -179,8 +186,13 @@ pub async fn install_app(
         }
     }
 
-    let resolved_uninst =
-        resolve_uninstaller_command(&detail.core.name, &detail.core.id, &real_install_path, None);
+    let resolved_uninst = {
+        let (id, name, path) = (core_id, core_name, real_install_path.clone());
+        super::installer_query::run_blocking(move || {
+            resolve_uninstaller_command(&name, &id, &path, None)
+        })
+        .await?
+    };
 
     // 5. 写入本地 SQLite 持久化
     let installed_app = InstalledApp {

@@ -71,50 +71,104 @@ impl DetailRepository {
     /// DB-only 投影：`app_details` 子集转 `AppSummary`，叠加确认图标；
     /// 无详情行时回退 `repo_card_cache` 单仓富卡。
     pub fn cached_detail_summary(db: &Database, raw_id: &str) -> Option<AppSummary> {
+        let mut summary = Self::cached_detail_summary_without_icon(db, raw_id)?;
+        overlay_confirmed_icon(db, &mut summary);
+        Some(summary)
+    }
+
+    /// `cached_detail_summary` 的不叠加确认图标版本（调用方在锁外解析图标）。
+    pub fn cached_detail_summary_without_icon(db: &Database, raw_id: &str) -> Option<AppSummary> {
         let clean_id = crate::forge::canonical_app_id(raw_id)?;
-        let Some(mut detail) = db.get_app_detail(&clean_id, None).ok().flatten() else {
-            return Self::repo_card_summary(db, &clean_id);
+        match db.get_app_detail(&clean_id, None).ok().flatten() {
+            Some(detail) => Some(Self::detail_summary_without_icon(detail)),
+            None => Self::repo_card_summary_without_icon(db, &clean_id),
+        }
+    }
+
+    /// 批量版本（与入参对齐，不叠加确认图标）：`app_details` 与 `repo_card_cache` 各一次分片查询；
+    /// `card_fallback = false` 时不回退单仓富卡。
+    pub fn cached_detail_summaries_without_icon(
+        db: &Database,
+        raw_ids: &[String],
+        card_fallback: bool,
+    ) -> Vec<Option<AppSummary>> {
+        let canonical: Vec<Option<String>> = raw_ids
+            .iter()
+            .map(|raw| crate::forge::canonical_app_id(raw))
+            .collect();
+        let ids: Vec<String> = canonical.iter().flatten().cloned().collect();
+        let details = db
+            .get_app_detail_summaries_batch(&ids, true)
+            .unwrap_or_default();
+        let missing: Vec<String> = ids
+            .iter()
+            .filter(|id| !details.contains_key(*id))
+            .cloned()
+            .collect();
+        let cards = if card_fallback && !missing.is_empty() {
+            db.get_repo_card_snapshots_batch(&missing)
+                .unwrap_or_default()
+        } else {
+            Default::default()
         };
+        canonical
+            .into_iter()
+            .map(|id| {
+                let id = id?;
+                // 同 id 重复出现时详情行可再次投影（克隆），保持与单条查询一致。
+                if let Some(detail) = details.get(&id) {
+                    return Some(Self::detail_summary_without_icon(detail.clone()));
+                }
+                cards
+                    .get(&id)
+                    .and_then(|s| s.card.as_ref())
+                    .map(|c| c.summary.clone())
+            })
+            .collect()
+    }
+
+    /// `app_details` 行 → 摘要：资产重分类后的平台、`data:`/空图标置空、收录态标注缺席。
+    pub fn detail_summary_without_icon(mut detail: AppDetail) -> AppSummary {
         crate::github::detail_assets::heal_cached_detail(&mut detail, None);
-        let platforms = detail.core.platforms.clone();
         let icon_trimmed = detail.core.icon.trim();
-        let mut summary = AppSummary {
+        let icon = if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
+            String::new()
+        } else {
+            detail.core.icon.clone()
+        };
+        AppSummary {
             core: AppCore {
-                icon: if icon_trimmed.is_empty() || icon_trimmed.starts_with("data:") {
-                    String::new()
-                } else {
-                    detail.core.icon.clone()
-                },
-                platforms,
+                icon,
                 is_cataloged: None,
                 source: None,
                 status: None,
-                ..detail.core.clone()
+                ..detail.core
             },
-        };
-        if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-            db,
-            &summary.core.id,
-            &summary.core.owner,
-            &summary.core.repo,
-        ) {
-            summary.core.icon = ci;
         }
-        Some(summary)
     }
 
     /// DB-only 投影：`repo_card_cache` 完整卡片叠加确认图标（收录态标注缺席，由调用方盖章）。
     pub fn repo_card_summary(db: &Database, clean_id: &str) -> Option<AppSummary> {
-        let mut summary = db.get_repo_card(clean_id).ok().flatten()?.summary;
-        if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-            db,
-            &summary.core.id,
-            &summary.core.owner,
-            &summary.core.repo,
-        ) {
-            summary.core.icon = ci;
-        }
+        let mut summary = Self::repo_card_summary_without_icon(db, clean_id)?;
+        overlay_confirmed_icon(db, &mut summary);
         Some(summary)
+    }
+
+    /// `repo_card_summary` 的不叠加确认图标版本。
+    pub fn repo_card_summary_without_icon(db: &Database, clean_id: &str) -> Option<AppSummary> {
+        Some(db.get_repo_card(clean_id).ok().flatten()?.summary)
+    }
+}
+
+/// 确认图标覆盖（`Some` 才覆盖）。
+fn overlay_confirmed_icon(db: &Database, summary: &mut AppSummary) {
+    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
+        db,
+        &summary.core.id,
+        &summary.core.owner,
+        &summary.core.repo,
+    ) {
+        summary.core.icon = ci;
     }
 }
 

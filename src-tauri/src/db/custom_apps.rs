@@ -551,11 +551,15 @@ impl Database {
             return Ok(Vec::new());
         }
         let now = now_secs();
-        for id in &staged_ids {
-            self.exec_write(
-                "UPDATE custom_apps SET archived = 1, updated_at = ?1 WHERE id = ?2",
-                params![now, id],
-            )?;
+        for chunk in staged_ids.chunks(super::BATCH_CHUNK) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "UPDATE custom_apps SET archived = 1, updated_at = ? WHERE id IN ({placeholders})"
+            );
+            let mut values: Vec<rusqlite::types::Value> = Vec::with_capacity(chunk.len() + 1);
+            values.push(now.into());
+            values.extend(chunk.iter().cloned().map(rusqlite::types::Value::from));
+            self.exec_write_uncached(&sql, rusqlite::params_from_iter(values))?;
         }
         Ok(staged_ids)
     }

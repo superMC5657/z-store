@@ -26,8 +26,8 @@ pub use etag::API_ETAG_CACHE_MAX_ROWS;
 pub use icon_cycle::AppIconCycle;
 pub use launchpad::{LaunchpadDiscussionState, LaunchpadDiscussionUpsert};
 pub use repo_cards::{
-    RepoCardPlatformState, RepoCardUpsert, StoredRepoCard, REPO_CARD_CACHE_MAX_ROWS,
-    REPO_CARD_FRESH_TTL_SECS,
+    RepoCardPlatformState, RepoCardSnapshot, RepoCardUpsert, StoredRepoCard,
+    REPO_CARD_CACHE_MAX_ROWS, REPO_CARD_FRESH_TTL_SECS,
 };
 pub use settings::*;
 pub use update_results::UpdateCheckRow;
@@ -41,6 +41,12 @@ use std::path::Path;
 pub struct Database {
     pub(crate) conn: Connection,
 }
+
+/// 连接级预编译语句 LRU 容量：覆盖各 DAO 的静态高频 SQL；动态 `IN (...)` 语句走 `*_uncached` 不入缓存。
+const STATEMENT_CACHE_CAPACITY: usize = 256;
+
+/// 单批 `IN (...)` 查询的最大占位符数（低于 SQLite 默认上限 999）。
+pub(crate) const BATCH_CHUNK: usize = 400;
 
 /// 输入清洗唯一落点：去首尾空白（db 内统一使用，避免 trim() 散写）。
 #[inline]
@@ -77,7 +83,19 @@ pub(crate) fn now_secs() -> i64 {
 }
 
 impl Database {
+    /// 静态 SQL 查询：语句经 `prepare_cached` 复用（LRU 容量见 [`STATEMENT_CACHE_CAPACITY`]）。
     pub(crate) fn query_vec<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Vec<T>>
+    where
+        P: rusqlite::Params,
+        F: FnMut(&rusqlite::Row<'_>) -> Result<T>,
+    {
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let rows = stmt.query_map(params, f)?;
+        rows.collect()
+    }
+
+    /// 动态 SQL 查询（占位符个数随入参变化的 `IN (...)`）：不进语句缓存，避免挤出静态语句。
+    pub(crate) fn query_vec_uncached<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Vec<T>>
     where
         P: rusqlite::Params,
         F: FnMut(&rusqlite::Row<'_>) -> Result<T>,
@@ -85,6 +103,30 @@ impl Database {
         let mut stmt = self.conn.prepare(sql)?;
         let rows = stmt.query_map(params, f)?;
         rows.collect()
+    }
+
+    /// 按 [`BATCH_CHUNK`] 分片执行 `IN (...)` 查询：`sql_for` 接收占位符串（如 `?, ?, ?`）返回整句。
+    pub(crate) fn query_in_chunks<K, T, F>(
+        &self,
+        keys: &[K],
+        sql_for: impl Fn(&str) -> String,
+        mut f: F,
+    ) -> Result<Vec<T>>
+    where
+        K: rusqlite::ToSql,
+        F: FnMut(&rusqlite::Row<'_>) -> Result<T>,
+    {
+        let mut out = Vec::new();
+        for chunk in keys.chunks(BATCH_CHUNK) {
+            let placeholders = vec!["?"; chunk.len()].join(", ");
+            let sql = sql_for(&placeholders);
+            out.extend(self.query_vec_uncached(
+                &sql,
+                rusqlite::params_from_iter(chunk.iter()),
+                &mut f,
+            )?);
+        }
+        Ok(out)
     }
 
     /// 显式事务边界（Top1+2 写包事务化）：
@@ -112,13 +154,29 @@ impl Database {
         }
     }
 
-    /// 统一写入口：INSERT/UPDATE/DELETE/DDL 均走 `conn.execute`。
+    /// 统一写入口（静态 SQL）：INSERT/UPDATE/DELETE 经 `prepare_cached` 复用编译后的语句。
     pub(crate) fn exec_write<P: rusqlite::Params>(&self, sql: &str, params: P) -> Result<usize> {
+        self.conn.prepare_cached(sql)?.execute(params)
+    }
+
+    /// 动态 SQL 写入（占位符个数随入参变化的 `IN (...)`）：不进语句缓存。
+    pub(crate) fn exec_write_uncached<P: rusqlite::Params>(
+        &self,
+        sql: &str,
+        params: P,
+    ) -> Result<usize> {
         self.conn.execute(sql, params)
     }
 
     /// 历史裁剪唯一落点：白名单表名防注入，limit 为整数格式化（调用方需 `as u64` 传入配置值）。
+    /// 先比对行数，仅超限时才执行排序 + `NOT IN` 子查询删除（常态写入只付一次计数）。
     pub(crate) fn prune_history_table(&self, table: ValidatedTable, limit: u64) -> Result<()> {
+        let count: i64 = self
+            .query_scalar_opt(&format!("SELECT COUNT(*) FROM {}", table.table_name()), [])?
+            .unwrap_or(0);
+        if count.max(0) as u64 <= limit {
+            return Ok(());
+        }
         let sql = format!(
             "DELETE FROM {} WHERE id NOT IN (SELECT id FROM {} ORDER BY {} DESC, id DESC LIMIT {})",
             table.table_name(),
@@ -135,7 +193,7 @@ impl Database {
         T: rusqlite::types::FromSql,
         P: rusqlite::Params,
     {
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare_cached(sql)?;
         let mut rows = stmt.query(params)?;
         if let Some(row) = rows.next()? {
             Ok(Some(row.get(0)?))
@@ -145,7 +203,7 @@ impl Database {
     }
 
     pub fn record_exists<P: rusqlite::Params>(&self, sql: &str, params: P) -> Result<bool> {
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare_cached(sql)?;
         stmt.exists(params)
     }
 
@@ -156,6 +214,7 @@ impl Database {
              PRAGMA synchronous = NORMAL;
              PRAGMA busy_timeout = 5000;",
         );
+        conn.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         let db = Self { conn };
         db.init_schema()?;
         Ok(db)
@@ -163,6 +222,7 @@ impl Database {
 
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
+        conn.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         let db = Self { conn };
         db.init_schema()?;
         Ok(db)

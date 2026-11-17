@@ -1,6 +1,7 @@
 use super::{clean, now_secs, Database};
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppIconCycle {
@@ -18,6 +19,16 @@ pub struct AppIconCycle {
     pub updated_at: i64,
     /// 用户手动选择标记（手动轮换保护）：详情刷新只补备选槽，不改 level/selected_url。
     pub pinned: bool,
+}
+
+/// 去首尾空白、去空、去重（保序）。
+fn dedup_clean(keys: &[String]) -> Vec<String> {
+    let mut seen: HashSet<&str> = HashSet::with_capacity(keys.len());
+    keys.iter()
+        .map(|k| clean(k))
+        .filter(|k| !k.is_empty() && seen.insert(k))
+        .map(str::to_string)
+        .collect()
 }
 
 impl Default for AppIconCycle {
@@ -82,6 +93,27 @@ impl AppIconCycle {
     }
 }
 
+const SELECT_CYCLE_COLS: &str = "app_id, owner, repo, is_cataloged, level, \
+    l1_url, l2_url, l3_url, l4_url, selected_url, cache_file, updated_at, pinned";
+
+fn row_to_cycle(row: &rusqlite::Row<'_>) -> Result<AppIconCycle> {
+    Ok(AppIconCycle {
+        app_id: row.get(0)?,
+        owner: row.get(1)?,
+        repo: row.get(2)?,
+        is_cataloged: row.get::<_, i64>(3)? != 0,
+        level: row.get(4)?,
+        l1_url: row.get(5)?,
+        l2_url: row.get(6)?,
+        l3_url: row.get(7)?,
+        l4_url: row.get(8)?,
+        selected_url: row.get(9)?,
+        cache_file: row.get(10)?,
+        updated_at: row.get(11)?,
+        pinned: row.get::<_, i64>(12)? != 0,
+    })
+}
+
 impl Database {
     /// 查询指定 `app_id` 的图标轮换记录。
     pub fn get_icon_cycle(&self, app_id: &str) -> Result<Option<AppIconCycle>> {
@@ -89,40 +121,16 @@ impl Database {
         if cleaned.is_empty() {
             return Ok(None);
         }
-
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT
-                app_id, owner, repo, is_cataloged, level,
-                l1_url, l2_url, l3_url, l4_url,
-                selected_url, cache_file, updated_at, pinned
-            FROM app_icon_cycles
-            WHERE app_id = ?1
-            LIMIT 1
-            "#,
-        )?;
-        let mut rows = stmt.query(params![cleaned])?;
-        if let Some(row) = rows.next()? {
-            let is_cataloged_int: i64 = row.get(3)?;
-            let pinned_int: i64 = row.get(12)?;
-            Ok(Some(AppIconCycle {
-                app_id: row.get(0)?,
-                owner: row.get(1)?,
-                repo: row.get(2)?,
-                is_cataloged: is_cataloged_int != 0,
-                level: row.get(4)?,
-                l1_url: row.get(5)?,
-                l2_url: row.get(6)?,
-                l3_url: row.get(7)?,
-                l4_url: row.get(8)?,
-                selected_url: row.get(9)?,
-                cache_file: row.get(10)?,
-                updated_at: row.get(11)?,
-                pinned: pinned_int != 0,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(self
+            .query_vec(
+                &format!(
+                    "SELECT {SELECT_CYCLE_COLS} FROM app_icon_cycles WHERE app_id = ?1 LIMIT 1"
+                ),
+                params![cleaned],
+                row_to_cycle,
+            )?
+            .into_iter()
+            .next())
     }
 
     /// 根据 `owner` 与 `repo` 索引查找图标轮换记录。
@@ -132,40 +140,45 @@ impl Database {
         if o.is_empty() || r.is_empty() {
             return Ok(None);
         }
+        Ok(self
+            .query_vec(
+                &format!(
+                    "SELECT {SELECT_CYCLE_COLS} FROM app_icon_cycles WHERE owner = ?1 AND repo = ?2 LIMIT 1"
+                ),
+                params![o, r],
+                row_to_cycle,
+            )?
+            .into_iter()
+            .next())
+    }
 
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT
-                app_id, owner, repo, is_cataloged, level,
-                l1_url, l2_url, l3_url, l4_url,
-                selected_url, cache_file, updated_at, pinned
-            FROM app_icon_cycles
-            WHERE owner = ?1 AND repo = ?2
-            LIMIT 1
-            "#,
+    /// 按 `app_id` 精确批量读取（`IN (...)` 分片），返回按 `app_id` 索引的映射。
+    pub fn get_icon_cycles_batch(
+        &self,
+        app_ids: &[String],
+    ) -> Result<HashMap<String, AppIconCycle>> {
+        let keys = dedup_clean(app_ids);
+        let rows = self.query_in_chunks(
+            &keys,
+            |ph| format!("SELECT {SELECT_CYCLE_COLS} FROM app_icon_cycles WHERE app_id IN ({ph})"),
+            row_to_cycle,
         )?;
-        let mut rows = stmt.query(params![o, r])?;
-        if let Some(row) = rows.next()? {
-            let is_cataloged_int: i64 = row.get(3)?;
-            let pinned_int: i64 = row.get(12)?;
-            Ok(Some(AppIconCycle {
-                app_id: row.get(0)?,
-                owner: row.get(1)?,
-                repo: row.get(2)?,
-                is_cataloged: is_cataloged_int != 0,
-                level: row.get(4)?,
-                l1_url: row.get(5)?,
-                l2_url: row.get(6)?,
-                l3_url: row.get(7)?,
-                l4_url: row.get(8)?,
-                selected_url: row.get(9)?,
-                cache_file: row.get(10)?,
-                updated_at: row.get(11)?,
-                pinned: pinned_int != 0,
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(rows.into_iter().map(|c| (c.app_id.clone(), c)).collect())
+    }
+
+    /// 按 `owner` 批量读取（`IN (...)` 分片，走 `(owner, repo)` 索引前缀），供调用方在内存按
+    /// `(owner, repo)` 精确匹配；同一 `(owner, repo)` 多行时按 `rowid` 先到者为准。
+    pub fn get_icon_cycles_by_owners(&self, owners: &[String]) -> Result<Vec<AppIconCycle>> {
+        let keys = dedup_clean(owners);
+        self.query_in_chunks(
+            &keys,
+            |ph| {
+                format!(
+                    "SELECT {SELECT_CYCLE_COLS} FROM app_icon_cycles WHERE owner IN ({ph}) ORDER BY rowid"
+                )
+            },
+            row_to_cycle,
+        )
     }
 
     /// 插入或更新图标轮换记录，主键冲突走 `ON CONFLICT(app_id) DO UPDATE SET`。

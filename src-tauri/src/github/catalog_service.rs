@@ -851,7 +851,10 @@ impl CatalogService {
     ) -> Result<RemoteCatalogFetch, String> {
         let is_remote = url.starts_with("http://") || url.starts_with("https://");
         if !is_remote {
-            return fetch_local_catalog(url, cached_etag);
+            let (url, etag) = (url.to_string(), cached_etag.map(str::to_string));
+            return tokio::task::spawn_blocking(move || fetch_local_catalog(&url, etag.as_deref()))
+                .await
+                .map_err(|e| e.to_string())?;
         }
         let mirror = mirror_prefix.filter(|_| is_default_catalog_source(url));
         self.fetch_http_catalog(url, cached_etag, mirror).await
@@ -1628,7 +1631,10 @@ mod tests {
         assert_eq!(svc.count_remote_by_owner("local"), 0);
         assert!(svc.is_cataloged("acme/tool"));
         assert!(svc.is_cataloged("local/app"));
-        assert_eq!(svc.get_catalog_item("acme/tool").map(|i| i.description), Some("remote tool".to_string()));
+        assert_eq!(
+            svc.get_catalog_item("acme/tool").map(|i| i.description),
+            Some("remote tool".to_string())
+        );
 
         let merged = svc.merged_summaries();
         let ids: Vec<&str> = merged.iter().map(|s| s.core.id.as_str()).collect();

@@ -299,7 +299,7 @@ pub async fn check_for_updates(
     // 默认 DB-only 臂不写库（读经 `fetch_app_latest_version_lightweight` 判定行快径）。
     let is_force = force_refresh.unwrap_or(false);
     let check_start = std::time::Instant::now();
-    let installed = crate::commands::get_installed_apps(state.clone())?;
+    let installed = super::installer_query::load_installed_apps(&state).await?;
     let installed_ids: Vec<String> = installed.iter().map(|a| a.app_id.clone()).collect();
     // 规则读取失败必须中止：退化为空集会让已冻结/已跳过版本的应用误报更新。
     let rules_map: HashMap<String, UpdateRule> = {
@@ -468,25 +468,25 @@ pub async fn check_for_updates(
 ///   覆盖安装/导入未及时失效的缺口）；
 /// - 规则过滤与 `check_for_updates` 同口径（frozen 跳过、skip 版本跳过，经
 ///   `should_include_update` 重校验；hidden 不跳过，由前端各计数自行排除）；
-/// - 幽灵隐藏语义沿用 `get_installed_apps`（未安装/幽灵不行，`stale_passthrough` 不动）。
+/// - 纯 DB 只读：已安装版本取 `installed_apps` 库内行，不触发注册表重扫与路径修复
+///   （路径自愈、导入版本更正与幽灵隐藏由 `get_installed_apps` 负责，更正版本时同步重算判定行）；
+/// - 已安装列表、规则与判定行在同一次 `db` 临界区内读取。
 #[tauri::command]
 pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<UpdateItem>> {
-    let installed = crate::commands::get_installed_apps(state.clone())?;
+    let (installed, rules, rows) = {
+        let db = state.db()?;
+        let installed = db.get_installed_apps()?;
+        // 规则读取 fail-closed（与 `check_for_updates` 同口径）。
+        let rules = db.get_all_rules()?;
+        let rows = db.get_cached_updates().unwrap_or_default();
+        (installed, rules, rows)
+    };
     let installed_map: HashMap<String, String> = installed
         .into_iter()
-        .map(|a| (a.app_id.clone(), a.version.clone()))
+        .map(|a| (a.app_id, a.version))
         .collect();
-    // 规则读取 fail-closed（与 `check_for_updates` 同口径）。
-    let rules_map: HashMap<String, UpdateRule> = state
-        .db()?
-        .get_all_rules()?
-        .into_iter()
-        .map(|r| (r.app_id.clone(), r))
-        .collect();
-    let rows = state
-        .db()
-        .map(|db| db.get_cached_updates().unwrap_or_default())
-        .unwrap_or_default();
+    let rules_map: HashMap<String, UpdateRule> =
+        rules.into_iter().map(|r| (r.app_id.clone(), r)).collect();
     let mut out: Vec<UpdateItem> = Vec::with_capacity(rows.len());
     for mut item in rows {
         // 已卸载/幽灵不行。

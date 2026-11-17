@@ -315,11 +315,10 @@ pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem>
 
 /// 本地收录变更后的目录同步：重读 overlay（远端优先合并视图立即生效）
 /// 并回填收藏/关注收录标记（写时口径与启动回填同源）。
-fn sync_catalog_overlay(state: &AppState) {
-    if let Ok(db) = state.db() {
-        state.catalog.sync_collected_from_db(&db);
-    }
-    crate::commands::history::backfill_cataloged_flags(state);
+/// 调用方持有 `db` 锁：overlay 重读与标记回填复用同一临界区。
+fn sync_catalog_overlay(state: &AppState, db: &crate::db::Database) {
+    state.catalog.sync_collected_from_db(db);
+    crate::commands::history::backfill_cataloged_flags_in(db);
 }
 
 fn sync_custom_app_cache_and_cycle(db: &crate::db::Database, item: &CatalogItem) {
@@ -388,8 +387,7 @@ pub fn save_custom_app(
     if crate::db::custom_apps::is_local_library_status(&entry.status) {
         sync_custom_app_cache_and_cycle(&db, &entry.item);
     }
-    drop(db);
-    sync_catalog_overlay(&state);
+    sync_catalog_overlay(&state, &db);
     Ok(entry)
 }
 
@@ -403,8 +401,7 @@ pub fn delete_custom_app(state: State<'_, AppState>, id: String) -> crate::AppRe
     if hit {
         reset_custom_app_cycle_uncataloged(&db, &key);
     }
-    drop(db);
-    sync_catalog_overlay(&state);
+    sync_catalog_overlay(&state, &db);
     Ok(hit)
 }
 
@@ -422,8 +419,7 @@ pub fn collect_local_app(
     sync_custom_app_cache_and_cycle(&db, &entry.item);
     // 入本地库即视为已收录，单仓富卡旧行不再参与水合。
     let _ = db.purge_cataloged_repo_cards();
-    drop(db);
-    sync_catalog_overlay(&state);
+    sync_catalog_overlay(&state, &db);
     Ok(entry)
 }
 
@@ -438,8 +434,7 @@ pub fn revert_collected_to_draft(
     let db = state.db().map_err(crate::AppError::from)?;
     let entry = db.revert_collected_to_draft(&key)?;
     reset_custom_app_cycle_uncataloged(&db, &key);
-    drop(db);
-    sync_catalog_overlay(&state);
+    sync_catalog_overlay(&state, &db);
     Ok(entry)
 }
 
@@ -453,8 +448,7 @@ pub fn withdraw_submitted(
     let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
     let entry = db.withdraw_submitted(&key)?;
-    drop(db);
-    sync_catalog_overlay(&state);
+    sync_catalog_overlay(&state, &db);
     Ok(entry)
 }
 
@@ -475,8 +469,7 @@ pub fn mark_submitted(
         .ok_or_else(|| crate::AppError::new(format!("草稿不存在: {}", key)))?;
     ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
     let entry = db.mark_custom_app_submitted(&key, &pr_url)?;
-    drop(db);
-    sync_catalog_overlay(&state);
+    sync_catalog_overlay(&state, &db);
     Ok(entry)
 }
 

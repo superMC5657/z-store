@@ -53,16 +53,9 @@ impl CatalogRepository {
     }
 
     /// 全量校准收藏与关注记录的 `is_cataloged` 标记（零网络，单库口径）。
+    /// 只读取 `id` 列（不反序列化 JSON 载荷）；仅写入标记发生变化的行。
     pub fn backfill_cataloged_flags(db: &Database) -> Result<()> {
-        let remote = db.list_catalog_apps()?;
-        let local = db.list_local_library_items()?;
-        let mut cataloged_ids: HashSet<String> = HashSet::with_capacity(remote.len() + local.len());
-        for item in &remote {
-            cataloged_ids.insert(item.id.clone());
-        }
-        for item in &local {
-            cataloged_ids.insert(item.id.clone());
-        }
+        let cataloged_ids: HashSet<String> = db.list_cataloged_ids()?;
 
         let is_hit = |raw: &str| -> bool {
             crate::forge::canonical_app_id(raw)
@@ -70,11 +63,17 @@ impl CatalogRepository {
                 .unwrap_or(false)
         };
 
-        for id in &db.get_favorites()? {
-            db.set_favorite_cataloged(id, is_hit(id))?;
+        for f in &db.get_favorite_entries()? {
+            let hit = is_hit(&f.app_id);
+            if hit != f.is_cataloged {
+                db.set_favorite_cataloged(&f.app_id, hit)?;
+            }
         }
         for w in &db.get_watched_apps()? {
-            db.set_watched_cataloged(&w.app_id, is_hit(&w.app_id))?;
+            let hit = is_hit(&w.app_id);
+            if hit != w.is_cataloged {
+                db.set_watched_cataloged(&w.app_id, hit)?;
+            }
         }
         Ok(())
     }

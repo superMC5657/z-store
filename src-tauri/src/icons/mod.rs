@@ -1,6 +1,7 @@
 //! 统一图标深模块：探测（SimpleIcons / Git Trees / README）、图片嗅探、
 //! 轮换状态机（`AppIconCycle`）与本地磁盘缓存/LRU 持久化。
 
+mod confirmed;
 mod cycle;
 mod fetch;
 mod image_sniff;
@@ -11,6 +12,13 @@ mod singleflight;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub(crate) use confirmed::materialize_icons_inline;
+pub(crate) use confirmed::{
+    apply_icon_cache_heals, apply_icon_cache_heals_locked, materialize_icons_offloaded,
+    patch_core_icons, plan_pending_icons, ConfirmedIconPlan, DeferredIcon, IconCycleIndex,
+    IconPlanBatch, PendingIcon, ResolvedIcons,
+};
 pub use cycle::{
     adopt_probe_cache_file, apply_detail_icon_resolution, fill_probe_slot, first_available_level,
     hash_icon_filename, is_cycle_restore_fresh, is_fallback_for_level, is_icon_fresh,
@@ -520,35 +528,14 @@ pub(crate) fn resolve_confirmed_icon_from_db(
 ) -> Option<String> {
     let repo_ref = crate::forge::coord::RepoRef::new(owner, repo);
     let cycle = crate::forge::coord::lookup_case_insensitive(db, app_id, &repo_ref)?;
-
-    if cycle.level == 5 {
-        return None;
-    }
-
-    let selected = cycle.selected_url.trim();
-    if selected.is_empty() {
-        return None;
-    }
-
+    let plan = ConfirmedIconPlan::from_cycle(&cycle)?;
     let icons_dir = crate::get_app_data_dir().join("icons");
-    let cache_file = cycle.cache_file.trim();
-    if !cache_file.is_empty() {
-        let cache_path = icons_dir.join(cache_file);
-        if let Some(bytes) = read_valid_image_file(&cache_path) {
-            return Some(bytes_to_data_uri(&bytes));
-        }
-    }
-
     // 自愈查找：cache_file 为空或失效但磁盘已有 selected_url 哈希有效图时自动补齐并直出 M2 dataURI。
-    if let Some((bytes, fname)) = find_cached_icon_by_url(&icons_dir, selected) {
-        let _ = db.set_icon_cycle_selected(&cycle.app_id, cycle.level, selected, &fname);
-        return Some(bytes_to_data_uri(&bytes));
+    let (icon, heal) = confirmed::materialize_confirmed_icon(&icons_dir, &plan);
+    if let Some(h) = heal {
+        apply_icon_cache_heals(db, std::slice::from_ref(&h));
     }
-
-    if (1..=3).contains(&cycle.level) {
-        return Some(selected.to_string());
-    }
-    None
+    icon
 }
 
 /// 远端图标响应体上限：5 MiB（有界流式读取，超限中断）。

@@ -1,5 +1,6 @@
 use crate::models::{AppCore, AppSummary};
 use crate::AppState;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Manager, State};
 
@@ -181,48 +182,231 @@ pub(crate) fn hidden_rule_ids(
         .collect())
 }
 
-/// 未收录卡片回填：确认图标覆盖 → 待写 icon_cycle 构建 → 详情缓存 platforms join。
+/// 一批行的本地回填快照：已解析确认图标 + `app_icon_cycles` + `repo_card_cache` + `app_details` 摘要
+/// + `api_etag_cache`。加载阶段每表常数次分片查询；回填计算阶段零 SQL、零磁盘。
+#[derive(Default)]
+pub(crate) struct BackfillCtx {
+    cycles: crate::icons::IconCycleIndex,
+    icons: crate::icons::ResolvedIcons,
+    cards: HashMap<String, crate::db::RepoCardSnapshot>,
+    details: HashMap<String, crate::models::AppDetail>,
+    etags: HashMap<String, (String, String)>,
+}
+
+/// `BackfillCtx` 的预读键集合。
+#[derive(Default)]
+pub(crate) struct PrefetchKeys {
+    coords: Vec<(String, String, String)>,
+    ids: Vec<String>,
+    urls: Vec<String>,
+}
+
+impl PrefetchKeys {
+    /// 行自身：确认图标坐标、单仓富卡 / 详情 id 与 `releases/latest` 载荷端点。
+    fn add_item(&mut self, item: &AppSummary) {
+        let c = &item.core;
+        self.coords
+            .push((c.id.clone(), c.owner.clone(), c.repo.clone()));
+        self.ids.push(c.id.clone());
+        if let Some((exact, lower)) = release_latest_urls(item) {
+            self.urls.push(exact);
+            self.urls.push(lower);
+        }
+    }
+
+    /// 命中收录库的行：收录投影后的确认图标坐标。
+    fn add_curated(&mut self, catalog: &crate::github::CatalogService, item: &AppSummary) {
+        if let Some(cat) = catalog.get_catalog_item(&item.core.id) {
+            self.coords.push((cat.id, cat.owner, cat.repo));
+        }
+    }
+
+    /// 仓库坐标：确认图标、单仓富卡 / 详情 id；`with_endpoint` 时含 `/repos/{o}/{r}` 端点。
+    fn add_coord(&mut self, coord: &crate::icons::RepoCoord, with_endpoint: bool) {
+        self.coords
+            .push((coord.id.clone(), coord.owner.clone(), coord.repo.clone()));
+        self.ids.push(coord.id.clone());
+        if with_endpoint {
+            self.urls.push(repo_endpoint(&coord.owner, &coord.repo));
+        }
+    }
+}
+
+/// GitHub `/repos/{owner}/{repo}` 端点（`api_etag_cache` 键）。
+fn repo_endpoint(owner: &str, repo: &str) -> String {
+    format!(
+        "https://api.github.com/repos/{}/{}",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo)
+    )
+}
+
+/// `releases/latest` 端点的原大小写与小写形态（非 GitHub 源或坐标缺失为 `None`）。
+fn release_latest_urls(item: &AppSummary) -> Option<(String, String)> {
+    let is_github = item
+        .core
+        .forge
+        .as_deref()
+        .unwrap_or("github")
+        .eq_ignore_ascii_case("github");
+    let owner = item.core.owner.trim();
+    let repo = item.core.repo.trim();
+    if !is_github || owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    let exact = format!(
+        "https://api.github.com/repos/{}/{}/releases/latest",
+        owner, repo
+    );
+    let lower = exact.to_lowercase();
+    Some((exact, lower))
+}
+
+impl BackfillCtx {
+    /// DB 阶段（持锁）：批量读各表并产出确认图标解析计划（`known` 中已解析的坐标不再规划）。
+    fn load(
+        db: &crate::db::Database,
+        keys: &PrefetchKeys,
+        known: Option<&crate::icons::ResolvedIcons>,
+    ) -> (Self, crate::icons::IconPlanBatch) {
+        let cycles = crate::icons::IconCycleIndex::load(db, &keys.coords);
+        let batch = crate::icons::IconPlanBatch::new(&cycles, &keys.coords, known);
+        let ctx = Self {
+            cards: db
+                .get_repo_card_snapshots_batch(&keys.ids)
+                .unwrap_or_default(),
+            details: db
+                .get_app_detail_summaries_batch(&keys.ids, false)
+                .unwrap_or_default(),
+            etags: db
+                .get_etags_and_payloads_batch(&keys.urls)
+                .unwrap_or_default(),
+            icons: known.cloned().unwrap_or_default(),
+            cycles,
+        };
+        (ctx, batch)
+    }
+
+    /// 持锁调用方的同步版本：图标磁盘阶段就地执行（单条或非批量入口）。
+    pub(crate) fn load_inline(
+        db: &crate::db::Database,
+        keys: &PrefetchKeys,
+        known: Option<&crate::icons::ResolvedIcons>,
+    ) -> Self {
+        let (mut ctx, batch) = Self::load(db, keys, known);
+        let (icons, heals) = batch.resolve_inline(&crate::get_app_data_dir().join("icons"));
+        crate::icons::apply_icon_cache_heals(db, &heals);
+        ctx.icons.extend(icons);
+        ctx
+    }
+
+    /// 已解析确认图标（`None`：无确认图标）。
+    fn confirmed_icon(&self, app_id: &str, owner: &str, repo: &str) -> Option<String> {
+        self.icons.get(app_id, owner, repo)
+    }
+
+    fn card(&self, raw_id: &str) -> Option<&crate::db::RepoCardSnapshot> {
+        crate::forge::canonical_app_id(raw_id).and_then(|id| self.cards.get(&id))
+    }
+
+    fn detail(&self, app_id: &str) -> Option<&crate::models::AppDetail> {
+        self.details.get(app_id.trim())
+    }
+
+    fn etag(&self, url: &str) -> Option<String> {
+        self.etags.get(url).map(|(etag, _)| etag.clone())
+    }
+
+    fn payload(&self, url: &str) -> Option<String> {
+        self.etags.get(url).map(|(_, payload)| payload.clone())
+    }
+}
+
+/// 异步三段预读：短锁批量读表（`before_load` 在同一临界区内先执行，如落库新 ETag）→
+/// 释放锁后在阻塞线程池读图标文件并编码 → 仅有自愈认领时再取短锁回写 `cache_file`。
+async fn prefetch_backfill(
+    state: &AppState,
+    keys: &PrefetchKeys,
+    known: Option<&crate::icons::ResolvedIcons>,
+    before_load: impl FnOnce(&crate::db::Database),
+) -> BackfillCtx {
+    let loaded = match state.db() {
+        Ok(db) => {
+            before_load(&db);
+            Some(BackfillCtx::load(&db, keys, known))
+        }
+        Err(_) => None,
+    };
+    let Some((mut ctx, batch)) = loaded else {
+        return BackfillCtx::default();
+    };
+    let (icons, heals) = batch.resolve_offloaded().await;
+    crate::icons::apply_icon_cache_heals_locked(state, &heals);
+    ctx.icons.extend(icons);
+    ctx
+}
+
+/// 单个坐标的确认图标：短锁读 `app_icon_cycles`，释放锁后在阻塞线程池读图标文件。
+async fn resolve_confirmed_icon_offloaded(
+    state: &AppState,
+    app_id: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let mut keys = PrefetchKeys::default();
+    keys.coords
+        .push((app_id.to_string(), owner.to_string(), repo.to_string()));
+    prefetch_backfill(state, &keys, None, |_| {})
+        .await
+        .confirmed_icon(app_id, owner, repo)
+}
+
+/// 未收录卡片回填：确认图标覆盖 → 待写 icon_cycle 构建 → 单仓富卡 / 详情缓存 / Release 载荷回填。
 /// level纯L，via正交：DB落盘命中为M2回填走via=m2不占level；远端只标L2/L3 live。
 /// level 经 `level_for_detail_icon` 判定入对应槽（2=品牌库，4=README 头部，3=仓库树），via正交：
 /// 返回 `Some(cycle)` 时由调用方收进 `staged` 批量落库；无事可写返回 `None`。
-/// 纯同步无 `await`（调用方单临界区内复用 db 锁，批量 upsert 仍在调用点）。
+/// 纯内存计算：全部本地数据来自 `ctx` 快照。
+fn backfill_uncataloged_card_in(
+    ctx: &BackfillCtx,
+    item: &mut AppSummary,
+) -> Option<crate::db::AppIconCycle> {
+    let staged =
+        if let Some(ci) = ctx.confirmed_icon(&item.core.id, &item.core.owner, &item.core.repo) {
+            item.core.icon = ci;
+            None
+        } else if !item.core.icon.trim().is_empty() {
+            // 05 首屏回填收敛到 merge（与流式 save_and_emit 同口径）：先读旧行再合并，
+            // 保留流式已攒槽位与 pinned 选择；level 经 level_for_detail_icon 判定入槽。
+            let icon = item.core.icon.trim().to_string();
+            let level = crate::icons::level_for_detail_icon(&icon);
+            let mut cycle = ctx.cycles.exact(&item.core.id).cloned().unwrap_or_else(|| {
+                crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo)
+            });
+            crate::icons::merge_detail_icon(&mut cycle, level, &icon, false, crate::now_secs());
+            Some(cycle)
+        } else {
+            None
+        };
+    backfill_from_repo_card(ctx, item);
+    // 全字段本地详情回填：只要 app_details 有该应用记录，
+    // 即经共享 `apply_detail_to_summary_core` 回填 platforms、真实版本、非占位描述、协议、主页与图标。
+    if let Some(cached) = ctx.detail(&item.core.id) {
+        crate::github::CatalogService::apply_detail_to_summary_core(&mut item.core, cached);
+    }
+    backfill_release_from_etag_cache(ctx, item);
+    staged
+}
+
+/// 单条回填（测试入口）：就地加载该行快照后回填。
+#[cfg(test)]
 fn backfill_uncataloged_card(
     db: &crate::db::Database,
     item: &mut AppSummary,
 ) -> Option<crate::db::AppIconCycle> {
-    let staged = if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-        db,
-        &item.core.id,
-        &item.core.owner,
-        &item.core.repo,
-    ) {
-        item.core.icon = ci;
-        None
-    } else if !item.core.icon.trim().is_empty() {
-        // 05 首屏回填收敛到 merge（与流式 save_and_emit 同口径）：先读旧行再合并，
-        // 保留流式已攒槽位与 pinned 选择；level 经 level_for_detail_icon 判定入槽。
-        let icon = item.core.icon.trim().to_string();
-        let level = crate::icons::level_for_detail_icon(&icon);
-        let mut cycle = db
-            .get_icon_cycle(&item.core.id)
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| {
-                crate::db::AppIconCycle::new(&item.core.id, &item.core.owner, &item.core.repo)
-            });
-        crate::icons::merge_detail_icon(&mut cycle, level, &icon, false, crate::now_secs());
-        Some(cycle)
-    } else {
-        None
-    };
-    backfill_from_repo_card(db, item);
-    // 全字段本地详情回填：只要 app_details 有该应用记录，
-    // 即经共享 `apply_detail_to_summary_core` 回填 platforms、真实版本、非占位描述、协议、主页与图标。
-    if let Ok(Some(cached)) = db.get_app_detail(&item.core.id, None) {
-        crate::github::CatalogService::apply_detail_to_summary_core(&mut item.core, &cached);
-    }
-    backfill_release_from_etag_cache(db, item);
-    staged
+    let mut keys = PrefetchKeys::default();
+    keys.add_item(item);
+    let ctx = BackfillCtx::load_inline(db, &keys, None);
+    backfill_uncataloged_card_in(&ctx, item)
 }
 
 fn is_placeholder_license(v: &str) -> bool {
@@ -235,49 +419,49 @@ fn is_placeholder_license(v: &str) -> bool {
 }
 
 /// 零网络单仓富卡回填：只补入站行的空缺或占位字段（平台、真实版本、简介、协议、主页、远端图标）；
-/// 平台与版本含 `get_platforms_lite` 预写的平台壳。
-fn backfill_from_repo_card(db: &crate::db::Database, item: &mut AppSummary) {
+/// 平台与版本含 `get_platforms_lite` 预写的平台壳。平台态与完整卡片取自同一行快照。
+fn backfill_from_repo_card(ctx: &BackfillCtx, item: &mut AppSummary) {
     let core = &mut item.core;
-    if let Ok(Some(state)) = db.get_repo_card_platform_state(&core.id) {
-        if core.platforms.is_empty() && !state.platforms.is_empty() {
-            core.platforms = state.platforms;
-        }
-        if is_placeholder_version(&core.latest_version)
-            && !is_placeholder_version(&state.latest_version)
-        {
-            core.latest_version = state.latest_version;
-        }
-    }
-    let Ok(Some(card)) = db.get_repo_card(&core.id) else {
+    let Some(snap) = ctx.card(&core.id) else {
         return;
     };
-    let c = card.summary.core;
+    let state = &snap.platform;
+    if core.platforms.is_empty() && !state.platforms.is_empty() {
+        core.platforms = state.platforms.clone();
+    }
+    if is_placeholder_version(&core.latest_version)
+        && !is_placeholder_version(&state.latest_version)
+    {
+        core.latest_version = state.latest_version.clone();
+    }
+    let Some(card) = &snap.card else {
+        return;
+    };
+    let c = &card.summary.core;
     let is_placeholder = crate::github::detail_fetch::is_placeholder_description;
     if is_placeholder(&core.description) && !c.description.trim().is_empty() {
-        core.description = c.description;
+        core.description = c.description.clone();
     }
     if core.description_en.as_deref().is_none_or(is_placeholder) && c.description_en.is_some() {
-        core.description_en = c.description_en;
+        core.description_en = c.description_en.clone();
     }
     if is_placeholder_license(&core.license) && !c.license.trim().is_empty() {
-        core.license = c.license;
+        core.license = c.license.clone();
     }
     if core.homepage.as_deref().is_none_or(|h| h.trim().is_empty()) && c.homepage.is_some() {
-        core.homepage = c.homepage;
+        core.homepage = c.homepage.clone();
     }
     if core.icon.trim().is_empty() && !c.icon.trim().is_empty() {
-        core.icon = c.icon;
+        core.icon = c.icon.clone();
     }
 }
 
 /// 回填后仍无平台且 `repo_card_cache` 已确认无可安装资产。
-fn repo_card_confirmed_other(db: &crate::db::Database, item: &AppSummary) -> bool {
+fn repo_card_confirmed_other(ctx: &BackfillCtx, item: &AppSummary) -> bool {
     item.core.platforms.is_empty()
-        && db
-            .get_repo_card_platform_state(&item.core.id)
-            .ok()
-            .flatten()
-            .is_some_and(|s| s.confirmed_other)
+        && ctx
+            .card(&item.core.id)
+            .is_some_and(|s| s.platform.confirmed_other)
 }
 
 /// 未收录行写入 `repo_card_cache` 的待写条目（已收录返回 `None`）。
@@ -297,9 +481,10 @@ fn stage_repo_card(
     })
 }
 
+/// 待写条目均经 `stage_repo_card` 按内存目录过滤，DAO 跳过已收录查表。
 fn flush_repo_cards(db: &crate::db::Database, staged: &[crate::db::RepoCardUpsert]) {
     if !staged.is_empty() {
-        let _ = db.upsert_repo_cards_batch(staged);
+        let _ = db.upsert_uncataloged_repo_cards_batch(staged);
     }
 }
 
@@ -313,33 +498,20 @@ fn is_placeholder_version(v: &str) -> bool {
 /// `get_platforms_lite` 落下的 `releases/latest` 载荷，推导平台并取 `tag_name`。
 /// `get_platforms_lite` 只写条件请求缓存、不写 `app_details`，因此重启后靠这里复原已知平台。
 /// 端点按原大小写与小写各查一次（收录坐标保留大小写，外部合成坐标为小写）。
-fn backfill_release_from_etag_cache(db: &crate::db::Database, item: &mut AppSummary) {
+fn backfill_release_from_etag_cache(ctx: &BackfillCtx, item: &mut AppSummary) {
     let need_platforms = item.core.platforms.is_empty();
     let need_version = is_placeholder_version(&item.core.latest_version);
     if !need_platforms && !need_version {
         return;
     }
-    let is_github = item
-        .core
-        .forge
-        .as_deref()
-        .unwrap_or("github")
-        .eq_ignore_ascii_case("github");
-    let owner = item.core.owner.trim();
-    let repo = item.core.repo.trim();
-    if !is_github || owner.is_empty() || repo.is_empty() {
+    let Some((exact, lower)) = release_latest_urls(item) else {
         return;
-    }
-    let exact = format!(
-        "https://api.github.com/repos/{}/{}/releases/latest",
-        owner, repo
-    );
-    let lower = exact.to_lowercase();
-    let payload = db.get_cached_payload(&exact).ok().flatten().or_else(|| {
+    };
+    let payload = ctx.payload(&exact).or_else(|| {
         if lower == exact {
             None
         } else {
-            db.get_cached_payload(&lower).ok().flatten()
+            ctx.payload(&lower)
         }
     });
     let Some(payload) = payload else {
@@ -364,8 +536,8 @@ fn backfill_release_from_etag_cache(db: &crate::db::Database, item: &mut AppSumm
 
 /// 搜索命中收录库时投影精选元数据（中文简介、官方图标、分类、预置平台），保留更新的远端 Star/Fork；
 /// 用户轮换过的确认图标优先。返回是否已投影（已投影行不走未收录回填）。
-fn project_curated_hit(
-    db: &crate::db::Database,
+fn project_curated_hit_in(
+    ctx: &BackfillCtx,
     catalog: &crate::github::CatalogService,
     item: &mut AppSummary,
 ) -> bool {
@@ -377,8 +549,7 @@ fn project_curated_hit(
     let mut projected = catalog.item_to_stamped_summary(&cat_item);
     projected.core.stars = stars;
     projected.core.forks = forks;
-    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-        db,
+    if let Some(ci) = ctx.confirmed_icon(
         &projected.core.id,
         &projected.core.owner,
         &projected.core.repo,
@@ -387,6 +558,18 @@ fn project_curated_hit(
     }
     *item = projected;
     true
+}
+
+#[cfg(test)]
+fn project_curated_hit(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    item: &mut AppSummary,
+) -> bool {
+    let mut keys = PrefetchKeys::default();
+    keys.add_curated(catalog, item);
+    let ctx = BackfillCtx::load_inline(db, &keys, None);
+    project_curated_hit_in(&ctx, catalog, item)
 }
 
 /// 单仓直查命中：卡片 + 平台已确认 Other + 私有标记。
@@ -410,41 +593,29 @@ async fn direct_github_lookup(
         owner: coord.owner.clone(),
         repo: coord.repo.clone(),
     };
-    let repo_url = format!(
-        "https://api.github.com/repos/{}/{}",
-        urlencoding::encode(&target.owner),
-        urlencoding::encode(&target.repo)
-    );
-    // 短锁预读（同步无 `await`）：确认图标、ETag、旧载荷与本地富卡命中，owned 值跨 `await`。
-    let (pre_confirmed, cached_etag, cached_payload, local_hit) = match state.db() {
-        Ok(db) => {
-            let pre = crate::icons::resolve_confirmed_icon_from_db(
-                &db,
-                &target.id,
-                &target.owner,
-                &target.repo,
-            );
-            let etag = if is_force {
-                None
-            } else {
-                db.get_etag(&repo_url).ok().flatten()
-            };
-            let payload = db.get_cached_payload(&repo_url).ok().flatten();
-            let hit = if is_force {
-                None
-            } else {
-                resolve_local_enrich_hit_sourced(
-                    &db,
-                    &state.catalog,
-                    &target,
-                    pre.as_deref(),
-                    payload.as_deref(),
-                    true,
-                )
-            };
-            (pre, etag, payload, hit)
-        }
-        Err(_) => (None, None, None, None),
+    let repo_url = repo_endpoint(&target.owner, &target.repo);
+    // 短锁预读（批量读表）→ 无锁读图标文件 → 本地富卡命中判定；owned 值跨 `await`。
+    let mut pre_keys = PrefetchKeys::default();
+    pre_keys.add_coord(&target, true);
+    let pre_ctx = prefetch_backfill(state, &pre_keys, None, |_| {}).await;
+    let pre_confirmed = pre_ctx.confirmed_icon(&target.id, &target.owner, &target.repo);
+    let cached_etag = if is_force {
+        None
+    } else {
+        pre_ctx.etag(&repo_url)
+    };
+    let cached_payload = pre_ctx.payload(&repo_url);
+    let local_hit = if is_force {
+        None
+    } else {
+        resolve_local_enrich_hit_in(
+            &pre_ctx,
+            &state.catalog,
+            &target,
+            pre_confirmed.as_deref(),
+            cached_payload.as_deref(),
+            true,
+        )
     };
     let from_repo_card = matches!(&local_hit, Some((_, LocalHitSource::RepoCard)));
     let (mut item, etag_write) = match local_hit {
@@ -471,27 +642,37 @@ async fn direct_github_lookup(
         .map(|(_, _, text)| text.as_str())
         .or(cached_payload.as_deref())
         .and_then(crate::github::search::repo_json_is_private);
-    let mut confirmed_other = false;
-    let mut card_private = false;
-    if let Ok(db) = state.db() {
+    let mut post_keys = PrefetchKeys::default();
+    post_keys.add_item(&item);
+    post_keys.add_curated(&state.catalog, &item);
+    let ctx = prefetch_backfill(state, &post_keys, Some(&pre_ctx.icons), |db| {
         if let Some((url, etag, text)) = &etag_write {
             let _ = db.save_etag(url, etag, text, crate::now_secs());
         }
-        if !project_curated_hit(&db, &state.catalog, &mut item) {
-            if let Some(cycle) = backfill_uncataloged_card(&db, &mut item) {
-                flush_icon_cycle_staged(&db, std::slice::from_ref(&cycle));
-            }
-            confirmed_other = repo_card_confirmed_other(&db, &item);
-            if from_repo_card {
-                card_private = db
-                    .get_repo_card(&item.core.id)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|c| c.is_private);
-            } else if let Some(up) =
-                stage_repo_card(&state.catalog, &item, confirmed_other, payload_private)
-            {
-                flush_repo_cards(&db, std::slice::from_ref(&up));
+    })
+    .await;
+    let mut confirmed_other = false;
+    let mut card_private = false;
+    if !project_curated_hit_in(&ctx, &state.catalog, &mut item) {
+        let cycle = backfill_uncataloged_card_in(&ctx, &mut item);
+        confirmed_other = repo_card_confirmed_other(&ctx, &item);
+        let staged_card = if from_repo_card {
+            card_private = ctx
+                .card(&item.core.id)
+                .and_then(|s| s.card.as_ref())
+                .is_some_and(|c| c.is_private);
+            None
+        } else {
+            stage_repo_card(&state.catalog, &item, confirmed_other, payload_private)
+        };
+        if cycle.is_some() || staged_card.is_some() {
+            if let Ok(db) = state.db() {
+                if let Some(cycle) = &cycle {
+                    flush_icon_cycle_staged(&db, std::slice::from_ref(cycle));
+                }
+                if let Some(up) = &staged_card {
+                    flush_repo_cards(&db, std::slice::from_ref(up));
+                }
             }
         }
     }
@@ -604,17 +785,10 @@ pub async fn search_apps_online(
                     .dev("force", is_force);
                 ev.info();
                 let app_id = coord.to_app_id();
-                let icon = if let Ok(db) = state.db() {
-                    crate::icons::resolve_confirmed_icon_from_db(
-                        &db,
-                        &app_id,
-                        &coord.owner,
-                        &coord.repo,
-                    )
-                    .unwrap_or_default()
-                } else {
-                    String::new()
-                };
+                let icon =
+                    resolve_confirmed_icon_offloaded(&state, &app_id, &coord.owner, &coord.repo)
+                        .await
+                        .unwrap_or_default();
                 let mut row = AppSummary {
                     core: AppCore {
                         id: app_id,
@@ -739,9 +913,14 @@ pub async fn search_apps_online(
         std::collections::HashSet::new();
     let mut results = fetched.summaries;
 
-    // 循环外一次取 `db` 锁复用（单临界区同步无 `await`）：ETag 落库/保鲜 + 收录投影 + 未收录回填，
-    // icon_cycle 写包事务化（`BEGIN IMMEDIATE` → N 条 → `COMMIT`，失败回退逐条）。
-    if let Ok(db) = state.db() {
+    // 整页批量预读（短锁，ETag 落库/保鲜同一临界区）→ 释放锁读图标文件 → 纯内存回填；
+    // icon_cycle 与单仓富卡写包各一次事务批量落库。
+    let mut keys = PrefetchKeys::default();
+    for item in &results {
+        keys.add_item(item);
+        keys.add_curated(&state.catalog, item);
+    }
+    let ctx = prefetch_backfill(&state, &keys, None, |db| {
         let now = crate::now_secs();
         if let Some((url, etag, text)) = &fetched.etag_write {
             let _ = db.save_etag(url, etag, text, now);
@@ -749,29 +928,41 @@ pub async fn search_apps_online(
         if let Some(url) = &fetched.touched_url {
             let _ = db.touch_etag(url, now);
         }
-        let mut staged: Vec<crate::db::AppIconCycle> = Vec::new();
-        let mut cards: Vec<crate::db::RepoCardUpsert> = Vec::new();
-        for item in &mut results {
-            if project_curated_hit(&db, &state.catalog, item) {
-                continue;
-            }
-            if let Some(cycle) = backfill_uncataloged_card(&db, item) {
-                staged.push(cycle);
-            }
-            let id = item.core.id.to_lowercase();
-            let confirmed_other = repo_card_confirmed_other(&db, item);
-            if confirmed_other {
-                confirmed_other_set.insert(id.clone());
-            }
-            let is_private = Some(private_set.contains(&id));
-            if let Some(up) = stage_repo_card(&state.catalog, item, confirmed_other, is_private) {
-                cards.push(up);
-            }
+    })
+    .await;
+    let mut staged: Vec<crate::db::AppIconCycle> = Vec::new();
+    let mut cards: Vec<crate::db::RepoCardUpsert> = Vec::new();
+    // 回填时已解析出确认图标的行（搜索对齐趋势：已确认不进后台补探 jobs）。
+    let mut has_confirmed: Vec<bool> = Vec::with_capacity(results.len());
+    for item in &mut results {
+        if project_curated_hit_in(&ctx, &state.catalog, item) {
+            has_confirmed.push(true);
+            continue;
         }
-        flush_icon_cycle_staged(&db, &staged);
-        // 回退旧载荷的 stale 结果不刷新单仓富卡新鲜度。
-        if !search_stale {
-            flush_repo_cards(&db, &cards);
+        has_confirmed.push(
+            ctx.confirmed_icon(&item.core.id, &item.core.owner, &item.core.repo)
+                .is_some(),
+        );
+        if let Some(cycle) = backfill_uncataloged_card_in(&ctx, item) {
+            staged.push(cycle);
+        }
+        let id = item.core.id.to_lowercase();
+        let confirmed_other = repo_card_confirmed_other(&ctx, item);
+        if confirmed_other {
+            confirmed_other_set.insert(id.clone());
+        }
+        let is_private = Some(private_set.contains(&id));
+        if let Some(up) = stage_repo_card(&state.catalog, item, confirmed_other, is_private) {
+            cards.push(up);
+        }
+    }
+    // 回退旧载荷的 stale 结果不刷新单仓富卡新鲜度。
+    if !search_stale || !staged.is_empty() {
+        if let Ok(db) = state.db() {
+            flush_icon_cycle_staged(&db, &staged);
+            if !search_stale {
+                flush_repo_cards(&db, &cards);
+            }
         }
     }
 
@@ -779,33 +970,15 @@ pub async fn search_apps_online(
     let probe_cap = crate::config::get_project_config()
         .limits
         .clamp_online_search_per_page(per_page);
-    // 搜索对齐趋势：已确认（`selected_url` 非空）不进 jobs，
-    // 复用 `icons::resolve_confirmed_icon_from_db` + `icons::icon_key`，
-    // 抄趋势 `filter pre.is_none()` 语义，省重复探。
-    let pre_confirmed: Vec<Option<String>> = if let Ok(db) = state.db() {
-        results
-            .iter()
-            .map(|item| {
-                crate::icons::resolve_confirmed_icon_from_db(
-                    &db,
-                    &crate::icons::icon_key(&item.core.owner, &item.core.repo),
-                    &item.core.owner,
-                    &item.core.repo,
-                )
-            })
-            .collect()
-    } else {
-        results.iter().map(|_| None).collect()
-    };
     let candidates: Vec<crate::icons::RepoCoord> = {
         // 本地收录同样视为已收录（目录模块统一判定）：跳过图标补探。
         results
             .iter()
-            .zip(pre_confirmed.iter())
-            .filter(|(item, pre)| {
+            .zip(has_confirmed.iter())
+            .filter(|(item, confirmed)| {
                 !state.catalog.is_cataloged(&item.core.id)
                     && !item.core.icon.contains("simpleicons.org")
-                    && pre.is_none()
+                    && !**confirmed
             })
             .take(probe_cap)
             .map(|(item, _)| crate::icons::RepoCoord {
@@ -934,21 +1107,6 @@ fn enrich_targets(repos: Vec<TrendEnrichRequest>) -> Vec<Option<crate::icons::Re
         .collect()
 }
 
-/// 趋势 enrich 确认图标短锁预解析：同步无 `await`，锁即取即放；
-/// fetch 内零查询零直连。`db=None`（锁失败）时全 `None`，回退兜底不 panic。
-fn enrich_pre_confirmed(
-    db: Option<&crate::db::Database>,
-    targets: &[crate::icons::RepoCoord],
-) -> Vec<Option<String>> {
-    match db {
-        Some(db) => targets
-            .iter()
-            .map(|t| crate::icons::resolve_confirmed_icon_from_db(db, &t.id, &t.owner, &t.repo))
-            .collect(),
-        None => targets.iter().map(|_| None).collect(),
-    }
-}
-
 struct EnrichBatchJob {
     coord: crate::icons::RepoCoord,
     pre: Option<String>,
@@ -966,8 +1124,7 @@ pub(crate) enum LocalHitSource {
     Payload,
 }
 
-/// 趋势 enrich 本地缓存优先解析（单锁同步，零网络）：
-/// 按顺序检查 `CatalogService`、新鲜 `repo_card_cache`、`app_details`（非占位描述）与 `api_etag_cache`。
+/// 趋势 enrich 本地缓存优先解析（零网络，测试入口：就地加载该坐标快照）。
 #[cfg(test)]
 pub(crate) fn resolve_local_enrich_hit(
     db: &crate::db::Database,
@@ -980,10 +1137,33 @@ pub(crate) fn resolve_local_enrich_hit(
         .map(|(summary, _)| summary)
 }
 
-/// `resolve_local_enrich_hit` 的带来源版本；`use_repo_card = false` 时跳过单仓富卡
-/// （Star 列表每页携带完整仓库 JSON，优先采用本次载荷）。
+#[cfg(test)]
 pub(crate) fn resolve_local_enrich_hit_sourced(
     db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    coord: &crate::icons::RepoCoord,
+    pre_icon: Option<&str>,
+    cached_payload: Option<&str>,
+    use_repo_card: bool,
+) -> Option<(AppSummary, LocalHitSource)> {
+    let mut keys = PrefetchKeys::default();
+    keys.add_coord(coord, false);
+    let ctx = BackfillCtx::load_inline(db, &keys, None);
+    resolve_local_enrich_hit_in(
+        &ctx,
+        catalog,
+        coord,
+        pre_icon,
+        cached_payload,
+        use_repo_card,
+    )
+}
+
+/// 本地缓存优先解析（纯内存，数据来自 `ctx` 快照）：按顺序检查 `CatalogService`、
+/// 新鲜 `repo_card_cache`、`app_details`（非占位描述）与仓库 JSON 载荷。
+/// `use_repo_card = false` 时跳过单仓富卡（Star 列表每页携带完整仓库 JSON，优先采用本次载荷）。
+fn resolve_local_enrich_hit_in(
+    ctx: &BackfillCtx,
     catalog: &crate::github::CatalogService,
     coord: &crate::icons::RepoCoord,
     pre_icon: Option<&str>,
@@ -999,10 +1179,10 @@ pub(crate) fn resolve_local_enrich_hit_sourced(
         return Some((summary, LocalHitSource::Catalog));
     }
     if use_repo_card {
-        if let Ok(Some(card)) = db.get_repo_card(&coord.id) {
+        if let Some(card) = ctx.card(&coord.id).and_then(|s| s.card.as_ref()) {
             let age = crate::now_secs().saturating_sub(card.updated_at);
             if (0..crate::db::REPO_CARD_FRESH_TTL_SECS).contains(&age) {
-                let mut summary = card.summary;
+                let mut summary = card.summary.clone();
                 if let Some(ci) = pre_icon {
                     summary.core.icon = ci.to_string();
                 }
@@ -1010,11 +1190,12 @@ pub(crate) fn resolve_local_enrich_hit_sourced(
             }
         }
     }
-    if let Ok(Some(detail)) = db.get_app_detail(&coord.id, None) {
+    let detail = ctx.detail(&coord.id);
+    if let Some(detail) = detail {
         let desc_ok = !detail.core.description.trim().is_empty()
             && !crate::github::detail_fetch::is_placeholder_description(&detail.core.description);
         if desc_ok {
-            let mut core = detail.core;
+            let mut core = detail.core.clone();
             if let Some(ci) = pre_icon {
                 core.icon = ci.to_string();
             } else if core.icon.trim().starts_with("data:") {
@@ -1030,10 +1211,10 @@ pub(crate) fn resolve_local_enrich_hit_sourced(
             payload_json,
             pre_icon.map(|s| s.to_string()),
         ) {
-            if let Ok(Some(detail)) = db.get_app_detail(&coord.id, None) {
+            if let Some(detail) = detail {
                 crate::github::CatalogService::apply_detail_to_summary_core(
                     &mut summary.core,
-                    &detail,
+                    detail,
                 );
             }
             return Some((summary, LocalHitSource::Payload));
@@ -1139,60 +1320,57 @@ pub async fn enrich_trend_repos(
     let timeout_each = crate::config::api_timeout_or(std::time::Duration::from_secs(10));
     // `State` 非 Copy：取共享引用供 FnMut 闭包多次捕获（`&CatalogService: Copy + Send`）。
     let catalog = &state.catalog;
-    // 单次短锁预读：确认图标 + 本地富卡命中（CatalogService / app_details / api_etag_cache）+ ETag 预读，
-    // 确保 fetch_enrich_batch 并发期间零 DB 查询、零 DB 直连（遵 ADR-0015）。
-    let mut pre_confirmed: Vec<Option<String>> = vec![None; targets.len()];
+    // 批量预读（短锁）→ 释放锁读图标文件 → 本地富卡命中（CatalogService / repo_card_cache /
+    // app_details / api_etag_cache）+ ETag 预读，fetch_enrich_batch 并发期间零 DB（遵 ADR-0015）。
+    let mut pre_keys = PrefetchKeys::default();
+    for coord in &targets {
+        pre_keys.add_coord(coord, true);
+    }
+    let pre_ctx = prefetch_backfill(&state, &pre_keys, None, |_| {}).await;
+    let pre_confirmed: Vec<Option<String>> = targets
+        .iter()
+        .map(|t| pre_ctx.confirmed_icon(&t.id, &t.owner, &t.repo))
+        .collect();
     let mut local_hits: Vec<Option<AppSummary>> = vec![None; targets.len()];
     // 需写回 `repo_card_cache` 的结果下标（单仓富卡自身命中与失败回退不刷新新鲜度）。
     let mut card_writable: Vec<bool> = vec![false; targets.len()];
     let mut pre_etags: Vec<(Option<String>, Option<String>, Option<AppSummary>)> =
         vec![(None, None, None); targets.len()];
-    if let Ok(db) = state.db() {
-        pre_confirmed = enrich_pre_confirmed(Some(&db), &targets);
-        for (idx, coord) in targets.iter().enumerate() {
-            let repo_url = format!(
-                "https://api.github.com/repos/{}/{}",
-                urlencoding::encode(&coord.owner),
-                urlencoding::encode(&coord.repo)
-            );
-            let cached_etag = if is_force {
-                None
-            } else {
-                db.get_etag(&repo_url).ok().flatten()
-            };
-            let cached_payload = db.get_cached_payload(&repo_url).ok().flatten();
-            if !is_force {
-                if let Some((hit, source)) = resolve_local_enrich_hit_sourced(
-                    &db,
-                    catalog,
-                    coord,
-                    pre_confirmed[idx].as_deref(),
-                    cached_payload.as_deref(),
-                    true,
-                ) {
-                    card_writable[idx] =
-                        matches!(source, LocalHitSource::Detail | LocalHitSource::Payload);
-                    local_hits[idx] = Some(hit);
-                    continue;
-                }
+    for (idx, coord) in targets.iter().enumerate() {
+        let repo_url = repo_endpoint(&coord.owner, &coord.repo);
+        let cached_etag = if is_force {
+            None
+        } else {
+            pre_ctx.etag(&repo_url)
+        };
+        let cached_payload = pre_ctx.payload(&repo_url);
+        if !is_force {
+            if let Some((hit, source)) = resolve_local_enrich_hit_in(
+                &pre_ctx,
+                catalog,
+                coord,
+                pre_confirmed[idx].as_deref(),
+                cached_payload.as_deref(),
+                true,
+            ) {
+                card_writable[idx] =
+                    matches!(source, LocalHitSource::Detail | LocalHitSource::Payload);
+                local_hits[idx] = Some(hit);
+                continue;
             }
-            let fallback_detail = db
-                .get_app_detail(&coord.id, None)
-                .ok()
-                .flatten()
-                .map(|detail| {
-                    let mut core = detail.core;
-                    if let Some(ref ci) = pre_confirmed[idx] {
-                        if !ci.trim().is_empty() {
-                            core.icon = ci.clone();
-                        }
-                    } else if core.icon.trim().starts_with("data:") {
-                        core.icon.clear();
-                    }
-                    AppSummary { core }
-                });
-            pre_etags[idx] = (cached_etag, cached_payload, fallback_detail);
         }
+        let fallback_detail = pre_ctx.detail(&coord.id).map(|detail| {
+            let mut core = detail.core.clone();
+            if let Some(ref ci) = pre_confirmed[idx] {
+                if !ci.trim().is_empty() {
+                    core.icon = ci.clone();
+                }
+            } else if core.icon.trim().starts_with("data:") {
+                core.icon.clear();
+            }
+            AppSummary { core }
+        });
+        pre_etags[idx] = (cached_etag, cached_payload, fallback_detail);
     }
 
     let pre_fast: Vec<Option<String>> = pre_confirmed
@@ -1234,30 +1412,40 @@ pub async fn enrich_trend_repos(
         }
     }
 
-    // 循环外一次取 db 锁复用：落库新 ETag + 回填详情字段 + 写包事务化（与 search_apps_online 同一模式）。
-    if let Ok(db) = state.db() {
+    // 结果行批量预读（短锁，新 ETag 落库同一临界区；预读阶段已解析的确认图标复用）→
+    // 纯内存回填 → icon_cycle 与单仓富卡写包各一次事务批量落库。
+    let mut post_keys = PrefetchKeys::default();
+    for item in results.iter().flatten() {
+        post_keys.add_item(item);
+    }
+    let ctx = prefetch_backfill(&state, &post_keys, Some(&pre_ctx.icons), |db| {
         let now = crate::now_secs();
         for (url, etag, text) in &etags_to_save {
             let _ = db.save_etag(url, etag, text, now);
         }
-        let mut staged: Vec<crate::db::AppIconCycle> = Vec::new();
-        let mut cards: Vec<crate::db::RepoCardUpsert> = Vec::new();
-        for (idx, slot) in results.iter_mut().enumerate() {
-            let Some(item) = slot.as_mut() else {
-                continue;
-            };
-            if let Some(cycle) = backfill_uncataloged_card(&db, item) {
-                staged.push(cycle);
-            }
-            if card_writable[idx] {
-                let confirmed_other = repo_card_confirmed_other(&db, item);
-                if let Some(up) = stage_repo_card(catalog, item, confirmed_other, None) {
-                    cards.push(up);
-                }
+    })
+    .await;
+    let mut staged: Vec<crate::db::AppIconCycle> = Vec::new();
+    let mut cards: Vec<crate::db::RepoCardUpsert> = Vec::new();
+    for (idx, slot) in results.iter_mut().enumerate() {
+        let Some(item) = slot.as_mut() else {
+            continue;
+        };
+        if let Some(cycle) = backfill_uncataloged_card_in(&ctx, item) {
+            staged.push(cycle);
+        }
+        if card_writable[idx] {
+            let confirmed_other = repo_card_confirmed_other(&ctx, item);
+            if let Some(up) = stage_repo_card(catalog, item, confirmed_other, None) {
+                cards.push(up);
             }
         }
-        flush_icon_cycle_staged(&db, &staged);
-        flush_repo_cards(&db, &cards);
+    }
+    if !staged.is_empty() || !cards.is_empty() {
+        if let Ok(db) = state.db() {
+            flush_icon_cycle_staged(&db, &staged);
+            flush_repo_cards(&db, &cards);
+        }
     }
 
     // 后台流式：未收录且无确认图标的仓全部入 `fetch_icons_stream(Trend)`（首包不探图，此处是唯一一次探测），
@@ -1337,17 +1525,17 @@ pub(crate) fn cards_from_repo_payloads(
     items: Vec<crate::github::developer_starred::StarredRepoPayload>,
     persist: bool,
 ) -> StarredCards {
-    let coords: Vec<crate::icons::RepoCoord> = items.iter().map(|i| i.coord.clone()).collect();
-    let pre_confirmed = enrich_pre_confirmed(Some(db), &coords);
-    let mut rows = Vec::with_capacity(items.len());
-    let mut need_icon = Vec::new();
-    let mut staged = Vec::new();
-    let mut cards = Vec::new();
-    let mut confirmed_other_ids = Vec::new();
-    let mut private_ids = Vec::new();
-    for (item, pre) in items.into_iter().zip(pre_confirmed) {
-        let Some((mut card, _)) = resolve_local_enrich_hit_sourced(
-            db,
+    // 两段批量预读（调用方持锁，图标磁盘阶段就地执行）：坐标快照判定本地命中，命中卡片快照用于回填。
+    let mut pre_keys = PrefetchKeys::default();
+    for i in &items {
+        pre_keys.add_coord(&i.coord, false);
+    }
+    let pre_ctx = BackfillCtx::load_inline(db, &pre_keys, None);
+    let mut hits = Vec::with_capacity(items.len());
+    for item in items {
+        let pre = pre_ctx.confirmed_icon(&item.coord.id, &item.coord.owner, &item.coord.repo);
+        let Some((card, _)) = resolve_local_enrich_hit_in(
+            &pre_ctx,
             catalog,
             &item.coord,
             pre.as_deref(),
@@ -1356,12 +1544,26 @@ pub(crate) fn cards_from_repo_payloads(
         ) else {
             continue;
         };
-        if let Some(cycle) = backfill_uncataloged_card(db, &mut card) {
+        hits.push((item, card, pre));
+    }
+    let mut post_keys = PrefetchKeys::default();
+    for (_, card, _) in &hits {
+        post_keys.add_item(card);
+    }
+    let ctx = BackfillCtx::load_inline(db, &post_keys, Some(&pre_ctx.icons));
+    let mut rows = Vec::with_capacity(hits.len());
+    let mut need_icon = Vec::new();
+    let mut staged = Vec::new();
+    let mut cards = Vec::new();
+    let mut confirmed_other_ids = Vec::new();
+    let mut private_ids = Vec::new();
+    for (item, mut card, pre) in hits {
+        if let Some(cycle) = backfill_uncataloged_card_in(&ctx, &mut card) {
             staged.push(cycle);
         }
         if !catalog.is_cataloged(&card.core.id) {
             let id = card.core.id.to_lowercase();
-            let confirmed_other = repo_card_confirmed_other(db, &card);
+            let confirmed_other = repo_card_confirmed_other(&ctx, &card);
             if confirmed_other {
                 confirmed_other_ids.push(id.clone());
             }

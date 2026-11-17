@@ -2,6 +2,7 @@
 
 use super::Database;
 use rusqlite::{params, Result};
+use std::collections::{HashMap, HashSet};
 
 /// API ETag 缓存表最大保留行数（按 `last_checked_at DESC` LRU 淘汰）。
 pub const API_ETAG_CACHE_MAX_ROWS: usize = 3000;
@@ -19,6 +20,50 @@ impl Database {
             "SELECT payload_json FROM api_etag_cache WHERE endpoint_url = ?1",
             params![endpoint_url],
         )
+    }
+
+    /// 单次读取端点的 `(etag, payload_json)`。
+    pub fn get_etag_and_payload(&self, endpoint_url: &str) -> Result<Option<(String, String)>> {
+        Ok(self
+            .query_vec(
+                "SELECT etag, payload_json FROM api_etag_cache WHERE endpoint_url = ?1",
+                params![endpoint_url],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?
+            .into_iter()
+            .next())
+    }
+
+    /// 端点是否存在 ETag 缓存行。
+    pub fn has_etag_entry(&self, endpoint_url: &str) -> Result<bool> {
+        self.record_exists(
+            "SELECT 1 FROM api_etag_cache WHERE endpoint_url = ?1",
+            params![endpoint_url],
+        )
+    }
+
+    /// 批量读取 `(etag, payload_json)`，按端点索引（`IN (...)` 分片，未命中端点缺席）。
+    pub fn get_etags_and_payloads_batch(
+        &self,
+        urls: &[String],
+    ) -> Result<HashMap<String, (String, String)>> {
+        let mut seen: HashSet<&str> = HashSet::with_capacity(urls.len());
+        let keys: Vec<&str> = urls
+            .iter()
+            .map(String::as_str)
+            .filter(|u| !u.is_empty() && seen.insert(u))
+            .collect();
+        let rows = self.query_in_chunks(
+            &keys,
+            |ph| {
+                format!(
+                    "SELECT endpoint_url, etag, payload_json FROM api_etag_cache \
+                     WHERE endpoint_url IN ({ph})"
+                )
+            },
+            |row| Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?))),
+        )?;
+        Ok(rows.into_iter().collect())
     }
 
     pub fn save_etag(

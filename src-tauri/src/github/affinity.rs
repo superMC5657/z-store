@@ -491,23 +491,25 @@ where
     if res.any_fresh || !has_existing {
         let _ = db.replace_user_repo_signals_by_relations(relations, &res.signals);
     }
-    for page in &res.fresh_pages {
-        let _ = db.save_etag(&page.endpoint_url, &page.etag, &page.payload_json, now);
-    }
-    for ep in &res.touched_pages {
-        let _ = db.touch_etag(ep, now);
-    }
-    if res.last_page > 0 {
-        for stale_page in (res.last_page + 1)..=AFFINITY_SYNC_MAX_PAGES {
-            let stale_ep = endpoint_for_page(stale_page);
-            let has_stale = db.get_etag(&stale_ep).ok().flatten().is_some()
-                || db.get_cached_payload(&stale_ep).ok().flatten().is_some();
-            if !has_stale {
-                break;
-            }
-            let _ = db.delete_etag(&stale_ep);
+    // 分页 ETag 保存 / 保鲜 / 尾页清理合并为单事务提交；失败整体回滚，下次同步重试。
+    let _ = db.with_immediate_transaction(|| {
+        for page in &res.fresh_pages {
+            db.save_etag(&page.endpoint_url, &page.etag, &page.payload_json, now)?;
         }
-    }
+        for ep in &res.touched_pages {
+            db.touch_etag(ep, now)?;
+        }
+        if res.last_page > 0 {
+            for stale_page in (res.last_page + 1)..=AFFINITY_SYNC_MAX_PAGES {
+                let stale_ep = endpoint_for_page(stale_page);
+                if !db.has_etag_entry(&stale_ep)? {
+                    break;
+                }
+                db.delete_etag(&stale_ep)?;
+            }
+        }
+        Ok(())
+    });
     true
 }
 

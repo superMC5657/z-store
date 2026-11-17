@@ -207,6 +207,24 @@ impl Database {
         self.query_vec(&sql, [], row_to_catalog_item)
     }
 
+    /// 已收录规范 id 集合：远端精选 `catalog_apps` + 未归档本地库 `custom_apps`（只读 `id` 列）。
+    pub fn list_cataloged_ids(&self) -> Result<std::collections::HashSet<String>> {
+        let ids: Vec<String> = self.query_vec(
+            "SELECT id FROM catalog_apps
+             UNION
+             SELECT id FROM custom_apps
+             WHERE archived = 0 AND status IN ('collected', 'local_collected', 'submitted')",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(ids
+            .into_iter()
+            .map(|id| {
+                crate::forge::canonical_app_id(&id).unwrap_or_else(|| id.trim().to_lowercase())
+            })
+            .collect())
+    }
+
     /// 按 canonical id 精确查询单个目录项。
     pub fn get_catalog_app(&self, id: &str) -> Result<Option<CatalogItem>> {
         let cleaned =

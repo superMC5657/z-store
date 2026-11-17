@@ -6,6 +6,7 @@
 use super::{clean, now_secs, Database};
 use crate::models::{AppCore, AppDetail, ReadmeVariant, ReleaseAsset};
 use rusqlite::{params, Result};
+use std::collections::{HashMap, HashSet};
 
 /// 应用详情表最大保留行数（按 `cached_at DESC` LRU 淘汰，资产关联行豁免）。
 pub const APP_DETAILS_CACHE_MAX_ROWS: usize = 500;
@@ -137,6 +138,36 @@ impl Database {
             return Ok(Some(detail));
         }
         Ok(None)
+    }
+
+    /// 按 `app_id` 精确批量读取详情摘要（`IN (...)` 分片，无 TTL 门控）：不读取
+    /// `readme_markdown` / `readme_variants_json` / `changelog`（返回值中为空）；
+    /// `with_releases = false` 时同样跳过 `releases_json`。返回按库内 `app_id` 索引的映射。
+    pub fn get_app_detail_summaries_batch(
+        &self,
+        app_ids: &[String],
+        with_releases: bool,
+    ) -> Result<HashMap<String, AppDetail>> {
+        let mut seen: HashSet<&str> = HashSet::with_capacity(app_ids.len());
+        let keys: Vec<&str> = app_ids
+            .iter()
+            .map(|k| clean(k))
+            .filter(|k| !k.is_empty() && seen.insert(k))
+            .collect();
+        let releases_col = if with_releases { "releases_json" } else { "''" };
+        let rows = self.query_in_chunks(
+            &keys,
+            |ph| {
+                format!(
+                    "SELECT app_id, name, owner, repo, description, description_en, \
+                     icon, icon_bg, stars, forks, license, latest_version, category, category_name, \
+                     forge, forge_host, homepage, platforms_json, '', '', NULL, {releases_col}, cached_at \
+                     FROM app_details WHERE app_id IN ({ph})"
+                )
+            },
+            row_to_app_detail,
+        )?;
+        Ok(rows.into_iter().map(|d| (d.core.id.clone(), d)).collect())
     }
 
     /// 刷新 `app_details.cached_at` 时间戳（304 命中零开销延长保鲜期）。

@@ -28,19 +28,28 @@ pub enum PersistError<E> {
 }
 
 /// 计算已存在文件的 `(大小, SHA-256 hex)`，供“已下载跳过”校验与回填返回哈希。
+/// 在阻塞线程池中经 `BufReader` 顺序读取，避免逐块异步读调度。
 pub async fn sha256_of_file(path: &Path) -> std::io::Result<(u64, String)> {
-    use tokio::io::AsyncReadExt;
-    let mut f = tokio::fs::File::open(path).await?;
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || sha256_of_file_blocking(&path))
+        .await
+        .map_err(std::io::Error::other)?
+}
+
+fn sha256_of_file_blocking(path: &Path) -> std::io::Result<(u64, String)> {
+    use std::io::BufRead;
+    let mut reader = std::io::BufReader::with_capacity(256 * 1024, std::fs::File::open(path)?);
     let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
     let mut len: u64 = 0;
     loop {
-        let n = f.read(&mut buf).await?;
-        if n == 0 {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
             break;
         }
-        hasher.update(&buf[..n]);
+        hasher.update(chunk);
+        let n = chunk.len();
         len += n as u64;
+        reader.consume(n);
     }
     Ok((len, hex::encode(hasher.finalize())))
 }

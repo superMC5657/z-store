@@ -1,14 +1,103 @@
 use crate::models::InstalledApp;
 use crate::{AppResult, AppState};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
+/// 同步阻塞闭包卸到 Tokio 阻塞线程池（注册表枚举、文件系统探测、解压、进程启动等）。
+pub(crate) async fn run_blocking<T, F>(f: F) -> AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| crate::AppError::new(e.to_string()))
+}
+
+/// 已安装应用列表（含路径自愈、导入版本更正与幽灵隐藏）。
+/// 短锁读库 → 阻塞线程池做注册表枚举与文件系统探测 → 有变更时再取短锁回写。
 #[tauri::command]
-pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<InstalledApp>> {
-    let db = state.db()?;
-    let mut apps = db.get_installed_apps().map_err(|e| e.to_string())?;
+pub async fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<InstalledApp>> {
+    load_installed_apps(&state).await
+}
 
-    let mut needs_db_update = Vec::new();
-    // 本地版本被更正的应用：(app_id, 新版本)，其更新判定行按新版本重算
+/// `get_installed_apps` 与更新检查共用的异步实现。
+pub(crate) async fn load_installed_apps(state: &AppState) -> AppResult<Vec<InstalledApp>> {
+    let mut apps = {
+        let db = state.db()?;
+        db.get_installed_apps().map_err(|e| e.to_string())?
+    };
+    fill_installed_icons(state, &mut apps);
+
+    let refresh = run_blocking(move || refresh_installed_apps(apps)).await?;
+
+    if !refresh.updated.is_empty() || !refresh.corrected_versions.is_empty() {
+        let db = state.db()?;
+        for updated in &refresh.updated {
+            let _ = db.save_installed_app(updated);
+        }
+        for (app_id, version) in &refresh.corrected_versions {
+            rebase_cached_update(&db, app_id, version);
+        }
+    }
+    // 只读扫描契约：可执行文件消失绝不能在此处直接删除数据库记录
+    // （不得调用 remove_installed_app）；
+    // 数据库行予以保留，幽灵应用仅在返回视图中隐藏，并在日志中体现数量。
+    if !refresh.ghost_app_ids.is_empty() {
+        let mut ev = crate::z_log::WideEvent::new("scanner", "ghosts hidden");
+        ev.field("count", refresh.ghost_app_ids.len());
+        ev.warn();
+    }
+    Ok(super::installer_uninstall::hide_ghost_apps(
+        refresh.apps,
+        &refresh.ghost_app_ids,
+    ))
+}
+
+/// 图标补全：收录项取目录官方图标，其余取 `app_details` 摘要（单次分片查询，不读 README 等大字段）。
+fn fill_installed_icons(state: &AppState, apps: &mut [InstalledApp]) {
+    let mut detail_ids: Vec<String> = Vec::new();
+    for app in apps.iter_mut().filter(|a| a.icon.is_none()) {
+        if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
+            app.icon = Some(item.icon);
+            app.icon_bg = Some(item.icon_bg);
+        } else {
+            detail_ids.push(app.app_id.clone());
+        }
+    }
+    if detail_ids.is_empty() {
+        return;
+    }
+    let details = match state.db() {
+        Ok(db) => db
+            .get_app_detail_summaries_batch(&detail_ids, false)
+            .unwrap_or_default(),
+        Err(_) => return,
+    };
+    for app in apps.iter_mut().filter(|a| a.icon.is_none()) {
+        let Some(detail) = details.get(app.app_id.trim()) else {
+            continue;
+        };
+        if !detail.core.icon.trim().is_empty() {
+            app.icon = Some(detail.core.icon.clone());
+        }
+        if !detail.core.icon_bg.trim().is_empty() {
+            app.icon_bg = Some(detail.core.icon_bg.clone());
+        }
+    }
+}
+
+/// 阻塞阶段产物：刷新后的列表、需回写的行、版本被更正的应用与幽灵应用。
+struct InstalledRefresh {
+    apps: Vec<InstalledApp>,
+    updated: Vec<InstalledApp>,
+    /// 本地版本被更正的应用：(app_id, 新版本)，其更新判定行按新版本重算
+    corrected_versions: Vec<(String, String)>,
+    ghost_app_ids: Vec<String>,
+}
+
+/// 路径自愈、导入版本与安装时间更正（零 DB；注册表只在有导入应用时枚举一次）。
+fn refresh_installed_apps(mut apps: Vec<InstalledApp>) -> InstalledRefresh {
+    let mut updated = Vec::new();
     let mut corrected_versions: Vec<(String, String)> = Vec::new();
     let mut ghost_app_ids = Vec::new();
     // 系统导入的应用会自行升级：按导入同口径重读本地版本。注册表只在有导入应用时枚举一次。
@@ -16,19 +105,6 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
 
     for app in &mut apps {
         let mut app_changed = false;
-        if app.icon.is_none() {
-            if let Some(item) = state.catalog.get_catalog_item(&app.app_id) {
-                app.icon = Some(item.icon);
-                app.icon_bg = Some(item.icon_bg);
-            } else if let Ok(Some(detail)) = db.get_app_detail(&app.app_id, None) {
-                if !detail.core.icon.trim().is_empty() {
-                    app.icon = Some(detail.core.icon);
-                }
-                if !detail.core.icon_bg.trim().is_empty() {
-                    app.icon_bg = Some(detail.core.icon_bg);
-                }
-            }
-        }
         let is_empty = app.install_path.trim().is_empty();
         let not_exist = !is_empty && !std::path::Path::new(&app.install_path).exists();
         if is_empty || not_exist {
@@ -95,27 +171,16 @@ pub fn get_installed_apps(state: State<'_, AppState>) -> AppResult<Vec<Installed
         }
 
         if app_changed {
-            needs_db_update.push(app.clone());
+            updated.push(app.clone());
         }
     }
 
-    for updated in needs_db_update {
-        let _ = db.save_installed_app(&updated);
+    InstalledRefresh {
+        apps,
+        updated,
+        corrected_versions,
+        ghost_app_ids,
     }
-    for (app_id, version) in &corrected_versions {
-        rebase_cached_update(&db, app_id, version);
-    }
-    // 只读扫描契约：可执行文件消失绝不能在此处直接删除数据库记录
-    // （不得调用 remove_installed_app）；
-    // 数据库行予以保留，幽灵应用仅在返回视图中隐藏，并在日志中体现数量。
-    if !ghost_app_ids.is_empty() {
-        let mut ev = crate::z_log::WideEvent::new("scanner", "ghosts hidden");
-        ev.field("count", ghost_app_ids.len());
-        ev.warn();
-    }
-    let apps = super::installer_uninstall::hide_ghost_apps(apps, &ghost_app_ids);
-
-    Ok(apps)
 }
 
 /// 用上次查到的远端版本按新的本地版本重算更新判定；没有判定行或版本未知时删行，等下次检查。
@@ -147,7 +212,7 @@ fn rebase_cached_update(db: &crate::db::Database, app_id: &str, version: &str) {
 /// 启动成功回填数据库并返回 Ok(true)，spawn 失败返回 Err（`origin` 写入错误上下文）。
 #[cfg(target_os = "linux")]
 fn spawn_and_backfill(
-    state: &State<'_, AppState>,
+    state: &AppState,
     installed: &Option<InstalledApp>,
     target_path: &str,
     found: &str,
@@ -177,15 +242,17 @@ fn spawn_and_backfill(
     Ok(true)
 }
 
+/// 启动应用：路径解析、全源可执行文件嗅探与进程启动在阻塞线程池执行（IPC 契约不变）。
 #[tauri::command(rename_all = "camelCase")]
-pub fn launch_app(state: State<'_, AppState>, app_id: String) -> AppResult<bool> {
+pub async fn launch_app(app_handle: AppHandle, app_id: String) -> AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
+    run_blocking(move || launch_app_blocking(&app_handle.state::<AppState>(), app_id)).await?
+}
+
+fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
     let installed_app_opt = {
         let db = state.db()?;
-        db.get_installed_apps()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|a| a.app_id == app_id)
+        db.get_installed_app(&app_id).map_err(|e| e.to_string())?
     };
 
     let (app_name, target_path, catalog_repo) = if let Some(ref app) = installed_app_opt {

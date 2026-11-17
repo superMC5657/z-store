@@ -302,7 +302,7 @@ impl RepoRef {
 }
 
 /// `app_id` 维度候选键（顺序即查询顺序，去重）：原值 → `canonical_app_id` → 小写。
-fn app_id_lookup_keys(app_id: &str) -> Vec<String> {
+pub(crate) fn app_id_lookup_keys(app_id: &str) -> Vec<String> {
     let clean_id = app_id.trim();
     if clean_id.is_empty() {
         return Vec::new();
@@ -322,7 +322,7 @@ fn app_id_lookup_keys(app_id: &str) -> Vec<String> {
 
 /// `owner/repo` 维度候选键（顺序即查询顺序，去重）：解析器推导原值 → 其小写。
 /// 解析器推导为唯一真相源（上游已有 `canonical_app_id` 守卫）。
-fn repo_lookup_keys(app_id: &str, fallback: &RepoRef) -> Vec<RepoRef> {
+pub(crate) fn repo_lookup_keys(app_id: &str, fallback: &RepoRef) -> Vec<RepoRef> {
     let clean_id = app_id.trim();
     let eff = match RepositoryUrlParser::parse(clean_id) {
         Some(coord) if !coord.owner.is_empty() && !coord.repo.is_empty() => {

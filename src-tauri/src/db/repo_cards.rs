@@ -8,18 +8,15 @@
 //! - 已收录（远端精选或未归档本地库）`id` 跳过写入；
 //! - `last_accessed_at` 有界 LRU；`is_private = 1` 行随登出清除。
 
-use super::{clean, now_secs, Database};
+use super::{clean, now_secs, Database, BATCH_CHUNK};
 use crate::models::{AppCore, AppSummary};
 use rusqlite::{params, OptionalExtension, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// 单仓富卡表最大保留行数（按 `last_accessed_at DESC` LRU 淘汰）。
 pub const REPO_CARD_CACHE_MAX_ROWS: usize = 2000;
 /// 单仓富卡新鲜窗口：12 小时内的完整卡片可免除 enrich / 平台推导网络请求。
 pub const REPO_CARD_FRESH_TTL_SECS: i64 = 12 * 3600;
-
-/// 单批 `IN (...)` 查询的最大占位符数（低于 SQLite 默认上限 999）。
-const BATCH_CHUNK: usize = 400;
 
 const DEFAULT_CATEGORY: &str = "external";
 const DEFAULT_CATEGORY_NAME: &str = "跨平台开源";
@@ -53,6 +50,13 @@ pub struct RepoCardPlatformState {
     pub confirmed_other: bool,
     /// 平台信息的新鲜度基准：完整卡取 `updated_at`，预写行取 `last_accessed_at`。
     pub fresh_at: i64,
+}
+
+/// 单行只读快照：平台态（含预写壳）+ 完整卡片（`updated_at > 0` 才有）。
+#[derive(Debug, Clone)]
+pub struct RepoCardSnapshot {
+    pub platform: RepoCardPlatformState,
+    pub card: Option<StoredRepoCard>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -349,6 +353,26 @@ fn merge_card(prev: Option<&CardRow>, inc: &RepoCardUpsert, now: i64) -> Option<
     })
 }
 
+fn card_to_platform_state(card: &CardRow) -> RepoCardPlatformState {
+    RepoCardPlatformState {
+        fresh_at: if card.updated_at > 0 {
+            card.updated_at
+        } else {
+            card.last_accessed_at
+        },
+        platforms: card.platforms.clone(),
+        latest_version: card.latest_version.clone(),
+        confirmed_other: card.confirmed_other,
+    }
+}
+
+fn card_to_snapshot(card: CardRow) -> RepoCardSnapshot {
+    RepoCardSnapshot {
+        platform: card_to_platform_state(&card),
+        card: (card.updated_at > 0).then(|| card_to_stored(card)),
+    }
+}
+
 fn card_to_stored(card: CardRow) -> StoredRepoCard {
     let latest_version = if card.latest_version.trim().is_empty() {
         "latest".to_string()
@@ -496,6 +520,82 @@ impl Database {
         Ok(true)
     }
 
+    /// 按规范 `id` 批量预读已有行（含 `updated_at = 0` 的平台预写壳）。
+    fn get_card_rows_batch(&self, ids: &[String]) -> Result<HashMap<String, CardRow>> {
+        let rows = self.query_in_chunks(
+            ids,
+            |ph| format!("SELECT {SELECT_COLS} FROM repo_card_cache WHERE id IN ({ph})"),
+            row_to_card,
+        )?;
+        Ok(rows.into_iter().map(|r| (r.id.clone(), r)).collect())
+    }
+
+    /// 本批规范 `id` 中已收录（远端精选或未归档本地库）的子集。
+    fn cataloged_card_ids_batch(&self, ids: &[String]) -> Result<HashSet<String>> {
+        // 同一分片在两个 `IN (...)` 中各绑定一次：分片取半，占位符总数仍不超过 `BATCH_CHUNK`。
+        let mut out = HashSet::new();
+        for chunk in ids.chunks(BATCH_CHUNK / 2) {
+            let ph = vec!["?"; chunk.len()].join(", ");
+            let sql = format!(
+                "SELECT lower(id) FROM catalog_apps WHERE lower(id) IN ({ph}) \
+                 UNION SELECT lower(id) FROM custom_apps WHERE lower(id) IN ({ph}) \
+                 AND archived = 0 AND status IN ('collected', 'local_collected', 'submitted')"
+            );
+            let params = chunk.iter().chain(chunk.iter());
+            out.extend(self.query_vec_uncached(
+                &sql,
+                rusqlite::params_from_iter(params),
+                |row| row.get::<_, String>(0),
+            )?);
+        }
+        Ok(out)
+    }
+
+    /// 批量合并写核心（不开事务）：常数次分片预读已有行与已收录集，再逐条合并写入。
+    /// `skip_cataloged_check = true` 时调用方保证入参均未收录（已经内存目录过滤）。
+    fn upsert_repo_cards_in(
+        &self,
+        items: &[RepoCardUpsert],
+        now: i64,
+        skip_cataloged_check: bool,
+    ) -> Result<usize> {
+        let mut ids: Vec<String> = Vec::with_capacity(items.len());
+        let mut seen: HashSet<String> = HashSet::with_capacity(items.len());
+        for inc in items {
+            if let Some(id) = crate::forge::canonical_app_id(&inc.summary.core.id) {
+                if seen.insert(id.clone()) {
+                    ids.push(id);
+                }
+            }
+        }
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let cataloged = if skip_cataloged_check {
+            HashSet::new()
+        } else {
+            self.cataloged_card_ids_batch(&ids)?
+        };
+        let mut prev_rows = self.get_card_rows_batch(&ids)?;
+        let mut written = 0usize;
+        for inc in items {
+            let Some(id) = crate::forge::canonical_app_id(&inc.summary.core.id) else {
+                continue;
+            };
+            if cataloged.contains(&id) {
+                continue;
+            }
+            let Some(merged) = merge_card(prev_rows.get(&id), inc, now) else {
+                continue;
+            };
+            self.write_card_row(&merged)?;
+            // 同批重复 id 依次合并：后者以前者写入结果为基线。
+            prev_rows.insert(id, merged);
+            written += 1;
+        }
+        Ok(written)
+    }
+
     fn prune_repo_card_cache_if_over(&self) -> Result<()> {
         let count: i64 = self
             .query_scalar_opt("SELECT COUNT(*) FROM repo_card_cache", [])?
@@ -515,19 +615,27 @@ impl Database {
         Ok(written)
     }
 
-    /// 批量非破坏写入（单事务），返回实际写入行数。
+    /// 批量非破坏写入（单事务），返回实际写入行数；已收录 `id` 经一次分片查询过滤。
     pub fn upsert_repo_cards_batch(&self, items: &[RepoCardUpsert]) -> Result<usize> {
+        self.upsert_repo_cards_batch_with(items, false)
+    }
+
+    /// 批量写入已经内存 `CatalogService` 判定为未收录的卡片（跳过已收录查表）。
+    pub fn upsert_uncataloged_repo_cards_batch(&self, items: &[RepoCardUpsert]) -> Result<usize> {
+        self.upsert_repo_cards_batch_with(items, true)
+    }
+
+    fn upsert_repo_cards_batch_with(
+        &self,
+        items: &[RepoCardUpsert],
+        skip_cataloged_check: bool,
+    ) -> Result<usize> {
         if items.is_empty() {
             return Ok(0);
         }
         let now = now_secs();
         self.with_immediate_transaction(|| {
-            let mut written = 0usize;
-            for inc in items {
-                if self.upsert_repo_card_at(inc, now)? {
-                    written += 1;
-                }
-            }
+            let written = self.upsert_repo_cards_in(items, now, skip_cataloged_check)?;
             if written > 0 {
                 self.prune_repo_card_cache_if_over()?;
             }
@@ -640,16 +748,28 @@ impl Database {
         let Some(id) = crate::forge::canonical_app_id(raw_id) else {
             return Ok(None);
         };
-        Ok(self.get_card_row(&id)?.map(|c| RepoCardPlatformState {
-            fresh_at: if c.updated_at > 0 {
-                c.updated_at
-            } else {
-                c.last_accessed_at
-            },
-            platforms: c.platforms,
-            latest_version: c.latest_version,
-            confirmed_other: c.confirmed_other,
-        }))
+        Ok(self.get_card_row(&id)?.as_ref().map(card_to_platform_state))
+    }
+
+    /// 批量只读快照（单次分片查询）：平台态含预写壳，完整卡片仅 `updated_at > 0`；按规范 `id` 索引。
+    pub fn get_repo_card_snapshots_batch(
+        &self,
+        raw_ids: &[String],
+    ) -> Result<HashMap<String, RepoCardSnapshot>> {
+        let mut seen: HashSet<String> = HashSet::with_capacity(raw_ids.len());
+        let ids: Vec<String> = raw_ids
+            .iter()
+            .filter_map(|raw| crate::forge::canonical_app_id(raw))
+            .filter(|id| seen.insert(id.clone()))
+            .collect();
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        Ok(self
+            .get_card_rows_batch(&ids)?
+            .into_iter()
+            .map(|(id, row)| (id, card_to_snapshot(row)))
+            .collect())
     }
 
     /// 批量读取完整卡片并刷新命中行 `last_accessed_at`，返回按规范 `id` 索引的映射。
@@ -1045,6 +1165,72 @@ mod tests {
                 .core
                 .icon,
             ""
+        );
+    }
+
+    #[test]
+    fn batch_upsert_skips_cataloged_and_merges_duplicate_ids_in_order() {
+        let db = db();
+        db.exec_write(
+            "INSERT INTO catalog_apps (id, name, owner, repo, category, category_name) VALUES ('o/remote', 'r', 'o', 'remote', 'dev', '开发')",
+            [],
+        )
+        .unwrap();
+        let mut second = summary("O/Free");
+        second.core.description = "second".to_string();
+        let items = vec![
+            up(full("o/remote"), false, None),
+            up(full("o/free"), false, Some(true)),
+            up(second, false, None),
+        ];
+        assert_eq!(db.upsert_repo_cards_batch(&items).unwrap(), 2);
+        assert!(db.get_repo_card("o/remote").unwrap().is_none());
+        let card = db.get_repo_card("o/free").unwrap().unwrap();
+        // 同批后者以前者写入结果为基线：非占位描述覆盖，私有标记与 Star 保留。
+        assert_eq!(card.summary.core.description, "second");
+        assert_eq!(card.summary.core.stars, 1200);
+        assert!(card.is_private);
+
+        // 内存目录已判定未收录的入口跳过查表。
+        assert_eq!(
+            db.upsert_uncataloged_repo_cards_batch(&[up(full("o/other"), false, None)])
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn snapshots_batch_exposes_platform_shells_and_full_cards() {
+        let db = db();
+        db.patch_repo_card_platforms(
+            "acme/shell",
+            "acme",
+            "shell",
+            &["linux".to_string()],
+            Some("v1.0.0"),
+            false,
+        )
+        .unwrap();
+        db.upsert_repo_card(&up(full("acme/full"), true, None))
+            .unwrap();
+        let snaps = db
+            .get_repo_card_snapshots_batch(&[
+                "ACME/Shell".to_string(),
+                "acme/full".to_string(),
+                "acme/missing".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(snaps.len(), 2);
+        let shell = &snaps["acme/shell"];
+        assert_eq!(shell.platform.platforms, vec!["linux"]);
+        assert!(shell.card.is_none());
+        let full = &snaps["acme/full"];
+        assert!(full.card.is_some());
+        assert_eq!(
+            full.platform,
+            db.get_repo_card_platform_state("acme/full")
+                .unwrap()
+                .unwrap()
         );
     }
 }

@@ -39,7 +39,12 @@ pub(crate) fn backfill_cataloged_flags(state: &AppState) {
             return;
         }
     };
-    if let Err(e) = crate::repositories::CatalogRepository::backfill_cataloged_flags(&db) {
+    backfill_cataloged_flags_in(&db);
+}
+
+/// `backfill_cataloged_flags` 的持锁版本：调用方已持有 `db` 锁时复用同一临界区。
+pub(crate) fn backfill_cataloged_flags_in(db: &crate::db::Database) {
+    if let Err(e) = crate::repositories::CatalogRepository::backfill_cataloged_flags(db) {
         log_backfill_warn("backfill cataloged flags failed", None, &e);
     }
 }
@@ -94,43 +99,81 @@ pub struct RecentlyViewedApp {
     pub viewed_at: i64,
 }
 
+/// 最近浏览：短锁内读浏览记录与本地详情并规划确认图标，释放锁后在阻塞线程池读图标文件并编码。
 #[tauri::command]
-pub fn get_recently_viewed_apps(
+pub async fn get_recently_viewed_apps(
     state: State<'_, AppState>,
 ) -> crate::AppResult<Vec<RecentlyViewedApp>> {
-    let db = state.db()?;
-    let entries = db.get_recently_viewed_entries(RECENT_VIEW_DISPLAY_LIMIT)?;
-    let mut result = Vec::new();
-
-    for (id, viewed_at) in entries {
-        if let Some(item) = state.catalog.get_catalog_item(&id) {
-            // 目录命中（远端精选或本地收录）：统一经目录盖章投影。
-            let mut summary = state.catalog.item_to_stamped_summary(&item);
-            // 最近浏览简介占位根治：收录行占位（理论上不应出现）同样回填/置空，
-            // 非占位人工简介原样保留。
-            heal_recent_summary(&db, &mut summary);
-            // 详情换图标持久：收录分支同样 join app_icon_cycles 确认图标覆盖，
-            // 与 catalog_search backfill 同语义（Some 才覆盖，None 保持静态）。
-            apply_confirmed_icon(&db, &mut summary);
-            result.push(RecentlyViewedApp { summary, viewed_at });
-            continue;
-        }
-        // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
-        // （收录/未收录同走 save_detail_with_cycle_row 落全量 detail_json）；
-        // 单条失败跳过不整单丢；仍无命中则跳过（不合成占位，避免污染过滤/计数，
-        // 趋势 L2 仍是未收录首展来源）。
-        if let Some(mut summary) = cached_detail_summary(&db, &id) {
-            state.catalog.stamp_summary(&mut summary);
-            result.push(RecentlyViewedApp { summary, viewed_at });
-        }
-    }
+    let (mut result, jobs) = {
+        let db = state.db()?;
+        recently_viewed_deferred(&db, &state.catalog)?
+    };
+    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
+    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
+    crate::icons::patch_core_icons(result.iter_mut().map(|r| Some(&mut r.summary.core)), icons);
     Ok(result)
 }
 
-/// 未收录近期行的 DB 详情回退：fallback 版查询（TTL 外/离线仍可显，stale 由前端离线徽标呈现），
+/// 最近浏览 DB 阶段：返回不含确认图标的条目与对齐的图标延迟任务。
+/// 详情换图标持久：收录 / 未收录两分支都 join `app_icon_cycles` 确认图标覆盖
+/// （与 catalog_search backfill 同语义：Some 才覆盖，None 保持静态 / `detail.icon`）。
+fn recently_viewed_deferred(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+) -> crate::AppResult<(Vec<RecentlyViewedApp>, Vec<crate::icons::DeferredIcon>)> {
+    let entries = db.get_recently_viewed_entries(RECENT_VIEW_DISPLAY_LIMIT)?;
+    let mut result = Vec::with_capacity(entries.len());
+    let mut pendings = Vec::with_capacity(entries.len());
+    for (id, viewed_at) in entries {
+        let summary = if let Some(item) = catalog.get_catalog_item(&id) {
+            // 目录命中（远端精选或本地收录）：统一经目录盖章投影。
+            let mut summary = catalog.item_to_stamped_summary(&item);
+            // 最近浏览简介占位根治：收录行占位（理论上不应出现）同样回填/置空，
+            // 非占位人工简介原样保留。
+            heal_recent_summary(db, &mut summary);
+            summary
+        } else if let Some(mut summary) = cached_detail_summary_without_icon(db, &id) {
+            // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
+            // （收录/未收录同走 save_detail_with_cycle_row 落全量 detail_json）；
+            // 单条失败跳过不整单丢；仍无命中则跳过（不合成占位，避免污染过滤/计数，
+            // 趋势 L2 仍是未收录首展来源）。
+            catalog.stamp_summary(&mut summary);
+            summary
+        } else {
+            continue;
+        };
+        pendings.push(crate::icons::PendingIcon::confirmed(
+            &summary.core.id,
+            &summary.core.owner,
+            &summary.core.repo,
+        ));
+        result.push(RecentlyViewedApp { summary, viewed_at });
+    }
+    Ok((result, crate::icons::plan_pending_icons(db, &pendings)))
+}
+
+/// 未收录近期行的 DB 详情回退（叠加确认图标，测试入口）。
+#[cfg(test)]
+fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummary> {
+    let mut summary = cached_detail_summary_without_icon(db, id)?;
+    let jobs = crate::icons::plan_pending_icons(
+        db,
+        &[crate::icons::PendingIcon::confirmed(
+            &summary.core.id,
+            &summary.core.owner,
+            &summary.core.repo,
+        )],
+    );
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    let icons = crate::icons::materialize_icons_inline(db, &icons_dir, &jobs);
+    crate::icons::patch_core_icons(std::iter::once(Some(&mut summary.core)), icons);
+    Some(summary)
+}
+
+/// 未收录近期行的 DB 详情回退（不含确认图标）：fallback 版查询（TTL 外/离线仍可显，stale 由前端离线徽标呈现），
 /// 多键按序试：id 原值 → canonical → 小写 → 去 forge 前缀的 owner/repo（原值/小写）→
 /// github.com/ 前缀（原值/小写）；db 层签名不动，此处只做键展开。
-fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummary> {
+fn cached_detail_summary_without_icon(db: &crate::db::Database, id: &str) -> Option<AppSummary> {
     let trimmed = id.trim();
     if trimmed.is_empty() {
         return None;
@@ -160,15 +203,12 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
             let mut summary = detail_to_summary(&detail);
             // 最近浏览简介占位根治：占位回填 ETag repo 真值，无真值置空（前端走“暂无简介”）。
             heal_recent_summary(db, &mut summary);
-            // 详情换图标持久：未收录分支 join app_icon_cycles 确认图标覆盖，
-            // 与 catalog_search backfill 同语义（Some 才覆盖，None 保持 detail.icon）。
-            apply_confirmed_icon(db, &mut summary);
             return Some(summary);
         }
     }
     // 无详情行：回退单仓富卡（列表里直接收藏/浏览过的未收录应用）。
     let clean_id = crate::forge::canonical_app_id(trimmed)?;
-    crate::repositories::DetailRepository::repo_card_summary(db, &clean_id)
+    crate::repositories::DetailRepository::repo_card_summary_without_icon(db, &clean_id)
 }
 
 /// AppDetail → AppSummary（字段与前端 AppSummary 对齐；`data:` 置空兜底）。
@@ -184,21 +224,6 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
             icon,
             ..detail.core.clone()
         },
-    }
-}
-
-/// 详情换图标在最近浏览持久（读侧 join）：`app_icon_cycles.selected_url` 确认图标覆盖
-/// summary.icon，与 `catalog_search::backfill_uncataloged_card` 同语义（Some 才覆盖，
-/// None 保持调用方原值，此处不二次判定）。
-/// 收录/未收录双分支共用（catalog 静态 / detail.icon 均为旧值，需同等覆盖）。
-fn apply_confirmed_icon(db: &crate::db::Database, summary: &mut AppSummary) {
-    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-        db,
-        &summary.core.id,
-        &summary.core.owner,
-        &summary.core.repo,
-    ) {
-        summary.core.icon = ci;
     }
 }
 

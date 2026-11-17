@@ -386,8 +386,10 @@ impl Database {
                 "SELECT LOWER(app_id), name, owner, repo, description, description_en, category \
                  FROM app_details WHERE LOWER(app_id) IN ({placeholders})"
             );
-            rows.extend(
-                self.query_vec(&sql, rusqlite::params_from_iter(chunk.iter()), |row| {
+            rows.extend(self.query_vec_uncached(
+                &sql,
+                rusqlite::params_from_iter(chunk.iter()),
+                |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         UncatalogedSignalBrief {
@@ -399,8 +401,8 @@ impl Database {
                             category: row.get(6)?,
                         },
                     ))
-                })?,
-            );
+                },
+            )?);
         }
         for (id, mut brief) in rows {
             if crate::github::detail_fetch::is_placeholder_description(&brief.description) {

@@ -2,6 +2,7 @@ use crate::models::{
     AppCore, AppDetail, AppSummary, HydratedRepoCard, PlatformsLiteResult, ReadmeVariantsResponse,
 };
 use crate::AppState;
+use std::collections::HashMap;
 use tauri::State;
 
 /// 落库门（真空语义）：仅 stale 穿透/合成空失败（`is_stale==Some(true)`）跳过持久化；
@@ -165,15 +166,25 @@ fn patch_lite_repo_card(
         return;
     }
     if let Ok(db) = state.db() {
-        let _ = db.patch_repo_card_platforms(
-            clean_id,
-            owner,
-            repo,
-            platforms,
-            tag,
-            platforms.is_empty(),
-        );
+        patch_lite_repo_card_in(&db, &state.catalog, clean_id, owner, repo, platforms, tag);
     }
+}
+
+/// `patch_lite_repo_card` 的持锁版本：调用方已持有 `db` 锁时复用同一临界区。
+fn patch_lite_repo_card_in(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    clean_id: &str,
+    owner: &str,
+    repo: &str,
+    platforms: &[String],
+    tag: Option<&str>,
+) {
+    if catalog.is_cataloged(clean_id) {
+        return;
+    }
+    let _ =
+        db.patch_repo_card_platforms(clean_id, owner, repo, platforms, tag, platforms.is_empty());
 }
 
 /// 多源（Codeberg/Gitea 等）穿透段：仅拉 latest release，deduce 即返（无缓存读写）。
@@ -303,9 +314,12 @@ async fn platforms_lite_from_github(
             "https://api.github.com/repos/{}/{}/releases/latest",
             coords.owner, coords.repo
         );
-        let db = state.db()?;
-        let etag = db.get_etag(&ep).ok().flatten();
-        let payload = db.get_cached_payload(&ep).ok().flatten();
+        let (etag, payload) = state
+            .db()?
+            .get_etag_and_payload(&ep)
+            .ok()
+            .flatten()
+            .map_or((None, None), |(e, p)| (Some(e), Some(p)));
         (ep, etag, payload, coords)
     };
 
@@ -345,6 +359,7 @@ async fn platforms_lite_from_github(
                 &rel,
                 stale_row.as_ref(),
             );
+            // 缓存副作用、目录平台回写与单仓富卡平台补丁共用一次 `db` 临界区。
             if let Ok(db) = state.db() {
                 crate::github::release_fetch::apply_release_cache_effects(
                     &db,
@@ -356,18 +371,17 @@ async fn platforms_lite_from_github(
                 );
                 if rel.stale != Some(true) {
                     backfill_catalog_platforms(state, &db, &clean_id, &platforms);
+                    let tag = release_tag_from_payload(cached_payload.as_deref(), &outcome);
+                    patch_lite_repo_card_in(
+                        &db,
+                        &state.catalog,
+                        &clean_id,
+                        &coords.owner,
+                        &coords.repo,
+                        &platforms,
+                        tag.as_deref(),
+                    );
                 }
-            }
-            if rel.stale != Some(true) {
-                let tag = release_tag_from_payload(cached_payload.as_deref(), &outcome);
-                patch_lite_repo_card(
-                    state,
-                    &clean_id,
-                    &coords.owner,
-                    &coords.repo,
-                    &platforms,
-                    tag.as_deref(),
-                );
             }
             if rel.stale == Some(true) {
                 let mut ev = crate::z_log::WideEvent::new("detail", "platforms-lite stale")
@@ -481,99 +495,132 @@ fn repo_known_to_exist(state: &AppState, clean_id: &str) -> bool {
         || db.get_app_detail(clean_id, None).ok().flatten().is_some()
 }
 
-/// DB-only 批量详情回填（Favorites/Watching 富卡专用）：零网络、零写盘。
-/// - 入参逐个经 `require_app_id` 归一为 canonical；不可解析的未知标识直接落 `None`，不触碰 SQLite；
-/// - 命中行读 `get_cached_app_detail(None)`（无 TTL 门控，过期行同样复用；无行即 `None`，永不穿透网络/ETag/forge）；
-/// - 确认图标经 `resolve_confirmed_icon_from_db` 覆盖（`Some` 才覆盖，`None` 保持 `detail.icon`）；
+/// DB-only 批量详情回填（Favorites/Watching 富卡专用）：零网络。
+/// - 入参逐个经 `canonical_app_id` 归一；不可解析的未知标识直接落 `None`；
+/// - 命中行读 `app_details`（无 TTL 门控，过期行同样复用；无行回退 `repo_card_cache`，永不穿透网络/ETag/forge）；
+/// - 确认图标覆盖（`Some` 才覆盖，`None` 保持 `detail.icon`）；收录项官方图标非空时以目录精校为准；
 /// - platforms 随详情行自带，无需二次 join（空即未知，前端视为待 backfill，不 stamp `["other"]`/`["windows"]`）；
-/// - 无缓存行的收录项（精选或本地库，含被隐藏规则隐藏者）回退目录元数据，见 `resolve_cached_or_catalog_summary`；
-/// - 全程只读：不 `touch` 保鲜期、不落库、不 spawn 后台任务；返回与入参一一对齐（含 `None` 占位）。
+/// - 无缓存行的收录项（精选或本地库，含被隐藏规则隐藏者）回退目录元数据，见 `cached_or_catalog_summaries_deferred`；
+/// - 只读：不 `touch` 保鲜期、不 spawn 后台任务；返回与入参一一对齐（含 `None` 占位）。
+/// 短锁内批量读表并规划图标，释放锁后在阻塞线程池读图标文件并编码，仅自愈认领时再取短锁回写。
 /// `get_app_details` 的 force 语义不受影响（本命令永不走其网络分支）。
 #[tauri::command]
-pub fn get_cached_app_details_batch(
+pub async fn get_cached_app_details_batch(
     state: State<'_, AppState>,
     ids: Vec<String>,
 ) -> crate::AppResult<Vec<Option<AppSummary>>> {
-    let db = state.db()?;
-    let icons_dir = crate::get_app_data_dir().join("icons");
-    Ok(ids
-        .iter()
-        .map(|raw| resolve_cached_or_catalog_summary(&db, &state.catalog, &icons_dir, raw))
-        .collect())
+    let (mut rows, jobs) = {
+        let db = state.db()?;
+        cached_or_catalog_summaries_deferred(&db, &state.catalog, &ids)
+    };
+    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
+    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
+    crate::icons::patch_core_icons(
+        rows.iter_mut().map(|r| r.as_mut().map(|s| &mut s.core)),
+        icons,
+    );
+    Ok(rows)
 }
 
-/// 单 id 富卡摘要：缓存行优先（叠加目录元数据并盖章）；无缓存行时回退收录目录项
-/// 并叠加确认图标；两者皆无或 id 不可解析即 `None`。
+/// 批量富卡摘要（不含确认图标）+ 与之对齐的图标延迟任务：缓存行优先（叠加目录元数据并盖章）；
+/// 无缓存行时回退收录目录项；两者皆无或 id 不可解析即 `None`。
+fn cached_or_catalog_summaries_deferred(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    ids: &[String],
+) -> (Vec<Option<AppSummary>>, Vec<crate::icons::DeferredIcon>) {
+    let cached =
+        crate::repositories::DetailRepository::cached_detail_summaries_without_icon(db, ids, true);
+    let mut rows = Vec::with_capacity(ids.len());
+    let mut pendings = Vec::with_capacity(ids.len());
+    for (raw, cached) in ids.iter().zip(cached) {
+        if let Some(mut summary) = cached {
+            let cat_item = catalog.get_catalog_item(&summary.core.id);
+            // 目录官方图标非空时 overlay 覆盖确认图标：此类行无需解析。
+            let pending = if cat_item.as_ref().is_some_and(|c| !c.icon.trim().is_empty()) {
+                crate::icons::PendingIcon::none()
+            } else {
+                crate::icons::PendingIcon::confirmed(
+                    &summary.core.id,
+                    &summary.core.owner,
+                    &summary.core.repo,
+                )
+            };
+            if let Some(cat_item) = cat_item {
+                cat_item.overlay_detail_core(&mut summary.core);
+            }
+            catalog.stamp_summary(&mut summary);
+            rows.push(Some(summary));
+            pendings.push(pending);
+            continue;
+        }
+        let cat_item = crate::forge::canonical_app_id(raw.trim())
+            .and_then(|clean_id| catalog.get_catalog_item(&clean_id));
+        match cat_item {
+            Some(cat_item) => {
+                rows.push(Some(catalog.item_to_stamped_summary(&cat_item)));
+                pendings.push(crate::icons::PendingIcon::for_clean_id(
+                    catalog,
+                    &cat_item.id,
+                ));
+            }
+            None => {
+                rows.push(None);
+                pendings.push(crate::icons::PendingIcon::none());
+            }
+        }
+    }
+    (rows, crate::icons::plan_pending_icons(db, &pendings))
+}
+
+/// 单 id 富卡摘要（测试入口）：图标磁盘阶段就地执行。
+#[cfg(test)]
 fn resolve_cached_or_catalog_summary(
     db: &crate::db::Database,
     catalog: &crate::github::CatalogService,
     icons_dir: &std::path::Path,
     raw: &str,
 ) -> Option<AppSummary> {
-    if let Some(mut summary) = cached_detail_summary(db, raw) {
-        if let Some(cat_item) = catalog.get_catalog_item(&summary.core.id) {
-            cat_item.overlay_detail_core(&mut summary.core);
-        }
-        catalog.stamp_summary(&mut summary);
-        return Some(summary);
-    }
-    let clean_id = crate::forge::canonical_app_id(raw.trim())?;
-    let cat_item = catalog.get_catalog_item(&clean_id)?;
-    let mut summary = catalog.item_to_stamped_summary(&cat_item);
-    if let Some(icon) = confirmed_icon_for_id(db, catalog, icons_dir, &cat_item.id) {
-        summary.core.icon = icon;
-    }
-    Some(summary)
+    let (mut rows, jobs) = cached_or_catalog_summaries_deferred(db, catalog, &[raw.to_string()]);
+    let icons = crate::icons::materialize_icons_inline(db, icons_dir, &jobs);
+    crate::icons::patch_core_icons(
+        rows.iter_mut().map(|r| r.as_mut().map(|s| &mut s.core)),
+        icons,
+    );
+    rows.pop().flatten()
 }
 
 /// 单 id 的 DB-only 投影：`AppDetail` 子集转 `AppSummary`，无网络、无写盘。
+#[cfg(test)]
 fn cached_detail_summary(db: &crate::db::Database, raw_id: &str) -> Option<AppSummary> {
     crate::repositories::DetailRepository::cached_detail_summary(db, raw_id)
 }
 
-/// DB-only 确认图标批量回填（趋势榜重挂图标自愈专用）：零网络、零 ETag、零写盘、不 spawn 后台任务。
-/// - 入参与返回一一对齐：每个 id 经 `canonical_app_id` 归一（不可解析即 `None`，不触碰 SQLite）；
-/// - 命中经 `resolve_confirmed_icon_from_db`（cycle 表 + 本地图标文件，`M2` dataURI 直显或 L1..L3 远端回退；L4/`None` 即 `None`）；
-/// - 全程只读：不 `touch` 保鲜期、不落库、不触发 `fetch_icons_stream`；前端经店内唯一写口 `admitIconHit`（`via=m2`，不占 `level`）合流进镜像。
+/// DB-only 确认图标批量回填（趋势榜重挂图标自愈专用）：零网络、零 ETag、不 spawn 后台任务。
+/// - 入参与返回一一对齐：每个 id 经 `canonical_app_id` 归一（不可解析即 `None`）；
+/// - `app_icon_cycles` 确认图标优先（`M2` dataURI 直显或 L1..L3 远端回退；L4/`None` 即 `None`），
+///   其次收录项官方图标（本地缓存命中出 `data:`）；
+/// - 短锁批量读 `app_icon_cycles`，释放锁后在阻塞线程池读图标文件并编码；
+/// - 不 `touch` 保鲜期、不触发 `fetch_icons_stream`；前端经店内唯一写口 `admitIconHit`（`via=m2`，不占 `level`）合流进镜像。
 #[tauri::command]
-pub fn get_confirmed_icons_batch(
+pub async fn get_confirmed_icons_batch(
     state: State<'_, AppState>,
     ids: Vec<String>,
 ) -> crate::AppResult<Vec<Option<String>>> {
-    let db = state.db()?;
-    let icons_dir = crate::get_app_data_dir().join("icons");
-    Ok(ids
-        .iter()
-        .map(|raw| {
-            let clean_id = crate::forge::canonical_app_id(raw.trim()).unwrap_or_default();
-            confirmed_icon_for_id(&db, &state.catalog, &icons_dir, &clean_id)
-        })
-        .collect())
-}
-
-/// 单 id 确认图标：`app_icon_cycles` 确认图标优先，其次收录项官方图标（本地缓存命中出 `data:`）。
-fn confirmed_icon_for_id(
-    db: &crate::db::Database,
-    catalog: &crate::github::CatalogService,
-    icons_dir: &std::path::Path,
-    clean_id: &str,
-) -> Option<String> {
-    let (owner, repo) = clean_id.split_once('/')?;
-    if owner.is_empty() || repo.is_empty() {
-        return None;
-    }
-    if let Some(hit) = crate::icons::resolve_confirmed_icon_from_db(db, clean_id, owner, repo) {
-        return Some(hit);
-    }
-    let cat_item = catalog.get_catalog_item(clean_id)?;
-    let icon_url = cat_item.icon.trim();
-    if icon_url.is_empty() {
-        return None;
-    }
-    if let Some((bytes, _)) = crate::icons::find_cached_icon_by_url(icons_dir, icon_url) {
-        return Some(crate::icons::bytes_to_data_uri(&bytes));
-    }
-    Some(icon_url.to_string())
+    let jobs = {
+        let db = state.db()?;
+        let pendings: Vec<crate::icons::PendingIcon> = ids
+            .iter()
+            .map(|raw| {
+                let clean_id = crate::forge::canonical_app_id(raw.trim()).unwrap_or_default();
+                crate::icons::PendingIcon::for_clean_id(&state.catalog, &clean_id)
+            })
+            .collect();
+        crate::icons::plan_pending_icons(&db, &pendings)
+    };
+    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
+    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
+    Ok(icons)
 }
 
 /// DB-only 按 id 批量水合单仓富卡（在线搜索 / 趋势榜 / GitHub Star 列表恢复共用）：零网络。
@@ -581,27 +628,58 @@ fn confirmed_icon_for_id(
 /// - 收录项（精选或本地库）投影目录元数据并叠加确认图标，优先于 `repo_card_cache`；
 /// - 未收录项读 `repo_card_cache` 完整卡片（刷新 `last_accessed_at`），缺失时回退 `app_details`
 ///   （`updated_at = 0`，前端视为不新鲜）；叠加 `app_icon_cycles` 确认图标并盖收录章。
+/// - 短锁内每表一次分片查询，图标文件读取与编码在释放锁后的阻塞线程池执行。
 #[tauri::command(rename_all = "camelCase")]
-pub fn get_repo_cards_batch(
+pub async fn get_repo_cards_batch(
     state: State<'_, AppState>,
     ids: Vec<String>,
 ) -> crate::AppResult<Vec<Option<HydratedRepoCard>>> {
-    let db = state.db()?;
-    Ok(hydrate_repo_cards(
-        &db,
-        &state.catalog,
-        &ids,
-        crate::now_secs(),
-    ))
+    let (mut cards, jobs) = {
+        let db = state.db()?;
+        hydrate_repo_cards_deferred(&db, &state.catalog, &ids, crate::now_secs())
+    };
+    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
+    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
+    crate::icons::patch_core_icons(
+        cards
+            .iter_mut()
+            .map(|c| c.as_mut().map(|c| &mut c.summary.core)),
+        icons,
+    );
+    Ok(cards)
 }
 
+/// 同步水合（图标磁盘阶段就地执行，测试入口）。
+#[cfg(test)]
 pub(crate) fn hydrate_repo_cards(
     db: &crate::db::Database,
     catalog: &crate::github::CatalogService,
     ids: &[String],
     now: i64,
 ) -> Vec<Option<HydratedRepoCard>> {
+    let (mut cards, jobs) = hydrate_repo_cards_deferred(db, catalog, ids, now);
     let icons_dir = crate::get_app_data_dir().join("icons");
+    let icons = crate::icons::materialize_icons_inline(db, &icons_dir, &jobs);
+    crate::icons::patch_core_icons(
+        cards
+            .iter_mut()
+            .map(|c| c.as_mut().map(|c| &mut c.summary.core)),
+        icons,
+    );
+    cards
+}
+
+/// 水合 DB 阶段（持锁）：`repo_card_cache`、`app_details`、`app_icon_cycles` 各一次分片查询，
+/// 返回不含确认图标的卡片与对齐的图标延迟任务。
+pub(crate) fn hydrate_repo_cards_deferred(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    ids: &[String],
+    now: i64,
+) -> (
+    Vec<Option<HydratedRepoCard>>,
+    Vec<crate::icons::DeferredIcon>,
+) {
     let canonical: Vec<Option<String>> = ids
         .iter()
         .map(|raw| crate::forge::canonical_app_id(raw))
@@ -615,51 +693,65 @@ pub(crate) fn hydrate_repo_cards(
     let cards = db
         .get_repo_cards_batch_and_touch(&uncataloged, now)
         .unwrap_or_default();
-    canonical
+    let missing: Vec<String> = uncataloged
+        .iter()
+        .filter(|id| !cards.contains_key(*id))
+        .cloned()
+        .collect();
+    let details: HashMap<String, AppSummary> =
+        crate::repositories::DetailRepository::cached_detail_summaries_without_icon(
+            db, &missing, false,
+        )
+        .into_iter()
+        .zip(missing.iter())
+        .filter_map(|(summary, id)| summary.map(|s| (id.clone(), s)))
+        .collect();
+    let mut pendings = Vec::with_capacity(canonical.len());
+    let out: Vec<Option<HydratedRepoCard>> = canonical
         .into_iter()
         .map(|id| {
-            let id = id?;
+            let Some(id) = id else {
+                pendings.push(crate::icons::PendingIcon::none());
+                return None;
+            };
             if let Some(cat_item) = catalog.get_catalog_item(&id) {
-                let mut summary = catalog.item_to_stamped_summary(&cat_item);
-                if let Some(icon) = confirmed_icon_for_id(db, catalog, &icons_dir, &id) {
-                    summary.core.icon = icon;
-                }
+                pendings.push(crate::icons::PendingIcon::for_clean_id(catalog, &id));
                 return Some(HydratedRepoCard {
-                    summary,
+                    summary: catalog.item_to_stamped_summary(&cat_item),
                     confirmed_other: false,
                     is_private: false,
                     updated_at: now,
                 });
             }
-            let mut hydrated = match cards.get(&id) {
-                Some(card) => {
-                    let mut summary = card.summary.clone();
-                    if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-                        db,
-                        &summary.core.id,
-                        &summary.core.owner,
-                        &summary.core.repo,
-                    ) {
-                        summary.core.icon = ci;
-                    }
-                    HydratedRepoCard {
-                        summary,
-                        confirmed_other: card.confirmed_other,
-                        is_private: card.is_private,
-                        updated_at: card.updated_at,
-                    }
-                }
-                None => HydratedRepoCard {
-                    summary: cached_detail_summary(db, &id)?,
+            let hydrated = match cards.get(&id) {
+                Some(card) => Some(HydratedRepoCard {
+                    summary: card.summary.clone(),
+                    confirmed_other: card.confirmed_other,
+                    is_private: card.is_private,
+                    updated_at: card.updated_at,
+                }),
+                None => details.get(&id).map(|summary| HydratedRepoCard {
+                    summary: summary.clone(),
                     confirmed_other: false,
                     is_private: false,
                     updated_at: 0,
-                },
+                }),
             };
+            let Some(mut hydrated) = hydrated else {
+                pendings.push(crate::icons::PendingIcon::none());
+                return None;
+            };
+            let core = &hydrated.summary.core;
+            pendings.push(crate::icons::PendingIcon::confirmed(
+                &core.id,
+                &core.owner,
+                &core.repo,
+            ));
             catalog.stamp_summary(&mut hydrated.summary);
             Some(hydrated)
         })
-        .collect()
+        .collect();
+    (out, crate::icons::plan_pending_icons(db, &pendings))
 }
 
 /// stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
@@ -751,17 +843,7 @@ async fn fetch_detail_from_forge(
     is_force: bool,
     start: std::time::Instant,
 ) -> Result<AppDetail, String> {
-    if !is_force {
-        if let Some(hit) = project_from_cache(state, &clean_id, true) {
-            let mut ev = crate::z_log::WideEvent::new("detail", "fetch ok").with_started(start);
-            ev.field("id", &clean_id)
-                .field("via", "cache:db")
-                .dev("forge", coord.forge.as_str())
-                .dev("cache_why", "ttl_hit");
-            ev.info();
-            return Ok(hit);
-        }
-    }
+    // TTL 缓存快径已由 `get_app_details_impl` 在分派前检查，此处直接走远端。
     let host_token = if let Ok(db) = state.db() {
         db.get_host_token(&coord.host).ok().flatten()
     } else {

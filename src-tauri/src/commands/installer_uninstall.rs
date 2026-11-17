@@ -123,10 +123,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
     start_ev.info();
     let installed_app = {
         let db = state.db()?;
-        db.get_installed_apps()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|a| a.app_id == app_id)
+        db.get_installed_app(&app_id).map_err(|e| e.to_string())?
     };
 
     let app = match installed_app {
@@ -136,11 +133,13 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
                 .catalog
                 .get_catalog_item(&app_id)
                 .ok_or_else(|| format!("未找到 ID 为 {} 的应用安装记录", app_id))?;
-            let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(
-                &cat.name,
-                &cat.id,
-                Some(&cat.repo),
-            );
+            let resolved_path = {
+                let (name, id, repo) = (cat.name.clone(), cat.id.clone(), cat.repo.clone());
+                super::installer_query::run_blocking(move || {
+                    crate::scanner::AppScanner::resolve_installed_app_path(&name, &id, Some(&repo))
+                })
+                .await?
+            };
             InstalledApp {
                 app_id: cat.id.clone(),
                 app_name: cat.name.clone(),
@@ -160,18 +159,26 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
     // 1. 便携版清理：remove_dir_all 仅允许在 ZStore 自建隔离目录内；
     // 清理失败以 Err 上浮（文件仍在 → 不删 DB 记录，卸载不虚报成功）。
     if app.install_method == "portable_zip" {
-        cleanup_portable_path(
-            std::path::Path::new(&app.install_path),
-            &crate::installer::dirs_or_fallback(&app.app_id),
-        )?;
+        let (path, owned) = (
+            std::path::PathBuf::from(&app.install_path),
+            crate::installer::dirs_or_fallback(&app.app_id),
+        );
+        super::installer_query::run_blocking(move || cleanup_portable_path(&path, &owned))
+            .await??;
     } else {
         // 2. 安装版 / 系统导入版：动态定位并调起官方卸载向导 EXE，挂起等待用户操作完成并核验
-        let resolved_uninst = resolve_uninstaller_command(
-            &app.app_name,
-            &app.app_id,
-            &app.install_path,
-            app.uninstall_command.as_deref(),
-        );
+        let resolved_uninst = {
+            let (name, id, path, cmd) = (
+                app.app_name.clone(),
+                app.app_id.clone(),
+                app.install_path.clone(),
+                app.uninstall_command.clone(),
+            );
+            super::installer_query::run_blocking(move || {
+                resolve_uninstaller_command(&name, &id, &path, cmd.as_deref())
+            })
+            .await?
+        };
 
         if let Some(cmd_str) = resolved_uninst {
             crate::installer::executor::execute_uninstallation(
@@ -190,10 +197,14 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
 
     // 3. 默认便携缓存目录清理（失败同样上浮，不虚报成功）
     let app_dir = crate::installer::dirs_or_fallback(&app.app_id);
-    if app_dir.exists() {
-        std::fs::remove_dir_all(&app_dir)
-            .map_err(|e| format!("清理默认便携缓存目录失败 ({}): {}", app_dir.display(), e))?;
-    }
+    super::installer_query::run_blocking(move || -> Result<(), String> {
+        if app_dir.exists() {
+            std::fs::remove_dir_all(&app_dir)
+                .map_err(|e| format!("清理默认便携缓存目录失败 ({}): {}", app_dir.display(), e))?;
+        }
+        Ok(())
+    })
+    .await??;
 
     // 4. 快捷方式清理（消毒 + 前缀断言，绝不越出 Desktop）
     #[cfg(target_os = "windows")]

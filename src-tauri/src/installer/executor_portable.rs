@@ -71,6 +71,15 @@ fn create_dir_all_tracked(dir: &Path, created: &mut Vec<PathBuf>) -> io::Result<
     res
 }
 
+/// 解压读写缓冲：归档源与落盘文件均经缓冲，减少小块系统调用。
+const EXTRACT_IO_BUF: usize = 64 * 1024;
+
+fn open_buffered(path: &Path) -> Result<io::BufReader<File>, String> {
+    File::open(path)
+        .map(|f| io::BufReader::with_capacity(EXTRACT_IO_BUF, f))
+        .map_err(|e| e.to_string())
+}
+
 /// 按剩余配额截断拷贝：最多读取 `remaining + 1` 字节，读到第 `remaining + 1` 字节即判定超限。
 /// 归档头声明大小可谎报，实际落盘字节必须在拷贝过程中硬限，而非写完再复核。
 fn copy_capped<R: Read + ?Sized, W: Write>(
@@ -133,11 +142,15 @@ impl ExtractTracker {
         if let Some(parent) = outpath.parent() {
             self.create_dir(parent)?;
         }
-        let mut outfile = File::create(outpath)
+        let outfile = File::create(outpath)
             .map_err(|e| format!("创建文件失败 ({}): {}", outpath.display(), e))?;
         self.written.push(outpath.to_path_buf());
+        let mut outfile = io::BufWriter::with_capacity(EXTRACT_IO_BUF, outfile);
         let remaining = self.limits.max_total_bytes.saturating_sub(self.total_bytes);
         let n = copy_capped(reader, &mut outfile, remaining, self.limits)?;
+        outfile
+            .flush()
+            .map_err(|e| format!("写入解压文件失败: {}", e))?;
         self.total_bytes += n;
         Ok(())
     }
@@ -174,7 +187,7 @@ fn install_portable_zip_into(
     app_dir: &Path,
     limits: ExtractLimits,
 ) -> Result<InstallOutcome, String> {
-    let file = File::open(installer_path).map_err(|e| e.to_string())?;
+    let file = open_buffered(installer_path)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| {
         format!(
             "打开 ZIP 归档失败 (文件: {}): {}。仅支持 .zip 格式，不支持 .7z",
@@ -354,13 +367,13 @@ fn install_portable_tarball_into(
 
     let (kind, reader): (&str, Box<dyn Read>) =
         if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
-            let file = File::open(installer_path).map_err(|e| e.to_string())?;
+            let file = open_buffered(installer_path)?;
             ("TAR.GZ", Box::new(flate2::read::GzDecoder::new(file)))
         } else if lower.ends_with(".tar.xz") {
-            let file = File::open(installer_path).map_err(|e| e.to_string())?;
+            let file = open_buffered(installer_path)?;
             ("TAR.XZ", Box::new(xz2::read::XzDecoder::new(file)))
         } else if lower.ends_with(".tar") {
-            let file = File::open(installer_path).map_err(|e| e.to_string())?;
+            let file = open_buffered(installer_path)?;
             ("TAR", Box::new(file))
         } else {
             return Err(format!(

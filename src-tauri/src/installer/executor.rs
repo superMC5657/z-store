@@ -230,6 +230,18 @@ macro_rules! run_on_target {
     }};
 }
 
+fn owned_portable_args(
+    installer_path: &Path,
+    app_id: &str,
+    custom_portable_dir: Option<&str>,
+) -> (std::path::PathBuf, String, Option<String>) {
+    (
+        installer_path.to_path_buf(),
+        app_id.to_string(),
+        custom_portable_dir.map(str::to_string),
+    )
+}
+
 async fn execute_installation_inner(
     installer_path: &Path,
     kind: &AssetKind,
@@ -245,11 +257,22 @@ async fn execute_installation_inner(
             windows => windows::install_setup_exe(installer_path).await,
             skip => "非 Windows 平台跳过 SetupExe 安装", installer_path
         ),
+        // 同步解压与桌面快捷方式创建（PowerShell）卸到阻塞线程池，不占用异步运行时线程。
         AssetKind::PortableZip => {
-            portable::install_portable_zip(installer_path, app_id, custom_portable_dir)
+            let (path, id, dir) = owned_portable_args(installer_path, app_id, custom_portable_dir);
+            tokio::task::spawn_blocking(move || {
+                portable::install_portable_zip(&path, &id, dir.as_deref())
+            })
+            .await
+            .map_err(|e| e.to_string())?
         }
         AssetKind::PortableTarball => {
-            portable::install_portable_tarball(installer_path, app_id, custom_portable_dir)
+            let (path, id, dir) = owned_portable_args(installer_path, app_id, custom_portable_dir);
+            tokio::task::spawn_blocking(move || {
+                portable::install_portable_tarball(&path, &id, dir.as_deref())
+            })
+            .await
+            .map_err(|e| e.to_string())?
         }
         AssetKind::Dmg => run_on_target!(
             macos => macos::install_dmg(installer_path).await,
