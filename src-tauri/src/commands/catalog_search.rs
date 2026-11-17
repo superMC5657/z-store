@@ -196,7 +196,7 @@ pub(crate) struct BackfillCtx {
 /// `BackfillCtx` 的预读键集合。
 #[derive(Default)]
 pub(crate) struct PrefetchKeys {
-    coords: Vec<(String, String, String)>,
+    coords: Vec<crate::icons::IconCoord>,
     ids: Vec<String>,
     urls: Vec<String>,
 }
@@ -206,7 +206,7 @@ impl PrefetchKeys {
     fn add_item(&mut self, item: &AppSummary) {
         let c = &item.core;
         self.coords
-            .push((c.id.clone(), c.owner.clone(), c.repo.clone()));
+            .push(crate::icons::IconCoord::new(&c.id, &c.owner, &c.repo));
         self.ids.push(c.id.clone());
         if let Some((exact, lower)) = release_latest_urls(item) {
             self.urls.push(exact);
@@ -217,14 +217,18 @@ impl PrefetchKeys {
     /// 命中收录库的行：收录投影后的确认图标坐标。
     fn add_curated(&mut self, catalog: &crate::github::CatalogService, item: &AppSummary) {
         if let Some(cat) = catalog.get_catalog_item(&item.core.id) {
-            self.coords.push((cat.id, cat.owner, cat.repo));
+            self.coords
+                .push(crate::icons::IconCoord::new(cat.id, cat.owner, cat.repo));
         }
     }
 
     /// 仓库坐标：确认图标、单仓富卡 / 详情 id；`with_endpoint` 时含 `/repos/{o}/{r}` 端点。
     fn add_coord(&mut self, coord: &crate::icons::RepoCoord, with_endpoint: bool) {
-        self.coords
-            .push((coord.id.clone(), coord.owner.clone(), coord.repo.clone()));
+        self.coords.push(crate::icons::IconCoord::new(
+            &coord.id,
+            &coord.owner,
+            &coord.repo,
+        ));
         self.ids.push(coord.id.clone());
         if with_endpoint {
             self.urls.push(repo_endpoint(&coord.owner, &coord.repo));
@@ -287,22 +291,23 @@ impl BackfillCtx {
         (ctx, batch)
     }
 
-    /// 持锁调用方的同步版本：图标磁盘阶段就地执行（单条或非批量入口）。
+    /// 持锁调用方的同步版本：图标磁盘阶段就地执行（测试入口）。
+    #[cfg(test)]
     pub(crate) fn load_inline(
         db: &crate::db::Database,
         keys: &PrefetchKeys,
         known: Option<&crate::icons::ResolvedIcons>,
     ) -> Self {
         let (mut ctx, batch) = Self::load(db, keys, known);
-        let (icons, heals) = batch.resolve_inline(&crate::get_app_data_dir().join("icons"));
-        crate::icons::apply_icon_cache_heals(db, &heals);
+        let icons = batch.resolve_inline(db, &crate::get_app_data_dir().join("icons"));
         ctx.icons.extend(icons);
         ctx
     }
 
     /// 已解析确认图标（`None`：无确认图标）。
     fn confirmed_icon(&self, app_id: &str, owner: &str, repo: &str) -> Option<String> {
-        self.icons.get(app_id, owner, repo)
+        self.icons
+            .get(&crate::icons::IconCoord::new(app_id, owner, repo))
     }
 
     fn card(&self, raw_id: &str) -> Option<&crate::db::RepoCardSnapshot> {
@@ -340,8 +345,7 @@ async fn prefetch_backfill(
     let Some((mut ctx, batch)) = loaded else {
         return BackfillCtx::default();
     };
-    let (icons, heals) = batch.resolve_offloaded().await;
-    crate::icons::apply_icon_cache_heals_locked(state, &heals);
+    let icons = batch.resolve_offloaded(state).await;
     ctx.icons.extend(icons);
     ctx
 }
@@ -355,7 +359,7 @@ async fn resolve_confirmed_icon_offloaded(
 ) -> Option<String> {
     let mut keys = PrefetchKeys::default();
     keys.coords
-        .push((app_id.to_string(), owner.to_string(), repo.to_string()));
+        .push(crate::icons::IconCoord::new(app_id, owner, repo));
     prefetch_backfill(state, &keys, None, |_| {})
         .await
         .confirmed_icon(app_id, owner, repo)
@@ -1516,26 +1520,23 @@ pub(crate) struct StarredCards {
     pub private_ids: Vec<String>,
 }
 
-/// 仓库 JSON 批量本地组卡（零网络，保序）：收录命中出收录卡，详情缓存命中出详情卡，
-/// 否则解析仓库 JSON（与搜索单仓直查同形）。所有行统一盖收录章。
-/// `persist = true`（非 stale 页）时未收录行连同私有标记写入 `repo_card_cache`。
-pub(crate) fn cards_from_repo_payloads(
-    db: &crate::db::Database,
+type StarredPayloadHit = (
+    crate::github::developer_starred::StarredRepoPayload,
+    AppSummary,
+    Option<String>,
+);
+
+fn resolve_repo_payload_hits(
+    pre_ctx: &BackfillCtx,
     catalog: &crate::github::CatalogService,
     items: Vec<crate::github::developer_starred::StarredRepoPayload>,
-    persist: bool,
-) -> StarredCards {
-    // 两段批量预读（调用方持锁，图标磁盘阶段就地执行）：坐标快照判定本地命中，命中卡片快照用于回填。
-    let mut pre_keys = PrefetchKeys::default();
-    for i in &items {
-        pre_keys.add_coord(&i.coord, false);
-    }
-    let pre_ctx = BackfillCtx::load_inline(db, &pre_keys, None);
+) -> (Vec<StarredPayloadHit>, PrefetchKeys) {
     let mut hits = Vec::with_capacity(items.len());
+    let mut post_keys = PrefetchKeys::default();
     for item in items {
         let pre = pre_ctx.confirmed_icon(&item.coord.id, &item.coord.owner, &item.coord.repo);
         let Some((card, _)) = resolve_local_enrich_hit_in(
-            &pre_ctx,
+            pre_ctx,
             catalog,
             &item.coord,
             pre.as_deref(),
@@ -1544,13 +1545,21 @@ pub(crate) fn cards_from_repo_payloads(
         ) else {
             continue;
         };
+        post_keys.add_item(&card);
         hits.push((item, card, pre));
     }
-    let mut post_keys = PrefetchKeys::default();
-    for (_, card, _) in &hits {
-        post_keys.add_item(card);
-    }
-    let ctx = BackfillCtx::load_inline(db, &post_keys, Some(&pre_ctx.icons));
+    (hits, post_keys)
+}
+
+fn build_starred_cards(
+    ctx: &BackfillCtx,
+    catalog: &crate::github::CatalogService,
+    hits: Vec<StarredPayloadHit>,
+) -> (
+    StarredCards,
+    Vec<crate::db::AppIconCycle>,
+    Vec<crate::db::RepoCardUpsert>,
+) {
     let mut rows = Vec::with_capacity(hits.len());
     let mut need_icon = Vec::new();
     let mut staged = Vec::new();
@@ -1558,12 +1567,12 @@ pub(crate) fn cards_from_repo_payloads(
     let mut confirmed_other_ids = Vec::new();
     let mut private_ids = Vec::new();
     for (item, mut card, pre) in hits {
-        if let Some(cycle) = backfill_uncataloged_card_in(&ctx, &mut card) {
+        if let Some(cycle) = backfill_uncataloged_card_in(ctx, &mut card) {
             staged.push(cycle);
         }
         if !catalog.is_cataloged(&card.core.id) {
             let id = card.core.id.to_lowercase();
-            let confirmed_other = repo_card_confirmed_other(&ctx, &card);
+            let confirmed_other = repo_card_confirmed_other(ctx, &card);
             if confirmed_other {
                 confirmed_other_ids.push(id.clone());
             }
@@ -1585,16 +1594,66 @@ pub(crate) fn cards_from_repo_payloads(
         }
         rows.push(card);
     }
+    (
+        StarredCards {
+            rows,
+            need_icon,
+            confirmed_other_ids,
+            private_ids,
+        },
+        staged,
+        cards,
+    )
+}
+
+/// 仓库 JSON 批量本地组卡（零网络，保序）：短锁预读与落 ETag，释放锁后在阻塞线程池读图标文件并编码，
+/// 仅在最后写包落库时再取一次短锁。`persist = true`（非 stale 页）时未收录行连同私有标记写入 `repo_card_cache`。
+pub(crate) async fn cards_from_repo_payloads_offloaded(
+    state: &AppState,
+    items: Vec<crate::github::developer_starred::StarredRepoPayload>,
+    persist: bool,
+    before_load: impl FnOnce(&crate::db::Database),
+) -> StarredCards {
+    let mut pre_keys = PrefetchKeys::default();
+    for i in &items {
+        pre_keys.add_coord(&i.coord, false);
+    }
+    let pre_ctx = prefetch_backfill(state, &pre_keys, None, before_load).await;
+    let (hits, post_keys) = resolve_repo_payload_hits(&pre_ctx, &state.catalog, items);
+    let ctx = prefetch_backfill(state, &post_keys, Some(&pre_ctx.icons), |_| {}).await;
+    let (out, staged, cards) = build_starred_cards(&ctx, &state.catalog, hits);
+    if !staged.is_empty() || (persist && !cards.is_empty()) {
+        if let Ok(db) = state.db() {
+            flush_icon_cycle_staged(&db, &staged);
+            if persist {
+                flush_repo_cards(&db, &cards);
+            }
+        }
+    }
+    out
+}
+
+/// 同步组卡（测试入口，图标磁盘阶段就地执行）。
+#[cfg(test)]
+pub(crate) fn cards_from_repo_payloads(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    items: Vec<crate::github::developer_starred::StarredRepoPayload>,
+    persist: bool,
+) -> StarredCards {
+    let mut pre_keys = PrefetchKeys::default();
+    for i in &items {
+        pre_keys.add_coord(&i.coord, false);
+    }
+    let pre_ctx = BackfillCtx::load_inline(db, &pre_keys, None);
+    let (hits, post_keys) = resolve_repo_payload_hits(&pre_ctx, catalog, items);
+    let ctx = BackfillCtx::load_inline(db, &post_keys, Some(&pre_ctx.icons));
+    let (out, staged, cards) = build_starred_cards(&ctx, catalog, hits);
     flush_icon_cycle_staged(db, &staged);
     if persist {
         flush_repo_cards(db, &cards);
     }
-    StarredCards {
-        rows,
-        need_icon,
-        confirmed_other_ids,
-        private_ids,
-    }
+    out
 }
 
 /// Star 列表补图世代：新查询（第 1 页）推进 `STARRED_GEN`，续拉页沿用当前值，

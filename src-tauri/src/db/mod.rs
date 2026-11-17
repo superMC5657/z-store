@@ -36,6 +36,7 @@ pub use update_results::UpdateCheckRow;
 mod tests;
 
 use rusqlite::{Connection, Result};
+use std::collections::HashSet;
 use std::path::Path;
 
 pub struct Database {
@@ -52,6 +53,19 @@ pub(crate) const BATCH_CHUNK: usize = 400;
 #[inline]
 pub(crate) fn clean(s: &str) -> &str {
     s.trim()
+}
+
+/// 去空、去重（保序），返回借用切片。
+pub(crate) fn dedup_non_empty<'a>(keys: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+    let mut seen: HashSet<&'a str> = HashSet::new();
+    keys.into_iter()
+        .filter(|k| !k.is_empty() && seen.insert(k))
+        .collect()
+}
+
+/// 去首尾空白、去空、去重（保序），返回借用切片。
+pub(crate) fn dedup_clean_refs(keys: &[String]) -> Vec<&str> {
+    dedup_non_empty(keys.iter().map(|k| clean(k)))
 }
 
 /// 历史裁剪表白名单（防 SQL 注入：表名/排序列仅允许白名单常量，limit 为整数格式化）。

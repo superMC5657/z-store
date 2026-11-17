@@ -108,9 +108,12 @@ pub async fn get_recently_viewed_apps(
         let db = state.db()?;
         recently_viewed_deferred(&db, &state.catalog)?
     };
-    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
-    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
-    crate::icons::patch_core_icons(result.iter_mut().map(|r| Some(&mut r.summary.core)), icons);
+    crate::icons::resolve_and_patch_icons(
+        &state,
+        jobs,
+        result.iter_mut().map(|r| Some(&mut r.summary.core)),
+    )
+    .await;
     Ok(result)
 }
 

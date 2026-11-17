@@ -513,12 +513,12 @@ pub async fn get_cached_app_details_batch(
         let db = state.db()?;
         cached_or_catalog_summaries_deferred(&db, &state.catalog, &ids)
     };
-    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
-    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
-    crate::icons::patch_core_icons(
+    crate::icons::resolve_and_patch_icons(
+        &state,
+        jobs,
         rows.iter_mut().map(|r| r.as_mut().map(|s| &mut s.core)),
-        icons,
-    );
+    )
+    .await;
     Ok(rows)
 }
 
@@ -618,8 +618,7 @@ pub async fn get_confirmed_icons_batch(
             .collect();
         crate::icons::plan_pending_icons(&db, &pendings)
     };
-    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
-    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
+    let icons = crate::icons::resolve_icons_offloaded(&state, jobs).await;
     Ok(icons)
 }
 
@@ -638,14 +637,14 @@ pub async fn get_repo_cards_batch(
         let db = state.db()?;
         hydrate_repo_cards_deferred(&db, &state.catalog, &ids, crate::now_secs())
     };
-    let (icons, heals) = crate::icons::materialize_icons_offloaded(jobs).await;
-    crate::icons::apply_icon_cache_heals_locked(&state, &heals);
-    crate::icons::patch_core_icons(
+    crate::icons::resolve_and_patch_icons(
+        &state,
+        jobs,
         cards
             .iter_mut()
             .map(|c| c.as_mut().map(|c| &mut c.summary.core)),
-        icons,
-    );
+    )
+    .await;
     Ok(cards)
 }
 

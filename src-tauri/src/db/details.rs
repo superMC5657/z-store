@@ -3,10 +3,10 @@
 //! 承载 Release 资产列表、README Markdown、多语言 README 变体、Changelog、
 //! TTL `cached_at` 及未收录应用富卡兜底所需的概要字段。
 
-use super::{clean, now_secs, Database};
+use super::{clean, dedup_clean_refs, now_secs, Database};
 use crate::models::{AppCore, AppDetail, ReadmeVariant, ReleaseAsset};
 use rusqlite::{params, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// 应用详情表最大保留行数（按 `cached_at DESC` LRU 淘汰，资产关联行豁免）。
 pub const APP_DETAILS_CACHE_MAX_ROWS: usize = 500;
@@ -148,12 +148,7 @@ impl Database {
         app_ids: &[String],
         with_releases: bool,
     ) -> Result<HashMap<String, AppDetail>> {
-        let mut seen: HashSet<&str> = HashSet::with_capacity(app_ids.len());
-        let keys: Vec<&str> = app_ids
-            .iter()
-            .map(|k| clean(k))
-            .filter(|k| !k.is_empty() && seen.insert(k))
-            .collect();
+        let keys = dedup_clean_refs(app_ids);
         let releases_col = if with_releases { "releases_json" } else { "''" };
         let rows = self.query_in_chunks(
             &keys,
@@ -340,5 +335,66 @@ impl Database {
     pub fn clear_app_details(&self) -> Result<()> {
         self.exec_write("DELETE FROM app_details", [])?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_app_detail_summaries_batch_is_keyed_by_stored_id_and_skips_heavy_fields() {
+        let db = Database::open_in_memory().unwrap();
+        let detail = AppDetail {
+            core: AppCore {
+                id: "acme/tool".to_string(),
+                name: "Tool".to_string(),
+                description_en: None,
+                owner: "acme".to_string(),
+                repo: "tool".to_string(),
+                icon: String::new(),
+                icon_bg: String::new(),
+                description: String::new(),
+                stars: 0,
+                forks: 0,
+                license: String::new(),
+                latest_version: "v1.0.0".to_string(),
+                category: "dev".to_string(),
+                category_name: "开发工具".to_string(),
+                is_verified: false,
+                forge: Some("github".to_string()),
+                forge_host: Some("github.com".to_string()),
+                homepage: None,
+                platforms: vec!["windows".to_string()],
+                is_cataloged: None,
+                source: None,
+                status: None,
+                added_at: None,
+            },
+            changelog: "big changelog".to_string(),
+            readme_markdown: "big readme".to_string(),
+            readme_variants: None,
+            releases: Vec::new(),
+            cached_at: Some(123),
+            is_stale: None,
+        };
+        db.save_app_detail("acme/tool", &detail).unwrap();
+
+        let hits = db
+            .get_app_detail_summaries_batch(
+                &[
+                    " acme/tool ".to_string(),
+                    "acme/tool".to_string(),
+                    "nobody/here".to_string(),
+                ],
+                false,
+            )
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        let got = &hits["acme/tool"];
+        assert_eq!(got.core.latest_version, "v1.0.0");
+        assert_eq!(got.core.platforms, vec!["windows"]);
+        assert!(got.readme_markdown.is_empty());
+        assert!(got.changelog.is_empty());
     }
 }

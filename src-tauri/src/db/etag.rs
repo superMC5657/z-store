@@ -1,8 +1,8 @@
 //! `api_etag_cache` 持久化 DAO：HTTP 304 条件请求缓存与 LRU 淘汰。
 
-use super::Database;
+use super::{dedup_non_empty, Database};
 use rusqlite::{params, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// API ETag 缓存表最大保留行数（按 `last_checked_at DESC` LRU 淘汰）。
 pub const API_ETAG_CACHE_MAX_ROWS: usize = 3000;
@@ -47,12 +47,7 @@ impl Database {
         &self,
         urls: &[String],
     ) -> Result<HashMap<String, (String, String)>> {
-        let mut seen: HashSet<&str> = HashSet::with_capacity(urls.len());
-        let keys: Vec<&str> = urls
-            .iter()
-            .map(String::as_str)
-            .filter(|u| !u.is_empty() && seen.insert(u))
-            .collect();
+        let keys = dedup_non_empty(urls.iter().map(String::as_str));
         let rows = self.query_in_chunks(
             &keys,
             |ph| {
@@ -134,5 +129,29 @@ impl Database {
             params![max_rows as i64],
         )?;
         Ok(deleted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_etags_and_payloads_batch_returns_stored_entries() {
+        let db = Database::open_in_memory().unwrap();
+        db.save_etag("https://api/x", "W/1", "{\"a\":1}", 1)
+            .unwrap();
+        let hits = db
+            .get_etags_and_payloads_batch(&[
+                "https://api/x".to_string(),
+                "https://api/x".to_string(),
+                "https://api/y".to_string(),
+            ])
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits["https://api/x"],
+            ("W/1".to_string(), "{\"a\":1}".to_string())
+        );
     }
 }

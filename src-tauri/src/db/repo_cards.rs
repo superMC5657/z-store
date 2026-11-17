@@ -419,6 +419,15 @@ const CATALOGED_IDS_SQL: &str = "SELECT lower(id) FROM catalog_apps \
     UNION SELECT lower(id) FROM custom_apps \
     WHERE archived = 0 AND status IN ('collected', 'local_collected', 'submitted')";
 
+/// 规范 `id` 清洗并去重（保序）。
+fn dedup_canonical_ids<'a>(raws: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    raws.into_iter()
+        .filter_map(crate::forge::canonical_app_id)
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
+}
+
 impl Database {
     fn get_card_row(&self, id: &str) -> Result<Option<CardRow>> {
         let sql = format!("SELECT {SELECT_COLS} FROM repo_card_cache WHERE id = ?1 LIMIT 1");
@@ -559,15 +568,7 @@ impl Database {
         now: i64,
         skip_cataloged_check: bool,
     ) -> Result<usize> {
-        let mut ids: Vec<String> = Vec::with_capacity(items.len());
-        let mut seen: HashSet<String> = HashSet::with_capacity(items.len());
-        for inc in items {
-            if let Some(id) = crate::forge::canonical_app_id(&inc.summary.core.id) {
-                if seen.insert(id.clone()) {
-                    ids.push(id);
-                }
-            }
-        }
+        let ids = dedup_canonical_ids(items.iter().map(|inc| inc.summary.core.id.as_str()));
         if ids.is_empty() {
             return Ok(0);
         }
@@ -756,12 +757,7 @@ impl Database {
         &self,
         raw_ids: &[String],
     ) -> Result<HashMap<String, RepoCardSnapshot>> {
-        let mut seen: HashSet<String> = HashSet::with_capacity(raw_ids.len());
-        let ids: Vec<String> = raw_ids
-            .iter()
-            .filter_map(|raw| crate::forge::canonical_app_id(raw))
-            .filter(|id| seen.insert(id.clone()))
-            .collect();
+        let ids = dedup_canonical_ids(raw_ids.iter().map(String::as_str));
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -778,21 +774,14 @@ impl Database {
         raw_ids: &[String],
         now: i64,
     ) -> Result<HashMap<String, StoredRepoCard>> {
-        let mut ids: Vec<String> = Vec::new();
-        for raw in raw_ids {
-            if let Some(id) = crate::forge::canonical_app_id(raw) {
-                if !ids.contains(&id) {
-                    ids.push(id);
-                }
-            }
-        }
+        let ids = dedup_canonical_ids(raw_ids.iter().map(String::as_str));
         let mut out = HashMap::new();
         for chunk in ids.chunks(BATCH_CHUNK) {
             let placeholders = vec!["?"; chunk.len()].join(", ");
             let select = format!(
                 "SELECT {SELECT_COLS} FROM repo_card_cache WHERE updated_at > 0 AND id IN ({placeholders})"
             );
-            let rows = self.query_vec(
+            let rows = self.query_vec_uncached(
                 &select,
                 rusqlite::params_from_iter(chunk.iter()),
                 row_to_card,
@@ -810,7 +799,7 @@ impl Database {
                 rows.iter()
                     .map(|r| rusqlite::types::Value::from(r.id.clone())),
             );
-            self.exec_write(&update, rusqlite::params_from_iter(values))?;
+            self.exec_write_uncached(&update, rusqlite::params_from_iter(values))?;
             for mut row in rows {
                 row.last_accessed_at = now;
                 out.insert(row.id.clone(), card_to_stored(row));

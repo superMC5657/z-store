@@ -1,7 +1,7 @@
-use super::{clean, now_secs, Database};
+use super::{dedup_clean_refs, clean, now_secs, Database};
 use rusqlite::{params, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppIconCycle {
@@ -19,16 +19,6 @@ pub struct AppIconCycle {
     pub updated_at: i64,
     /// 用户手动选择标记（手动轮换保护）：详情刷新只补备选槽，不改 level/selected_url。
     pub pinned: bool,
-}
-
-/// 去首尾空白、去空、去重（保序）。
-fn dedup_clean(keys: &[String]) -> Vec<String> {
-    let mut seen: HashSet<&str> = HashSet::with_capacity(keys.len());
-    keys.iter()
-        .map(|k| clean(k))
-        .filter(|k| !k.is_empty() && seen.insert(k))
-        .map(str::to_string)
-        .collect()
 }
 
 impl Default for AppIconCycle {
@@ -157,7 +147,7 @@ impl Database {
         &self,
         app_ids: &[String],
     ) -> Result<HashMap<String, AppIconCycle>> {
-        let keys = dedup_clean(app_ids);
+        let keys = dedup_clean_refs(app_ids);
         let rows = self.query_in_chunks(
             &keys,
             |ph| format!("SELECT {SELECT_CYCLE_COLS} FROM app_icon_cycles WHERE app_id IN ({ph})"),
@@ -169,7 +159,7 @@ impl Database {
     /// 按 `owner` 批量读取（`IN (...)` 分片，走 `(owner, repo)` 索引前缀），供调用方在内存按
     /// `(owner, repo)` 精确匹配；同一 `(owner, repo)` 多行时按 `rowid` 先到者为准。
     pub fn get_icon_cycles_by_owners(&self, owners: &[String]) -> Result<Vec<AppIconCycle>> {
-        let keys = dedup_clean(owners);
+        let keys = dedup_clean_refs(owners);
         self.query_in_chunks(
             &keys,
             |ph| {

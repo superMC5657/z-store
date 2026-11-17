@@ -92,22 +92,23 @@ pub async fn list_github_starred(
         .await?;
     let not_modified = fetched.touched_url.is_some();
     let persist_cards = fetched.is_stale != Some(true);
-    let cards = {
-        let db = state.db()?;
-        let now = crate::now_secs();
-        if let Some((u, etag, text)) = &fetched.etag_write {
-            let _ = db.save_etag(u, etag, text, now);
-        }
-        if let Some(u) = &fetched.touched_url {
-            let _ = db.touch_etag(u, now);
-        }
-        super::catalog_search::cards_from_repo_payloads(
-            &db,
-            &state.catalog,
-            fetched.page.repos,
-            persist_cards,
-        )
-    };
+    let etag_write = fetched.etag_write;
+    let touched_url = fetched.touched_url;
+    let cards = super::catalog_search::cards_from_repo_payloads_offloaded(
+        &state,
+        fetched.page.repos,
+        persist_cards,
+        move |db| {
+            let now = crate::now_secs();
+            if let Some((u, etag, text)) = &etag_write {
+                let _ = db.save_etag(u, etag, text, now);
+            }
+            if let Some(u) = &touched_url {
+                let _ = db.touch_etag(u, now);
+            }
+        },
+    )
+    .await;
     let rows = cards.rows;
     super::catalog_search::spawn_starred_icon_stream(
         &app_handle,

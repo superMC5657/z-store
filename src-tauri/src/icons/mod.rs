@@ -13,11 +13,11 @@ mod singleflight;
 mod tests;
 
 #[cfg(test)]
-pub(crate) use confirmed::materialize_icons_inline;
+pub(crate) use confirmed::{materialize_icons_inline, patch_core_icons};
 pub(crate) use confirmed::{
-    apply_icon_cache_heals, apply_icon_cache_heals_locked, materialize_icons_offloaded,
-    patch_core_icons, plan_pending_icons, ConfirmedIconPlan, DeferredIcon, IconCycleIndex,
-    IconPlanBatch, PendingIcon, ResolvedIcons,
+    apply_icon_cache_heals, plan_pending_icons, resolve_and_patch_icons, resolve_icons_offloaded,
+    ConfirmedIconPlan, DeferredIcon, IconCoord, IconCycleIndex, IconPlanBatch, PendingIcon,
+    ResolvedIcons,
 };
 pub use cycle::{
     adopt_probe_cache_file, apply_detail_icon_resolution, fill_probe_slot, first_available_level,
