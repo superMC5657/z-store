@@ -1,12 +1,19 @@
 use std::sync::LazyLock;
 
 static README_FILE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"(?i)^readme(?:[._-](zh-cn|zh_cn|zh|cn|en-us|en_us|en|us))?\.(md|markdown)$")
-        .expect("invalid README_FILE_RE regex")
+    regex::Regex::new(
+        r"(?i)^readme(?:[._-](zh(?:[._-](?:cn|hans|tw|hk|hant))?|cn|chs|cht|chinese|en(?:[._-](?:us|gb))?|english|us))?\.(md|markdown)$",
+    )
+    .expect("invalid README_FILE_RE regex")
 });
 
 static README_BARE_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?i)^readme\.(md|markdown)$").expect("invalid README_BARE_RE regex")
+});
+
+static README_ZH_TRAD_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?i)^readme[._-](?:zh[._-](?:tw|hk|hant)|cht)\.(?:md|markdown)$")
+        .expect("invalid README_ZH_TRAD_RE regex")
 });
 
 #[derive(Debug, serde::Deserialize)]
@@ -44,8 +51,28 @@ pub fn classify_readme_lang(file_name: &str) -> Option<&'static str> {
     let token = caps.get(1).map(|m| m.as_str().to_ascii_lowercase());
     match token.as_deref() {
         None => Some("en-US"),
-        Some("zh-cn") | Some("zh_cn") | Some("zh") | Some("cn") => Some("zh-CN"),
-        Some("en-us") | Some("en_us") | Some("en") | Some("us") => Some("en-US"),
+        Some(t)
+            if t == "zh"
+                || t == "cn"
+                || t == "chs"
+                || t == "cht"
+                || t == "chinese"
+                || t.starts_with("zh-")
+                || t.starts_with("zh_")
+                || t.starts_with("zh.") =>
+        {
+            Some("zh-CN")
+        }
+        Some(t)
+            if t == "en"
+                || t == "us"
+                || t == "english"
+                || t.starts_with("en-")
+                || t.starts_with("en_")
+                || t.starts_with("en.") =>
+        {
+            Some("en-US")
+        }
         // 后缀集合白名单匹配，兜底归 en-US，避免新增语言时炸流程。
         _ => Some("en-US"),
     }
@@ -53,8 +80,11 @@ pub fn classify_readme_lang(file_name: &str) -> Option<&'static str> {
 
 /// 根目录路径列表过滤 → 去重（每语言最多 1 个）→ 固定 `zh-CN` 在前、`en-US` 在后，
 /// 最多 2 项。含 `/` 的非根路径直接丢弃。
+/// 若无显式中文文件，但同时存在裸 `README.md` 与显式英文文件（如 `README-en.md`），
+/// 则认为主文档为中文、显式英文文件为英文（`zh-CN` = `README.md`, `en-US` = `README-en.md`）。
 pub fn select_readme_candidates(paths: &[String]) -> Vec<(String, String)> {
     let mut zh_cands: Vec<String> = Vec::new();
+    let mut bare_cands: Vec<String> = Vec::new();
     let mut en_cands: Vec<String> = Vec::new();
     for p in paths {
         let trimmed = p.trim();
@@ -67,29 +97,51 @@ pub fn select_readme_candidates(paths: &[String]) -> Vec<(String, String)> {
                     zh_cands.push(trimmed.to_string());
                 }
             }
-            Some("en-US") if !en_cands.iter().any(|x| x == trimmed) => {
-                en_cands.push(trimmed.to_string());
+            Some("en-US") => {
+                if README_BARE_RE.is_match(trimmed) {
+                    if !bare_cands.iter().any(|x| x == trimmed) {
+                        bare_cands.push(trimmed.to_string());
+                    }
+                } else if !en_cands.iter().any(|x| x == trimmed) {
+                    en_cands.push(trimmed.to_string());
+                }
             }
             _ => {}
         }
     }
-    // en-US 优先裸 README（README.md / README.markdown），再按短路径、字典序稳定选择。
-    en_cands.sort_by(|a, b| {
-        let bare_a = README_BARE_RE.is_match(a);
-        let bare_b = README_BARE_RE.is_match(b);
-        (!bare_a)
-            .cmp(&(!bare_b))
+    // zh-CN 优先简体（zh / zh-CN / zh-Hans / cn / chs），其次繁体兜底（zh-TW / zh-HK / zh-Hant / cht）。
+    zh_cands.sort_by(|a, b| {
+        let trad_a = README_ZH_TRAD_RE.is_match(a);
+        let trad_b = README_ZH_TRAD_RE.is_match(b);
+        trad_a
+            .cmp(&trad_b)
             .then_with(|| a.len().cmp(&b.len()))
             .then_with(|| a.cmp(b))
     });
-    zh_cands.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+    bare_cands.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+    en_cands.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+
+    let zh = zh_cands.into_iter().next();
+    let bare = bare_cands.into_iter().next();
+    let en = en_cands.into_iter().next();
 
     let mut out = Vec::with_capacity(2);
-    if let Some(first) = zh_cands.into_iter().next() {
-        out.push(("zh-CN".to_string(), first));
-    }
-    if let Some(first) = en_cands.into_iter().next() {
-        out.push(("en-US".to_string(), first));
+    match (zh, bare, en) {
+        (Some(z), Some(e), _) | (Some(z), None, Some(e)) => {
+            out.push(("zh-CN".to_string(), z));
+            out.push(("en-US".to_string(), e));
+        }
+        (Some(z), None, None) => {
+            out.push(("zh-CN".to_string(), z));
+        }
+        (None, Some(b), Some(e)) => {
+            out.push(("zh-CN".to_string(), b));
+            out.push(("en-US".to_string(), e));
+        }
+        (None, Some(e), None) | (None, None, Some(e)) => {
+            out.push(("en-US".to_string(), e));
+        }
+        (None, None, None) => {}
     }
     out
 }
@@ -109,17 +161,42 @@ mod tests {
         assert_eq!(classify_readme_lang("README_en-US.markdown"), Some("en-US"));
         assert_eq!(classify_readme_lang("readme-us.md"), Some("en-US"));
         assert_eq!(classify_readme_lang("README.en_us.md"), Some("en-US"));
+        assert_eq!(classify_readme_lang("README-english.md"), Some("en-US"));
         // zh 系后缀。
         assert_eq!(classify_readme_lang("README.zh-CN.md"), Some("zh-CN"));
         assert_eq!(classify_readme_lang("README_zh_cn.markdown"), Some("zh-CN"));
+        assert_eq!(classify_readme_lang("README_zh-CN.md"), Some("zh-CN"));
         assert_eq!(classify_readme_lang("readme-zh.md"), Some("zh-CN"));
+        assert_eq!(classify_readme_lang("README-zh-Hans.md"), Some("zh-CN"));
+        assert_eq!(classify_readme_lang("README.zh_hans.md"), Some("zh-CN"));
+        assert_eq!(classify_readme_lang("README-chs.md"), Some("zh-CN"));
+        assert_eq!(classify_readme_lang("README-chinese.md"), Some("zh-CN"));
+        assert_eq!(classify_readme_lang("README-zh-TW.md"), Some("zh-CN"));
+        assert_eq!(classify_readme_lang("README.zh-Hant.md"), Some("zh-CN"));
         assert_eq!(classify_readme_lang("README.CN.md"), Some("zh-CN"));
         assert_eq!(classify_readme_lang("readme_cn.markdown"), Some("zh-CN"));
         // 非 README / 非法后缀一律 None。
         assert_eq!(classify_readme_lang("CONTRIBUTING.md"), None);
         assert_eq!(classify_readme_lang("README.txt"), None);
         assert_eq!(classify_readme_lang("README.zh-CN.txt"), None);
+        assert_eq!(classify_readme_lang("README-ja.md"), None);
         assert_eq!(classify_readme_lang("docs.md"), None);
+    }
+
+    #[test]
+    fn test_select_readme_candidates_prefers_simplified_chinese_over_traditional() {
+        let paths = vec![
+            "README.md".to_string(),
+            "README-zh-TW.md".to_string(),
+            "README-zh-Hans.md".to_string(),
+        ];
+        let selected = select_readme_candidates(&paths);
+        assert_eq!(selected.len(), 2);
+        assert_eq!(
+            selected[0],
+            ("zh-CN".to_string(), "README-zh-Hans.md".to_string())
+        );
+        assert_eq!(selected[1], ("en-US".to_string(), "README.md".to_string()));
     }
 
     #[test]
@@ -141,6 +218,18 @@ mod tests {
         assert_eq!(selected[1].1, "README.md");
         // 嵌套目录一律不收。
         assert!(!selected.iter().any(|(_, p)| p.contains('/')));
+    }
+
+    #[test]
+    fn test_select_readme_candidates_bare_plus_explicit_en_maps_bare_to_zh() {
+        let paths = vec!["README.md".to_string(), "README-en.md".to_string()];
+        let selected = select_readme_candidates(&paths);
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0], ("zh-CN".to_string(), "README.md".to_string()));
+        assert_eq!(
+            selected[1],
+            ("en-US".to_string(), "README-en.md".to_string())
+        );
     }
 
     #[test]
