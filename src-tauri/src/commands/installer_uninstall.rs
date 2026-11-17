@@ -134,9 +134,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
         None => {
             let cat = state
                 .catalog
-                .get_catalog_items()
-                .into_iter()
-                .find(|c| c.id == app_id)
+                .get_catalog_item(&app_id)
                 .ok_or_else(|| format!("未找到 ID 为 {} 的应用安装记录", app_id))?;
             let resolved_path = crate::scanner::AppScanner::resolve_installed_app_path(
                 &cat.name,

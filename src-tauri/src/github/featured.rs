@@ -4,6 +4,7 @@ use super::affinity::{Reason, SeedRelation, UserAffinityProfile, MAX_REASONS};
 use super::catalog_feed_score::{feed_jitter01, feed_stars_forks_base, FEED_JITTER_HALF};
 use crate::models::AppSummary;
 use serde::Serialize;
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 /// hero 条目数（1 大 2 小）。
@@ -118,8 +119,8 @@ pub fn resolve_profile_state(enabled: bool, profile: Option<&UserAffinityProfile
     }
 }
 
-struct Scored {
-    app: AppSummary,
+struct Scored<'a> {
+    app: &'a AppSummary,
     score: f64,
     /// 纯星数 + Fork 质量分（无抖动）。
     base: f64,
@@ -171,11 +172,9 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
     let in_dismissed_category =
         |app: &AppSummary| is_dismissed_category(&app.core.category.trim().to_lowercase());
 
-    let mut by_id: HashMap<String, AppSummary> = HashMap::with_capacity(input.all.len());
+    let mut by_id: HashMap<String, &AppSummary> = HashMap::with_capacity(input.all.len());
     for app in &input.all {
-        by_id
-            .entry(app.core.id.to_lowercase())
-            .or_insert_with(|| app.clone());
+        by_id.entry(app.core.id.to_lowercase()).or_insert(app);
     }
 
     // 已安装 / 已收藏 / 已关注与「不感兴趣」的应用都不进推荐货架（仍可作为种子被查找）
@@ -190,7 +189,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
     };
     let mut seen: HashSet<String> = HashSet::new();
     let mut ranked: Vec<Scored> = Vec::new();
-    for app in input.all {
+    for app in &input.all {
         let id = app.core.id.to_lowercase();
         if !seen.insert(id.clone())
             || input.hidden_ids.contains(&id)
@@ -199,8 +198,8 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         {
             continue;
         }
-        let quality = shelf_quality(&app, &id, day_seed);
-        let boost = personal.map(|p| p.affinity_boost(&app)).unwrap_or(0.0);
+        let quality = shelf_quality(app, &id, day_seed);
+        let boost = personal.map(|p| p.affinity_boost(app)).unwrap_or(0.0);
         ranked.push(Scored {
             score: quality.sampled + boost,
             base: quality.base,
@@ -221,12 +220,32 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             .unwrap_or_default()
     };
 
+    // 种子相似度词元：每个种子与每个候选各只分词一次，在 hero 与 because_you 间复用。
+    let seeds = profile.map(|p| p.seeds.as_slice()).unwrap_or(&[]);
+    let seed_tokens: HashMap<&str, Vec<String>> = match personal {
+        Some(p) => seeds
+            .iter()
+            .filter_map(|sr| Some((sr.id.as_str(), p.similarity_tokens(by_id.get(&sr.id)?))))
+            .collect(),
+        None => HashMap::new(),
+    };
+    let cand_tokens: Vec<OnceCell<Vec<String>>> = ranked.iter().map(|_| OnceCell::new()).collect();
+    let similarity = |p: &UserAffinityProfile, seed_id: &str, seed_app: &AppSummary, i: usize| {
+        let cand = ranked[i].app;
+        match seed_tokens.get(seed_id) {
+            Some(st) => {
+                let ct = cand_tokens[i].get_or_init(|| p.similarity_tokens(cand));
+                p.seed_similarity_with_tokens(seed_app, st, cand, ct)
+            }
+            None => p.seed_similarity(seed_app, cand),
+        }
+    };
+
     // ---- hero：分类互斥取头部，「少推这类」分类只在其余分类凑不满时补位 ----
     let mut hero: Vec<FeaturedPick> = Vec::new();
     let mut hero_cats: HashSet<String> = HashSet::new();
-    let seeds = profile.map(|p| p.seeds.as_slice()).unwrap_or(&[]);
     for allow_dismissed in [false, true] {
-        for s in &ranked {
+        for (idx, s) in ranked.iter().enumerate() {
             if hero.len() >= HERO_SIZE {
                 break;
             }
@@ -241,7 +260,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
                     .iter()
                     .filter_map(|sr| {
                         let seed_app = by_id.get(&sr.id)?;
-                        let sim = p.seed_similarity(seed_app, &s.app);
+                        let sim = similarity(p, &sr.id, seed_app, idx);
                         (sim >= HERO_SEED_REASON_MIN).then_some((sr, sim))
                     })
                     .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -252,7 +271,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
                     });
                 }
             }
-            reasons.extend(explain(&s.app));
+            reasons.extend(explain(s.app));
             reasons.truncate(MAX_REASONS);
             used.insert(s.app.core.id.to_lowercase());
             hero.push(FeaturedPick {
@@ -285,16 +304,17 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             if because_count >= want {
                 break;
             }
-            let Some(seed_app) = by_id.get(&seed_ref.id) else {
+            let Some(&seed_app) = by_id.get(&seed_ref.id) else {
                 continue;
             };
             let mut cands: Vec<(f64, &Scored)> = ranked
                 .iter()
-                .filter(|s| !in_dismissed_category(&s.app))
-                .filter(|s| !used.contains(&s.app.core.id.to_lowercase()))
-                .filter(|s| !s.app.core.id.eq_ignore_ascii_case(&seed_ref.id))
-                .filter_map(|s| {
-                    let sim = p.seed_similarity(seed_app, &s.app);
+                .enumerate()
+                .filter(|(_, s)| !in_dismissed_category(s.app))
+                .filter(|(_, s)| !used.contains(&s.app.core.id.to_lowercase()))
+                .filter(|(_, s)| !s.app.core.id.eq_ignore_ascii_case(&seed_ref.id))
+                .filter_map(|(idx, s)| {
+                    let sim = similarity(p, &seed_ref.id, seed_app, idx);
                     (sim >= SEED_SIMILARITY_MIN).then(|| (0.6 * sim + 0.4 * s.score / max_score, s))
                 })
                 .collect();
@@ -311,7 +331,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
                 .take(SHELF_SIZE)
                 .map(|(_, s)| FeaturedPick {
                     app: s.app.clone(),
-                    reasons: vec![p.seed_shelf_reason(seed_app, &s.app)],
+                    reasons: vec![p.seed_shelf_reason(seed_app, s.app)],
                 })
                 .collect();
             for it in &items {
@@ -334,7 +354,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         let cutoff = date_string_days_ago(input.now_secs, FRESH_WINDOW_DAYS);
         let mut fresh: Vec<&Scored> = ranked
             .iter()
-            .filter(|s| !in_dismissed_category(&s.app))
+            .filter(|s| !in_dismissed_category(s.app))
             .filter(|s| !used.contains(&s.app.core.id.to_lowercase()))
             .filter(|s| {
                 s.app
@@ -414,7 +434,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             .filter(|s| !used.contains(&s.app.core.id.to_lowercase()))
             .take(SHELF_SIZE)
             .map(|s| {
-                let mut reasons = explain(&s.app);
+                let mut reasons = explain(s.app);
                 reasons.retain(|r| !matches!(r, Reason::Category { .. }));
                 reasons.truncate(1);
                 FeaturedPick {
@@ -526,7 +546,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
 }
 
 /// 无画像时的分类轮换：候选中出现的分类按日期种子抖动排序。
-fn rotated_categories(ranked: &[Scored], day_seed: u64) -> Vec<String> {
+fn rotated_categories(ranked: &[Scored<'_>], day_seed: u64) -> Vec<String> {
     let mut cats: Vec<String> = ranked
         .iter()
         .map(|s| s.app.core.category.trim().to_lowercase())
@@ -1044,6 +1064,29 @@ mod tests {
                 None,
             );
             assert!(!page_categories(&p).contains("media"), "day {day}");
+        }
+    }
+
+    /// 预提取词元的种子相似度与逐对分词版本逐位一致（货架复用词元的前提）。
+    #[test]
+    fn pre_tokenized_seed_similarity_matches_direct() {
+        let c = catalog();
+        let profile = UserAffinityProfile::from_signals(&rich_raw(), &c, NOW);
+        let apps = summaries(&c);
+        let tokens: Vec<Vec<String>> = apps.iter().map(|a| profile.similarity_tokens(a)).collect();
+        for (si, seed) in apps.iter().enumerate().step_by(5) {
+            for (ci, cand) in apps.iter().enumerate() {
+                let direct = profile.seed_similarity(seed, cand);
+                let cached =
+                    profile.seed_similarity_with_tokens(seed, &tokens[si], cand, &tokens[ci]);
+                assert_eq!(
+                    direct.to_bits(),
+                    cached.to_bits(),
+                    "{} vs {}",
+                    seed.core.id,
+                    cand.core.id
+                );
+            }
         }
     }
 }

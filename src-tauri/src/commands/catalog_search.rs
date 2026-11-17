@@ -1665,7 +1665,7 @@ mod tests {
     fn curated_projection_keeps_fresher_counts_and_skips_uncataloged() {
         let db = crate::db::Database::open_in_memory().unwrap();
         let catalog = crate::github::developer_starred::test_support::test_service();
-        *catalog.items.write().unwrap() = vec![curated_item()];
+        catalog.update_items(vec![curated_item()]);
 
         let mut hit = sample_summary("acme/tool", "acme", "tool", "");
         hit.core.description = "remote english".to_string();

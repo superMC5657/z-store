@@ -37,10 +37,9 @@ pub const GITHUB_STARRED_MAX_PAGE_SIZE: usize = 100;
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
 
 pub struct CatalogService {
-    pub(crate) items: RwLock<Vec<CatalogItem>>,
-    /// 本地收录 overlay（`custom_apps` 中 collected 系/`submitted` 且未归档行），
-    /// 由 `sync_collected_from_db` 在启动与 `custom_apps` 变更后同步；远端优先去重。
-    pub(crate) collected: RwLock<Vec<CatalogItem>>,
+    /// 远端精选目录与本地收录 overlay（`custom_apps` 中 collected 系/`submitted` 且未归档行）
+    /// 的带索引存储；同一把锁保证两侧与派生缓存（IDF、别名）一致。
+    pub(crate) store: RwLock<catalog_service::CatalogStore>,
     /// 清单专属连接池（无 Token，跟随系统代理快照热重建），经 [`CatalogService::http_client`] 取用。
     pub(crate) client: crate::proxy::ClientSlot,
 }

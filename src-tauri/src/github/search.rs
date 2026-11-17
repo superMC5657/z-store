@@ -104,7 +104,9 @@ async fn summaries_from_search(
         .filter(|it| is_private_flag(it.private, it.visibility.as_deref()))
         .filter_map(|it| crate::forge::canonical_app_id(&it.full_name))
         .collect();
-    let summaries = futures_util::future::join_all(data.items.into_iter().map(|it| async move {
+    // `probe=false` 不发起任何 I/O，逐条顺序构造即可，无需并发 Future。
+    let mut summaries = Vec::with_capacity(data.items.len());
+    for it in data.items {
         let owner = it.owner.login;
         let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
         if let Some(ref b) = it.default_branch {
@@ -116,26 +118,27 @@ async fn summaries_from_search(
         let license =
             resolve_online_license(it.license.as_ref()).unwrap_or_else(|| "OpenSource".to_string());
         let homepage = it.homepage.filter(|h| !h.trim().is_empty());
-        super::http::fallback_summary(
-            client,
-            it.full_name.to_lowercase(),
-            it.name,
-            owner,
-            repo,
-            description,
-            description_en,
-            it.stargazers_count,
-            it.forks_count,
-            license,
-            &topics,
-            homepage,
-            false,
-            None,
-            token,
-        )
-        .await
-    }))
-    .await;
+        summaries.push(
+            super::http::fallback_summary(
+                client,
+                it.full_name.to_lowercase(),
+                it.name,
+                owner,
+                repo,
+                description,
+                description_en,
+                it.stargazers_count,
+                it.forks_count,
+                license,
+                &topics,
+                homepage,
+                false,
+                None,
+                token,
+            )
+            .await,
+        );
+    }
     (summaries, private_ids)
 }
 

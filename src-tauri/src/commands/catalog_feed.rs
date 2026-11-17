@@ -53,7 +53,7 @@ pub struct AffinityProfileSummary {
 
 pub fn build_affinity_profile_summary(
     db: &crate::db::Database,
-    catalog_items: &[crate::github::models::CatalogItem],
+    catalog: &crate::github::CatalogService,
     now_secs: i64,
 ) -> crate::AppResult<AffinityProfileSummary> {
     let sources = crate::github::affinity::AffinitySources::load(db);
@@ -85,12 +85,7 @@ pub fn build_affinity_profile_summary(
     }
 
     // 偏好分类与语言只反映当前开启的信号源；各项计数始终展示本地已存数据。
-    let profile = crate::github::affinity::UserAffinityProfile::from_signals_with_sources(
-        &raw,
-        catalog_items,
-        now_secs,
-        sources,
-    );
+    let profile = catalog.build_affinity_profile(&raw, now_secs, sources);
     let top_categories = profile
         .top_categories(3)
         .into_iter()
@@ -214,13 +209,9 @@ pub(crate) fn load_affinity_profile(
     let sources = crate::github::affinity::AffinitySources::load(&db);
     let raw = db.load_raw_affinity_signals().ok()?;
     drop(db);
-    let catalog_items = state.catalog.get_catalog_items();
-    let profile = crate::github::affinity::UserAffinityProfile::from_signals_with_sources(
-        &raw,
-        &catalog_items,
-        crate::now_secs(),
-        sources,
-    );
+    let profile = state
+        .catalog
+        .build_affinity_profile(&raw, crate::now_secs(), sources);
     Some((sources.any(), profile))
 }
 
@@ -229,8 +220,7 @@ pub fn get_affinity_profile_summary(
     state: State<'_, AppState>,
 ) -> crate::AppResult<AffinityProfileSummary> {
     let db = state.db()?;
-    let catalog_items = state.catalog.get_catalog_items();
-    build_affinity_profile_summary(&db, &catalog_items, crate::now_secs())
+    build_affinity_profile_summary(&db, &state.catalog, crate::now_secs())
 }
 
 /// 立即同步推荐画像：拉取登录账号的 Star / Fork / 自有仓库写入 `user_repo_signals`（ETag 条件请求）。
@@ -263,14 +253,9 @@ pub fn get_home_feed(
 ) -> Result<FeedPage, String> {
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state)?;
-    let all = state.catalog.merged_summaries();
-    let filtered: Vec<AppSummary> = if hidden_ids.is_empty() {
-        all
-    } else {
-        all.into_iter()
-            .filter(|a| !hidden_ids.contains(&a.core.id))
-            .collect()
-    };
+    let filtered: Vec<AppSummary> = state
+        .catalog
+        .merged_summaries_filtered(|item| !hidden_ids.contains(&item.id));
     let ranked = {
         use crate::github::catalog_feed_score as score;
         let parsed = score::parse_feed_strategy(strategy.as_deref());
@@ -319,15 +304,10 @@ pub fn get_category_apps(
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state)?;
 
-    let all = state.catalog.merged_summaries();
-    let filtered: Vec<AppSummary> = all
-        .into_iter()
-        .filter(|a| {
-            (a.core.category.to_lowercase() == cat_clean
-                || a.core.category_name.to_lowercase() == cat_clean)
-                && !hidden_ids.contains(&a.core.id)
-        })
-        .collect();
+    let filtered: Vec<AppSummary> = state.catalog.merged_summaries_filtered(|item| {
+        crate::github::catalog_service::category_matches(item, &cat_clean)
+            && !hidden_ids.contains(&item.id)
+    });
 
     let (offset, limit) =
         category_page_window(&crate::config::get_project_config().limits, page, per_page);
@@ -358,17 +338,12 @@ pub fn get_latest_catalog_apps(
 ) -> crate::AppResult<FeedPage> {
     let hidden_ids: std::collections::HashSet<String> =
         super::catalog_search::hidden_rule_ids(&state)?;
-    let all = state.catalog.merged_summaries();
-    let visible: Vec<AppSummary> = if hidden_ids.is_empty() {
-        all
-    } else {
-        all.into_iter()
-            .filter(|a| !hidden_ids.contains(&a.core.id))
-            .collect()
-    };
-
     let effective_max = max_days.or(since_days);
-    let ranked = rank_and_filter_latest_apps(visible, min_days, effective_max);
+    let in_window: Vec<AppSummary> = state.catalog.merged_summaries_filtered(|item| {
+        !hidden_ids.contains(&item.id)
+            && in_latest_window(item.added_at.as_deref(), min_days, effective_max)
+    });
+    let ranked = sort_latest_apps(in_window);
     let (offset, limit) =
         category_page_window(&crate::config::get_project_config().limits, page, per_page);
     Ok(paginate_with_allowed_ids(
@@ -431,17 +406,24 @@ pub fn rank_and_filter_latest_apps(
     min_days: Option<u32>,
     max_days: Option<u32>,
 ) -> Vec<AppSummary> {
-    if let Some(max_d) = max_days {
-        let min_d = min_days.unwrap_or(0);
-        apps.retain(|a| {
-            a.core
-                .added_at
-                .as_deref()
-                .map(|d| crate::date_utils::is_within_day_range(d, min_d, max_d))
-                .unwrap_or(false)
-        });
-    }
+    apps.retain(|a| in_latest_window(a.core.added_at.as_deref(), min_days, max_days));
+    sort_latest_apps(apps)
+}
 
+/// 最新入库时间窗判定：`max_days=None` 不限窗口；否则须有 `added_at` 且落在
+/// `[min_days(缺省 0), max_days]` 天前区间内。
+fn in_latest_window(added_at: Option<&str>, min_days: Option<u32>, max_days: Option<u32>) -> bool {
+    let Some(max_d) = max_days else {
+        return true;
+    };
+    let min_d = min_days.unwrap_or(0);
+    added_at
+        .map(|d| crate::date_utils::is_within_day_range(d, min_d, max_d))
+        .unwrap_or(false)
+}
+
+/// 最新入库排序：`added_at DESC`（无日期垫底）→ `stars DESC` → `id ASC`。
+fn sort_latest_apps(mut apps: Vec<AppSummary>) -> Vec<AppSummary> {
     apps.sort_by(|a, b| {
         // 1. added_at DESC (Some before None)
         match (&a.core.added_at, &b.core.added_at) {
@@ -463,7 +445,6 @@ pub fn rank_and_filter_latest_apps(
         // 3. id ASC
         a.core.id.cmp(&b.core.id)
     });
-
     apps
 }
 
@@ -594,12 +575,8 @@ mod tests {
     #[test]
     fn feed_merge_includes_local_collected() {
         // 发现页合并含本地收录：远端 1 + 收录 1 = 2，远端优先去重，来源已盖章。
-        use std::sync::RwLock;
-        let catalog = crate::github::CatalogService {
-            items: RwLock::new(vec![feed_item("o/remote", "o", "remote")]),
-            collected: RwLock::new(Vec::new()),
-            client: crate::proxy::ClientSlot::new(),
-        };
+        let catalog =
+            crate::github::CatalogService::with_items(vec![feed_item("o/remote", "o", "remote")]);
         // 空收录退化为纯远端。
         let remote_only = catalog.merged_summaries();
         assert_eq!(remote_only.len(), 1);
@@ -774,7 +751,8 @@ mod tests {
         )
         .unwrap();
 
-        let summary = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        let catalog_svc = crate::github::CatalogService::with_items(catalog);
+        let summary = build_affinity_profile_summary(&db, &catalog_svc, 1_700_001_000).unwrap();
         assert!(summary.enabled);
         assert!(summary.local_enabled && summary.github_enabled);
         assert_eq!(summary.starred_repo_count, 2);
@@ -793,7 +771,7 @@ mod tests {
             "false",
         )
         .unwrap();
-        let local_only = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        let local_only = build_affinity_profile_summary(&db, &catalog_svc, 1_700_001_000).unwrap();
         assert!(local_only.enabled && local_only.local_enabled && !local_only.github_enabled);
         assert_eq!(local_only.starred_repo_count, 2);
         assert!(local_only.top_languages.is_empty());
@@ -805,7 +783,7 @@ mod tests {
             "false",
         )
         .unwrap();
-        let none = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        let none = build_affinity_profile_summary(&db, &catalog_svc, 1_700_001_000).unwrap();
         assert!(!none.enabled);
         assert!(none.top_categories.is_empty());
         db.remove_setting(crate::github::affinity::SETTING_ENABLE_LOCAL_AFFINITY)
@@ -815,7 +793,7 @@ mod tests {
 
         // 清空 GitHub 账号信号：仓库特征信号、user_stars 与同步时间戳归零，本地收藏与 Watch 保留
         db.clear_github_account_signals().unwrap();
-        let after_clear = build_affinity_profile_summary(&db, &catalog, 1_700_001_000).unwrap();
+        let after_clear = build_affinity_profile_summary(&db, &catalog_svc, 1_700_001_000).unwrap();
         assert_eq!(after_clear.starred_repo_count, 0);
         assert_eq!(after_clear.forked_repo_count, 0);
         assert_eq!(after_clear.owned_repo_count, 0);

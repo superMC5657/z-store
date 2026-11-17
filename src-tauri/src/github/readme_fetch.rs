@@ -554,11 +554,7 @@ mod tests {
             },
         );
         let srv = spawn_mock(routes).await;
-        let svc = crate::github::CatalogService {
-            items: std::sync::RwLock::new(Vec::new()),
-            collected: std::sync::RwLock::new(Vec::new()),
-            client: crate::proxy::ClientSlot::new(),
-        };
+        let svc = crate::github::CatalogService::with_items(Vec::new());
         let variants = svc
             .fetch_readme_variants("o/r", None, Some(&srv.base))
             .await
@@ -628,11 +624,7 @@ mod tests {
             },
         );
         let srv = spawn_mock(routes).await;
-        let svc = crate::github::CatalogService {
-            items: std::sync::RwLock::new(Vec::new()),
-            collected: std::sync::RwLock::new(Vec::new()),
-            client: crate::proxy::ClientSlot::new(),
-        };
+        let svc = crate::github::CatalogService::with_items(Vec::new());
         let variants = svc
             .fetch_readme_variants("o/r2", None, Some(&srv.base))
             .await

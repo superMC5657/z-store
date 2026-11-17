@@ -246,11 +246,7 @@ pub(crate) mod test_support {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     pub(crate) fn test_service() -> CatalogService {
-        CatalogService {
-            items: std::sync::RwLock::new(Vec::new()),
-            collected: std::sync::RwLock::new(Vec::new()),
-            client: crate::proxy::ClientSlot::new(),
-        }
+        CatalogService::with_items(Vec::new())
     }
 
     pub(crate) struct MockResp {

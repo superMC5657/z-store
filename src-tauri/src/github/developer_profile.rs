@@ -64,6 +64,27 @@ fn resolve_etag_json<T: serde::de::DeserializeOwned>(
 }
 
 impl CatalogService {
+    /// 合并目录中归属 `owner`（大小写不敏感）的条目投影为开发者仓库行（离线兜底，读锁内过滤）。
+    pub fn collect_by_owner(&self, owner: &str) -> Vec<DeveloperRepoItem> {
+        self.read_store()
+            .merged()
+            .filter(|(i, _)| i.owner.eq_ignore_ascii_case(owner))
+            .map(|(i, _)| DeveloperRepoItem {
+                id: i.id.clone(),
+                name: i.name.clone(),
+                full_name: format!("{}/{}", i.owner, i.repo),
+                description: Some(i.description.clone()),
+                html_url: format!("https://github.com/{}/{}", i.owner, i.repo),
+                stars: i.stars,
+                forks: i.forks,
+                language: None,
+                has_releases: true,
+                in_catalog: true,
+                latest_release_tag: Some(i.default_version.clone()),
+            })
+            .collect()
+    }
+
     /// 通用 ETag GET（委托到 `super::http::get_with_etag`）。
     pub(crate) async fn get_with_etag(
         client: &reqwest::Client,
@@ -189,8 +210,10 @@ impl CatalogService {
             )
         } else {
             // 离线/限流降级：仅以收录库归属计数作画像提示，不伪造远端数据
-            let fallback_lock = self.items.read().unwrap_or_else(|e| e.into_inner());
-            let matched_count = fallback_lock
+            let matched_count = self
+                .read_store()
+                .remote()
+                .items()
                 .iter()
                 .filter(|i| i.owner.eq_ignore_ascii_case(dev))
                 .count();
@@ -223,7 +246,6 @@ impl CatalogService {
         .unwrap_or_default();
 
         let mut repos: Vec<DeveloperRepoItem> = Vec::new();
-        let catalog_list = self.get_catalog_items();
         if !repo_items.is_empty() {
             for r in repo_items {
                 let repo_name = r.name.unwrap_or_default();
@@ -232,15 +254,17 @@ impl CatalogService {
                     .unwrap_or_else(|| format!("{}/{}", dev, repo_name));
                 let id = full_name.clone();
 
-                let in_cat = catalog_list.iter().find(|i| {
-                    crate::forge::canonical_app_id(&full_name).as_deref() == Some(i.id.as_str())
-                });
+                let in_cat = self
+                    .with_catalog_item(&full_name, |c| (c.name.clone(), c.default_version.clone()));
+                let in_catalog = in_cat.is_some();
+                let (name, latest_release_tag) = match in_cat {
+                    Some((name, version)) => (name, Some(version)),
+                    None => (repo_name.clone(), None),
+                };
 
                 repos.push(DeveloperRepoItem {
                     id,
-                    name: in_cat
-                        .map(|c| c.name.clone())
-                        .unwrap_or_else(|| repo_name.clone()),
+                    name,
                     full_name,
                     description: r.description,
                     html_url: r
@@ -249,33 +273,16 @@ impl CatalogService {
                     stars: r.stargazers_count.unwrap_or(0),
                     forks: r.forks_count.unwrap_or(0),
                     language: r.language,
-                    has_releases: in_cat.is_some(),
-                    in_catalog: in_cat.is_some(),
-                    latest_release_tag: in_cat.map(|c| c.default_version.clone()),
+                    has_releases: in_catalog,
+                    in_catalog,
+                    latest_release_tag,
                 });
             }
         }
 
         // 如果未抓取到远程仓库（如离线或限流），从 catalog 补充
         if repos.is_empty() {
-            for i in catalog_list
-                .iter()
-                .filter(|i| i.owner.eq_ignore_ascii_case(dev))
-            {
-                repos.push(DeveloperRepoItem {
-                    id: i.id.clone(),
-                    name: i.name.clone(),
-                    full_name: format!("{}/{}", i.owner, i.repo),
-                    description: Some(i.description.clone()),
-                    html_url: format!("https://github.com/{}/{}", i.owner, i.repo),
-                    stars: i.stars,
-                    forks: i.forks,
-                    language: None,
-                    has_releases: true,
-                    in_catalog: true,
-                    latest_release_tag: Some(i.default_version.clone()),
-                });
-            }
+            repos = self.collect_by_owner(dev);
         }
 
         // 截断标注：单页拉取无翻页，`public_repos` 大于实际行数即标注截断，

@@ -1,9 +1,11 @@
 use super::catalog_feed_score::*;
+use crate::github::affinity_text::CatalogIdf;
 use crate::github::models::{AppRepoCoordinates, CatalogItem};
 use crate::github::CatalogService;
 use crate::models::AppSummary;
 use reqwest::header::{IF_NONE_MATCH, USER_AGENT};
-use std::sync::RwLock;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// 目录来源标记：远端精选收录库行。
 pub const CATALOG_SOURCE_REMOTE: &str = "remote";
@@ -237,8 +239,187 @@ fn validate_mirrored_catalog(items: &[CatalogItem]) -> Result<(), String> {
     Ok(())
 }
 
+/// 单侧目录（远端精选或本地收录）：条目按装载顺序保存，`index` 为 `id → 首次出现下标`，
+/// `by_repo` 为小写仓库名 → 下标（升序）；仅在整体替换时重建，详情回写不改 `id`/`repo`。
+#[derive(Default)]
+pub(crate) struct CatalogBucket {
+    items: Vec<CatalogItem>,
+    index: HashMap<String, usize>,
+    by_repo: HashMap<String, Vec<usize>>,
+}
+
+impl CatalogBucket {
+    fn new(items: Vec<CatalogItem>) -> Self {
+        let mut index = HashMap::with_capacity(items.len());
+        let mut by_repo: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, item) in items.iter().enumerate() {
+            index.entry(item.id.clone()).or_insert(i);
+            by_repo.entry(item.repo.to_lowercase()).or_default().push(i);
+        }
+        Self {
+            items,
+            index,
+            by_repo,
+        }
+    }
+
+    pub(crate) fn items(&self) -> &[CatalogItem] {
+        &self.items
+    }
+
+    pub(crate) fn get(&self, key: &str) -> Option<&CatalogItem> {
+        self.index.get(key).map(|&i| &self.items[i])
+    }
+
+    fn get_mut(&mut self, key: &str) -> Option<&mut CatalogItem> {
+        let i = *self.index.get(key)?;
+        self.items.get_mut(i)
+    }
+
+    pub(crate) fn contains(&self, key: &str) -> bool {
+        self.index.contains_key(key)
+    }
+
+    /// 下标 `i` 是否为该 `id` 在本侧的首次出现（同侧重复 id 只认第一条）。
+    fn is_first(&self, i: usize) -> bool {
+        self.index.get(self.items[i].id.as_str()) == Some(&i)
+    }
+}
+
+/// 目录文本派生量：只依赖名称/仓库/别名/简介，目录整体替换时失效，详情回写不失效。
+pub(crate) struct CatalogDerived {
+    pub(crate) idf: Arc<CatalogIdf>,
+    /// 小写 id → aliases（仅非空），供种子相似度使用。
+    pub(crate) aliases: Arc<HashMap<String, Vec<String>>>,
+}
+
+/// 远端精选目录 + 本地收录 overlay 的合并存储（远端优先：本地仅补位远端缺席的 id）。
+#[derive(Default)]
+pub struct CatalogStore {
+    remote: CatalogBucket,
+    collected: CatalogBucket,
+    derived: OnceLock<Arc<CatalogDerived>>,
+}
+
+impl CatalogStore {
+    pub(crate) fn remote(&self) -> &CatalogBucket {
+        &self.remote
+    }
+
+    /// 合并目录按序遍历：远端全部行在前，本地收录仅取远端缺席且同侧首次出现的行。
+    pub(crate) fn merged(&self) -> impl Iterator<Item = (&CatalogItem, MergedOrigin)> + '_ {
+        let remote = self.remote.items.iter().map(move |item| {
+            (
+                item,
+                MergedOrigin::Remote {
+                    verified: item.is_verified,
+                    collected: self.collected.contains(&item.id),
+                },
+            )
+        });
+        let local = self
+            .collected
+            .items
+            .iter()
+            .enumerate()
+            .filter(move |(i, item)| !self.remote.contains(&item.id) && self.collected.is_first(*i))
+            .map(|(_, item)| (item, MergedOrigin::Local));
+        remote.chain(local)
+    }
+
+    /// 按 canonical id 查合并目录（远端优先）。
+    pub(crate) fn get(&self, key: &str) -> Option<&CatalogItem> {
+        self.remote.get(key).or_else(|| self.collected.get(key))
+    }
+
+    /// 合并目录中仓库名（小写）相同的条目里星数最高者；并列取合并顺序中最后一条。
+    pub(crate) fn top_by_repo_name(&self, repo_lower: &str) -> Option<&CatalogItem> {
+        let remote = self
+            .remote
+            .by_repo
+            .get(repo_lower)
+            .into_iter()
+            .flatten()
+            .map(|&i| &self.remote.items[i]);
+        let local = self
+            .collected
+            .by_repo
+            .get(repo_lower)
+            .into_iter()
+            .flatten()
+            .filter(|&&i| {
+                self.collected.is_first(i) && !self.remote.contains(&self.collected.items[i].id)
+            })
+            .map(|&i| &self.collected.items[i]);
+        remote.chain(local).max_by_key(|c| c.stars)
+    }
+
+    /// 文本派生量（懒构建并缓存到下一次目录整体替换）。
+    pub(crate) fn derived(&self) -> Arc<CatalogDerived> {
+        self.derived
+            .get_or_init(|| {
+                let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
+                let idf = CatalogIdf::from_texts(self.merged().map(|(item, _)| {
+                    if !item.aliases.is_empty() {
+                        aliases.insert(item.id.to_lowercase(), item.aliases.clone());
+                    }
+                    crate::github::affinity_text::catalog_item_text(item)
+                }));
+                Arc::new(CatalogDerived {
+                    idf: Arc::new(idf),
+                    aliases: Arc::new(aliases),
+                })
+            })
+            .clone()
+    }
+
+    fn set_remote(&mut self, items: Vec<CatalogItem>) {
+        self.remote = CatalogBucket::new(items);
+        self.derived = OnceLock::new();
+    }
+
+    fn set_collected(&mut self, items: Vec<CatalogItem>) {
+        self.collected = CatalogBucket::new(items);
+        self.derived = OnceLock::new();
+    }
+}
+
+/// 读锁内的合并目录画像视图：O(1) 点查 + 缓存的 IDF 与别名。
+struct StoreAffinityView<'a> {
+    store: &'a CatalogStore,
+    derived: Arc<CatalogDerived>,
+}
+
+impl crate::github::affinity::AffinityCatalog for StoreAffinityView<'_> {
+    fn item(&self, id_lower: &str) -> Option<&CatalogItem> {
+        self.store.get(id_lower)
+    }
+
+    fn top_by_repo_name(&self, repo_lower: &str) -> Option<&CatalogItem> {
+        self.store.top_by_repo_name(repo_lower)
+    }
+
+    fn idf(&self) -> Arc<CatalogIdf> {
+        self.derived.idf.clone()
+    }
+
+    fn aliases(&self) -> Arc<HashMap<String, Vec<String>>> {
+        self.derived.aliases.clone()
+    }
+}
+
+/// 合并目录行的来源（盖章输入）。
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum MergedOrigin {
+    /// 远端行；`collected` 为本地收录是否也有同 id 行。
+    Remote { verified: bool, collected: bool },
+    /// 本地收录补位行。
+    Local,
+}
+
 /// 远端优先去重合并（同一形状唯一实现）：`remote` 原样在前，`local` 按 id 补位
 /// （已存在即跳过）。
+#[cfg(test)]
 fn merge_remote_first(remote: Vec<CatalogItem>, local: Vec<CatalogItem>) -> Vec<CatalogItem> {
     let mut seen: std::collections::HashSet<String> = remote.iter().map(|i| i.id.clone()).collect();
     let mut out = remote;
@@ -248,6 +429,32 @@ fn merge_remote_first(remote: Vec<CatalogItem>, local: Vec<CatalogItem>) -> Vec<
         }
     }
     out
+}
+
+/// 目录项对小写查询词 `q` 的关键词匹配分（0 = 未命中）；按优先级逐级小写化，命中即停。
+fn search_score(item: &CatalogItem, q: &str) -> i32 {
+    let name_lower = item.name.to_lowercase();
+    if name_lower == q || item.id.to_lowercase() == q {
+        return SEARCH_SCORE_EXACT_MATCH;
+    }
+    if name_lower.starts_with(q) {
+        return SEARCH_SCORE_PREFIX_MATCH;
+    }
+    if name_lower.contains(q) {
+        return SEARCH_SCORE_NAME_CONTAINS;
+    }
+    if item.owner.to_lowercase().contains(q) || item.repo.to_lowercase().contains(q) {
+        return SEARCH_SCORE_OWNER_OR_REPO_CONTAINS;
+    }
+    if item.aliases.iter().any(|a| a.to_lowercase().contains(q)) {
+        return SEARCH_SCORE_ALIAS_CONTAINS;
+    }
+    0
+}
+
+/// 分类过滤口径（大小写不敏感，`category` 或 `category_name` 任一相等）。
+pub(crate) fn category_matches(item: &CatalogItem, cat_lower: &str) -> bool {
+    item.category.to_lowercase() == cat_lower || item.category_name.to_lowercase() == cat_lower
 }
 
 impl Default for CatalogService {
@@ -269,14 +476,24 @@ impl CatalogService {
         Self::with_items(Vec::new())
     }
 
-    fn with_items(items: Vec<CatalogItem>) -> Self {
+    /// 以给定远端目录构建实例（本地收录为空）。
+    pub(crate) fn with_items(items: Vec<CatalogItem>) -> Self {
+        let mut store = CatalogStore::default();
+        store.set_remote(items);
         Self {
-            items: RwLock::new(items),
-            collected: RwLock::new(Vec::new()),
+            store: RwLock::new(store),
             client: crate::proxy::ClientSlot::new(),
         }
     }
 
+    /// 目录读锁（中毒时沿用内部数据：写入只有整体替换与单条字段合并，不留半写状态）。
+    pub(crate) fn read_store(&self) -> std::sync::RwLockReadGuard<'_, CatalogStore> {
+        self.store.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn write_store(&self) -> std::sync::RwLockWriteGuard<'_, CatalogStore> {
+        self.store.write().unwrap_or_else(|e| e.into_inner())
+    }
     /// 清单 Client 构造（无 Token，独立连接池参数）；`extra_hosts` 追加 per-client `no_proxy`。
     pub(crate) fn build_catalog_client(
         snap: &crate::proxy::ProxySnapshot,
@@ -310,27 +527,27 @@ impl CatalogService {
     }
 
     pub fn get_catalog_count(&self) -> usize {
-        self.items.read().map(|i| i.len()).unwrap_or(0)
+        self.read_store().remote.items.len()
     }
 
     /// 远端精选目录本体（不含本地收录 overlay）：转正判定与目录计数口径。
     pub fn get_remote_catalog_items(&self) -> Vec<CatalogItem> {
-        self.items.read().map(|i| i.clone()).unwrap_or_default()
+        self.read_store().remote.items.clone()
     }
 
-    /// 合并目录（远端在前，本地收录按 id 补位去重）：全站收录视图唯一来源。
+    /// 合并目录（远端在前，本地收录按 id 补位去重）的整份拷贝；只供需要独立持有全库的
+    /// 慢路径（扫描器）使用，热路径请用借用访问。
     pub fn get_catalog_items(&self) -> Vec<CatalogItem> {
-        let remote = self.get_remote_catalog_items();
-        let collected = self.collected.read().map(|c| c.clone()).unwrap_or_default();
-        merge_remote_first(remote, collected)
+        self.read_store()
+            .merged()
+            .map(|(item, _)| item.clone())
+            .collect()
     }
 
     /// 本地库 overlay 同步（启动与 `custom_apps` 每次变更后调用）：
     /// 输入须已过滤为未归档的 collected 系/`submitted`，库内保存原始 payload。
     pub fn set_collected_items(&self, items: Vec<CatalogItem>) {
-        if let Ok(mut lock) = self.collected.write() {
-            *lock = items;
-        }
+        self.write_store().set_collected(items);
     }
 
     /// 从 SQLite 同步远端精选目录（`catalog_apps`）与本地库 overlay（`custom_apps`）到内存热读索引。
@@ -338,8 +555,9 @@ impl CatalogService {
         if let Ok((remote, local)) =
             crate::repositories::CatalogRepository::load_remote_and_local(db)
         {
-            self.update_items(remote);
-            self.set_collected_items(local);
+            let mut store = self.write_store();
+            store.set_remote(remote);
+            store.set_collected(local);
         }
     }
 
@@ -353,38 +571,34 @@ impl CatalogService {
     /// 按 canonical id 检索远端收录项（入口统一归一化，库内精确匹配；未知标识直接拒绝）。
     pub fn get_remote_catalog_item(&self, id: &str) -> Option<CatalogItem> {
         let key = crate::forge::canonical_app_id(id)?;
-        self.items
-            .read()
-            .ok()
-            .and_then(|items| items.iter().find(|i| i.id == key).cloned())
+        self.read_store().remote.get(&key).cloned()
     }
 
     /// 按 canonical id 检索本地库项（collected 系/`submitted` 且未归档）。
     pub fn get_collected_item(&self, id: &str) -> Option<CatalogItem> {
         let key = crate::forge::canonical_app_id(id)?;
-        self.collected
-            .read()
-            .ok()
-            .and_then(|items| items.iter().find(|i| i.id == key).cloned())
-    }
-
-    fn has_collected_key(&self, key: &str) -> bool {
-        self.collected
-            .read()
-            .ok()
-            .map(|items| items.iter().any(|i| i.id == key))
-            .unwrap_or(false)
+        self.read_store().collected.get(&key).cloned()
     }
 
     /// 目录项检索唯一口：远端精确命中优先，其次本地收录补位。
     pub fn get_catalog_item(&self, id: &str) -> Option<CatalogItem> {
-        self.get_remote_catalog_item(id)
-            .or_else(|| self.get_collected_item(id))
+        let key = crate::forge::canonical_app_id(id)?;
+        self.read_store().get(&key).cloned()
+    }
+
+    /// 借用命中条目执行 `f`（读锁内，零克隆）；未知标识或未收录返回 `None`。
+    pub fn with_catalog_item<R>(&self, id: &str, f: impl FnOnce(&CatalogItem) -> R) -> Option<R> {
+        let key = crate::forge::canonical_app_id(id)?;
+        self.read_store().get(&key).map(f)
     }
 
     /// 收录成员判定唯一口（写时标记/启动回填/图标分流共用）：远端或本地收录均视为已收录。
     pub fn is_cataloged(&self, id: &str) -> bool {
-        self.get_catalog_item(id).is_some()
+        let Some(key) = crate::forge::canonical_app_id(id) else {
+            return false;
+        };
+        let store = self.read_store();
+        store.remote.contains(&key) || store.collected.contains(&key)
     }
 
     /// 根据已知远端验证状态与本地收录命中状态为 `AppCore` 盖章。
@@ -412,6 +626,17 @@ impl CatalogService {
         }
     }
 
+    /// 合并目录行按来源盖章（与 `resolve_catalog_stamp` 同口径，免二次查表）。
+    fn stamp_merged(core: &mut crate::models::AppCore, origin: MergedOrigin) {
+        match origin {
+            MergedOrigin::Remote {
+                verified,
+                collected,
+            } => Self::apply_stamp_flags(core, Some(verified), collected),
+            MergedOrigin::Local => Self::apply_stamp_flags(core, None, true),
+        }
+    }
+
     /// 收录态决议（盖章唯一口径）：
     /// - 远端已验证 → `remote`（蓝标优先，本地同 id 不降级）；
     /// - 本地收录（含远端未验证同仓补位）→ `local` + `status=collected`；
@@ -422,12 +647,13 @@ impl CatalogService {
             Self::apply_stamp_flags(core, None, false);
             return;
         };
-        let remote_verified = self
-            .items
-            .read()
-            .ok()
-            .and_then(|items| items.iter().find(|i| i.id == key).map(|i| i.is_verified));
-        let is_collected = self.has_collected_key(&key);
+        let (remote_verified, is_collected) = {
+            let store = self.read_store();
+            (
+                store.remote.get(&key).map(|i| i.is_verified),
+                store.collected.contains(&key),
+            )
+        };
         Self::apply_stamp_flags(core, remote_verified, is_collected);
     }
 
@@ -448,44 +674,47 @@ impl CatalogService {
         summary
     }
 
-    /// 合并目录全量已盖章摘要（首页/分类/最新入库共用，单趟 O(N+M) 投影，零 CatalogItem 克隆与零重复归一化）。
+    /// 合并目录全量已盖章摘要（单趟 O(N+M) 投影，零 CatalogItem 克隆与零重复归一化）。
     pub fn merged_summaries(&self) -> Vec<AppSummary> {
-        let remote_guard = self.items.read().ok();
-        let collected_guard = self.collected.read().ok();
-        let remote_slice: &[CatalogItem] = remote_guard.as_deref().map_or(&[], |v| v.as_slice());
-        let collected_slice: &[CatalogItem] =
-            collected_guard.as_deref().map_or(&[], |v| v.as_slice());
-
-        let collected_ids: std::collections::HashSet<&str> =
-            collected_slice.iter().map(|i| i.id.as_str()).collect();
-        let mut seen: std::collections::HashSet<&str> =
-            std::collections::HashSet::with_capacity(remote_slice.len() + collected_slice.len());
-        let mut out = Vec::with_capacity(remote_slice.len() + collected_slice.len());
-
-        for item in remote_slice {
-            seen.insert(item.id.as_str());
-            let mut summary = item.to_summary();
-            Self::apply_stamp_flags(
-                &mut summary.core,
-                Some(item.is_verified),
-                collected_ids.contains(item.id.as_str()),
-            );
-            out.push(summary);
-        }
-        for item in collected_slice {
-            if seen.insert(item.id.as_str()) {
-                let mut summary = item.to_summary();
-                Self::apply_stamp_flags(&mut summary.core, None, true);
-                out.push(summary);
-            }
-        }
-        out
+        self.merged_summaries_filtered(|_| true)
     }
 
+    /// 合并目录中满足 `pred` 的已盖章摘要（合并顺序）：读锁内先过滤，只为命中行构造 `AppSummary`。
+    pub fn merged_summaries_filtered<F>(&self, mut pred: F) -> Vec<AppSummary>
+    where
+        F: FnMut(&CatalogItem) -> bool,
+    {
+        let store = self.read_store();
+        store
+            .merged()
+            .filter(|(item, _)| pred(item))
+            .map(|(item, origin)| {
+                let mut summary = item.to_summary();
+                Self::stamp_merged(&mut summary.core, origin);
+                summary
+            })
+            .collect()
+    }
+
+    /// 基于当前合并目录构建本地亲和度画像：目录 IDF 与别名取缓存（目录整体替换后首次调用时重建），
+    /// 条目经索引按需点查，不克隆目录。
+    pub fn build_affinity_profile(
+        &self,
+        raw: &crate::db::RawAffinitySignals,
+        now_secs: i64,
+        sources: crate::github::affinity::AffinitySources,
+    ) -> crate::github::affinity::UserAffinityProfile {
+        let store = self.read_store();
+        let view = StoreAffinityView {
+            derived: store.derived(),
+            store: &store,
+        };
+        crate::github::affinity::UserAffinityProfile::from_catalog(raw, &view, now_secs, sources)
+    }
+
+    /// 整体替换远端精选目录（文本派生缓存随之失效）。
     pub fn update_items(&self, new_items: Vec<CatalogItem>) {
-        if let Ok(mut lock) = self.items.write() {
-            *lock = new_items;
-        }
+        self.write_store().set_remote(new_items);
     }
 
     /// 将本地缓存详情（`AppDetail`）的非占位字段合并回填至未收录卡片摘要（`AppCore`）（SSOT）。
@@ -547,8 +776,9 @@ impl CatalogService {
         }
     }
 
-    /// 从应用详情全量回写内存目录项（同时覆盖远端 `items` 与本地收录 `collected`）：
+    /// 从应用详情全量回写内存目录项（同时覆盖远端与本地收录同 id 行）：
     /// 同步 `stars`、`forks`、`default_version`、`platforms`、`license`、`homepage` 与缺省时的 `http(s)` 图标。
+    /// 这些字段不参与画像分词，文本派生缓存保持有效。
     pub fn update_catalog_item_from_detail(&self, detail: &crate::models::AppDetail) {
         if detail.is_stale == Some(true) {
             return;
@@ -556,16 +786,12 @@ impl CatalogService {
         let Some(key) = crate::forge::canonical_app_id(&detail.core.id) else {
             return;
         };
-        let apply = |list: &mut Vec<CatalogItem>| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == key) {
+        let mut guard = self.write_store();
+        let store = &mut *guard;
+        for bucket in [&mut store.remote, &mut store.collected] {
+            if let Some(item) = bucket.get_mut(&key) {
                 item.merge_from_detail(detail);
             }
-        };
-        if let Ok(mut items) = self.items.write() {
-            apply(&mut items);
-        }
-        if let Ok(mut collected) = self.collected.write() {
-            apply(&mut collected);
         }
     }
 
@@ -577,18 +803,14 @@ impl CatalogService {
         let Some(key) = crate::forge::canonical_app_id(id) else {
             return;
         };
-        let apply = |list: &mut Vec<CatalogItem>| {
-            if let Some(item) = list.iter_mut().find(|i| i.id == key) {
+        let mut guard = self.write_store();
+        let store = &mut *guard;
+        for bucket in [&mut store.remote, &mut store.collected] {
+            if let Some(item) = bucket.get_mut(&key) {
                 if item.platforms.is_empty() {
                     item.platforms = platforms.to_vec();
                 }
             }
-        };
-        if let Ok(mut items) = self.items.write() {
-            apply(&mut items);
-        }
-        if let Ok(mut collected) = self.collected.write() {
-            apply(&mut collected);
         }
     }
 
@@ -651,84 +873,53 @@ impl CatalogService {
         .await
     }
 
+    /// 本地目录搜索（合并目录，读锁内遍历零整库克隆）：
+    /// - 空查询：全量按 stars 降序；
+    /// - 查询词等于某分类 key / 分类名（大小写不敏感）：返回该分类全部条目，按 stars 降序；
+    /// - 否则按关键词匹配分降序、同分按 stars 降序。
+    ///
+    /// 各分支均为稳定排序，同分保持合并目录顺序；只为最终返回的条目构造 `AppSummary`。
     pub fn search_local_catalog(&self, query: &str) -> Vec<AppSummary> {
-        let items = self.get_catalog_items();
-        self.search_in_slice(&items, query)
-    }
-
-    fn search_in_slice(&self, items: &[CatalogItem], query: &str) -> Vec<AppSummary> {
         let q = query.trim().to_lowercase();
+        let store = self.read_store();
+        let project = |(item, origin): (&CatalogItem, MergedOrigin)| {
+            let mut summary = item.to_summary();
+            Self::stamp_merged(&mut summary.core, origin);
+            summary
+        };
+        let by_stars_desc = |mut rows: Vec<AppSummary>| {
+            rows.sort_by_key(|b| std::cmp::Reverse(b.core.stars));
+            rows
+        };
+
         if q.is_empty() {
-            let mut all: Vec<AppSummary> = items
-                .iter()
-                .map(|i| self.item_to_stamped_summary(i))
-                .collect();
-            all.sort_by_key(|b| std::cmp::Reverse(b.core.stars));
-            return all;
+            return by_stars_desc(store.merged().map(project).collect());
         }
 
-        // 分类过滤匹配
-        if let Some(cat_match) = self.filter_in_slice(items, &q) {
-            return cat_match;
-        }
-
-        let mut matches: Vec<(i32, AppSummary)> = Vec::new();
-
-        for item in items.iter() {
-            let mut score = 0;
-
-            let name_lower = item.name.to_lowercase();
-            let id_lower = item.id.to_lowercase();
-            let owner_lower = item.owner.to_lowercase();
-            let repo_lower = item.repo.to_lowercase();
-
-            if name_lower == q || id_lower == q {
-                score += SEARCH_SCORE_EXACT_MATCH;
-            } else if name_lower.starts_with(&q) {
-                score += SEARCH_SCORE_PREFIX_MATCH;
-            } else if name_lower.contains(&q) {
-                score += SEARCH_SCORE_NAME_CONTAINS;
-            } else if owner_lower.contains(&q) || repo_lower.contains(&q) {
-                score += SEARCH_SCORE_OWNER_OR_REPO_CONTAINS;
-            } else if item.aliases.iter().any(|a| a.to_lowercase().contains(&q)) {
-                score += SEARCH_SCORE_ALIAS_CONTAINS;
+        let mut category_hits: Vec<(&CatalogItem, MergedOrigin)> = Vec::new();
+        let mut keyword_hits: Vec<(i32, &CatalogItem, MergedOrigin)> = Vec::new();
+        for (item, origin) in store.merged() {
+            if category_matches(item, &q) {
+                category_hits.push((item, origin));
             }
-
-            if score > 0 {
-                matches.push((score, self.item_to_stamped_summary(item)));
+            // 分类命中即整体走分类分支，之后不必再算关键词分。
+            if category_hits.is_empty() {
+                let score = search_score(item, &q);
+                if score > 0 {
+                    keyword_hits.push((score, item, origin));
+                }
             }
         }
 
-        // 按匹配分值高优先，同分值按 Star 降序
-        matches.sort_by(|a, b| {
-            if b.0 != a.0 {
-                b.0.cmp(&a.0)
-            } else {
-                b.1.core.stars.cmp(&a.1.core.stars)
-            }
-        });
-
-        matches.into_iter().map(|(_, s)| s).collect()
-    }
-
-    fn filter_in_slice(&self, items: &[CatalogItem], category: &str) -> Option<Vec<AppSummary>> {
-        let cat_clean = category.trim().to_lowercase();
-        let matched: Vec<AppSummary> = items
-            .iter()
-            .filter(|item| {
-                item.category.to_lowercase() == cat_clean
-                    || item.category_name.to_lowercase() == cat_clean
-            })
-            .map(|item| self.item_to_stamped_summary(item))
-            .collect();
-
-        if matched.is_empty() {
-            None
-        } else {
-            let mut sorted = matched;
-            sorted.sort_by_key(|b| std::cmp::Reverse(b.core.stars));
-            Some(sorted)
+        if !category_hits.is_empty() {
+            return by_stars_desc(category_hits.into_iter().map(project).collect());
         }
+
+        keyword_hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.stars.cmp(&a.1.stars)));
+        keyword_hits
+            .into_iter()
+            .map(|(_, item, origin)| project((item, origin)))
+            .collect()
     }
 
     /// 轻量 deduce（`get_platforms_lite` 通道 SSOT）：收录库非空平台优先，否则 GitHub release 原始资产 → deduce + 排序。
@@ -738,7 +929,7 @@ impl CatalogService {
         id: &str,
         assets: &[crate::github::models::GitHubAssetResponse],
     ) -> Vec<String> {
-        let catalog_platforms = self.get_catalog_item(id).map(|i| i.platforms);
+        let catalog_platforms = self.with_catalog_item(id, |i| i.platforms.clone());
         crate::github::detail_assets::lite_platforms_for_github_assets(
             assets,
             catalog_platforms.as_deref(),
@@ -751,15 +942,19 @@ impl CatalogService {
     pub fn get_repo_coordinates(&self, id: &str) -> Result<AppRepoCoordinates, String> {
         let clean = crate::forge::canonical_app_id(id)
             .ok_or_else(|| format!("无法识别的应用标识: {}", id))?;
-        if let Some(item) = self.get_catalog_item(&clean) {
-            Ok(AppRepoCoordinates {
+        let in_catalog = self
+            .read_store()
+            .get(&clean)
+            .map(|item| AppRepoCoordinates {
                 owner: item.owner.clone(),
                 repo: item.repo.clone(),
                 name: item.name.clone(),
                 description: item.description.clone(),
                 icon: item.icon.clone(),
                 icon_bg: item.icon_bg.clone(),
-            })
+            });
+        if let Some(coords) = in_catalog {
+            Ok(coords)
         } else if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean) {
             // external_synth：在线搜索返回的目录外 GitHub 坐标（search 回退路径）
             if coord.forge == crate::forge::ForgeType::GitHub {
@@ -813,12 +1008,22 @@ mod tests {
         }
     }
 
-    fn test_service(items: Vec<CatalogItem>) -> CatalogService {
-        CatalogService {
-            items: RwLock::new(items),
-            collected: RwLock::new(Vec::new()),
-            client: crate::proxy::ClientSlot::new(),
+    fn detail_for(id: &str, stars: u64) -> crate::models::AppDetail {
+        let mut core = item(id, "o", "r").to_summary().core;
+        core.stars = stars;
+        crate::models::AppDetail {
+            core,
+            changelog: String::new(),
+            readme_markdown: String::new(),
+            readme_variants: None,
+            releases: Vec::new(),
+            cached_at: None,
+            is_stale: None,
         }
+    }
+
+    fn test_service(items: Vec<CatalogItem>) -> CatalogService {
+        CatalogService::with_items(items)
     }
 
     /// ADR-0010：入站标识归一化（canonical = 小写 owner/repo / forge 前缀坐标；未知标识拒绝）
@@ -1118,6 +1323,273 @@ mod tests {
         for row in &rows {
             assert_eq!(row.core.is_cataloged, Some(true));
             assert!(row.core.source.is_some());
+        }
+    }
+
+    /// 索引语义与线性扫描一致：同侧重复 id 只认首行，本地与远端同 id 时远端优先，
+    /// 合并目录不重复输出。
+    #[test]
+    fn test_index_keeps_first_row_and_remote_priority() {
+        let mut first = item("o/dup", "o", "dup");
+        first.name = "First".to_string();
+        let mut second = item("o/dup", "o", "dup");
+        second.name = "Second".to_string();
+        let svc = test_service(vec![first, second, item("o/shared", "o", "shared")]);
+        let mut shadow = item("o/shared", "o", "shared");
+        shadow.name = "Shadow".to_string();
+        let mut local_a = item("o/local", "o", "local");
+        local_a.name = "Local A".to_string();
+        let mut local_b = item("o/local", "o", "local");
+        local_b.name = "Local B".to_string();
+        svc.set_collected_items(vec![shadow, local_a, local_b]);
+
+        assert_eq!(
+            svc.get_remote_catalog_item("o/dup").map(|i| i.name),
+            Some("First".to_string())
+        );
+        assert_eq!(
+            svc.get_catalog_item("o/shared").map(|i| i.name),
+            Some("Test App".to_string())
+        );
+        assert_eq!(
+            svc.get_collected_item("o/local").map(|i| i.name),
+            Some("Local A".to_string())
+        );
+        let merged: Vec<String> = svc
+            .get_catalog_items()
+            .into_iter()
+            .map(|i| i.name)
+            .collect();
+        assert_eq!(merged, vec!["First", "Second", "Test App", "Local A"]);
+        let summaries: Vec<String> = svc
+            .merged_summaries()
+            .into_iter()
+            .map(|s| s.core.name)
+            .collect();
+        assert_eq!(summaries, merged);
+    }
+
+    /// 详情回写经索引就地合并远端与本地同 id 行；未知标识与陈旧详情不动目录。
+    #[test]
+    fn test_detail_and_platform_writeback_hit_both_buckets() {
+        let svc = test_service(vec![item("o/both", "o", "both")]);
+        svc.set_collected_items(vec![item("o/both", "o", "both")]);
+
+        let mut detail = detail_for("O/Both", 42);
+        svc.update_catalog_item_from_detail(&detail);
+        assert_eq!(svc.get_remote_catalog_item("o/both").unwrap().stars, 42);
+        assert_eq!(svc.get_collected_item("o/both").unwrap().stars, 42);
+
+        detail.core.stars = 99;
+        detail.is_stale = Some(true);
+        svc.update_catalog_item_from_detail(&detail);
+        assert_eq!(svc.get_remote_catalog_item("o/both").unwrap().stars, 42);
+
+        svc.update_catalog_item_platforms("o/both", &["linux".to_string()]);
+        svc.update_catalog_item_platforms("o/both", &["windows".to_string()]);
+        assert_eq!(
+            svc.get_remote_catalog_item("o/both").unwrap().platforms,
+            vec!["linux".to_string()]
+        );
+        assert_eq!(
+            svc.get_collected_item("o/both").unwrap().platforms,
+            vec!["linux".to_string()]
+        );
+        svc.update_catalog_item_platforms("not-an-id", &["linux".to_string()]);
+    }
+
+    /// 过滤投影只为命中行构造摘要，盖章口径与全量投影一致。
+    #[test]
+    fn test_merged_summaries_filtered_matches_full_projection() {
+        let mut verified = item("o/verified", "o", "verified");
+        verified.is_verified = true;
+        verified.category = "media".to_string();
+        let svc = test_service(vec![verified, item("o/both", "o", "both")]);
+        svc.set_collected_items(vec![
+            item("o/both", "o", "both"),
+            item("o/local", "o", "local"),
+        ]);
+
+        let mut visited = 0usize;
+        let dev_rows = svc.merged_summaries_filtered(|i| {
+            visited += 1;
+            i.category == "dev"
+        });
+        assert_eq!(visited, 3);
+        let full: Vec<AppSummary> = svc
+            .merged_summaries()
+            .into_iter()
+            .filter(|s| s.core.category == "dev")
+            .collect();
+        assert_eq!(
+            serde_json::to_value(&dev_rows).unwrap(),
+            serde_json::to_value(&full).unwrap()
+        );
+        assert_eq!(
+            dev_rows[0].core.source.as_deref(),
+            Some(CATALOG_SOURCE_LOCAL)
+        );
+        assert_eq!(
+            dev_rows[1].core.source.as_deref(),
+            Some(CATALOG_SOURCE_LOCAL)
+        );
+    }
+
+    /// 本地搜索三个分支：分类命中整体走分类、关键词按分值再按星数、空查询全量按星数。
+    #[test]
+    fn test_search_branches_keep_order_and_stamps() {
+        let mut low = item("o/editor-lite", "o", "editor-lite");
+        low.name = "Editor Lite".to_string();
+        low.stars = 5;
+        let mut high = item("o/editor", "o", "editor");
+        high.name = "Editor".to_string();
+        high.stars = 10;
+        let mut media = item("o/player", "o", "player");
+        media.name = "Player".to_string();
+        media.category = "media".to_string();
+        media.category_name = "影音".to_string();
+        media.stars = 1;
+        let svc = test_service(vec![low, high, media]);
+
+        let ids = |rows: Vec<AppSummary>| -> Vec<String> {
+            rows.into_iter().map(|s| s.core.id).collect()
+        };
+        assert_eq!(
+            ids(svc.search_local_catalog("editor")),
+            vec!["o/editor", "o/editor-lite"]
+        );
+        assert_eq!(ids(svc.search_local_catalog("影音")), vec!["o/player"]);
+        assert_eq!(
+            ids(svc.search_local_catalog("DEV")),
+            vec!["o/editor", "o/editor-lite"]
+        );
+        assert_eq!(
+            ids(svc.search_local_catalog("  ")),
+            vec!["o/editor", "o/editor-lite", "o/player"]
+        );
+        assert!(svc.search_local_catalog("zzz").is_empty());
+    }
+
+    /// 仓库名反查：星数最高者胜出，并列取合并顺序最后一条；被远端遮蔽的本地行不参与。
+    #[test]
+    fn test_top_by_repo_name_uses_merged_view() {
+        let mut a = item("a/tool", "a", "Tool");
+        a.stars = 10;
+        let mut b = item("b/tool", "b", "tool");
+        b.stars = 10;
+        let svc = test_service(vec![a, b]);
+        let mut shadow = item("b/tool", "b", "tool");
+        shadow.stars = 1000;
+        let mut c = item("c/tool", "c", "tool");
+        c.stars = 5;
+        svc.set_collected_items(vec![shadow, c]);
+
+        let store = svc.read_store();
+        assert_eq!(
+            store.top_by_repo_name("tool").map(|i| i.id.as_str()),
+            Some("b/tool")
+        );
+        assert_eq!(store.top_by_repo_name("tool").map(|i| i.stars), Some(10));
+        assert!(store.top_by_repo_name("none").is_none());
+    }
+
+    /// 文本派生缓存：目录未变时复用同一实例；详情回写不失效；整体替换任一侧即重建。
+    #[test]
+    fn test_derived_cache_lifecycle() {
+        let svc = test_service(vec![item("o/remote", "o", "remote")]);
+        let first = svc.read_store().derived();
+        assert!(Arc::ptr_eq(&first, &svc.read_store().derived()));
+
+        let detail = detail_for("o/remote", 7);
+        svc.update_catalog_item_from_detail(&detail);
+        svc.update_catalog_item_platforms("o/remote", &["linux".to_string()]);
+        assert!(Arc::ptr_eq(&first, &svc.read_store().derived()));
+
+        let mut local = item("o/local", "o", "local");
+        local.aliases = vec!["LocalAlias".to_string()];
+        svc.set_collected_items(vec![local]);
+        let second = svc.read_store().derived();
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert_eq!(
+            second.aliases.get("o/local"),
+            Some(&vec!["LocalAlias".to_string()])
+        );
+
+        svc.update_items(vec![item("o/other", "o", "other")]);
+        assert!(!Arc::ptr_eq(&second, &svc.read_store().derived()));
+    }
+
+    /// 常驻目录构建的画像与按合并目录切片构建的画像逐项一致（含 Fork 反查与本地补位）。
+    #[test]
+    fn test_build_affinity_profile_matches_slice_build() {
+        use crate::db::{RawAffinitySignals, UserRepoSignal};
+        use crate::github::affinity::{AffinitySources, UserAffinityProfile};
+
+        let mut editor = item("acme/editor", "acme", "editor");
+        editor.description = "fast code editor".to_string();
+        editor.stars = 500;
+        editor.aliases = vec!["CodePad".to_string()];
+        let mut player = item("media/player", "media", "player");
+        player.category = "media".to_string();
+        player.description = "video player".to_string();
+        player.stars = 300;
+        let mut clone_editor = item("other/editor", "other", "editor");
+        clone_editor.description = "another editor".to_string();
+        clone_editor.stars = 50;
+        let svc = test_service(vec![editor, player, clone_editor]);
+        let mut notes = item("me/notes", "me", "notes");
+        notes.category = "office".to_string();
+        notes.description = "markdown notes".to_string();
+        let mut shadow = item("media/player", "media", "player");
+        shadow.description = "local shadow text".to_string();
+        svc.set_collected_items(vec![notes, shadow]);
+
+        let now = 1_700_000_000;
+        let raw = RawAffinitySignals {
+            favorites: vec![("acme/editor".to_string(), now - 86_400)],
+            watched: vec![("me/notes".to_string(), now)],
+            views: vec![
+                ("media/player".to_string(), now - 3_600),
+                ("ghost/app".to_string(), now),
+            ],
+            searches: vec![("markdown editor".to_string(), now)],
+            repo_signals: vec![UserRepoSignal {
+                full_name: "alice/editor".to_string(),
+                relation: "forked".to_string(),
+                language: "Rust".to_string(),
+                description: "my fork".to_string(),
+                stars: 1,
+                forks: 0,
+                updated_at: now - 10,
+            }],
+            user_stars: vec![("media/player".to_string(), now)],
+            interest_seeds: vec!["dev".to_string()],
+            ..RawAffinitySignals::default()
+        };
+
+        let merged = svc.get_catalog_items();
+        for sources in [
+            AffinitySources::ALL,
+            AffinitySources {
+                local: true,
+                github: false,
+            },
+        ] {
+            let from_store = svc.build_affinity_profile(&raw, now, sources);
+            let from_slice =
+                UserAffinityProfile::from_signals_with_sources(&raw, &merged, now, sources);
+            assert!(from_store.has_signals);
+            assert_eq!(from_store.has_signals, from_slice.has_signals);
+            assert_eq!(from_store.category_weights, from_slice.category_weights);
+            assert_eq!(from_store.owner_weights, from_slice.owner_weights);
+            assert_eq!(from_store.token_weights, from_slice.token_weights);
+            assert_eq!(from_store.known_ids, from_slice.known_ids);
+            assert_eq!(from_store.signal_count, from_slice.signal_count);
+            assert_eq!(from_store.seeds, from_slice.seeds);
+            assert_eq!(*from_store.aliases, *from_slice.aliases);
+            for tok in ["editor", "player", "codepad", "markdown", "unseen"] {
+                assert_eq!(from_store.idf.weight(tok), from_slice.idf.weight(tok));
+            }
         }
     }
 }

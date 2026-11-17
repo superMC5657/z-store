@@ -579,10 +579,73 @@ pub struct UserAffinityProfile {
     pub dismissed_categories: HashSet<String>,
     /// 推荐种子，按 `strength` 降序、同 id 只保留最强关系。
     pub seeds: Vec<SeedRef>,
-    /// 构建画像时目录的逆文档频率。
-    pub idf: CatalogIdf,
+    /// 构建画像时目录的逆文档频率（与目录共享，目录不变时不重算）。
+    pub idf: Arc<CatalogIdf>,
     /// 目录条目别名（小写 id → aliases），供种子相似度使用。
-    pub aliases: HashMap<String, Vec<String>>,
+    pub aliases: Arc<HashMap<String, Vec<String>>>,
+}
+
+/// 画像构建所需的目录只读视图：按小写 id 点查、按小写仓库名反查上游，
+/// 以及目录级 IDF 与别名（实现方可缓存，画像只持有 `Arc`）。
+pub trait AffinityCatalog {
+    fn item(&self, id_lower: &str) -> Option<&CatalogItem>;
+    /// 仓库名相同的目录条目中星数最高者；并列取目录顺序中最后一条。
+    fn top_by_repo_name(&self, repo_lower: &str) -> Option<&CatalogItem>;
+    fn idf(&self) -> Arc<CatalogIdf>;
+    fn aliases(&self) -> Arc<HashMap<String, Vec<String>>>;
+}
+
+/// 基于目录切片现建索引的视图（单测与一次性调用；常驻目录走 `CatalogService::build_affinity_profile`）。
+pub struct SliceCatalog<'a> {
+    by_id: HashMap<String, &'a CatalogItem>,
+    by_repo_name: HashMap<String, Vec<&'a CatalogItem>>,
+    idf: Arc<CatalogIdf>,
+    aliases: Arc<HashMap<String, Vec<String>>>,
+}
+
+impl<'a> SliceCatalog<'a> {
+    pub fn new(catalog: &'a [CatalogItem]) -> Self {
+        let mut by_id: HashMap<String, &CatalogItem> = HashMap::with_capacity(catalog.len());
+        let mut by_repo_name: HashMap<String, Vec<&CatalogItem>> = HashMap::new();
+        let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
+        for item in catalog {
+            let id = item.id.to_lowercase();
+            if !item.aliases.is_empty() {
+                aliases.insert(id.clone(), item.aliases.clone());
+            }
+            by_id.insert(id, item);
+            by_repo_name
+                .entry(item.repo.to_lowercase())
+                .or_default()
+                .push(item);
+        }
+        Self {
+            by_id,
+            by_repo_name,
+            idf: Arc::new(CatalogIdf::from_catalog(catalog)),
+            aliases: Arc::new(aliases),
+        }
+    }
+}
+
+impl AffinityCatalog for SliceCatalog<'_> {
+    fn item(&self, id_lower: &str) -> Option<&CatalogItem> {
+        self.by_id.get(id_lower).copied()
+    }
+
+    fn top_by_repo_name(&self, repo_lower: &str) -> Option<&CatalogItem> {
+        self.by_repo_name
+            .get(repo_lower)
+            .and_then(|list| list.iter().max_by_key(|c| c.stars).copied())
+    }
+
+    fn idf(&self) -> Arc<CatalogIdf> {
+        self.idf.clone()
+    }
+
+    fn aliases(&self) -> Arc<HashMap<String, Vec<String>>> {
+        self.aliases.clone()
+    }
 }
 
 /// 各信号的时间衰减半衰期（天）。
@@ -886,6 +949,17 @@ impl UserAffinityProfile {
         now_secs: i64,
         sources: AffinitySources,
     ) -> Self {
+        Self::from_catalog(raw, &SliceCatalog::new(catalog), now_secs, sources)
+    }
+
+    /// 与 `from_signals_with_sources` 同一算法，目录经只读视图按需点查，
+    /// IDF 与别名直接复用视图提供的共享实例。
+    pub fn from_catalog<C: AffinityCatalog + ?Sized>(
+        raw: &RawAffinitySignals,
+        catalog: &C,
+        now_secs: i64,
+        sources: AffinitySources,
+    ) -> Self {
         let empty_pairs: Vec<(String, i64)> = Vec::new();
         let empty_repo: Vec<UserRepoSignal> = Vec::new();
         let (favorites, watched, installed, views, searches) = if sources.local {
@@ -911,21 +985,8 @@ impl UserAffinityProfile {
             (&empty_repo, &empty_pairs)
         };
 
-        let idf = CatalogIdf::from_catalog(catalog);
-        let mut by_id: HashMap<String, &CatalogItem> = HashMap::with_capacity(catalog.len());
-        let mut by_repo_name: HashMap<String, Vec<&CatalogItem>> = HashMap::new();
-        let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
-        for item in catalog {
-            let id = item.id.to_lowercase();
-            if !item.aliases.is_empty() {
-                aliases.insert(id.clone(), item.aliases.clone());
-            }
-            by_id.insert(id, item);
-            by_repo_name
-                .entry(item.repo.to_lowercase())
-                .or_default()
-                .push(item);
-        }
+        let idf = catalog.idf();
+        let aliases = catalog.aliases();
 
         let lower_ids = |pairs: &[(String, i64)]| -> Vec<String> {
             pairs
@@ -959,7 +1020,7 @@ impl UserAffinityProfile {
                 let w = base_w * decay;
                 acc.known_ids.insert(id_lower.clone());
                 acc.signal_count += 1;
-                if let Some(item) = by_id.get(&id_lower) {
+                if let Some(item) = catalog.item(&id_lower) {
                     acc.local.add_catalog_item(item, w, &idf);
                     acc.add_seed(item, relation, w);
                 } else {
@@ -986,7 +1047,7 @@ impl UserAffinityProfile {
                 continue;
             }
             acc.signal_count += 1;
-            match by_id.get(id_lower) {
+            match catalog.item(id_lower) {
                 Some(item) => acc.local.add_catalog_item(item, w, &idf),
                 None => {
                     let brief = raw.uncataloged_briefs.get(id_lower);
@@ -1026,17 +1087,14 @@ impl UserAffinityProfile {
             acc.signal_count += 1;
 
             // 精确匹配目录；Fork 仓库 (<user>/<repo>) 额外按 <repo> 反查上游条目
-            let matched_cat_item: Option<&CatalogItem> =
-                by_id.get(&full_lower).copied().or_else(|| {
-                    if rel_kind == Some(RepoRelation::Forked) {
-                        let (_, repo_part) = full_lower.split_once('/')?;
-                        by_repo_name
-                            .get(repo_part)
-                            .and_then(|list| list.iter().max_by_key(|c| c.stars).copied())
-                    } else {
-                        None
-                    }
-                });
+            let matched_cat_item: Option<&CatalogItem> = catalog.item(&full_lower).or_else(|| {
+                if rel_kind == Some(RepoRelation::Forked) {
+                    let (_, repo_part) = full_lower.split_once('/')?;
+                    catalog.top_by_repo_name(repo_part)
+                } else {
+                    None
+                }
+            });
 
             if let Some(item) = matched_cat_item {
                 let w = base_w * decay;
@@ -1078,7 +1136,7 @@ impl UserAffinityProfile {
             }
             let w = 3.0 * time_decay(*ts, now_secs);
             acc.known_ids.insert(full_lower.clone());
-            if let Some(item) = by_id.get(&full_lower) {
+            if let Some(item) = catalog.item(&full_lower) {
                 acc.signal_count += 1;
                 acc.github.add_catalog_item(item, w, &idf);
                 acc.add_seed(item, SeedRelation::Starred, w);
@@ -1317,7 +1375,24 @@ impl UserAffinityProfile {
 
     /// 以画像构建时的目录 IDF 与别名计算种子相似度。
     pub fn seed_similarity(&self, seed: &AppSummary, candidate: &AppSummary) -> f64 {
-        seed_similarity_with_idf(seed, candidate, Some(&self.idf), Some(&self.aliases))
+        seed_similarity_with_idf(seed, candidate, Some(&*self.idf), Some(&*self.aliases))
+    }
+
+    /// 种子相似度使用的词元（名称、仓库、目录别名与中英简介）；同一应用参与多次比较时
+    /// 由调用方预提取一次，再交给 `seed_similarity_with_tokens`。
+    pub fn similarity_tokens(&self, app: &AppSummary) -> Vec<String> {
+        similarity_tokens(app, Some(&*self.aliases))
+    }
+
+    /// 以预提取词元计算种子相似度，结果与 `seed_similarity` 逐位一致。
+    pub fn seed_similarity_with_tokens(
+        &self,
+        seed: &AppSummary,
+        seed_tokens: &[String],
+        candidate: &AppSummary,
+        candidate_tokens: &[String],
+    ) -> f64 {
+        similarity_from_tokens(seed, seed_tokens, candidate, candidate_tokens, &self.idf)
     }
 
     /// `because_you` 条目的单条理由：优先画像给出的作者 / 关键词理由，其次种子与候选
@@ -1381,6 +1456,25 @@ pub fn seed_similarity_with_idf(
     idf: Option<&CatalogIdf>,
     aliases_map: Option<&HashMap<String, Vec<String>>>,
 ) -> f64 {
+    let default_idf = CatalogIdf::default();
+    let idf = idf.unwrap_or(&default_idf);
+    similarity_from_tokens(
+        seed,
+        &similarity_tokens(seed, aliases_map),
+        candidate,
+        &similarity_tokens(candidate, aliases_map),
+        idf,
+    )
+}
+
+/// 种子相似度公式本体（见 `seed_similarity_with_idf`），词元由调用方给出。
+fn similarity_from_tokens(
+    seed: &AppSummary,
+    seed_tokens: &[String],
+    candidate: &AppSummary,
+    candidate_tokens: &[String],
+    idf: &CatalogIdf,
+) -> f64 {
     let same_cat = !seed.core.category.trim().is_empty()
         && seed
             .core
@@ -1393,12 +1487,7 @@ pub fn seed_similarity_with_idf(
             .owner
             .trim()
             .eq_ignore_ascii_case(candidate.core.owner.trim());
-    let default_idf = CatalogIdf::default();
-    let idf = idf.unwrap_or(&default_idf);
-    let sim_tok = idf.cosine_similarity(
-        &similarity_tokens(seed, aliases_map),
-        &similarity_tokens(candidate, aliases_map),
-    );
+    let sim_tok = idf.cosine_similarity(seed_tokens, candidate_tokens);
     (if same_cat { 0.25 } else { 0.0 }) + (if same_owner { 0.25 } else { 0.0 }) + 0.5 * sim_tok
 }
 
