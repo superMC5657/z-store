@@ -46,7 +46,7 @@
 }
 
 [data-theme="dark"] .detail-modal {
-  background: var(--bg-acrylic);
+  background: var(--bg-acrylic-dialog);
   border-color: var(--border-color);
   box-shadow: var(--shadow-modal);
 }
@@ -64,7 +64,7 @@
 
 .modal-header {
   padding: 16px 20px;
-  background: var(--bg-acrylic-thin);
+  background: var(--bg-acrylic-dialog);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
@@ -324,7 +324,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  background: var(--bg-acrylic-thin);
+  background: var(--bg-acrylic-dialog);
   flex-shrink: 0;
   box-sizing: border-box;
 }

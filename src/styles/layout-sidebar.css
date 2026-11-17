@@ -11,7 +11,7 @@
   container-name: app-body;
 }
 
-/* 侧边导航栏 - 展开态 184px / 折叠态 60px 极简 Icon 栏（Panel #0F1011 / #FFFFFF） */
+/* 侧边导航栏 - 展开态 184px / 折叠态 60px 极简 Icon 栏（Panel #1A1A1E / #FFFFFF） */
 .sidebar {
   width: 184px;
   background: var(--bg-acrylic-thin);

@@ -162,23 +162,23 @@
   --status-danger: #EF4444;
   --status-danger-bg: rgba(239, 68, 68, 0.12);
 
-  /* Linear 精确深色层级：Canvas #08090A, Panel #0F1011, Elevated #141516 */
-  --bg-canvas: #08090A;
-  --bg-acrylic: #0F1011;
+  /* 冷调炭灰层级：Canvas / Panel #1A1A1E（侧栏与内容区同色，靠边框分隔），Elevated #232327 */
+  --bg-canvas: #1A1A1E;
+  --bg-acrylic: var(--bg-canvas);
   --bg-acrylic-hover: rgba(255, 255, 255, 0.04);
-  --bg-acrylic-thin: #0F1011;
-  --bg-acrylic-card: #141516;
-  --bg-surface-flyout: #141516;
+  --bg-acrylic-thin: var(--bg-canvas);
+  --bg-acrylic-card: #232327;
+  --bg-surface-flyout: var(--bg-acrylic-card);
   --bg-acrylic-dialog: var(--bg-surface-flyout);
   --bg-input: rgba(255, 255, 255, 0.03);
   --bg-card: var(--bg-acrylic-card);
 
   /* 去彩单色按钮系统（Dark）：微收实底亮度并配合 padding-box 收敛白色辐射膨胀 */
-  --btn-primary-bg: #ECEEEF;
-  --btn-primary-text: #08090A;
+  --btn-primary-bg: #EDEDF1;
+  --btn-primary-text: var(--bg-canvas);
   --btn-primary-border: rgba(255, 255, 255, 0.08);
-  --btn-primary-hover: #F7F8F8;
-  --btn-primary-active: #DFE2E6;
+  --btn-primary-hover: #F7F7F9;
+  --btn-primary-active: #DCDCE2;
   --btn-primary-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 
   --btn-secondary-bg: transparent;
@@ -189,38 +189,38 @@
   --btn-secondary-hover-border: rgba(255, 255, 255, 0.16);
   --btn-secondary-active: rgba(255, 255, 255, 0.10);
 
-  /* Linear 精确微边框（Border subtle 0.05, default 0.08, active 0.14） */
-  --border-subtle: rgba(255, 255, 255, 0.05);
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-highlight: rgba(255, 255, 255, 0.14);
+  /* 微边框（Border subtle 0.07, default 0.10, active 0.16；default 叠在画布上约为 #333339） */
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-color: rgba(255, 255, 255, 0.10);
+  --border-highlight: rgba(255, 255, 255, 0.16);
   --card-bg-subtle: rgba(255, 255, 255, 0.02);
 
-  /* 遮罩：深色画布本身已暗，半透遮罩 + 模糊让背后界面隐约可见，前景靠 --shadow-modal 描边分离 */
-  --overlay-bg: rgba(8, 9, 10, 0.6);
+  /* 遮罩：半透遮罩 + 模糊让背后界面隐约可见，前景靠 --shadow-modal 描边分离 */
+  --overlay-bg: rgba(10, 10, 12, 0.6);
 
   /* 导航项 */
   --bg-nav-active: rgba(255, 255, 255, 0.07);
   --border-nav-active: rgba(255, 255, 255, 0.06);
   --shadow-nav-active: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --color-nav-active: #F7F8F8;
+  --color-nav-active: var(--text-primary);
 
   /* 搜索框 */
-  --bg-search-box: rgba(255, 255, 255, 0.03);
-  --placeholder-search: #62666D;
+  --bg-search-box: rgba(255, 255, 255, 0.04);
+  --placeholder-search: var(--text-tertiary);
 
   /* 置顶横幅 */
-  --bg-hero-banner: #141516;
+  --bg-hero-banner: var(--bg-acrylic-card);
   --badge-verified-bg: rgba(94, 106, 210, 0.14);
   --badge-verified-border: rgba(94, 106, 210, 0.30);
   --badge-verified-color: #7170FF;
 
-  /* 排版文字层级（深色模式：primary #F7F8F8, secondary #8A8F98, muted #62666D） */
-  --text-primary: #F7F8F8;
-  --text-secondary: #8A8F98;
-  --text-tertiary: #62666D;
+  /* 排版文字层级（深色模式：primary #EDEDF1, secondary #A8A8B0, muted #6E6E77，冷调中性灰） */
+  --text-primary: #EDEDF1;
+  --text-secondary: #A8A8B0;
+  --text-tertiary: #6E6E77;
 
   /* 阴影（深色模式：大漫射阴影 + 顶部 hairline 高光） */
   --shadow-rest: none;
-  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }

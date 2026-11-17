@@ -109,7 +109,7 @@
   user-select: none;
 }
 
-/* 设置面板分组 - 8px 圆角纯粹面板（Elevated #141516 / #FFFFFF） */
+/* 设置面板分组 - 8px 圆角纯粹面板（Elevated #232327 / #FFFFFF） */
 .settings-group {
   background: var(--bg-acrylic-card);
   border: 1px solid var(--border-color);
@@ -150,7 +150,7 @@
   line-height: 1.3;
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-acrylic-thin);
+  background: var(--bg-acrylic-card);
   letter-spacing: -0.018em;
 }
 
@@ -162,7 +162,7 @@
 }
 
 [data-theme="dark"] .settings-group-title {
-  background: var(--bg-acrylic-thin);
+  background: var(--bg-acrylic-card);
 }
 
 .settings-row {

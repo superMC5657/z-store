@@ -34,7 +34,7 @@
 }
 
 [data-theme="dark"] .hero-banner:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in srgb, #FFFFFF 4%, var(--bg-hero-banner));
 }
 
 .hero-content {

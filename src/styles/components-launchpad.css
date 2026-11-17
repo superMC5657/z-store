@@ -242,7 +242,7 @@
   align-items: flex-start;
   gap: 14px;
   padding: 18px 20px 16px;
-  background: var(--bg-acrylic-thin);
+  background: var(--bg-acrylic-dialog);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
@@ -738,7 +738,7 @@ button.launchpad-comment-author:hover {
   flex-shrink: 0;
   padding: 12px 20px 14px;
   border-top: 1px solid var(--border-subtle);
-  background: var(--bg-acrylic-thin);
+  background: var(--bg-acrylic-dialog);
 }
 
 /* 评论输入：工具栏 + 编写/预览 + 表情 / 图片浮层 */

@@ -105,7 +105,7 @@
   padding: 0;
 }
 
-/* 主按钮：去彩单色（Light: #08090A 白字 / Dark: #ECEEEF 黑字）；
+/* 主按钮：去彩单色（Light: #08090A 白字 / Dark: #EDEDF1 黑字）；
    使用 padding-box + 纯内高光（无外扩阴影）消除并列剪影高差与辐射膨胀 */
 .btn-primary {
   background: var(--btn-primary-bg);
