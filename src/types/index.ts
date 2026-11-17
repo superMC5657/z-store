@@ -636,6 +636,21 @@ export interface LaunchpadEntry {
   pin_until?: string | null;
   pin_tier?: string | null;
   viewer_has_starred: boolean;
+  viewer_has_upvoted?: boolean;
+}
+
+export interface LaunchpadPulseItem {
+  id: string;
+  discussion_repo: string;
+  discussion_number: number;
+  discussion_node_id?: string | null;
+  discussion_upvotes?: number | null;
+  discussion_comments_count?: number | null;
+  viewer_has_upvoted?: boolean | null;
+  stars?: number | null;
+  forks?: number | null;
+  latest_version?: string | null;
+  viewer_has_starred?: boolean | null;
 }
 
 export interface LaunchpadFeedResponse {

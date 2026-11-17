@@ -7,8 +7,9 @@ pub mod models;
 
 pub use models::{
     LaunchpadDiscussionAuthor, LaunchpadDiscussionComment, LaunchpadDiscussionDetail,
-    LaunchpadEntry, LaunchpadFeedResponse, LaunchpadMaker, LaunchpadUpvoteResult,
-    LaunchpadVoteMode, RawLaunchpadItem, RawLaunchpadManifest, RawLaunchpadPin,
+    LaunchpadEntry, LaunchpadFeedResponse, LaunchpadMaker, LaunchpadPulseItem,
+    LaunchpadUpvoteResult, LaunchpadVoteMode, RawLaunchpadItem, RawLaunchpadManifest,
+    RawLaunchpadPin,
 };
 
 use models::non_empty;
@@ -220,6 +221,7 @@ fn item_to_entry(item: &RawLaunchpadItem, id: &str) -> LaunchpadEntry {
         pin_until: None,
         pin_tier: None,
         viewer_has_starred: false,
+        viewer_has_upvoted: false,
     }
 }
 

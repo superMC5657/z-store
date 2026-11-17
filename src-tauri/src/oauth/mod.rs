@@ -346,6 +346,7 @@ pub fn clear_oauth_session(db: &crate::db::Database) -> Result<Option<String>, S
     let _ = db.delete_starred_feed_cache_by_scope_prefix("@me:");
     let _ = db.delete_private_repo_cards();
     let _ = db.delete_private_search_list_cache();
+    let _ = db.clear_launchpad_viewer_upvotes();
     Ok(db
         .get_host_token("github.com")
         .ok()

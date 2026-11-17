@@ -4,6 +4,7 @@ import type {
   LaunchpadDiscussionDetail,
   LaunchpadEntry,
   LaunchpadFeedResponse,
+  LaunchpadPulseItem,
   LaunchpadUpvoteResult,
 } from '../../types';
 import { getStarSet } from '../demoState';
@@ -142,6 +143,7 @@ function toEntry(seed: DemoSeed, pinned: boolean, order: number): LaunchpadEntry
     pin_until: pinned ? isoDaysAgo(-7 - order) : null,
     pin_tier: pinned ? 'sponsor' : null,
     viewer_has_starred: false,
+    viewer_has_upvoted: false,
   };
 }
 
@@ -195,16 +197,23 @@ function demoComments(seed: DemoSeed): LaunchpadDiscussionComment[] {
   return initial;
 }
 
+function countCommentsWithReplies(list: LaunchpadDiscussionComment[]): number {
+  return list.reduce((sum, c) => sum + 1 + c.replies.length, 0);
+}
+
 function withLiveState(entry: LaunchpadEntry): LaunchpadEntry {
   const seed = seedByNumber(entry.discussion_number);
   if (!seed) return entry;
   const starred = getStarSet().has(entry.summary.id.toLowerCase());
-  const extraComments = (commentState.get(seed.number)?.length ?? 1) - 1;
+  const votes = upvotes(seed);
+  const existing = commentState.get(seed.number);
+  const extraComments = existing ? Math.max(0, countCommentsWithReplies(existing) - 2) : 0;
   return {
     ...entry,
-    discussion_upvotes: upvotes(seed).count,
-    discussion_comments_count: seed.comments + Math.max(0, extraComments),
+    discussion_upvotes: votes.count,
+    discussion_comments_count: seed.comments + extraComments,
     viewer_has_starred: starred,
+    viewer_has_upvoted: votes.mine,
   };
 }
 
@@ -220,6 +229,26 @@ export function handleGetLaunchpadFeed(a: InvokeArgs): LaunchpadFeedResponse {
     cached_at: nowSecs(),
     is_stale: false,
   };
+}
+
+export function handleSyncLaunchpadDiscussions(a: InvokeArgs): LaunchpadPulseItem[] {
+  warnUnknownArgs(['forceRefresh'], a, 'sync_launchpad_discussions');
+  return allSeeds().map((seed) => {
+    const live = withLiveState(toEntry(seed, false, 0));
+    return {
+      id: live.summary.id,
+      discussion_repo: live.discussion_repo,
+      discussion_number: live.discussion_number,
+      discussion_node_id: live.discussion_node_id,
+      discussion_upvotes: live.discussion_upvotes,
+      discussion_comments_count: live.discussion_comments_count,
+      viewer_has_upvoted: Boolean(live.viewer_has_upvoted),
+      stars: live.summary.stars,
+      forks: live.summary.forks,
+      latest_version: live.summary.latest_version,
+      viewer_has_starred: live.viewer_has_starred,
+    };
+  });
 }
 
 export function handleGetLaunchpadDiscussion(a: InvokeArgs): LaunchpadDiscussionDetail {
@@ -248,7 +277,7 @@ export function handleGetLaunchpadDiscussion(a: InvokeArgs): LaunchpadDiscussion
     viewer_can_upvote: true,
     viewer_can_comment: true,
     auth_required_for_write: false,
-    comments_total: comments.length,
+    comments_total: seed.comments + Math.max(0, countCommentsWithReplies(comments) - 2),
     has_next_page: false,
     end_cursor: null,
     comments,

@@ -17,16 +17,24 @@ import { AppIconFrame } from '../../components/AppIconFrame';
 import { CachedAvatar } from '../../components/CachedAvatar';
 import { makerNoteFor } from './LaunchpadCard';
 
+export interface LaunchpadDiscussionSyncedPayload {
+  upvotes: number;
+  commentsCount: number;
+  viewerHasUpvoted: boolean;
+  nodeId?: string;
+}
+
 export interface LaunchpadDiscussionDrawerProps {
   entry: LaunchpadEntry;
   oauthUser: OAuthUser | null;
-  /** 已知的本人顶帖态（卡片上顶过即带入）。 */
+  /** 已知的本人顶帖态（卡片水合或已顶帖后带入）。 */
   initialUpvoted?: boolean;
   onClose: () => void;
   onOpenDeveloper: (login: string) => void;
   onOpenAccount: () => void;
   onUpvoteChange: (entryId: string, count: number, upvoted: boolean) => void;
   onCommentAdded: (entryId: string) => void;
+  onDiscussionSynced?: (entryId: string, synced: LaunchpadDiscussionSyncedPayload) => void;
 }
 
 /** Markdown → 净化 HTML（统一经 `sanitizeHtml` 白名单）。 */
@@ -72,6 +80,7 @@ export const LaunchpadDiscussionDrawer: React.FC<LaunchpadDiscussionDrawerProps>
   onOpenAccount,
   onUpvoteChange,
   onCommentAdded,
+  onDiscussionSynced,
 }) => {
   const { t, i18n } = useTranslation();
   const titleId = useId();
@@ -91,8 +100,24 @@ export const LaunchpadDiscussionDrawer: React.FC<LaunchpadDiscussionDrawerProps>
   const app = entry.summary;
   const makerLogin = (entry.maker.login || app.owner).toLowerCase();
   const loggedIn = Boolean(oauthUser && !oauthUser.is_expired);
+  const loggedInRef = useRef(loggedIn);
+  loggedInRef.current = loggedIn;
+  const authKey = loggedIn ? `1:${oauthUser?.login ?? ''}` : '0';
   const canWrite = loggedIn && detail !== null && !detail.auth_required_for_write;
   const webUrl = detail?.url || entry.discussion_url;
+
+  const syncCtxRef = useRef({
+    appId: app.id,
+    entryUpvotes: entry.discussion_upvotes,
+    initialUpvoted,
+    onDiscussionSynced,
+  });
+  syncCtxRef.current = {
+    appId: app.id,
+    entryUpvotes: entry.discussion_upvotes,
+    initialUpvoted,
+    onDiscussionSynced,
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -103,9 +128,26 @@ export const LaunchpadDiscussionDrawer: React.FC<LaunchpadDiscussionDrawerProps>
       .then((d) => {
         if (cancelled) return;
         setDetail(d);
-        // 匿名空壳无计数口径，保留卡片上的展示值。
-        if (d.id) setUpvoteCount(d.upvote_count);
-        if (!d.auth_required_for_write) setUpvoted(d.viewer_has_upvoted);
+        // 匿名空壳无计数口径，保留卡片上的展示值；匿名 REST 缺原生 upvote_count 时不将已知顶帖数降回 0。
+        if (d.id) {
+          const ctx = syncCtxRef.current;
+          const resolvedUpvotes = d.auth_required_for_write
+            ? Math.max(ctx.entryUpvotes, d.upvote_count)
+            : d.upvote_count;
+          const resolvedUpvoted = d.auth_required_for_write
+            ? (loggedInRef.current ? ctx.initialUpvoted : false)
+            : d.viewer_has_upvoted;
+          setUpvoteCount(resolvedUpvotes);
+          setUpvoted(resolvedUpvoted);
+          if (!d.is_stale) {
+            ctx.onDiscussionSynced?.(ctx.appId, {
+              upvotes: resolvedUpvotes,
+              commentsCount: d.comments_total,
+              viewerHasUpvoted: resolvedUpvoted,
+              nodeId: d.id,
+            });
+          }
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -116,7 +158,7 @@ export const LaunchpadDiscussionDrawer: React.FC<LaunchpadDiscussionDrawerProps>
     return () => {
       cancelled = true;
     };
-  }, [entry.discussion_repo, entry.discussion_number]);
+  }, [entry.discussion_repo, entry.discussion_number, authKey]);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -209,6 +251,7 @@ export const LaunchpadDiscussionDrawer: React.FC<LaunchpadDiscussionDrawerProps>
             comments: prev.comments.map((c) =>
               c.id === replyTo.id ? { ...c, replies: [...c.replies, created] } : c,
             ),
+            comments_total: prev.comments_total + 1,
           };
         }
         return {

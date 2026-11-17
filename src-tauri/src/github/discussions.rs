@@ -49,6 +49,7 @@ query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
           author { login avatarUrl url }
           upvoteCount viewerHasUpvoted
           replies(first: 20) {
+            totalCount
             nodes {
               id body createdAt authorAssociation
               author { login avatarUrl url }
@@ -216,7 +217,7 @@ pub fn map_graphql_response(body: &Value) -> Result<&Value, GqlError> {
         .ok_or_else(|| GqlError::Other("GraphQL 响应缺少 data".to_string()))
 }
 
-async fn graphql_post(
+async fn graphql_post_raw(
     ctx: DiscussionClient<'_>,
     query: &str,
     variables: Value,
@@ -251,11 +252,32 @@ async fn graphql_post(
             "GitHub 讨论接口返回 HTTP 状态码: {status}"
         )));
     }
-    let body: Value = resp
-        .json()
+    resp.json()
         .await
-        .map_err(|e| GqlError::Other(format!("解析 GitHub 讨论响应失败: {}", e)))?;
+        .map_err(|e| GqlError::Other(format!("解析 GitHub 讨论响应失败: {}", e)))
+}
+
+async fn graphql_post(
+    ctx: DiscussionClient<'_>,
+    query: &str,
+    variables: Value,
+    op: &str,
+) -> Result<Value, GqlError> {
+    let body = graphql_post_raw(ctx, query, variables, op).await?;
     map_graphql_response(&body).cloned()
+}
+
+fn sum_reply_totals(comments: &Value) -> u64 {
+    comments
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|node| node.get("replies"))
+                .map(|r| u64_field(r, "totalCount"))
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
 fn str_field(v: &Value, key: &str) -> String {
@@ -339,6 +361,7 @@ pub fn parse_graphql_discussion(data: &Value) -> Result<LaunchpadDiscussionDetai
     };
     let comments = d.get("comments").cloned().unwrap_or(Value::Null);
     let page = comments.get("pageInfo").cloned().unwrap_or(Value::Null);
+    let replies_total = sum_reply_totals(&comments);
     let locked = bool_field(d, "locked");
     Ok(LaunchpadDiscussionDetail {
         id: str_field(d, "id"),
@@ -359,7 +382,7 @@ pub fn parse_graphql_discussion(data: &Value) -> Result<LaunchpadDiscussionDetai
         viewer_can_upvote: can_upvote,
         viewer_can_comment: !locked,
         auth_required_for_write: false,
-        comments_total: u64_field(&comments, "totalCount"),
+        comments_total: u64_field(&comments, "totalCount").saturating_add(replies_total),
         has_next_page: bool_field(&page, "hasNextPage"),
         end_cursor: page
             .get("endCursor")
@@ -437,69 +460,93 @@ pub fn degraded_shell(owner: &str, repo: &str, number: u64) -> LaunchpadDiscussi
     }
 }
 
-/// 匿名 REST 载荷 → 只读讨论详情（`comments_json` 缺失时评论列表为空）。
+/// 匿名 REST 载荷 → `(只读讨论详情, authoritative_upvotes)`：
+/// `comments_json` 缺失时评论列表为空，二级回复按 `parent_id` 归组；
+/// 仅当响应含显式 `upvote_count` 时 `authoritative_upvotes` 为 `true`。
 pub fn parse_rest_discussion(
     owner: &str,
     repo: &str,
     number: u64,
     discussion_json: &str,
     comments_json: Option<&str>,
-) -> Result<LaunchpadDiscussionDetail, String> {
+) -> Result<(LaunchpadDiscussionDetail, bool), String> {
     let d: Value =
         serde_json::from_str(discussion_json).map_err(|e| format!("解析讨论失败: {}", e))?;
     if !d.is_object() {
         return Err("讨论载荷格式错误".to_string());
     }
-    let comments: Vec<LaunchpadDiscussionComment> = comments_json
+    let raw_comments = comments_json
         .and_then(|t| serde_json::from_str::<Value>(t).ok())
         .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
-        .iter()
-        .map(|c| LaunchpadDiscussionComment {
-            id: str_field(c, "node_id"),
-            body: str_field(c, "body"),
-            created_at: str_field(c, "created_at"),
-            author_association: str_field(c, "author_association"),
-            author: rest_author(c),
-            upvote_count: rest_plus_one(c),
-            viewer_has_upvoted: false,
-            replies: Vec::new(),
-        })
-        .collect();
-    let url = str_field(&d, "html_url");
-    let total = u64_field(&d, "comments").max(comments.len() as u64);
-    Ok(LaunchpadDiscussionDetail {
-        id: str_field(&d, "node_id"),
-        number: d.get("number").and_then(|n| n.as_u64()).unwrap_or(number),
-        title: str_field(&d, "title"),
-        body: str_field(&d, "body"),
-        url: if url.is_empty() {
-            discussion_html_url(owner, repo, number)
-        } else {
-            url
-        },
-        created_at: str_field(&d, "created_at"),
-        locked: bool_field(&d, "locked"),
-        closed: str_field(&d, "state") == "closed",
-        author: rest_author(&d),
-        category_name: d
-            .get("category")
-            .map(|c| str_field(c, "name"))
-            .unwrap_or_default(),
-        upvote_count: d
-            .get("upvote_count")
-            .and_then(|n| n.as_u64())
-            .unwrap_or_else(|| rest_plus_one(&d)),
+        .unwrap_or_default();
+    let raw_count = raw_comments.len() as u64;
+    let to_comment = |c: &Value| LaunchpadDiscussionComment {
+        id: str_field(c, "node_id"),
+        body: str_field(c, "body"),
+        created_at: str_field(c, "created_at"),
+        author_association: str_field(c, "author_association"),
+        author: rest_author(c),
+        upvote_count: rest_plus_one(c),
         viewer_has_upvoted: false,
-        viewer_can_upvote: false,
-        viewer_can_comment: false,
-        auth_required_for_write: true,
-        comments_total: total,
-        has_next_page: total > comments.len() as u64,
-        end_cursor: None,
-        comments,
-        is_stale: false,
-    })
+        replies: Vec::new(),
+    };
+    let mut comments: Vec<LaunchpadDiscussionComment> = Vec::new();
+    let mut index_by_rest_id: std::collections::HashMap<u64, usize> =
+        std::collections::HashMap::new();
+    let mut pending_replies: Vec<(u64, LaunchpadDiscussionComment)> = Vec::new();
+    for c in &raw_comments {
+        let item = to_comment(c);
+        if let Some(pid) = c.get("parent_id").and_then(|p| p.as_u64()) {
+            pending_replies.push((pid, item));
+        } else {
+            if let Some(rest_id) = c.get("id").and_then(|x| x.as_u64()) {
+                index_by_rest_id.insert(rest_id, comments.len());
+            }
+            comments.push(item);
+        }
+    }
+    for (pid, reply) in pending_replies {
+        if let Some(&idx) = index_by_rest_id.get(&pid) {
+            comments[idx].replies.push(reply);
+        } else {
+            comments.push(reply);
+        }
+    }
+    let url = str_field(&d, "html_url");
+    let total = u64_field(&d, "comments").max(raw_count);
+    let explicit_upvotes = d.get("upvote_count").and_then(|n| n.as_u64());
+    Ok((
+        LaunchpadDiscussionDetail {
+            id: str_field(&d, "node_id"),
+            number: d.get("number").and_then(|n| n.as_u64()).unwrap_or(number),
+            title: str_field(&d, "title"),
+            body: str_field(&d, "body"),
+            url: if url.is_empty() {
+                discussion_html_url(owner, repo, number)
+            } else {
+                url
+            },
+            created_at: str_field(&d, "created_at"),
+            locked: bool_field(&d, "locked"),
+            closed: str_field(&d, "state") == "closed",
+            author: rest_author(&d),
+            category_name: d
+                .get("category")
+                .map(|c| str_field(c, "name"))
+                .unwrap_or_default(),
+            upvote_count: explicit_upvotes.unwrap_or_else(|| rest_plus_one(&d)),
+            viewer_has_upvoted: false,
+            viewer_can_upvote: false,
+            viewer_can_comment: false,
+            auth_required_for_write: true,
+            comments_total: total,
+            has_next_page: total > raw_count,
+            end_cursor: None,
+            comments,
+            is_stale: false,
+        },
+        explicit_upvotes.is_some(),
+    ))
 }
 
 /// 已登录读取：单次 GraphQL 取回主帖、顶帖态与一页评论（含二级回复）。
@@ -577,7 +624,8 @@ async fn rest_get_cached(
     }
 }
 
-/// 未登录读取：匿名 REST（ETag 条件缓存），失败回退旧载荷（`is_stale`）或降级空壳。
+/// 未登录读取：匿名 REST（ETag 条件缓存），失败回退旧载荷（`is_stale`）或降级空壳；
+/// 附带 `authoritative_upvotes` 元标记，供持久化层保护原生顶帖数。
 pub async fn fetch_discussion_anonymous(
     db: &Mutex<Database>,
     client: &reqwest::Client,
@@ -586,13 +634,13 @@ pub async fn fetch_discussion_anonymous(
     repo: &str,
     number: u64,
     force_refresh: bool,
-) -> LaunchpadDiscussionDetail {
+) -> (LaunchpadDiscussionDetail, bool) {
     let d_url = rest_discussion_url(owner, repo, number);
     let (d_text, mut stale) = match rest_get_cached(db, client, api_base, &d_url, force_refresh).await
     {
         RestLoad::Fresh(t) => (t, false),
         RestLoad::Cached(t) => (t, true),
-        RestLoad::Missing => return degraded_shell(owner, repo, number),
+        RestLoad::Missing => return (degraded_shell(owner, repo, number), false),
     };
     let c_url = rest_comments_url(owner, repo, number);
     let c_text = match rest_get_cached(db, client, api_base, &c_url, force_refresh).await {
@@ -607,11 +655,11 @@ pub async fn fetch_discussion_anonymous(
         }
     };
     match parse_rest_discussion(owner, repo, number, &d_text, c_text.as_deref()) {
-        Ok(mut detail) => {
+        Ok((mut detail, authoritative_upvotes)) => {
             detail.is_stale = stale;
-            detail
+            (detail, authoritative_upvotes)
         }
-        Err(_) => degraded_shell(owner, repo, number),
+        Err(_) => (degraded_shell(owner, repo, number), false),
     }
 }
 
@@ -742,6 +790,270 @@ pub async fn toggle_upvote(
     vote_once(ctx, &subject, currently_upvoted, LaunchpadVoteMode::Reaction)
         .await
         .map_err(GqlError::into_message)
+}
+
+/// 单次批量 GraphQL 脉冲查询条数上限（与数据仓 `refresh-pulse-and-pins` 同档）。
+pub const PULSE_GRAPHQL_BATCH: usize = 25;
+/// 未登录匿名脉冲刷新保鲜窗口（秒），保护 60/h 匿名配额。
+pub const ANON_PULSE_FRESH_SECS: i64 = 300;
+/// 未登录单轮最多条件请求的讨论数。
+pub const ANON_PULSE_MAX_ITEMS: usize = 20;
+/// 未登录脉冲并发上限（D6 有限并发）。
+const ANON_PULSE_CONCURRENCY: usize = 4;
+
+/// 广场卡片实时脉冲查询目标。
+#[derive(Debug, Clone)]
+pub struct PulseTarget {
+    pub id: String,
+    pub owner: String,
+    pub repo: String,
+    pub is_github: bool,
+    pub discussion_repo: String,
+    pub discussion_number: u64,
+}
+
+/// 广场卡片从 GitHub Discussions（及同批源仓库）拉回的最新脉冲结果。
+#[derive(Debug, Clone)]
+pub struct PulseFetched {
+    pub target: PulseTarget,
+    pub node_id: Option<String>,
+    pub upvote_count: u64,
+    pub authoritative_upvotes: bool,
+    pub comments_count: Option<u64>,
+    pub viewer_has_upvoted: Option<bool>,
+    pub stars: Option<u64>,
+    pub forks: Option<u64>,
+    pub latest_version: Option<String>,
+    pub viewer_has_starred: Option<bool>,
+}
+
+async fn graphql_post_allow_partial(
+    ctx: DiscussionClient<'_>,
+    query: &str,
+    variables: Value,
+    op: &str,
+) -> Result<Value, GqlError> {
+    let body = graphql_post_raw(ctx, query, variables, op).await?;
+    if let Some(errors) = body.get("errors").and_then(|e| e.as_array()) {
+        if errors.iter().any(|e| {
+            e.get("type").and_then(|t| t.as_str()) == Some("INSUFFICIENT_SCOPES")
+        }) {
+            return Err(GqlError::InsufficientScopes);
+        }
+    }
+    if let Some(data) = body.get("data").filter(|d| d.is_object()) {
+        return Ok(data.clone());
+    }
+    map_graphql_response(&body).cloned()
+}
+
+/// 已登录批量刷新：每批至多 25 个条目经单次参数化别名 GraphQL 取回讨论最新顶帖数、
+/// 本人顶帖态、含二级回复的评论总数，以及 GitHub 源仓星数/版本/标星态。
+pub async fn fetch_pulse_batch_authed(
+    ctx: DiscussionClient<'_>,
+    targets: &[PulseTarget],
+) -> Result<Vec<PulseFetched>, GqlError> {
+    let mut out = Vec::new();
+    for chunk in targets.chunks(PULSE_GRAPHQL_BATCH) {
+        let mut defs: Vec<String> = Vec::new();
+        let mut fields: Vec<String> = Vec::new();
+        let mut vars = serde_json::Map::new();
+        let mut active: Vec<(usize, &PulseTarget, bool, bool)> = Vec::new();
+
+        for (i, t) in chunk.iter().enumerate() {
+            let disc_coord = (t.discussion_number > 0)
+                .then(|| validate_discussion_repo(&t.discussion_repo).ok())
+                .flatten()
+                .and_then(|(o, r)| validate_discussion_number(t.discussion_number).ok().map(|n| (o, r, n)));
+            let repo_coord = t
+                .is_github
+                .then(|| validate_discussion_repo(&format!("{}/{}", t.owner, t.repo)).ok())
+                .flatten();
+
+            if disc_coord.is_none() && repo_coord.is_none() {
+                continue;
+            }
+            if let Some((d_owner, d_repo, d_num)) = &disc_coord {
+                defs.push(format!("$do{i}: String!"));
+                defs.push(format!("$dn{i}: String!"));
+                defs.push(format!("$d{i}n: Int!"));
+                vars.insert(format!("do{i}"), Value::String(d_owner.clone()));
+                vars.insert(format!("dn{i}"), Value::String(d_repo.clone()));
+                vars.insert(format!("d{i}n"), Value::from(*d_num));
+                fields.push(format!(
+                    "d{i}: repository(owner: $do{i}, name: $dn{i}) {{ \
+                        discussion(number: $d{i}n) {{ \
+                            id upvoteCount viewerCanUpvote viewerHasUpvoted \
+                            reactionGroups {{ content viewerHasReacted reactors {{ totalCount }} }} \
+                            comments(first: 100) {{ totalCount nodes {{ replies {{ totalCount }} }} }} \
+                        }} \
+                    }}"
+                ));
+            }
+            if let Some((r_owner, r_repo)) = &repo_coord {
+                defs.push(format!("$ro{i}: String!"));
+                defs.push(format!("$rn{i}: String!"));
+                vars.insert(format!("ro{i}"), Value::String(r_owner.clone()));
+                vars.insert(format!("rn{i}"), Value::String(r_repo.clone()));
+                fields.push(format!(
+                    "r{i}: repository(owner: $ro{i}, name: $rn{i}) {{ \
+                        stargazerCount forkCount viewerHasStarred latestRelease {{ tagName }} \
+                    }}"
+                ));
+            }
+            active.push((i, t, disc_coord.is_some(), repo_coord.is_some()));
+        }
+
+        if active.is_empty() {
+            continue;
+        }
+        let query = format!("query({}) {{ {} }}", defs.join(", "), fields.join(" "));
+        let data = graphql_post_allow_partial(
+            ctx,
+            &query,
+            Value::Object(vars),
+            "launchpad_pulse_batch",
+        )
+        .await?;
+
+        for (i, t, has_disc, has_repo) in active {
+            let disc_val = has_disc
+                .then(|| data.get(format!("d{i}")).and_then(|r| r.get("discussion")))
+                .flatten()
+                .filter(|v| v.is_object());
+            let repo_val = has_repo
+                .then(|| data.get(format!("r{i}")))
+                .flatten()
+                .filter(|v| v.is_object());
+            if disc_val.is_none() && repo_val.is_none() {
+                continue;
+            }
+            let (node_id, upvote_count, comments_count, viewer_has_upvoted) = match disc_val {
+                Some(d) => {
+                    let can_upvote = bool_field(d, "viewerCanUpvote");
+                    let (up, mine) = if can_upvote {
+                        (u64_field(d, "upvoteCount"), bool_field(d, "viewerHasUpvoted"))
+                    } else {
+                        thumbs_up(d)
+                    };
+                    let comments = d.get("comments").cloned().unwrap_or(Value::Null);
+                    let replies_sum = sum_reply_totals(&comments);
+                    let id = str_field(d, "id");
+                    (
+                        (!id.is_empty()).then_some(id),
+                        up,
+                        Some(u64_field(&comments, "totalCount").saturating_add(replies_sum)),
+                        Some(mine),
+                    )
+                }
+                None => (None, 0, None, None),
+            };
+            let stars = repo_val.map(|r| u64_field(r, "stargazerCount"));
+            let forks = repo_val.map(|r| u64_field(r, "forkCount"));
+            let viewer_has_starred = repo_val.map(|r| bool_field(r, "viewerHasStarred"));
+            let latest_version = repo_val
+                .and_then(|r| r.get("latestRelease"))
+                .filter(|rel| rel.is_object())
+                .map(|rel| str_field(rel, "tagName"))
+                .filter(|v| !v.trim().is_empty());
+
+            out.push(PulseFetched {
+                target: t.clone(),
+                node_id,
+                upvote_count,
+                authoritative_upvotes: disc_val.is_some(),
+                comments_count,
+                viewer_has_upvoted,
+                stars,
+                forks,
+                latest_version,
+                viewer_has_starred,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// 未登录只读脉冲刷新：走 `api_etag_cache` 条件缓存（`304` 零配额消耗），`buffer_unordered(4)` 有界并发。
+pub async fn fetch_pulse_anonymous(
+    db: &Mutex<Database>,
+    client: &reqwest::Client,
+    api_base: Option<&str>,
+    targets: &[PulseTarget],
+    existing: &std::collections::HashMap<(String, u64), crate::db::LaunchpadDiscussionState>,
+    force_refresh: bool,
+    now: i64,
+) -> Vec<PulseFetched> {
+    use futures_util::stream::{self, StreamExt};
+
+    let mut jobs: Vec<(PulseTarget, String, String, u64)> = Vec::new();
+    for t in targets {
+        if t.discussion_number == 0 {
+            continue;
+        }
+        let Ok((d_owner, d_repo)) = validate_discussion_repo(&t.discussion_repo) else {
+            continue;
+        };
+        let Ok(d_num) = validate_discussion_number(t.discussion_number) else {
+            continue;
+        };
+        let key = (format!("{d_owner}/{d_repo}"), d_num);
+        if !force_refresh {
+            if let Some(st) = existing.get(&key) {
+                if now.saturating_sub(st.synced_at) < ANON_PULSE_FRESH_SECS {
+                    continue;
+                }
+            }
+        }
+        jobs.push((t.clone(), d_owner, d_repo, d_num));
+        if jobs.len() >= ANON_PULSE_MAX_ITEMS {
+            break;
+        }
+    }
+
+    let results: Vec<Option<PulseFetched>> = stream::iter(jobs)
+        .map(|(target, owner, repo, number)| async move {
+            let d_url = rest_discussion_url(&owner, &repo, number);
+            let RestLoad::Fresh(d_text) =
+                rest_get_cached(db, client, api_base, &d_url, force_refresh).await
+            else {
+                return None;
+            };
+            let Ok((detail, authoritative_upvotes)) =
+                parse_rest_discussion(&owner, &repo, number, &d_text, None)
+            else {
+                return None;
+            };
+            if detail.id.is_empty() && detail.title.is_empty() {
+                return None;
+            }
+            Some(PulseFetched {
+                target,
+                node_id: (!detail.id.is_empty()).then_some(detail.id),
+                upvote_count: detail.upvote_count,
+                authoritative_upvotes,
+                comments_count: Some(detail.comments_total),
+                viewer_has_upvoted: None,
+                stars: None,
+                forks: None,
+                latest_version: None,
+                viewer_has_starred: None,
+            })
+        })
+        .buffer_unordered(ANON_PULSE_CONCURRENCY)
+        .collect()
+        .await;
+    let total = results.len();
+    let ok: Vec<PulseFetched> = results.into_iter().flatten().collect();
+    if ok.len() < total {
+        log::debug!(
+            target: "launchpad",
+            "anonymous discussion pulse partial: ok={} skipped_or_failed={}",
+            ok.len(),
+            total - ok.len()
+        );
+    }
+    ok
 }
 
 #[cfg(test)]

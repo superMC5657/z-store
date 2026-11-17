@@ -537,6 +537,7 @@ pub fn run() {
             commands::search_apps,
             commands::get_home_feed,
             commands::get_launchpad_feed,
+            commands::sync_launchpad_discussions,
             commands::get_launchpad_discussion,
             commands::add_launchpad_comment,
             commands::toggle_launchpad_upvote,

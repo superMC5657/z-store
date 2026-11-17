@@ -3,7 +3,7 @@ use rusqlite::Result;
 
 /// 当前 schema 版本（`PRAGMA user_version`）。
 /// 破坏性迁移在 `run_migrations` 的 match 迁移链中按版本推进，已发布版本语义不可更改。
-const CURRENT_USER_VERSION: i64 = 8;
+const CURRENT_USER_VERSION: i64 = 9;
 
 /// 判定历史 `["windows"]` 记录是否属于 macOS 包体错判（`app_details` 缓存含 `.app.zip`/`.app.tar.*` 等 macOS 资产，
 /// 或 `identifiers` 明确配置了 `macos` 标识且无 `windows` 标识），命中则就地纠正 `platforms`。
@@ -314,6 +314,24 @@ impl Database {
                 cached_at INTEGER NOT NULL
             );
 
+            -- 开源广场讨论与脉冲状态缓存（承接实时 Discussions 计数、本人顶帖态与源仓星数，跨重启保留；登出清除 viewer_has_upvoted）
+            CREATE TABLE IF NOT EXISTS launchpad_discussion_cache (
+                discussion_repo TEXT NOT NULL,
+                discussion_number INTEGER NOT NULL,
+                node_id TEXT NOT NULL DEFAULT '',
+                upvote_count INTEGER NOT NULL DEFAULT 0,
+                comments_count INTEGER NOT NULL DEFAULT 0,
+                viewer_has_upvoted INTEGER,
+                stars INTEGER,
+                forks INTEGER,
+                latest_version TEXT,
+                synced_at INTEGER NOT NULL,
+                repo_synced_at INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (discussion_repo, discussion_number)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_launchpad_discussion_synced_at ON launchpad_discussion_cache(synced_at DESC);
+
             CREATE TABLE IF NOT EXISTS asset_cache (
                 url TEXT PRIMARY KEY,
                 hash TEXT NOT NULL,
@@ -454,6 +472,7 @@ impl Database {
                 5 => self.migrate_v5_to_v6()?,
                 6 => self.migrate_v6_to_v7()?,
                 7 => self.migrate_v7_to_v8()?,
+                8 => self.migrate_v8_to_v9()?,
                 other => {
                     return Err(rusqlite::Error::SqliteFailure(
                         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
@@ -544,6 +563,38 @@ impl Database {
                 cached_at INTEGER NOT NULL
             );",
         )
+    }
+
+    /// v8 → v9：开源广场讨论与卡片脉冲持久化表 `launchpad_discussion_cache`（幂等建表，基底 DDL 已同步声明）。
+    fn migrate_v8_to_v9(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS launchpad_discussion_cache (
+                discussion_repo TEXT NOT NULL,
+                discussion_number INTEGER NOT NULL,
+                node_id TEXT NOT NULL DEFAULT '',
+                upvote_count INTEGER NOT NULL DEFAULT 0,
+                comments_count INTEGER NOT NULL DEFAULT 0,
+                viewer_has_upvoted INTEGER,
+                stars INTEGER,
+                forks INTEGER,
+                latest_version TEXT,
+                synced_at INTEGER NOT NULL,
+                repo_synced_at INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (discussion_repo, discussion_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_launchpad_discussion_synced_at ON launchpad_discussion_cache(synced_at DESC);",
+        )?;
+        let has_repo_synced: bool = self
+            .conn
+            .prepare("SELECT 1 FROM pragma_table_info('launchpad_discussion_cache') WHERE name = 'repo_synced_at'")?
+            .exists([])?;
+        if !has_repo_synced {
+            self.conn.execute(
+                "ALTER TABLE launchpad_discussion_cache ADD COLUMN repo_synced_at INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+        Ok(())
     }
 
     /// v6 → v7：校正老版本误回写的 `catalog_apps` 与 `custom_apps` 平台历史错账（如 `Maccy` 被写成 `["windows"]`），
@@ -1045,5 +1096,22 @@ mod schema_migration_tests {
             .unwrap()
             .is_some());
         assert!(db.get_setting("catalog_last_synced_day").unwrap().is_none());
+    }
+
+    #[test]
+    fn migrate_v8_to_v9_creates_launchpad_discussion_cache() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA user_version = 8;").unwrap();
+        let db = Database { conn };
+        db.init_schema().unwrap();
+        assert_eq!(db.user_version().unwrap(), CURRENT_USER_VERSION);
+        db.record_launchpad_upvote("superMC5657/z-store-launchpad", 3, "D_3", 5, true, 100)
+            .unwrap();
+        let st = db
+            .get_launchpad_discussion_state("supermc5657/z-store-launchpad", 3)
+            .unwrap()
+            .unwrap();
+        assert_eq!(st.upvote_count, 5);
+        assert_eq!(st.viewer_has_upvoted, Some(true));
     }
 }

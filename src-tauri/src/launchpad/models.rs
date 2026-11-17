@@ -129,6 +129,32 @@ pub struct LaunchpadEntry {
     #[serde(default)]
     pub pin_tier: Option<String>,
     pub viewer_has_starred: bool,
+    #[serde(default)]
+    pub viewer_has_upvoted: bool,
+}
+
+/// `sync_launchpad_discussions` 单条卡片实时脉冲回写载荷。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchpadPulseItem {
+    pub id: String,
+    pub discussion_repo: String,
+    pub discussion_number: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discussion_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discussion_upvotes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discussion_comments_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewer_has_upvoted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stars: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forks: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewer_has_starred: Option<bool>,
 }
 
 /// `get_launchpad_feed` 响应。

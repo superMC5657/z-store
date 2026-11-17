@@ -24,6 +24,7 @@ pub use custom_apps::CustomAppEntry;
 pub use details::APP_DETAILS_CACHE_MAX_ROWS;
 pub use etag::API_ETAG_CACHE_MAX_ROWS;
 pub use icon_cycle::AppIconCycle;
+pub use launchpad::{LaunchpadDiscussionState, LaunchpadDiscussionUpsert};
 pub use repo_cards::{
     RepoCardPlatformState, RepoCardUpsert, StoredRepoCard, REPO_CARD_CACHE_MAX_ROWS,
     REPO_CARD_FRESH_TTL_SECS,

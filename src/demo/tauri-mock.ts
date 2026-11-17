@@ -39,6 +39,7 @@ import {
   handleAddLaunchpadComment,
   handleGetLaunchpadDiscussion,
   handleGetLaunchpadFeed,
+  handleSyncLaunchpadDiscussions,
   handleToggleLaunchpadUpvote,
 } from './handlers/launchpad';
 import {
@@ -448,6 +449,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
 
     case 'get_launchpad_feed':
       return handleGetLaunchpadFeed(a);
+    case 'sync_launchpad_discussions':
+      return handleSyncLaunchpadDiscussions(a);
     case 'get_launchpad_discussion':
       return handleGetLaunchpadDiscussion(a);
     case 'add_launchpad_comment':

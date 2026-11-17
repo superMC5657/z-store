@@ -103,6 +103,7 @@ export const CMD = {
   getLatestCatalogApps: 'get_latest_catalog_apps',
   getHomeFeed: 'get_home_feed',
   getLaunchpadFeed: 'get_launchpad_feed',
+  syncLaunchpadDiscussions: 'sync_launchpad_discussions',
   getLaunchpadDiscussion: 'get_launchpad_discussion',
   addLaunchpadComment: 'add_launchpad_comment',
   toggleLaunchpadUpvote: 'toggle_launchpad_upvote',
@@ -296,6 +297,7 @@ export const tauriApi = {
 
   // Launchpad（开源广场）
   getLaunchpadFeed: launchpadApi.getLaunchpadFeed,
+  syncLaunchpadDiscussions: launchpadApi.syncLaunchpadDiscussions,
   getLaunchpadDiscussion: launchpadApi.getLaunchpadDiscussion,
   addLaunchpadComment: launchpadApi.addLaunchpadComment,
   toggleLaunchpadUpvote: launchpadApi.toggleLaunchpadUpvote,

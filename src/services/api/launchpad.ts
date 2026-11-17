@@ -2,6 +2,7 @@ import type {
   LaunchpadDiscussionComment,
   LaunchpadDiscussionDetail,
   LaunchpadFeedResponse,
+  LaunchpadPulseItem,
   LaunchpadUpvoteResult,
 } from '../../types';
 import { CMD } from '../api';
@@ -16,6 +17,16 @@ export async function getLaunchpadFeed(forceRefresh = false): Promise<LaunchpadF
     items: Array.isArray(res?.items) ? res.items : [],
     is_stale: res?.is_stale === true,
   };
+}
+
+/** 开源广场卡片讨论脉冲：从 GitHub Discussions 拉取最新顶帖数、评论数、已顶态与源仓统计并落库。 */
+export async function syncLaunchpadDiscussions(
+  forceRefresh = false,
+): Promise<LaunchpadPulseItem[]> {
+  const res = await tauriInvoke<LaunchpadPulseItem[]>(CMD.syncLaunchpadDiscussions, {
+    forceRefresh,
+  });
+  return Array.isArray(res) ? res : [];
 }
 
 /** 讨论详情：已登录走 GraphQL，未登录为匿名只读降级（`auth_required_for_write`）。 */

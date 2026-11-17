@@ -166,7 +166,11 @@ pub async fn star_app(
     let outcome = crate::oauth::star_repo(&token, &owner, &repo).await?;
     if outcome.starred {
         if let Ok(db) = state.db() {
+            let was_starred = db.is_starred(&owner, &repo).unwrap_or(false);
             crate::oauth::sync_star_cache(&db, &owner, &repo, true);
+            if !was_starred {
+                let _ = db.adjust_launchpad_repo_stars(&owner, &repo, 1);
+            }
         }
     }
     Ok(outcome)
@@ -179,7 +183,11 @@ pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::Ap
         resolve_active_github_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     crate::oauth::unstar_repo(&token, &owner, &repo).await?;
     if let Ok(db) = state.db() {
+        let was_starred = db.is_starred(&owner, &repo).unwrap_or(false);
         crate::oauth::sync_star_cache(&db, &owner, &repo, false);
+        if was_starred {
+            let _ = db.adjust_launchpad_repo_stars(&owner, &repo, -1);
+        }
     }
     Ok(true)
 }

@@ -10,7 +10,10 @@ import { SegmentedControl } from '../components/SegmentedControl';
 import { FlyoutMenu } from '../components/FlyoutMenu';
 import { FilterEmptyState, ViewShell } from './ViewShell';
 import { LaunchpadCard } from './LaunchpadView/LaunchpadCard';
-import { LaunchpadDiscussionDrawer } from './LaunchpadView/LaunchpadDiscussionDrawer';
+import {
+  LaunchpadDiscussionDrawer,
+  type LaunchpadDiscussionSyncedPayload,
+} from './LaunchpadView/LaunchpadDiscussionDrawer';
 import { sortLaunchpadItems } from './LaunchpadView/sortLaunchpad';
 import {
   matchPlatformSetWithLoading,
@@ -25,6 +28,7 @@ import {
 } from '../app/selectors';
 import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
 import { queueAssembledRowIcons } from '../services/iconStore';
+import { zlogWarn } from '../lib/z-log';
 import type {
   LaunchpadEntry,
   LaunchpadFeedResponse,
@@ -91,13 +95,21 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
   const [openSubmitMenu, setOpenSubmitMenu] = useState<'header' | 'empty' | null>(null);
   const [starring, setStarring] = useState<ReadonlySet<string>>(EMPTY_SET);
   const [upvoting, setUpvoting] = useState<ReadonlySet<string>>(EMPTY_SET);
-  const [upvoted, setUpvoted] = useState<Record<string, boolean>>({});
-  const [discussionEntry, setDiscussionEntry] = useState<LaunchpadEntry | null>(null);
+  const [discussionAppId, setDiscussionAppId] = useState<string | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const reqRef = useRef(0);
+  const mutationVerRef = useRef<Map<string, number>>(new Map());
   const { isMovingIn, handleMoveIn } = useMoveInToDraft();
 
   const loggedIn = Boolean(oauthUser && !oauthUser.is_expired);
+  const loggedInRef = useRef(loggedIn);
+  loggedInRef.current = loggedIn;
+  const authKey = loggedIn ? `1:${oauthUser?.login ?? ''}` : '0';
+
+  const bumpMutation = useCallback((id: string) => {
+    const key = id.toLowerCase();
+    mutationVerRef.current.set(key, (mutationVerRef.current.get(key) ?? 0) + 1);
+  }, []);
 
   const load = useCallback((forceRefresh: boolean) => {
     const req = ++reqRef.current;
@@ -108,6 +120,52 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
       .then((res) => {
         if (reqRef.current !== req) return;
         setFeed(res);
+        if (res.spotlight.length + res.items.length === 0) return;
+        const snapVer = new Map(mutationVerRef.current);
+        void tauriApi
+          .syncLaunchpadDiscussions(forceRefresh)
+          .then((pulses) => {
+            if (reqRef.current !== req || pulses.length === 0) return;
+            const byId = new Map(pulses.map((p) => [p.id.toLowerCase(), p]));
+            setFeed((prev) => {
+              if (!prev) return prev;
+              const mergeList = (list: LaunchpadEntry[]) =>
+                list.map((e) => {
+                  const key = e.summary.id.toLowerCase();
+                  const p = byId.get(key);
+                  if (!p || (mutationVerRef.current.get(key) ?? 0) !== (snapVer.get(key) ?? 0)) {
+                    return e;
+                  }
+                  return {
+                    ...e,
+                    discussion_node_id: p.discussion_node_id ?? e.discussion_node_id,
+                    discussion_upvotes: p.discussion_upvotes ?? e.discussion_upvotes,
+                    discussion_comments_count: p.discussion_comments_count ?? e.discussion_comments_count,
+                    viewer_has_upvoted: loggedInRef.current
+                      ? (p.viewer_has_upvoted ?? e.viewer_has_upvoted)
+                      : false,
+                    viewer_has_starred:
+                      loggedInRef.current && p.viewer_has_starred !== undefined && p.viewer_has_starred !== null
+                        ? p.viewer_has_starred
+                        : e.viewer_has_starred,
+                    summary: {
+                      ...e.summary,
+                      stars: p.stars ?? e.summary.stars,
+                      forks: p.forks ?? e.summary.forks,
+                      latest_version: p.latest_version || e.summary.latest_version,
+                    },
+                  };
+                });
+              return {
+                ...prev,
+                spotlight: mergeList(prev.spotlight),
+                items: mergeList(prev.items),
+              };
+            });
+          })
+          .catch((err) => {
+            zlogWarn(`[launchpad] syncLaunchpadDiscussions failed: ${String(err)}`);
+          });
       })
       .catch((e) => {
         if (reqRef.current !== req) return;
@@ -120,11 +178,19 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
 
   useEffect(() => {
     load(false);
-  }, [load]);
+  }, [load, authKey]);
 
   const allEntries = useMemo(
     () => (feed ? [...feed.spotlight, ...feed.items] : []),
     [feed],
+  );
+
+  const discussionEntry = useMemo(
+    () =>
+      discussionAppId
+        ? allEntries.find((e) => e.summary.id.toLowerCase() === discussionAppId) ?? null
+        : null,
+    [allEntries, discussionAppId],
   );
 
   useEffect(() => {
@@ -189,6 +255,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
         const res = await tauriApi.starApp(id);
         if (res?.warning) notifyToast(res.warning, 'warning');
       }
+      bumpMutation(id);
       setFeed((f) =>
         patchEntry(f, id, (e) => ({
           ...e,
@@ -203,24 +270,53 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
     }
   };
 
-  const applyUpvote = useCallback((id: string, count: number, mine: boolean) => {
-    setFeed((f) => patchEntry(f, id, (e) => ({ ...e, discussion_upvotes: count })));
-    setUpvoted((u) => ({ ...u, [id.toLowerCase()]: mine }));
-  }, []);
+  const applyUpvote = useCallback(
+    (id: string, count: number, mine: boolean) => {
+      bumpMutation(id);
+      setFeed((f) =>
+        patchEntry(f, id, (e) => ({
+          ...e,
+          discussion_upvotes: count,
+          viewer_has_upvoted: mine,
+        })),
+      );
+    },
+    [bumpMutation],
+  );
 
-  const handleCommentAdded = useCallback((id: string) => {
-    setFeed((f) =>
-      patchEntry(f, id, (e) => ({ ...e, discussion_comments_count: e.discussion_comments_count + 1 })),
-    );
-  }, []);
+  const handleCommentAdded = useCallback(
+    (id: string) => {
+      bumpMutation(id);
+      setFeed((f) =>
+        patchEntry(f, id, (e) => ({ ...e, discussion_comments_count: e.discussion_comments_count + 1 })),
+      );
+    },
+    [bumpMutation],
+  );
+
+  const handleDiscussionSynced = useCallback(
+    (id: string, synced: LaunchpadDiscussionSyncedPayload) => {
+      bumpMutation(id);
+      setFeed((f) =>
+        patchEntry(f, id, (e) => ({
+          ...e,
+          discussion_node_id: synced.nodeId || e.discussion_node_id,
+          discussion_upvotes: synced.upvotes,
+          discussion_comments_count: synced.commentsCount,
+          viewer_has_upvoted: loggedInRef.current ? synced.viewerHasUpvoted : false,
+        })),
+      );
+    },
+    [bumpMutation],
+  );
 
   const hasDiscussion = (entry: LaunchpadEntry) =>
     entry.discussion_number > 0 && entry.discussion_repo.trim() !== '';
 
-  const closeDiscussion = useCallback(() => setDiscussionEntry(null), []);
+  const closeDiscussion = useCallback(() => setDiscussionAppId(null), []);
 
   const handleOpenDiscussion = (entry: LaunchpadEntry) => {
-    if (hasDiscussion(entry)) setDiscussionEntry(entry);
+    if (hasDiscussion(entry)) setDiscussionAppId(entry.summary.id.toLowerCase());
     else if (entry.discussion_url) void tauriApi.openUrl(entry.discussion_url);
   };
 
@@ -238,7 +334,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
         discussionRepo: entry.discussion_repo,
         discussionNumber: entry.discussion_number,
         subjectId: entry.discussion_node_id,
-        currentlyUpvoted: upvoted[id.toLowerCase()] ?? false,
+        currentlyUpvoted: Boolean(entry.viewer_has_upvoted),
       });
       applyUpvote(id, res.upvote_count, res.viewer_has_upvoted);
     } catch (e) {
@@ -282,7 +378,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
         isInstalling={installingIds?.has(id) ?? false}
         isStarring={starring.has(id)}
         isUpvoting={upvoting.has(id)}
-        upvoted={upvoted[key] ?? false}
+        upvoted={Boolean(entry.viewer_has_upvoted)}
         isMovingIn={isMovingIn(id)}
         isCustomExisting={hasIdAliasMatch(entry.summary, customIds)}
         onOpenDetail={onOpenDetail}
@@ -441,12 +537,13 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = ({
         <LaunchpadDiscussionDrawer
           entry={discussionEntry}
           oauthUser={oauthUser}
-          initialUpvoted={upvoted[discussionEntry.summary.id.toLowerCase()] ?? false}
+          initialUpvoted={Boolean(discussionEntry.viewer_has_upvoted)}
           onClose={closeDiscussion}
           onOpenDeveloper={onOpenDeveloper}
           onOpenAccount={onOpenAccount}
           onUpvoteChange={applyUpvote}
           onCommentAdded={handleCommentAdded}
+          onDiscussionSynced={handleDiscussionSynced}
         />
       )}
     </ViewShell>

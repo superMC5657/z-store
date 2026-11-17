@@ -255,7 +255,7 @@ describe('ipc args naming (camelCase)', () => {
     expectAllCamel();
   });
 
-  it('开源广场 4 个包装器请求键全部 camelCase，可选游标缺省时不带键', async () => {
+  it('开源广场 5 个包装器请求键全部 camelCase，可选游标缺省时不带键', async () => {
     const swallow = async (p: Promise<unknown>): Promise<void> => {
       try {
         await p;
@@ -264,6 +264,7 @@ describe('ipc args naming (camelCase)', () => {
       }
     };
     await launchpad.getLaunchpadFeed(true);
+    await launchpad.syncLaunchpadDiscussions(true);
     await swallow(launchpad.getLaunchpadDiscussion('o/r', 7));
     await swallow(launchpad.getLaunchpadDiscussion('o/r', 7, 'Y3Vy', true));
     await swallow(
@@ -286,16 +287,18 @@ describe('ipc args naming (camelCase)', () => {
 
     expect(captured.map((c) => c.cmd)).toEqual([
       'get_launchpad_feed',
+      'sync_launchpad_discussions',
       'get_launchpad_discussion',
       'get_launchpad_discussion',
       'add_launchpad_comment',
       'toggle_launchpad_upvote',
     ]);
     expect(captured[0].args).toEqual({ forceRefresh: true });
-    expect(captured[1].args).toEqual({ discussionRepo: 'o/r', discussionNumber: 7, forceRefresh: false });
-    expect(captured[2].args).toMatchObject({ cursor: 'Y3Vy', forceRefresh: true });
-    expect(captured[3].args).toMatchObject({ discussionId: 'D_1', body: 'hi', replyToId: 'DC_1' });
-    expect(captured[4].args).toMatchObject({ subjectId: 'D_1', currentlyUpvoted: false });
+    expect(captured[1].args).toEqual({ forceRefresh: true });
+    expect(captured[2].args).toEqual({ discussionRepo: 'o/r', discussionNumber: 7, forceRefresh: false });
+    expect(captured[3].args).toMatchObject({ cursor: 'Y3Vy', forceRefresh: true });
+    expect(captured[4].args).toMatchObject({ discussionId: 'D_1', body: 'hi', replyToId: 'DC_1' });
+    expect(captured[5].args).toMatchObject({ subjectId: 'D_1', currentlyUpvoted: false });
     expectAllCamel();
   });
 

@@ -258,7 +258,7 @@ fn rest_discussion_parses_read_only() {
         "category":{"name":"Launches"},"reactions":{"+1":4,"total_count":5}}"#;
     let c = r#"[{"node_id":"DC_1","body":"c","created_at":"x","author_association":"NONE",
         "user":{"login":"bob","avatar_url":"https://a/2","html_url":""},"reactions":{"+1":1}}]"#;
-    let detail = parse_rest_discussion("o", "r", 7, d, Some(c)).unwrap();
+    let (detail, _) = parse_rest_discussion("o", "r", 7, d, Some(c)).unwrap();
     assert!(detail.auth_required_for_write);
     assert!(!detail.viewer_can_comment && !detail.viewer_can_upvote);
     assert_eq!(detail.url, "https://github.com/o/r/discussions/7");
@@ -272,11 +272,68 @@ fn rest_discussion_parses_read_only() {
 async fn anonymous_rate_limited_without_cache_returns_shell() {
     let server = serve(|_| Reply::status("403 Forbidden")).await;
     let db = Mutex::new(Database::open_in_memory().unwrap());
-    let d = fetch_discussion_anonymous(&db, &client(), Some(&server.base), "o", "r", 7, false).await;
+    let (d, _) = fetch_discussion_anonymous(&db, &client(), Some(&server.base), "o", "r", 7, false).await;
     assert!(d.auth_required_for_write);
     assert!(d.is_stale);
     assert_eq!(d.url, "https://github.com/o/r/discussions/7");
     assert!(d.comments.is_empty());
+}
+
+#[test]
+fn graphql_comments_total_includes_nested_replies_when_unpaginated() {
+    let data: serde_json::Value = serde_json::from_str(
+        r#"{
+          "repository": { "discussion": {
+            "id": "D_3", "number": 3, "title": "ZViewer", "body": "desc",
+            "url": "https://github.com/superMC5657/z-store-launchpad/discussions/3",
+            "createdAt": "2026-11-17T03:23:57Z", "locked": false, "closed": false,
+            "category": { "name": "Launches" },
+            "author": { "login": "github-actions[bot]", "avatarUrl": "", "url": "" },
+            "upvoteCount": 1, "viewerCanUpvote": true, "viewerHasUpvoted": true,
+            "reactionGroups": [],
+            "comments": {
+              "totalCount": 1,
+              "pageInfo": { "hasNextPage": false, "endCursor": null },
+              "nodes": [{
+                "id": "DC_1", "body": "test", "createdAt": "2026-11-17T03:26:36Z",
+                "authorAssociation": "OWNER",
+                "author": { "login": "superMC5657", "avatarUrl": "", "url": "" },
+                "upvoteCount": 0, "viewerHasUpvoted": false,
+                "replies": {
+                  "totalCount": 1,
+                  "nodes": [{
+                    "id": "DC_2", "body": "测试", "createdAt": "2026-11-17T03:51:33Z",
+                    "authorAssociation": "OWNER",
+                    "author": { "login": "superMC5657", "avatarUrl": "", "url": "" },
+                    "upvoteCount": 0, "viewerHasUpvoted": false
+                  }]
+                }
+              }]
+            }
+          }}
+        }"#,
+    )
+    .unwrap();
+    let d = parse_graphql_discussion(&data).unwrap();
+    assert_eq!(d.comments_total, 2);
+}
+
+#[test]
+fn rest_discussion_groups_flat_replies_under_parent_comment() {
+    let d = r#"{"node_id":"D_3","number":3,"title":"ZViewer","body":"b","comments":2}"#;
+    let c = r#"[
+      {"id":100,"node_id":"DC_1","parent_id":null,"body":"test","created_at":"x","author_association":"OWNER",
+       "user":{"login":"superMC5657","avatar_url":"","html_url":""}},
+      {"id":101,"node_id":"DC_2","parent_id":100,"body":"测试","created_at":"y","author_association":"OWNER",
+       "user":{"login":"superMC5657","avatar_url":"","html_url":""}}
+    ]"#;
+    let (detail, _) = parse_rest_discussion("superMC5657", "z-store-launchpad", 3, d, Some(c)).unwrap();
+    assert_eq!(detail.comments_total, 2);
+    assert_eq!(detail.comments.len(), 1);
+    assert_eq!(detail.comments[0].id, "DC_1");
+    assert_eq!(detail.comments[0].replies.len(), 1);
+    assert_eq!(detail.comments[0].replies[0].id, "DC_2");
+    assert!(!detail.has_next_page);
 }
 
 #[tokio::test]
@@ -293,7 +350,7 @@ async fn anonymous_failure_reuses_cached_payload_as_stale() {
         .unwrap();
     }
     let base = format!("http://{}", dead_addr());
-    let d = fetch_discussion_anonymous(&db, &client(), Some(&base), "o", "r", 7, false).await;
+    let (d, _) = fetch_discussion_anonymous(&db, &client(), Some(&base), "o", "r", 7, false).await;
     assert_eq!(d.title, "Cached");
     assert!(d.is_stale);
     assert!(d.auth_required_for_write);

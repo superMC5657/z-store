@@ -16,7 +16,7 @@
 
 - 广场数据托管在独立公开仓库 `superMC5657/z-store-launchpad` 的 `launchpad.json`（`version: 1`），由 `[launchpad].default_source_url` 指向；不混入 `catalog.json`。
 - 客户端只在进入「开源广场」视图或收到 `zstore://launchpad/...` 深链时拉取清单，启动阶段不预取。
-- 清单落在独立快照表 `launchpad_feed_cache`（单条 ≤ 512 KiB、最多 3 行、14 天离线窗口，随 `prune_bounded_caches` 清扫）与 `api_etag_cache`；永不写入 `catalog_apps` / `custom_apps`。精选、最新入库、分类、趋势与本地目录搜索都不读广场数据。
+- 清单落在独立快照表 `launchpad_feed_cache`（单条 ≤ 512 KiB、最多 3 行、14 天离线窗口），实时讨论计数、本人顶帖态与源仓统计落在 `launchpad_discussion_cache`（最多 500 行、14 天离线窗口，两者均随 `prune_bounded_caches` 清扫，登出清除 `viewer_has_upvoted`）与 `api_etag_cache`；永不写入 `catalog_apps` / `custom_apps`。精选、最新入库、分类、趋势与本地目录搜索都不读广场数据。
 - 未收录条目按 ADR-0027 非破坏写入 `repo_card_cache`（已收录跳过、`data:` 图标剥空），点击后复用 `AppDetailModal` + `ForgeProvider` 拉取 Release 与 README，安装仍走 SHA-256 校验与镜像通道。已转正进入目录的条目经 `CatalogService::stamp_summary` 透出收录态；未收录卡片提供「移入待收录」衔接转正流程。
 - 上游不可达、返回 429/5xx 或畸形数据时只降级广场视图：回退快照并置 `is_stale`，无快照时页内重试。
 
@@ -30,8 +30,8 @@
 ### 2.3 零重授权的 GitHub Discussions 混合通道
 
 - 现行 `OAUTH_SCOPE = "public_repo user"` 已覆盖公开仓库 Discussions 的读写与 `PUT/DELETE /user/starred`，存量登录用户无需重新授权。
-- 已登录：单次 GraphQL 参数化查询（`variables` 绑定，不拼接查询体）取回主帖、顶帖态、30 条评论与每条前 20 条回复；评论经 `addDiscussionComment`，顶帖优先 `addUpvote` / `removeUpvote`，在 `viewerCanUpvote == false` 或 `FORBIDDEN` 时回退 `THUMBS_UP` Reaction。
-- 未登录：不调用 GraphQL（避免 401 登录墙），改走匿名 REST + `api_etag_cache` 只读降级，限流或离线时回退旧载荷，仍无数据则返回带确定性网页地址的空壳与 `auth_required_for_write = true`，前端引导登录或在浏览器参与。
+- 已登录：单次 GraphQL 参数化查询（`variables` 绑定，不拼接查询体）取回主帖、顶帖态、30 条评论与每条前 20 条回复（评论总数合并一级评论与二级回复计数）；进入或刷新视图时经 `sync_launchpad_discussions` 按每批 25 条参数化别名 GraphQL 拉取最新讨论顶帖数、评论数、本人顶帖态与 GitHub 源仓统计更新卡片并落入 `launchpad_discussion_cache`；评论经 `addDiscussionComment`，顶帖优先 `addUpvote` / `removeUpvote`，在 `viewerCanUpvote == false` 或 `FORBIDDEN` 时回退 `THUMBS_UP` Reaction，所有读写结果即时写透本地脉冲表。
+- 未登录：不调用 GraphQL（避免 401 登录墙），改走匿名 REST + `api_etag_cache` 只读降级（`sync_launchpad_discussions` 按 5 分钟保鲜窗口与有界并发 4 拉取最新评论数，且不以 REST 缺省的原生顶帖字段覆盖已知顶帖数），限流或离线时回退旧载荷，仍无数据则返回带确定性网页地址的空壳与 `auth_required_for_write = true`，前端引导登录或在浏览器参与。
 - 讨论仓坐标严格校验为双段 GitHub `owner/repo`，拒绝路径穿越、查询串、锚点、forge 前缀与控制字符。
 - 讨论正文与评论统一经 `marked` + `sanitizeHtml` 净化；一键 Star 复用 `star_app` / `unstar_app`，本地 `user_stars` 零网络回填卡片标星态。
 
