@@ -118,14 +118,13 @@ describe('InstalledView redesigned workbench', () => {
       />,
     );
 
+    // 「我的应用」不提供「已隐藏」筛选签，已隐藏的应用不在此界面展示
+    expect(screen.queryByRole('tab', { name: /已隐藏/ })).toBeNull();
+    expect(screen.queryByText('AlphaTool')).toBeNull();
+
     // 切换到「已锁定」标签
     fireEvent.click(screen.getByRole('tab', { name: /已锁定/ }));
     expect(screen.getByText('scrcpy')).toBeTruthy();
-    expect(screen.queryByText('Neovim')).toBeNull();
-
-    // 已隐藏的应用只在「已隐藏」签出现
-    fireEvent.click(screen.getByRole('tab', { name: '已隐藏 1' }));
-    expect(screen.getByText('AlphaTool')).toBeTruthy();
     expect(screen.queryByText('Neovim')).toBeNull();
 
     // 切回「全部」（计数不含已隐藏）并按名称 A-Z 排序
@@ -346,10 +345,11 @@ describe('InstalledView counts follow the in-page search and platform filter', (
       }
     };
 
-    check({ 全部: 3, 有更新: 1, 已锁定: 2, 已隐藏: 2 });
+    expect(screen.queryByRole('tab', { name: /已隐藏/ })).toBeNull();
+    check({ 全部: 3, 有更新: 1, 已锁定: 2 });
 
     fireEvent.change(screen.getByPlaceholderText('筛选名称、仓库或路径...'), { target: { value: 'neo' } });
-    check({ 全部: 2, 有更新: 1, 已锁定: 1, 已隐藏: 1 });
+    check({ 全部: 2, 有更新: 1, 已锁定: 1 });
   });
 
   it('shows a platform-filter empty state with a reset action when every installed app is filtered out', () => {
@@ -371,7 +371,7 @@ describe('InstalledView counts follow the in-page search and platform filter', (
     expect(onReset).toHaveBeenCalledTimes(1);
   });
 
-  it('reports the platform spread of non-hidden or hidden installed apps to the sidebar', () => {
+  it('reports the platform spread of non-hidden installed apps to the sidebar', () => {
     const onCounts = vi.fn();
     const { unmount } = render(
       <InstalledView
@@ -388,8 +388,6 @@ describe('InstalledView counts follow the in-page search and platform filter', (
       />,
     );
     expect(onCounts).toHaveBeenLastCalledWith({ windows: 2, macos: 0, linux: 1, ios: 0, android: 0, other: 0 });
-    fireEvent.click(screen.getByRole('tab', { name: /^已隐藏/ }));
-    expect(onCounts).toHaveBeenLastCalledWith({ windows: 0, macos: 1, linux: 0, ios: 0, android: 0, other: 0 });
     unmount();
     expect(onCounts).toHaveBeenLastCalledWith(null);
   });

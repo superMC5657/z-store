@@ -140,7 +140,7 @@ export function useUpdateActions({
         // 快照缺席时回退网络回包
       }
       setUpdates(displayed);
-      // 隐藏应用的更新只供「已隐藏」签与规则管理跳过版本，不计入提示
+      // 隐藏应用的更新只供规则管理跳过版本，不计入提示
       let rules: UpdateRule[] = [];
       try {
         rules = await tauriApi.getUpdateRules();

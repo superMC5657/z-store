@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   Copy,
   DownloadCloud,
-  EyeOff,
   FolderOpen,
   Lock,
   Package,
@@ -97,7 +96,7 @@ interface InstalledViewProps extends AppContextProps {
   totalInstalledCount?: number;
   /** 全部已装应用（未过平台筛选）的平台行，供侧栏平台分布上报。 */
   installedPlatformRows?: readonly InstalledPlatformRow[];
-  /** 上报侧栏平台分布：「已隐藏」签为隐藏的已装应用，其余签为未隐藏的已装应用；卸载时上报 null。 */
+  /** 上报侧栏平台分布：未隐藏的已装应用；卸载时上报 null。 */
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number> | null) => void;
 }
 
@@ -197,14 +196,13 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     [installedApps, apps, rulesByAppId, activeTab, searchQuery, sortOrder, updatesById],
   );
 
-  const showHiddenSpread = activeTab === 'hidden';
   const displayPlatformCounts = useMemo(() => {
     if (!installedPlatformRows) return null;
     const rows = installedPlatformRows.filter(
-      (row) => Boolean(rulesByAppId.get(row.id.toLowerCase())?.is_hidden) === showHiddenSpread,
+      (row) => !rulesByAppId.get(row.id.toLowerCase())?.is_hidden,
     );
     return selectPlatformCounts(rows, platformResolvedOtherIds);
-  }, [installedPlatformRows, rulesByAppId, showHiddenSpread, platformResolvedOtherIds]);
+  }, [installedPlatformRows, rulesByAppId, platformResolvedOtherIds]);
 
   useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts, {
     resetOnUnmount: true,
@@ -276,7 +274,6 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     { id: 'all', label: t('installed.filter_all'), count: stats.allCount },
     { id: 'updatable', label: t('installed.filter_updatable'), count: stats.updatableCount },
     { id: 'frozen', label: t('installed.filter_frozen'), count: stats.frozenCount },
-    { id: 'hidden', label: t('installed.filter_hidden'), count: stats.hiddenCount },
   ];
 
   return (
@@ -459,7 +456,6 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
           {visibleApps.map((app) => {
             const rule = rulesByAppId.get(app.app_id.toLowerCase());
             const isFrozen = Boolean(rule?.is_frozen);
-            const isHidden = Boolean(rule?.is_hidden);
             const update = updatesById.get(app.app_id.toLowerCase());
             const isChangelogOpen = Boolean(update) && expandedChangelogId === app.app_id;
             const isMenuOpen = activeMenuId === app.app_id;
@@ -547,12 +543,6 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
                             <span>{t('installed.locked')}</span>
                           </span>
                         )}
-                        {isHidden && (
-                          <span className="app-tag app-tag-hidden" title={t('installed.hidden')}>
-                            <EyeOff size={10} strokeWidth={1.5} />
-                            <span>{t('installed.hidden')}</span>
-                          </span>
-                        )}
                       </div>
 
                       <div className="manage-meta-line">
@@ -595,7 +585,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
                     <InstalledItemActions
                       app={app}
                       isFrozen={isFrozen}
-                      isHidden={isHidden}
+                      isHidden={false}
                       isMenuOpen={isMenuOpen}
                       isUninstallingLoading={uninstallingAppIds?.has(app.app_id)}
                       confirmingUninstallId={confirmingUninstallId}

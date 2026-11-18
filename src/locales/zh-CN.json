@@ -473,7 +473,6 @@
     "title_label": "我的应用",
     "filter_all": "全部",
     "filter_frozen": "已锁定",
-    "filter_hidden": "已隐藏",
     "filter_tabs_aria": "我的应用筛选",
     "search_placeholder": "筛选名称、仓库或路径...",
     "clear_search": "清空筛选",

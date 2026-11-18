@@ -473,7 +473,6 @@
     "title_label": "My Apps",
     "filter_all": "All",
     "filter_frozen": "Locked",
-    "filter_hidden": "Hidden",
     "filter_tabs_aria": "My apps filter",
     "search_placeholder": "Filter by name, repo, or path...",
     "clear_search": "Clear filter",

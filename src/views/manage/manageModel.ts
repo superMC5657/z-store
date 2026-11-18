@@ -2,7 +2,7 @@ import type { AppSummary, InstalledApp, UpdateItem, UpdateRule } from '../../typ
 import { resolveInstalledAppName } from '../../utils/appHelper';
 import type { PlatformId } from '../../lib/platformFilter';
 
-export type InstalledFilterTabId = 'all' | 'updatable' | 'frozen' | 'hidden';
+export type InstalledFilterTabId = 'all' | 'updatable' | 'frozen';
 export type InstalledSortOrder = 'recent' | 'name';
 
 const INSTALL_METHOD_LABELS: Readonly<Record<string, string>> = {
@@ -58,7 +58,6 @@ export interface InstalledRuleStats {
   allCount: number;
   updatableCount: number;
   frozenCount: number;
-  hiddenCount: number;
 }
 
 /**
@@ -90,22 +89,20 @@ export function computeInstalledStats(
   rulesByAppId: ReadonlyMap<string, UpdateRule>,
   updatesById: ReadonlyMap<string, UpdateItem> = new Map(),
 ): InstalledRuleStats {
+  let allCount = 0;
   let frozenCount = 0;
-  let hiddenCount = 0;
 
   for (const app of installedApps) {
     const key = app.app_id.toLowerCase();
     const rule = rulesByAppId.get(key);
-    // 已隐藏的应用只归「已隐藏」签，不计入其余签，与 filterAndSortInstalledApps 同口径
-    if (rule?.is_hidden) {
-      hiddenCount++;
-      continue;
-    }
+    // 已隐藏的应用不计入「我的应用」各筛选签，与 filterAndSortInstalledApps 同口径
+    if (rule?.is_hidden) continue;
+    allCount++;
     if (rule?.is_frozen) frozenCount++;
   }
 
   const updatableCount = selectUpdatableInstalled(installedApps, rulesByAppId, updatesById).length;
-  return { allCount: installedApps.length - hiddenCount, updatableCount, frozenCount, hiddenCount };
+  return { allCount, updatableCount, frozenCount };
 }
 
 /** 按规则表生成大小写归一的规则查找索引。 */
@@ -151,11 +148,10 @@ export function filterAndSortInstalledApps(
 ): InstalledApp[] {
   const filtered = installedApps.filter((app) => {
     const rule = rulesByAppId.get(app.app_id.toLowerCase());
-    // 隐藏的应用只在「已隐藏」签出现，其余签（含「全部」）一律排除
-    if (tab !== 'hidden' && rule?.is_hidden) return false;
+    // 已隐藏的应用不在「我的应用」出现，可在规则管理中查看与恢复
+    if (rule?.is_hidden) return false;
     if (tab === 'updatable' && (rule?.is_frozen || !updatesById.has(app.app_id.toLowerCase()))) return false;
     if (tab === 'frozen' && !rule?.is_frozen) return false;
-    if (tab === 'hidden' && !rule?.is_hidden) return false;
     return matchesInstalledSearch(app, apps, searchQuery);
   });
 

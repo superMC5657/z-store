@@ -307,7 +307,7 @@ pub(crate) fn is_version_newer(current: &str, latest: &str) -> bool {
 }
 
 /// 判定是否应当提示此更新，综合考量版本策略表（锁定、跳过指定版本）。
-/// 隐藏不在此排除：隐藏应用的更新仍进入列表，供「已隐藏」签与规则管理跳过版本；
+/// 隐藏不在此排除：隐藏应用的更新仍进入列表，供规则管理跳过版本；
 /// 前端各更新计数与「有更新」签自行排除隐藏应用。
 pub(crate) fn should_include_update(
     current_version: &str,
