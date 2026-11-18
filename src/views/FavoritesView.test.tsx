@@ -187,6 +187,46 @@ describe('watch release alerts live on the Watched tab', () => {
   });
 });
 
+describe('watched release check is triggered from the Watched tab', () => {
+  const props = {
+    apps: [makeApp({ id: 'rustdesk/rustdesk', name: 'RustDesk' })],
+    favoriteIds: new Set<string>(),
+    watchedIds: new Set<string>(['rustdesk/rustdesk']),
+    installedIds: new Set<string>(),
+    onOpenDetail: () => {},
+    onQuickInstall: () => {},
+    onToggleFavorite: () => {},
+  };
+
+  it('reports each entry into the Watched tab, without a manual check button', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const onEnterWatchedTab = vi.fn();
+    render(<FavoritesView {...props} onEnterWatchedTab={onEnterWatchedTab} />);
+    // 默认落在「收藏」签：不触发
+    expect(onEnterWatchedTab).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('tab', { name: /^关注/ }));
+    expect(onEnterWatchedTab).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /检查/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /^收藏/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^关注/ }));
+    expect(onEnterWatchedTab).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports entry when the view opens straight on the Watched tab', () => {
+    const onEnterWatchedTab = vi.fn();
+    render(
+      <FavoritesView
+        {...props}
+        watchNotifications={[{ app_id: 'rustdesk/rustdesk', version: 'v1.5.0' }]}
+        onEnterWatchedTab={onEnterWatchedTab}
+      />,
+    );
+    expect(onEnterWatchedTab).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('watch release alerts arriving after the page opened', () => {
   it('switches to the Watched tab unless the user already picked a tab', async () => {
     await i18n.changeLanguage('zh-CN');

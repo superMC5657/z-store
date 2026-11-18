@@ -470,6 +470,13 @@ fn test_watched_apps_crud() {
     assert_eq!(watched[0].app_id, "rustdesk/rustdesk");
     assert!(!watched[0].is_cataloged);
     assert!(watched[0].last_notified_version.is_none());
+    // 从未提醒（列为 NULL）读作 None 而非报错：关注检查据此判定「从未提醒」
+    assert_eq!(
+        db.get_watch_last_notified_at("rustdesk/rustdesk").unwrap(),
+        None
+    );
+    // 未关注的应用同样读作 None
+    assert_eq!(db.get_watch_last_notified_at("nobody/none").unwrap(), None);
 
     // 回填写点仅更新标记，不碰通知基线
     db.set_watched_cataloged("rustdesk/rustdesk", true).unwrap();

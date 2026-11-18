@@ -202,6 +202,8 @@ impl Database {
         Ok(())
     }
 
+    /// 首行首列；无行为 None。列可能为 NULL 时 `T` 须取 `Option<_>` 再 `flatten`，
+    /// 否则 NULL 会报 `InvalidColumnType`。
     pub fn query_scalar_opt<T, P>(&self, sql: &str, params: P) -> Result<Option<T>>
     where
         T: rusqlite::types::FromSql,

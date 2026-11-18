@@ -13,6 +13,12 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// 发布不足 7 天即作为一条动态提醒一次，而非静默记为基线。
 pub const WATCH_RECENT_RELEASE_SECONDS: i64 = 7 * 24 * 60 * 60;
 
+pub(crate) struct LightweightRelease {
+    pub tag: String,
+    pub body: String,
+    pub published_at: Option<i64>,
+}
+
 /// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
 /// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
 /// - 默认 DB-only（`force_refresh != Some(true)`）：仅读 `get_cached_app_detail(None)` /
@@ -24,7 +30,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,
     force_refresh: Option<bool>,
-) -> Result<(String, String), String> {
+) -> Result<LightweightRelease, String> {
     let is_force = force_refresh.unwrap_or(false);
     let clean_id = crate::commands::require_app_id(app_id)?;
 
@@ -34,14 +40,26 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     if !is_force {
         if let Ok(db) = state.db() {
             if let Ok(Some((latest, changelog))) = db.get_cached_update_version(&clean_id) {
-                return Ok((latest, changelog));
+                return Ok(LightweightRelease {
+                    tag: latest,
+                    body: changelog,
+                    published_at: None,
+                });
             }
             if let Ok(Some(cached)) = db.get_app_detail(&clean_id, None) {
-                return Ok((cached.core.latest_version, cached.changelog));
+                return Ok(LightweightRelease {
+                    tag: cached.core.latest_version,
+                    body: cached.changelog,
+                    published_at: None,
+                });
             }
         }
         if let Some(item) = state.catalog.get_catalog_item(&clean_id) {
-            return Ok((item.default_version, String::new()));
+            return Ok(LightweightRelease {
+                tag: item.default_version,
+                body: String::new(),
+                published_at: None,
+            });
         }
         return Err("检查更新网络不可达且无本地缓存".to_string());
     }
@@ -49,7 +67,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     // 显式手动刷新（force==true）：跳过详情 Cache TTL 短路，向 `releases/latest` 发起带 ETag 的条件请求。
     // 失败时再降级读本地缓存（见下方 shallow adapter 回退）。
 
-    // 2. 多源支持 (Codeberg, Gitea 等)
+    // 2. 多源支持 (Codeberg, Gitea, GitLab 等)
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
             let host_token = if let Ok(db) = state.db() {
@@ -60,7 +78,14 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             let release_info =
                 crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
                     .await?;
-            return Ok((release_info.tag_name, release_info.body.unwrap_or_default()));
+            return Ok(LightweightRelease {
+                tag: release_info.tag_name,
+                body: release_info.body.unwrap_or_default(),
+                published_at: release_info
+                    .published_at
+                    .as_deref()
+                    .and_then(parse_rfc3339_unix),
+            });
         }
     }
 
@@ -70,7 +95,11 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         Err(_) => {
             if let Ok(db) = state.db() {
                 if let Ok(Some(fallback)) = db.get_app_detail(&clean_id, None) {
-                    return Ok((fallback.core.latest_version, fallback.changelog));
+                    return Ok(LightweightRelease {
+                        tag: fallback.core.latest_version,
+                        body: fallback.changelog,
+                        published_at: None,
+                    });
                 }
             }
             return Err(format!("未识别的应用坐标: {}", app_id));
@@ -127,6 +156,10 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
             (row, cat)
         }
     };
+    let mut fresh_text: Option<String> = match &outcome {
+        crate::github::http::EtagGetOutcome::Fresh { text, .. } => Some(text.clone()),
+        _ => None,
+    };
     let mut resolution = resolve_update_shallow_with_fallback(
         &outcome,
         cached_payload.as_deref(),
@@ -157,6 +190,10 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         ) {
             crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
         }
+        fresh_text = match &retry_outcome {
+            crate::github::http::EtagGetOutcome::Fresh { text, .. } => Some(text.clone()),
+            _ => None,
+        };
         resolution = crate::github::release_fetch::decide_shallow_release(
             &retry_outcome,
             None,
@@ -177,7 +214,14 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
                     let _ = db.save_etag(&ep, &etag_val, &payload_text, crate::now_secs());
                 }
             }
-            Ok((rel.tag, rel.body))
+            let published_at = fresh_text
+                .as_deref()
+                .and_then(|t| release_published_at_from_payload(t, &rel.tag));
+            Ok(LightweightRelease {
+                tag: rel.tag,
+                body: rel.body,
+                published_at,
+            })
         }
         Err(crate::github::release_fetch::ShallowError::Parse(e)) => Err(e),
         Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_))
@@ -285,6 +329,16 @@ pub(crate) fn should_include_update(
     is_version_newer(current_version, latest_version)
 }
 
+/// 读取全量更新规则并按 `app_id` 建表；读取失败必须中止，避免已冻结/已隐藏/已跳过应用误报或误发提醒。
+fn load_rules_map(state: &AppState) -> crate::AppResult<HashMap<String, UpdateRule>> {
+    let db = state.db()?;
+    Ok(db
+        .get_all_rules()?
+        .into_iter()
+        .map(|r| (r.app_id.clone(), r))
+        .collect())
+}
+
 #[tauri::command(rename_all = "camelCase")]
 pub async fn check_for_updates(
     app_handle: AppHandle,
@@ -298,14 +352,7 @@ pub async fn check_for_updates(
     let check_start = std::time::Instant::now();
     let installed = super::installer_query::load_installed_apps(&state).await?;
     let installed_ids: Vec<String> = installed.iter().map(|a| a.app_id.clone()).collect();
-    // 规则读取失败必须中止：退化为空集会让已冻结/已跳过版本的应用误报更新。
-    let rules_map: HashMap<String, UpdateRule> = {
-        let db = state.db()?;
-        db.get_all_rules()?
-            .into_iter()
-            .map(|r| (r.app_id.clone(), r))
-            .collect()
-    };
+    let rules_map = load_rules_map(&state)?;
 
     // 过滤掉已锁定版本的应用；隐藏应用照常检查，以便跳过其新版本
     let eligible_apps: Vec<_> = installed
@@ -353,7 +400,8 @@ pub async fn check_for_updates(
                 match fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh)
                     .await
                 {
-                    Ok((latest_version, changelog)) => {
+                    Ok(rel) => {
+                        let (latest_version, changelog) = (rel.tag, rel.body);
                         let has_update =
                             should_include_update(&app.version, &latest_version, rule_opt.as_ref());
                         let (icon, icon_bg) =
@@ -445,19 +493,40 @@ pub async fn check_for_updates(
         }),
     );
 
-    // 关注订阅检查（最佳努力，汇总结果折叠进本轮宽事件）
-    let watch = notify_watched_updates(&state, &rules_map, force_refresh).await;
-
     let mut ev = crate::z_log::WideEvent::new("updater", "check done").with_started(check_start);
     ev.field("total", total)
         .field("updates", updates.len())
         .field("failures", failed_count.load(Ordering::SeqCst))
-        .dev("persisted", if is_force { write_rows.len() } else { 0 })
-        .dev("watch_notified", watch.notified)
-        .dev("watch_deferred", watch.deferred());
+        .dev("persisted", if is_force { write_rows.len() } else { 0 });
     ev.info();
 
     Ok(updates)
+}
+
+/// 关注应用的新版本检查（收藏页「关注」签触发，与已安装应用的 `check_for_updates` 无关）：
+/// 遍历关注列表（不论是否安装），新提醒经 `zstore://watch-updated` 逐条推送；
+/// 返回检查后的全部待处理提醒（同 `get_watch_notifications`）。
+/// 缺省或 `forceRefresh=true` 走 ETag 条件请求联网（见 ADR-0019 §2.4）；`forceRefresh=false` 只读本地缓存。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn check_watched_updates(
+    state: State<'_, AppState>,
+    force_refresh: Option<bool>,
+) -> crate::AppResult<Vec<WatchUpdatedPayload>> {
+    let check_start = std::time::Instant::now();
+    let rules_map = load_rules_map(&state)?;
+    let force_refresh = Some(force_refresh.unwrap_or(true));
+    let watch = notify_watched_updates(&state, &rules_map, force_refresh).await;
+
+    let mut ev =
+        crate::z_log::WideEvent::new("updater", "watch check done").with_started(check_start);
+    ev.field("notified", watch.notified)
+        .field("deferred", watch.deferred())
+        .dev("deferred_err", watch.deferred_err)
+        .dev("deferred_baseline", watch.deferred_baseline)
+        .dev("deferred_throttle", watch.deferred_throttle);
+    ev.info();
+
+    Ok(state.db()?.get_pending_watch_notifications()?)
 }
 
 /// 更新中心列表读（DB-only，无网络）：登录/UpdatesView 首屏直读快照。
@@ -539,6 +608,16 @@ fn decide_first_seen(published_at: Option<i64>, now: i64, is_force: bool) -> Fir
     }
 }
 
+fn parse_rfc3339_unix(raw: &str) -> Option<i64> {
+    let clean = raw.trim();
+    if clean.is_empty() {
+        return None;
+    }
+    time::OffsetDateTime::parse(clean, &time::format_description::well_known::Rfc3339)
+        .ok()
+        .map(|t| t.unix_timestamp())
+}
+
 /// 从 `releases/latest` 响应体取发布时间（Unix 秒）；tag 与 `version` 不符时视为未知，
 /// 避免拿旧载荷的时间去判定新版本。
 fn release_published_at_from_payload(payload: &str, version: &str) -> Option<i64> {
@@ -546,10 +625,7 @@ fn release_published_at_from_payload(payload: &str, version: &str) -> Option<i64
     if v.get("tag_name")?.as_str()?.trim() != version.trim() {
         return None;
     }
-    let raw = v.get("published_at")?.as_str()?;
-    time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339)
-        .ok()
-        .map(|t| t.unix_timestamp())
+    parse_rfc3339_unix(v.get("published_at")?.as_str()?)
 }
 
 /// 最新 Release 的发布时间，读手动检查时落库的 GitHub `releases/latest` ETag 载荷；
@@ -603,7 +679,7 @@ async fn notify_watched_updates(
                 if skip_by_rule {
                     return;
                 }
-                let (latest, _) =
+                let rel =
                     match fetch_app_latest_version_lightweight(state, &w.app_id, force_refresh)
                         .await
                     {
@@ -613,7 +689,7 @@ async fn notify_watched_updates(
                             return;
                         }
                     };
-                let latest = latest.trim().to_string();
+                let latest = rel.tag.trim().to_string();
                 if latest.is_empty() {
                     return;
                 }
@@ -638,7 +714,9 @@ async fn notify_watched_updates(
                 if never_notified_at_latest {
                     // 仅尚无基线的新关注计入 deferred_baseline；已有静默基线的应用本轮无事可做，不计数
                     let is_new_watch = w.last_notified_version.is_none();
-                    let published_at = cached_release_published_at(state, &w.app_id, &latest);
+                    let published_at = rel
+                        .published_at
+                        .or_else(|| cached_release_published_at(state, &w.app_id, &latest));
                     match decide_first_seen(published_at, now, is_force) {
                         FirstSeenAction::Notify => {}
                         FirstSeenAction::Baseline => {
@@ -698,7 +776,7 @@ async fn notify_watched_updates(
 #[cfg(test)]
 mod watch_first_seen_tests {
     use super::{
-        decide_first_seen, release_published_at_from_payload, FirstSeenAction,
+        decide_first_seen, parse_rfc3339_unix, release_published_at_from_payload, FirstSeenAction,
         WATCH_RECENT_RELEASE_SECONDS,
     };
 
@@ -748,6 +826,20 @@ mod watch_first_seen_tests {
             None
         );
         assert_eq!(release_published_at_from_payload("not json", "v1"), None);
+    }
+
+    #[test]
+    fn rfc3339_publish_time_parses_utc_and_offset_timestamps() {
+        assert_eq!(
+            parse_rfc3339_unix("2026-11-13T00:00:00Z"),
+            Some(1_794_528_000)
+        );
+        assert_eq!(
+            parse_rfc3339_unix("2026-11-13T08:00:00+08:00"),
+            Some(1_794_528_000)
+        );
+        assert_eq!(parse_rfc3339_unix("   "), None);
+        assert_eq!(parse_rfc3339_unix("not-a-date"), None);
     }
 }
 

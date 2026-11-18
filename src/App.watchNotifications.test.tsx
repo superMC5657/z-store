@@ -31,10 +31,27 @@ const hooks = vi.hoisted(() => {
   });
   // 捕获实时提醒订阅回调，供用例模拟 `zstore://watch-updated` 事件
   const live: { emit: ((p: WatchUpdatedPayload) => void) | null } = { emit: null };
+  const watched: string[] = [];
+  const getWatchedApps = vi.fn(async () =>
+    watched.map((app_id) => ({ app_id, added_at: 0, last_notified_version: null, is_cataloged: false })),
+  );
+  // 关注检查：模拟后端发现新版本（经实时事件推送并落入待处理）后返回全部待处理提醒
+  const found: WatchUpdatedPayload[] = [];
+  const checkWatchedUpdates = vi.fn(async (_force?: boolean): Promise<WatchUpdatedPayload[]> => {
+    for (const f of found.splice(0)) {
+      pending.unshift(f);
+      live.emit?.(f);
+    }
+    return pending.map((p) => ({ ...p }));
+  });
   return {
     pending,
     dismissed,
     live,
+    watched,
+    getWatchedApps,
+    found,
+    checkWatchedUpdates,
     getWatchNotifications,
     getDismissedWatchNotifications,
     dismissWatchNotification,
@@ -48,7 +65,6 @@ vi.mock('./services/api', () => {
     'getInstalledApps',
     'getFavorites',
     'getRecentlyViewedApps',
-    'getWatchedApps',
     'getSearchHistory',
     'getUpdateRules',
     'getCachedUpdates',
@@ -60,6 +76,8 @@ vi.mock('./services/api', () => {
       get(_t, prop: string) {
         if (prop === 'then') return undefined;
         if (prop === 'getWatchNotifications') return () => hooks.getWatchNotifications();
+        if (prop === 'getWatchedApps') return () => hooks.getWatchedApps();
+        if (prop === 'checkWatchedUpdates') return (f?: boolean) => hooks.checkWatchedUpdates(f);
         if (prop === 'dismissWatchNotification') return (id: string) => hooks.dismissWatchNotification(id);
         if (prop === 'getDismissedWatchNotifications') return () => hooks.getDismissedWatchNotifications();
         if (prop === 'restoreWatchNotification') return (id: string) => hooks.restoreWatchNotification(id);
@@ -106,6 +124,8 @@ afterEach(() => {
   hooks.pending.length = 0;
   hooks.dismissed.length = 0;
   hooks.live.emit = null;
+  hooks.watched.length = 0;
+  hooks.found.length = 0;
   vi.clearAllMocks();
 });
 
@@ -225,5 +245,86 @@ describe('watch notifications persistence (real App path)', () => {
     fireEvent.click(screen.getByRole('button', { name: '知道了' }));
     expect(await screen.findByText(/关注操作失败: Error: db locked/)).toBeTruthy();
     expect(screen.getByText(RELEASE_V2)).toBeTruthy();
+  });
+});
+
+describe('watched release check (real App path)', () => {
+  it('checks watched apps once per session on entering the Watched tab, independent of My Apps', async () => {
+    hooks.watched.push('owner/watched-app');
+    hooks.found.push({ app_id: 'owner/watched-app', version: 'v2.0.0' });
+    render(<App />);
+
+    await openWatchedTab();
+    await waitFor(() => {
+      expect(hooks.checkWatchedUpdates).toHaveBeenCalledTimes(1);
+    });
+    expect(hooks.checkWatchedUpdates).toHaveBeenCalledWith(true);
+    // 新提醒同时出现在 Toast 与「有新版本」分节
+    expect((await screen.findAllByText(RELEASE_V2)).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      const panel = document.querySelector('.watch-releases-panel') as HTMLElement | null;
+      expect(panel && within(panel).getByText(RELEASE_V2)).toBeTruthy();
+    });
+
+    // 离开再回来：本会话已自动检查过，不再联网
+    fireEvent.click(screen.getByRole('tab', { name: /^收藏/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^关注/ }));
+    await act(async () => {});
+    expect(hooks.checkWatchedUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries on the next entry when the check failed', async () => {
+    hooks.watched.push('owner/watched-app');
+    hooks.checkWatchedUpdates.mockRejectedValueOnce(new Error('offline'));
+    render(<App />);
+
+    await openWatchedTab();
+    await waitFor(() => {
+      expect(hooks.checkWatchedUpdates).toHaveBeenCalledTimes(1);
+    });
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole('tab', { name: /^收藏/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^关注/ }));
+    await waitFor(() => {
+      expect(hooks.checkWatchedUpdates).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('skips the auto check when nothing is watched', async () => {
+    render(<App />);
+    await openWatchedTab();
+    await act(async () => {});
+    expect(hooks.checkWatchedUpdates).not.toHaveBeenCalled();
+  });
+
+  it('runs the check once watchedIds finishes loading even if the Watched tab opened first', async () => {
+    let resolveWatched!: (
+      rows: Array<{ app_id: string; added_at: number; last_notified_version: null; is_cataloged: boolean }>,
+    ) => void;
+    hooks.getWatchedApps.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveWatched = res;
+        }),
+    );
+    hooks.found.push({ app_id: 'owner/watched-app', version: 'v2.0.0' });
+    render(<App />);
+
+    await openWatchedTab();
+    await act(async () => {});
+    expect(hooks.checkWatchedUpdates).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveWatched([
+        { app_id: 'owner/watched-app', added_at: 0, last_notified_version: null, is_cataloged: false },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(hooks.checkWatchedUpdates).toHaveBeenCalledTimes(1);
+    });
+    expect(hooks.checkWatchedUpdates).toHaveBeenCalledWith(true);
+    expect((await screen.findAllByText(RELEASE_V2)).length).toBeGreaterThan(0);
   });
 });

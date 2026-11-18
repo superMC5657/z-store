@@ -118,6 +118,7 @@ import {
   handleGetOAuthUser,
   handleGetWatchedApps,
   handleGetWatchNotifications,
+  handleCheckWatchedUpdates,
   handleGetDismissedWatchNotifications,
   handleDismissWatchNotification,
   handleRestoreWatchNotification,
@@ -430,6 +431,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleUnwatchApp(a);
     case 'get_watch_notifications':
       return handleGetWatchNotifications();
+    case 'check_watched_updates':
+      return handleCheckWatchedUpdates(a);
     case 'get_dismissed_watch_notifications':
       return handleGetDismissedWatchNotifications();
     case 'dismiss_watch_notification':

@@ -85,6 +85,12 @@ export function handleGetWatchNotifications(): WatchUpdatedPayload[] {
     .map((n) => ({ ...n }));
 }
 
+// 演示无网络：关注检查即读回种子中的待处理提醒。
+export function handleCheckWatchedUpdates(a: InvokeArgs): WatchUpdatedPayload[] {
+  warnUnknownArgs(['forceRefresh'], a, 'handleCheckWatchedUpdates');
+  return handleGetWatchNotifications();
+}
+
 export function handleGetDismissedWatchNotifications(): WatchDismissedEntry[] {
   return loadWatchNotes()
     .dismissed.filter((n) => isWatched(n.app_id))

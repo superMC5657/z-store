@@ -498,6 +498,9 @@ export const App: React.FC = () => {
     if (isRulesModalOpen) void refreshDismissedWatches();
   }, [isRulesModalOpen, refreshDismissedWatches]);
 
+  const checkingWatchedRef = useRef(false);
+  const watchAutoCheckedRef = useRef(false);
+
   // 关注 / 取消关注切换（后端未就绪时 Toast 提示且不崩溃）
   // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
   const handleToggleWatch = useCallback(async (id: string) => {
@@ -530,8 +533,29 @@ export const App: React.FC = () => {
     if (isWatched) {
       setWatchNotifications((prev) => prev.filter((n) => normalizeId(n.app_id) !== key));
       void refreshDismissedWatches();
+    } else {
+      // 新关注的应用下次进「关注」签时随自动检查一并查
+      watchAutoCheckedRef.current = false;
     }
   }, [showToast, t, refreshDismissedWatches]);
+
+  // 关注应用的新版本检查，与「我的应用」的检查更新相互独立：每次打开应用后首次进入「关注」签时
+  // 后台自动跑一次（新关注后重置）。新提醒经 watch-updated 事件逐条 Toast，结束后以后端待处理列表为准；
+  // 失败静默，留待下次进入重试。
+  const handleEnterWatchedTab = useCallback(async () => {
+    if (checkingWatchedRef.current || watchAutoCheckedRef.current || watchedRef.current.size === 0) return;
+    watchAutoCheckedRef.current = true;
+    checkingWatchedRef.current = true;
+    try {
+      const pending = await tauriApi.checkWatchedUpdates(true);
+      if (Array.isArray(pending)) setWatchNotifications(pending);
+      void refreshDismissedWatches();
+    } catch {
+      watchAutoCheckedRef.current = false;
+    } finally {
+      checkingWatchedRef.current = false;
+    }
+  }, [refreshDismissedWatches]);
 
   // 确认提醒：后端记下已确认版本（重启后不再出现），成功后移出列表；失败保留并提示
   const handleDismissWatchNotification = useCallback(async (appId: string) => {
@@ -862,6 +886,7 @@ export const App: React.FC = () => {
                 onLoadUncatalogedDetail={loadUncatalogedDetail}
                 watchNotifications={watchNotifications}
                 onDismissWatch={handleDismissWatchNotification}
+                onEnterWatchedTab={handleEnterWatchedTab}
               />
             )}
 

@@ -665,6 +665,7 @@ pub fn run() {
             commands::unwatch_app,
             commands::get_watched_apps,
             commands::get_watch_notifications,
+            commands::check_watched_updates,
             commands::dismiss_watch_notification,
             commands::get_dismissed_watch_notifications,
             commands::restore_watch_notification,

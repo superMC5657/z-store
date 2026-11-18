@@ -66,11 +66,14 @@ impl Database {
         Ok(())
     }
 
+    /// 上次发出提醒的时间；从未提醒（列为 NULL）或未关注均为 None。
     pub fn get_watch_last_notified_at(&self, app_id: &str) -> Result<Option<i64>> {
-        self.query_scalar_opt(
-            "SELECT last_notified_at FROM watched_apps WHERE app_id = ?1",
-            params![clean(app_id)],
-        )
+        Ok(self
+            .query_scalar_opt::<Option<i64>, _>(
+                "SELECT last_notified_at FROM watched_apps WHERE app_id = ?1",
+                params![clean(app_id)],
+            )?
+            .flatten())
     }
 
     pub fn set_watch_notified(&self, app_id: &str, version: &str, at: i64) -> Result<()> {

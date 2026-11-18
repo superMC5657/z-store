@@ -35,6 +35,8 @@ interface FavoritesViewProps extends ViewAppActions {
   /** 关注应用的待处理新版本提醒（经 zstore://watch-updated 聚合）；有提醒时默认落在「关注」签。 */
   watchNotifications?: WatchUpdatedPayload[];
   onDismissWatch?: (appId: string) => void;
+  /** 每次进入「关注」签时调用；是否真正检查关注应用新版本由上层节流（每会话一次）。 */
+  onEnterWatchedTab?: () => void;
 }
 
 export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
@@ -62,6 +64,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
     onLoadUncatalogedDetail,
     watchNotifications = [],
     onDismissWatch,
+    onEnterWatchedTab,
   } = useAppContextProps(props);
   const { t } = useTranslation();
   type FavoritesTab = 'local' | 'watched' | 'starred';
@@ -77,8 +80,14 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
   useEffect(() => {
     if (watchNotifications.length > 0 && !userPickedTabRef.current) setActiveTab('watched');
   }, [watchNotifications.length]);
-  const [searchText, setSearchText] = useState('');
   const watchedSet = watchedIds || new Set<string>();
+  const hasWatched = watchedSet.size > 0;
+  const onEnterWatchedTabRef = useRef(onEnterWatchedTab);
+  onEnterWatchedTabRef.current = onEnterWatchedTab;
+  useEffect(() => {
+    if (activeTab === 'watched' && hasWatched) onEnterWatchedTabRef.current?.();
+  }, [activeTab, hasWatched]);
+  const [searchText, setSearchText] = useState('');
   const trimmedSearch = searchText.trim();
 
   // 收藏 / 关注搜索过滤（按名称 / 别名 / 仓库坐标匹配，见 app/selectors.matchesAppText）

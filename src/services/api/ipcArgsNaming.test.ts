@@ -237,6 +237,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(social.watchApp('o/r'));
     await swallow(social.unwatchApp('o/r'));
     await swallow(social.getWatchNotifications());
+    await swallow(social.checkWatchedUpdates(true));
     await swallow(social.dismissWatchNotification('o/r'));
     await swallow(social.getDismissedWatchNotifications());
     await swallow(social.restoreWatchNotification('o/r'));

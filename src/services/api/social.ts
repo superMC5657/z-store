@@ -107,12 +107,24 @@ export async function unwatchApp(appId: string): Promise<boolean> {
   return tauriInvoke<boolean>(CMD.unwatchApp, { appId });
 }
 
-// 待处理的关注提醒（后端持久化，重启后可读回）；后端缺席时以空数组计。
-export async function getWatchNotifications(): Promise<WatchUpdatedPayload[]> {
-  const rows = await tauriInvoke<WatchUpdatedPayload[]>(CMD.getWatchNotifications);
+function sanitizeWatchNotifications(rows: unknown): WatchUpdatedPayload[] {
   if (!Array.isArray(rows)) return [];
   return rows.filter(
-    (r) => r && typeof r.app_id === 'string' && r.app_id.trim() !== '' && typeof r.version === 'string',
+    (r): r is WatchUpdatedPayload =>
+      !!r && typeof r.app_id === 'string' && r.app_id.trim() !== '' && typeof r.version === 'string',
+  );
+}
+
+// 待处理的关注提醒（后端持久化，重启后可读回）；后端缺席时以空数组计。
+export async function getWatchNotifications(): Promise<WatchUpdatedPayload[]> {
+  return sanitizeWatchNotifications(await tauriInvoke<WatchUpdatedPayload[]>(CMD.getWatchNotifications));
+}
+
+// 检查关注应用的新版本（不论是否安装），返回检查后的全部待处理提醒；
+// 联网走 ETag 条件请求（forceRefresh=true，见 ADR-0019 §2.4）。
+export async function checkWatchedUpdates(forceRefresh = true): Promise<WatchUpdatedPayload[]> {
+  return sanitizeWatchNotifications(
+    await tauriInvoke<WatchUpdatedPayload[]>(CMD.checkWatchedUpdates, { forceRefresh }),
   );
 }
 

@@ -99,7 +99,7 @@
 5. **D5 双池复用 (Dual-Pool Client Reuse)**:
    - API 与图标下载使用物理隔离的复用 Client（`forge::http` 的 `SHARED_API` / `SHARED_ICON` 槽位，`shared_http_client` 与 API 池同池），均配置 connect_timeout 5s、keepalive 60s、pool 20/idle 90s；图标 CDN 通道恒丢 token，绝不携带认证头。清单同步另设独立第三 Client（`CatalogService::http_client`：拉取公开静态内容、token 恒不携带，connect 5s / pool 10，超时走 `api_timeout_seconds`），与图标池同构的 token 卫生边界（见 ADR-0012）；安装包下载器（`installer::downloader_http`）按「代理签名 + 镜像豁免 host」键维护有界复用池（`DOWNLOAD_CLIENTS`，上限 8），避免连续下载重建连接池。上述四类池与趋势 doforce 直连池（`commands::network::trend_direct_client`，整体超时 5s、无 Token）均以系统代理签名为键（`proxy::ClientSlot`）：签名不变复用连接池，代理开关或切换后自动重建（见 ADR-0025）。
 6. **D6 有限并发 (Bounded Concurrency)**:
-   - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（`commands/updates_check.rs` 主路径与关注通知两处），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)`（见 `icons/probe.rs`）。
+   - 明星榜 `buffered(4)`、更新检查 `buffer_unordered(6)`（`commands/updates_check.rs` 的 `check_for_updates` 与 `check_watched_updates` 两处），首命中即停并按原顺序回填结果；SimpleIcons 快路径逐 slug 验图 `buffered(3)`（见 `icons/probe.rs`）。
     - 统一图标补探 `IconFetch` 有界池 `pool=5` 无序并发（`buffer_unordered(pool)`，见 `icons/fetch.rs`；配置见 `config.rs` 的 `IconFetchConfig`）：搜索与趋势后台均经该核心逐张 `emit` 流式补齐；趋势 enrich 批量直查侧 `buffered(5)` 保序等齐（见 `commands/catalog_search.rs`，详见 ADR-0015）。
 7. **D7 有限重试 (Limited Retry)**:
    - 仅 GET 可重试，仅覆盖传输错误与 429/5xx，最多重试 2 次；5xx 与传输错误按 200ms→800ms 退避，429 优先按服务端 `Retry-After`（秒值夹 60s 上限，缺失/非数字用 5s 缺省，与 D9 同口径）；401/404/304 永不重试。
