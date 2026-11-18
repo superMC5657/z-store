@@ -8,10 +8,10 @@ ZStore is free software licensed under the **GNU General Public License, version
 
 ## Commercial Dual Licensing
 
-If you wish to integrate ZStore into a proprietary product, distribute a closed-source/OEM build, or operate a private enterprise distribution without the copyleft obligations of `GPL-3.0-only`, commercial licenses are available directly from the copyright holder (`superMC`, via `https://github.com/superMC5657/z-store` or `https://z-store.app`).
+If you wish to integrate ZStore into a proprietary product, distribute a closed-source/OEM build, or operate a private enterprise distribution without the copyleft obligations of `GPL-3.0-only`, commercial licenses are available directly from the copyright holder (`superMC`, via `https://github.com/superMC5657/z-store` or `https://z-store-web.pages.dev`).
 
 ## Trademark & Branding Notice
 
-The `GPL-3.0-only` license applies only to copyright in the source code and does not grant any rights to the **ZStore** name, domain (`z-store.app`), or official icons and visual assets (`app-icon.svg`, `app-icon-dark.svg`, `src-tauri/icons/*`).
+The `GPL-3.0-only` license applies only to copyright in the source code and does not grant any rights to the **ZStore** name, domain (`z-store-web.pages.dev`), or official icons and visual assets (`app-icon.svg`, `app-icon-dark.svg`, `src-tauri/icons/*`).
 
 Modified or forked distributions must replace the official `ZStore` name and icons with distinct branding so users are not misled about the origin or official integrity of the binaries.

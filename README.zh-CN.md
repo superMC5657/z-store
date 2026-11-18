@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://z-store.app"><img src="src-tauri/icons/128x128@2x.png" width="112" alt="ZStore"></a>
+<a href="https://z-store-web.pages.dev"><img src="src-tauri/icons/128x128@2x.png" width="112" alt="ZStore"></a>
 
 # ZStore
 
@@ -13,7 +13,7 @@
 [![Release](https://img.shields.io/github/v/release/superMC5657/z-store?label=release&color=111111)](https://github.com/superMC5657/z-store/releases/latest) [![Stars](https://img.shields.io/github/stars/superMC5657/z-store?style=flat&color=111111)](https://github.com/superMC5657/z-store/stargazers) [![License](https://img.shields.io/badge/license-GPL--3.0--only-111111)](LICENSE)<br>
 ![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black) ![macOS](https://img.shields.io/badge/macOS_(源码编译)-000000?logo=apple&logoColor=white)
 
-**[下载](https://z-store.app/zh/download)** &nbsp;·&nbsp; **[在线体验](https://z-store-demo.pages.dev)** &nbsp;·&nbsp; **[文档](https://z-store.app/zh/docs)** &nbsp;·&nbsp; **[精选收录库](https://github.com/superMC5657/z-store-catalog)** &nbsp;·&nbsp; **[开源广场](https://github.com/superMC5657/z-store-launchpad)** &nbsp;·&nbsp; [English](README.md) · **简体中文**
+**[下载](https://z-store-web.pages.dev/zh/download)** &nbsp;·&nbsp; **[在线体验](https://z-store-demo.pages.dev)** &nbsp;·&nbsp; **[文档](https://z-store-web.pages.dev/zh/docs)** &nbsp;·&nbsp; **[精选收录库](https://github.com/superMC5657/z-store-catalog)** &nbsp;·&nbsp; **[开源广场](https://github.com/superMC5657/z-store-launchpad)** &nbsp;·&nbsp; [English](README.md) · **简体中文**
 
 </div>
 
@@ -35,7 +35,7 @@ ZStore 把这两头连在了一起，而且不依赖任何中心服务器：
 
 **想找软件？**
 
-1. 先在浏览器里打开 **[在线体验](https://z-store-demo.pages.dev)** 逛一逛，或从 **[z-store.app](https://z-store.app/zh/download)** / **[GitHub Releases](https://github.com/superMC5657/z-store/releases)** 下载 **Windows**（`.exe`）或 **Linux**（`.AppImage` / `.deb`）安装包。macOS 用户目前请[从源码构建](#从源码构建)。
+1. 先在浏览器里打开 **[在线体验](https://z-store-demo.pages.dev)** 逛一逛，或从 **[z-store-web.pages.dev](https://z-store-web.pages.dev/zh/download)** / **[GitHub Releases](https://github.com/superMC5657/z-store/releases)** 下载 **Windows**（`.exe`）或 **Linux**（`.AppImage` / `.deb`）安装包。macOS 用户目前请[从源码构建](#从源码构建)。
 2. 打开即可浏览**精选**、**最新**、**趋势**、**开源广场**和**分类**。内置清单断网也能秒开，联网后会从 [z-store-catalog](https://github.com/superMC5657/z-store-catalog) 同步新收录。
 3. 按 `⌘K` / `Ctrl+K` 可同时搜索本地库和整个 GitHub；想用别人或团队维护的清单，在 **设置 → 收录清单** 填入自定义 `catalog.json` 地址即可。
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://z-store.app"><img src="src-tauri/icons/128x128@2x.png" width="112" alt="ZStore"></a>
+<a href="https://z-store-web.pages.dev"><img src="src-tauri/icons/128x128@2x.png" width="112" alt="ZStore"></a>
 
 # ZStore
 
@@ -13,7 +13,7 @@ then let ZStore install, verify, and keep them updated for you.
 [![Release](https://img.shields.io/github/v/release/superMC5657/z-store?label=release&color=111111)](https://github.com/superMC5657/z-store/releases/latest) [![Stars](https://img.shields.io/github/stars/superMC5657/z-store?style=flat&color=111111)](https://github.com/superMC5657/z-store/stargazers) [![License](https://img.shields.io/badge/license-GPL--3.0--only-111111)](LICENSE)<br>
 ![Windows](https://img.shields.io/badge/Windows-0078D4?logo=windows&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black) ![macOS](https://img.shields.io/badge/macOS_(source)-000000?logo=apple&logoColor=white)
 
-**[Download](https://z-store.app/en/download)** &nbsp;·&nbsp; **[Live Demo](https://z-store-demo.pages.dev)** &nbsp;·&nbsp; **[Docs](https://z-store.app/en/docs)** &nbsp;·&nbsp; **[Catalog](https://github.com/superMC5657/z-store-catalog)** &nbsp;·&nbsp; **[Launchpad](https://github.com/superMC5657/z-store-launchpad)** &nbsp;·&nbsp; **English** · [简体中文](README.zh-CN.md)
+**[Download](https://z-store-web.pages.dev/en/download)** &nbsp;·&nbsp; **[Live Demo](https://z-store-demo.pages.dev)** &nbsp;·&nbsp; **[Docs](https://z-store-web.pages.dev/en/docs)** &nbsp;·&nbsp; **[Catalog](https://github.com/superMC5657/z-store-catalog)** &nbsp;·&nbsp; **[Launchpad](https://github.com/superMC5657/z-store-launchpad)** &nbsp;·&nbsp; **English** · [简体中文](README.zh-CN.md)
 
 </div>
 
@@ -35,7 +35,7 @@ If you already know exactly what you want and are happy running `winget` or `bre
 
 **Looking for apps?**
 
-1. Try the **[Live Demo](https://z-store-demo.pages.dev)** in your browser, or download the **Windows** (`.exe`) or **Linux** (`.AppImage` / `.deb`) build from **[z-store.app](https://z-store.app/en/download)** or **[GitHub Releases](https://github.com/superMC5657/z-store/releases)**. On macOS, [build from source](#build-from-source) for now.
+1. Try the **[Live Demo](https://z-store-demo.pages.dev)** in your browser, or download the **Windows** (`.exe`) or **Linux** (`.AppImage` / `.deb`) build from **[z-store-web.pages.dev](https://z-store-web.pages.dev/en/download)** or **[GitHub Releases](https://github.com/superMC5657/z-store/releases)**. On macOS, [build from source](#build-from-source) for now.
 2. Browse **Featured**, **Latest**, **Trends**, **Launchpad**, or **Categories**. The built-in catalog opens instantly, even offline, and syncs new entries from [z-store-catalog](https://github.com/superMC5657/z-store-catalog).
 3. Press `⌘K` / `Ctrl+K` to search your catalog and all of GitHub at once, or switch to a community catalog URL under **Settings → Catalog**.
 
