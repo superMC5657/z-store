@@ -17,6 +17,7 @@ import {
   RotateCcw,
   ScanLine,
   Search,
+  Share2,
   Shield,
 } from 'lucide-react';
 import {
@@ -51,6 +52,7 @@ import {
   buildRulesMap,
   buildUpdatesMap,
   computeInstalledStats,
+  inferInstalledFallbackPlatforms,
   selectUpdatableInstalled,
   filterAndSortInstalledApps,
   formatInstallMethodLabel,
@@ -58,9 +60,11 @@ import {
   type InstalledFilterTabId,
   type InstalledSortOrder,
 } from './manage/manageModel';
+import { DEFAULT_ICON_BG } from '../styles/tokens';
 
 // 更新日志抽屉连同 Markdown 渲染（marked）单独分块，展开日志时才加载。
 const ChangelogDrawer = lazyNamed(() => import('./InstalledView/ChangelogDrawer'), 'ChangelogDrawer');
+const CollectionShareModal = lazyNamed(() => import('../components/CollectionShareModal'), 'CollectionShareModal');
 
 interface InstalledViewProps extends AppContextProps {
   /** 一次性落点请求：为 true 时切到「有更新」签并清空搜索，随后调用 onFocusConsumed。 */
@@ -143,6 +147,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
   const [expandedChangelogId, setExpandedChangelogId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const catalogById = useMemo(() => buildCatalogLookup(apps), [apps]);
 
@@ -166,6 +171,43 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
 
   const rulesByAppId = useMemo(() => buildRulesMap(updateRules), [updateRules]);
   const updatesById = useMemo(() => buildUpdatesMap(updates), [updates]);
+
+  const shareableApps = useMemo<AppSummary[]>(() => {
+    const out: AppSummary[] = [];
+    for (const app of installedApps) {
+      if (rulesByAppId.get(app.app_id.toLowerCase())?.is_hidden) continue;
+      const hit = catalogById.get(app.app_id.toLowerCase());
+      if (hit) {
+        out.push(hit);
+        continue;
+      }
+      const cleanId = app.app_id.trim();
+      const slash = cleanId.indexOf('/');
+      const owner = slash > 0 ? cleanId.slice(0, slash) : '';
+      const repo = slash > 0 ? cleanId.slice(slash + 1) : cleanId;
+      out.push({
+        id: cleanId,
+        name: app.app_name || repo || cleanId,
+        owner,
+        repo,
+        icon: app.icon || '',
+        icon_bg: app.icon_bg || DEFAULT_ICON_BG,
+        description: '',
+        stars: 0,
+        forks: 0,
+        license: '',
+        latest_version: app.version || 'latest',
+        category: 'external',
+        category_name: '',
+        is_verified: false,
+        forge: 'github',
+        forge_host: 'github.com',
+        homepage: null,
+        platforms: inferInstalledFallbackPlatforms(app.install_method),
+      });
+    }
+    return out;
+  }, [installedApps, rulesByAppId, catalogById]);
   // 筛选签计数按页内搜索词同步收窄，任一签上的数字恒等于切到该签时的可见行数。
   const searchMatchedApps = useMemo(
     () => installedApps.filter((a) => matchesInstalledSearch(a, apps, searchQuery)),
@@ -305,6 +347,18 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
               >
                 <ScanLine size={13} strokeWidth={1.5} />
                 <span>{t('installed.scan_local_apps')}</span>
+              </button>
+            )}
+
+            {shareableApps.length > 0 && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary btn-compact"
+                onClick={() => setIsShareModalOpen(true)}
+                title={t('installed.share_collection_tooltip')}
+              >
+                <Share2 size={13} strokeWidth={1.5} aria-hidden="true" />
+                <span>{t('installed.share_collection')}</span>
               </button>
             )}
 
@@ -623,6 +677,16 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
             );
           })}
         </div>
+      )}
+
+      {isShareModalOpen && (
+        <React.Suspense fallback={null}>
+          <CollectionShareModal
+            apps={shareableApps}
+            defaultTitle={t('collection.share.default_installed_title')}
+            onClose={() => setIsShareModalOpen(false)}
+          />
+        </React.Suspense>
       )}
     </ViewShell>
   );

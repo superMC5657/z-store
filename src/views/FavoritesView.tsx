@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { CountLabel } from '../components/CountBadge';
 import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
-import { Bookmark, Eye, Star, Search } from 'lucide-react';
+import { Bookmark, Eye, Star, Search, Share2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import { AppCard } from '../components/AppCard';
@@ -22,6 +22,9 @@ import {
 } from '../app/selectors';
 import { WatchReleasesPanel } from './FavoritesView/WatchReleasesPanel';
 import { StarredFeed } from './FavoritesView/StarredFeed';
+import { lazyNamed } from '../lib/lazyNamed';
+
+const CollectionShareModal = lazyNamed(() => import('../components/CollectionShareModal'), 'CollectionShareModal');
 
 interface FavoritesViewProps extends ViewAppActions {
   /** 未按平台过滤的收藏/关注池（目录 ∪ 未收录行），供侧栏平台分布与提醒图标查表；缺省回退 pps。 */
@@ -88,6 +91,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
     if (activeTab === 'watched' && hasWatched) onEnterWatchedTabRef.current?.();
   }, [activeTab, hasWatched]);
   const [searchText, setSearchText] = useState('');
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const trimmedSearch = searchText.trim();
 
   // 收藏 / 关注搜索过滤（按名称 / 别名 / 仓库坐标匹配，见 app/selectors.matchesAppText）
@@ -109,6 +113,8 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
   const platformWatchRows = apps.filter((a) => watchedIdsLower.has(normalizeId(a.id)));
   const favoriteApps = platformFavRows.filter(matchesSearch);
   const watchedApps = platformWatchRows.filter(matchesSearch);
+  const activeShareApps =
+    activeTab === 'local' ? favoriteApps : activeTab === 'watched' ? watchedApps : [];
 
   // 侧栏平台分布：收藏/关注签上报各自全集（不过平台与页内搜索）；Star 签由 StarredFeed 自行上报。
   const tabPlatformCounts = useMemo(() => {
@@ -186,14 +192,27 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
           ]}
         />
         {activeTab !== 'starred' && (
-          <div className="fluent-input-search" style={{ minWidth: '220px' }}>
-            <Search size={14} />
-            <input
-              type="text"
-              placeholder={t('favorites.search_placeholder')}
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {activeShareApps.length > 0 && (
+              <button
+                type="button"
+                className="btn-fluent btn-secondary btn-compact"
+                onClick={() => setIsShareModalOpen(true)}
+                title={t('favorites.share_collection_tooltip')}
+              >
+                <Share2 size={13} strokeWidth={1.5} aria-hidden="true" />
+                <span>{t('favorites.share_collection')}</span>
+              </button>
+            )}
+            <div className="fluent-input-search" style={{ minWidth: '220px' }}>
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder={t('favorites.search_placeholder')}
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -317,6 +336,20 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
           onToggleFavorite={onToggleFavorite}
           onToggleWatch={onToggleWatch}
         />
+      )}
+
+      {isShareModalOpen && activeTab !== 'starred' && (
+        <React.Suspense fallback={null}>
+          <CollectionShareModal
+            apps={activeShareApps}
+            defaultTitle={
+              activeTab === 'watched'
+                ? t('collection.share.default_watched_title')
+                : t('collection.share.default_favorites_title')
+            }
+            onClose={() => setIsShareModalOpen(false)}
+          />
+        </React.Suspense>
       )}
     </ViewShell>
   );

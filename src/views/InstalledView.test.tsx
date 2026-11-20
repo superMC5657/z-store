@@ -468,3 +468,23 @@ describe('manageModel installed counting rules', () => {
     expect(inferInstalledFallbackPlatforms('scanned')).toEqual(['windows']);
   });
 });
+
+describe('InstalledView share collection entry', () => {
+  it('opens CollectionShareModal with non-hidden installed apps when clicking Share List', async () => {
+    await i18n.changeLanguage('zh-CN');
+    render(
+      <InstalledView
+        installedApps={INSTALLED_LIST}
+        updateRules={RULES}
+        onLaunch={() => {}}
+        onUninstall={() => {}}
+      />,
+    );
+
+    const shareBtn = screen.getByRole('button', { name: '分享清单' });
+    fireEvent.click(shareBtn);
+    expect(await screen.findByRole('heading', { name: '分享应用合集' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Neovim' })).toBeTruthy();
+    expect(screen.queryByRole('checkbox', { name: 'AlphaTool' })).toBeNull();
+  });
+});

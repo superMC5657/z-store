@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 // 深链入站统一经 `forge::canonical_lookup_id` 归一化（执行层仍校验并拒绝未知标识）。
 
@@ -24,12 +25,24 @@ pub enum DeepLinkAction {
     LaunchpadApp {
         app_id: String,
     },
+    /// 应用清单 / 专题合集预览：弹出合集预览弹窗（绝不静默自动安装）。
+    Collection {
+        title: String,
+        note: Option<String>,
+        app_ids: Vec<String>,
+    },
 }
 
 pub struct DeepLinkParser;
 
 /// 深链整体长度上限：外部输入直达的解析面，畸形超长 URL 直接拒绝。
 const MAX_DEEPLINK_LEN: usize = 2048;
+/// 合集深链单次最大允许包含的应用数量。
+pub const MAX_COLLECTION_APPS: usize = 30;
+/// 合集标题最大 Unicode 字符数。
+pub const MAX_COLLECTION_TITLE_CHARS: usize = 60;
+/// 合集备注最大 Unicode 字符数。
+pub const MAX_COLLECTION_NOTE_CHARS: usize = 140;
 
 /// 载荷解码 + 防御性过滤：解码失败回退原串（既有语义不变）；解码结果含
 /// NUL 控制字符视为畸形输入返回 None（%00 注入面，正常 id/查询串不含 NUL）。
@@ -40,10 +53,94 @@ fn decode_payload(raw: &str) -> Option<String> {
     (!decoded.contains('\0')).then_some(decoded)
 }
 
+/// 剥除全部控制字符、折叠连续空白并按 Unicode 字符数截断。
+fn sanitize_collection_text(raw: &str, max_chars: usize) -> String {
+    let without_control: String = raw.chars().filter(|c| !c.is_control()).collect();
+    let collapsed = without_control
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    collapsed.chars().take(max_chars).collect()
+}
+
+/// 拆分并清洗合集 `ids`：支持 `,` 与 `%2C`，逐项经 `canonical_app_id` 归一化并保序去重，上限 30 条。
+fn parse_collection_ids(raw_segments: &[&str]) -> Option<Vec<String>> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut app_ids: Vec<String> = Vec::new();
+    for raw in raw_segments {
+        let decoded = decode_payload(raw)?;
+        for piece in decoded.split(',') {
+            let trimmed = piece.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Some(canon) = crate::forge::canonical_app_id(trimmed) {
+                if seen.insert(canon.clone()) {
+                    app_ids.push(canon);
+                    if app_ids.len() >= MAX_COLLECTION_APPS {
+                        return Some(app_ids);
+                    }
+                }
+            }
+        }
+    }
+    (!app_ids.is_empty()).then_some(app_ids)
+}
+
+/// 解析 `zstore://collection`（支持标准查询与 `collection/{ids}` 简写）。
+fn parse_collection_route(
+    path_ids: Option<&str>,
+    query_part: Option<&str>,
+) -> Option<DeepLinkAction> {
+    let mut title = String::new();
+    let mut note: Option<String> = None;
+    let mut raw_id_segments: Vec<&str> = Vec::new();
+
+    if let Some(ids) = path_ids.map(str::trim).filter(|s| !s.is_empty()) {
+        raw_id_segments.push(ids);
+    }
+
+    if let Some(query_str) = query_part {
+        for pair in query_str.split('&') {
+            if pair.is_empty() {
+                continue;
+            }
+            let Some((raw_k, raw_v)) = pair.split_once('=') else {
+                let _ = decode_payload(pair)?;
+                continue;
+            };
+            let k = decode_payload(raw_k)?;
+            if k == "ids" {
+                // 对 `+` 不做空格替换（URL 坐标不含空格，若含空格会被 canonical_app_id 拒绝）。
+                raw_id_segments.push(raw_v);
+            } else if k == "title" {
+                let with_spaces = raw_v.replace('+', " ");
+                let decoded = decode_payload(&with_spaces)?;
+                title = sanitize_collection_text(&decoded, MAX_COLLECTION_TITLE_CHARS);
+            } else if k == "note" {
+                let with_spaces = raw_v.replace('+', " ");
+                let decoded = decode_payload(&with_spaces)?;
+                let cleaned = sanitize_collection_text(&decoded, MAX_COLLECTION_NOTE_CHARS);
+                note = (!cleaned.is_empty()).then_some(cleaned);
+            } else {
+                // 非目标键同样做 NUL 注入检测。
+                let _ = decode_payload(raw_v)?;
+            }
+        }
+    }
+
+    let app_ids = parse_collection_ids(&raw_id_segments)?;
+    Some(DeepLinkAction::Collection {
+        title,
+        note,
+        app_ids,
+    })
+}
+
 impl DeepLinkParser {
     pub fn parse(raw_url: &str) -> Option<DeepLinkAction> {
         let s = raw_url.trim();
-        if s.is_empty() || s.len() > MAX_DEEPLINK_LEN {
+        if s.is_empty() || s.len() > MAX_DEEPLINK_LEN || s.contains('\0') {
             return None;
         }
 
@@ -140,7 +237,19 @@ impl DeepLinkParser {
             });
         }
 
-        // 7. 如果直接是 zstore://{app_id} (例如 zstore://rustdesk 或 zstore://localsend/localsend)
+        // 7. 应用清单 / 专题合集路由：zstore://collection?title=...&note=...&ids=... 或 zstore://collection/{ids}
+        if path_part.eq_ignore_ascii_case("collection") {
+            return parse_collection_route(None, query_part);
+        }
+        if let Some(rest) = path_part
+            .get(..11)
+            .filter(|p| p.eq_ignore_ascii_case("collection/"))
+            .map(|_| &path_part[11..])
+        {
+            return parse_collection_route(Some(rest), query_part);
+        }
+
+        // 8. 如果直接是 zstore://{app_id} (例如 zstore://rustdesk 或 zstore://localsend/localsend)
         if !path_part.is_empty() && !path_part.contains('?') {
             let lower = path_part.to_lowercase();
             if lower == "app"
@@ -149,6 +258,7 @@ impl DeepLinkParser {
                 || lower == "view"
                 || lower == "search"
                 || lower == "launchpad"
+                || lower == "collection"
             {
                 return None;
             }
@@ -398,5 +508,135 @@ mod tests {
         assert!(DeepLinkParser::parse("zstore://install/a%00b").is_none());
         // 解码失败回退原串的既有语义保留（非法编码不 panic、不断路由）
         assert!(DeepLinkParser::parse("zstore://app/%FF%FE").is_some());
+    }
+
+    #[test]
+    fn collection_parses_query_and_shorthand_formats() {
+        let query = DeepLinkParser::parse(
+            "zstore://collection?title=Rust+%E8%A3%85%E6%9C%BA&note=%E5%BC%80%E5%8F%91%E5%BF%85%E5%A4%87&ids=RustDesk/RustDesk,localsend/localsend",
+        )
+        .unwrap();
+        assert_eq!(
+            query,
+            DeepLinkAction::Collection {
+                title: "Rust 装机".to_string(),
+                note: Some("开发必备".to_string()),
+                app_ids: vec![
+                    "rustdesk/rustdesk".to_string(),
+                    "localsend/localsend".to_string(),
+                ],
+            }
+        );
+
+        let encoded = DeepLinkParser::parse(
+            "ZSTORE://Collection?ids=rustdesk%2Frustdesk%2Ccodeberg%3AFreeTubeApp%2FFreeTube",
+        )
+        .unwrap();
+        assert_eq!(
+            encoded,
+            DeepLinkAction::Collection {
+                title: String::new(),
+                note: None,
+                app_ids: vec![
+                    "rustdesk/rustdesk".to_string(),
+                    "codeberg:freetubeapp/freetube".to_string(),
+                ],
+            }
+        );
+
+        let shorthand = DeepLinkParser::parse(
+            "zstore://collection/rustdesk/rustdesk,gitlab:Inkscape/Inkscape?title=Media+Pack",
+        )
+        .unwrap();
+        assert_eq!(
+            shorthand,
+            DeepLinkAction::Collection {
+                title: "Media Pack".to_string(),
+                note: None,
+                app_ids: vec![
+                    "rustdesk/rustdesk".to_string(),
+                    "gitlab:inkscape/inkscape".to_string(),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn collection_dedups_filters_invalid_and_caps_at_30() {
+        let mut raw_ids = vec![
+            "bad-single".to_string(),
+            "RustDesk/RustDesk".to_string(),
+            "https://github.com/rustdesk/rustdesk".to_string(),
+            "invalid id!".to_string(),
+        ];
+        for i in 0..40 {
+            raw_ids.push(format!("Owner{i}/Repo{i}"));
+        }
+        let url = format!("zstore://collection?ids={}", raw_ids.join(","));
+        let parsed = DeepLinkParser::parse(&url).unwrap();
+        let DeepLinkAction::Collection { app_ids, .. } = parsed else {
+            panic!("expected Collection");
+        };
+        assert_eq!(app_ids.len(), MAX_COLLECTION_APPS);
+        assert_eq!(app_ids[0], "rustdesk/rustdesk");
+        assert_eq!(app_ids[1], "owner0/repo0");
+        assert_eq!(app_ids[29], "owner28/repo28");
+
+        // 全无效或空列表返回 None
+        assert!(DeepLinkParser::parse("zstore://collection").is_none());
+        assert!(DeepLinkParser::parse("zstore://collection/").is_none());
+        assert!(DeepLinkParser::parse("zstore://collection?ids=").is_none());
+        assert!(DeepLinkParser::parse("zstore://collection?ids=bad1,not_a_repo").is_none());
+        assert!(DeepLinkParser::parse("zstore://collection/invalid-only").is_none());
+    }
+
+    #[test]
+    fn collection_rejects_nul_oversized_and_sanitizes_text() {
+        // %00 NUL 注入拦截
+        assert!(DeepLinkParser::parse("zstore://collection?ids=a/b,%00").is_none());
+        assert!(DeepLinkParser::parse("zstore://collection?title=hi%00&ids=a/b").is_none());
+        assert!(DeepLinkParser::parse("zstore://collection?note=%00&ids=a/b").is_none());
+
+        // 超长 2048 拒绝
+        let huge_ids = (0..200)
+            .map(|i| format!("owner{i}/repo{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let over_url = format!("zstore://collection?ids={huge_ids}");
+        assert!(over_url.len() > MAX_DEEPLINK_LEN);
+        assert!(DeepLinkParser::parse(&over_url).is_none());
+
+        // 控制字符剥除、空白折叠与 Unicode 字符上限截断（控制整体编码长度 < 2048）
+        let long_title = format!("  A\x07\x1B   {}  ", "字".repeat(70));
+        let long_note = format!("\t\n{}\r\n", "n".repeat(160));
+        let url = format!(
+            "zstore://collection?title={}&note={}&ids=a/b",
+            urlencoding::encode(&long_title),
+            urlencoding::encode(&long_note),
+        );
+        assert!(url.len() <= MAX_DEEPLINK_LEN);
+        let parsed = DeepLinkParser::parse(&url).unwrap();
+        let DeepLinkAction::Collection { title, note, .. } = parsed else {
+            panic!("expected Collection");
+        };
+        assert_eq!(title.chars().count(), MAX_COLLECTION_TITLE_CHARS);
+        assert!(title.starts_with("A "));
+        assert!(!title.chars().any(char::is_control));
+
+        let note = note.unwrap();
+        assert_eq!(note.chars().count(), MAX_COLLECTION_NOTE_CHARS);
+        assert!(!note.chars().any(char::is_control));
+
+        // 仅空白或控制字符的 note 归一为 None
+        let blank_note =
+            DeepLinkParser::parse("zstore://collection?note=%07%20%09&ids=a/b").unwrap();
+        assert_eq!(
+            blank_note,
+            DeepLinkAction::Collection {
+                title: String::new(),
+                note: None,
+                app_ids: vec!["a/b".to_string()],
+            }
+        );
     }
 }

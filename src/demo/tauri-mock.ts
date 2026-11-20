@@ -62,6 +62,7 @@ import {
   handleRecordAppView,
   handleRecordSearchQuery,
   handleRemoveSearchQuery,
+  handleResolveCollectionApps,
   handleScanAndMatchLocalApps,
   handleSearchApps,
   handleSearchAppsOnline,
@@ -253,6 +254,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleEnrichTrendRepos(a);
     case 'get_app_details':
       return handleGetAppDetails(a);
+    case 'resolve_collection_apps':
+      return handleResolveCollectionApps(a);
     case 'get_cached_app_details_batch':
       return handleGetCachedAppDetailsBatch(a);
     case 'get_repo_cards_batch':
@@ -385,7 +388,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
     case 'register_deep_link_scheme':
       return handleRegisterDeepLinkScheme();
     case 'handle_deep_link':
-      return handleHandleDeepLink();
+      return handleHandleDeepLink(a);
     case 'get_cli_deep_link':
       return handleGetCliDeepLink();
     case 'import_user_data':

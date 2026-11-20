@@ -515,7 +515,9 @@
     "update_now": "更新",
     "updating": "更新中...",
     "skip_version": "跳过此版本",
-    "skip_version_tooltip": "不再提示这个版本，后续新版本仍会提醒"
+    "skip_version_tooltip": "不再提示这个版本，后续新版本仍会提醒",
+    "share_collection": "分享清单",
+    "share_collection_tooltip": "生成合集深链或 Markdown 推荐清单"
   },
   "featured": {
     "empty_title": "暂无收录应用",
@@ -786,7 +788,9 @@
     "starred_end": "已全部加载 · {{count}} 个应用",
     "starred_filter_empty_title": "当前平台下暂无 Star 应用",
     "starred_filter_empty_desc": "当前设备平台筛选下暂无匹配仓库，可重置筛选或继续加载更多。",
-    "reset_device_filter": "重置筛选"
+    "reset_device_filter": "重置筛选",
+    "share_collection": "分享清单",
+    "share_collection_tooltip": "生成合集深链或 Markdown 推荐清单"
   },
   "rules": {
     "dismissed_at": "确认于: {{date}}",
@@ -1171,5 +1175,58 @@
     "copied": "已复制到剪贴板",
     "copy_failed": "复制失败，请手动复制",
     "close": "关闭"
+  },
+  "collection": {
+    "preview": {
+      "default_title": "应用合集",
+      "subtitle": "来自 zstore://collection 深链的应用清单，仅在主动确认后安装",
+      "close": "关闭",
+      "loading": "正在本地水合应用清单...",
+      "load_failed": "无法加载合集应用: {{error}}",
+      "empty": "合集中暂无有效应用",
+      "installed_tag": "已安装",
+      "installing_tag": "安装中...",
+      "incompatible_hint": "暂未标注当前平台",
+      "load_detail": "加载详情",
+      "select_all_uninstalled": "全选未安装",
+      "deselect_all": "取消全选",
+      "favorite_all": "全部加入收藏",
+      "favorite_all_done": "已将 {{count}} 款应用加入收藏",
+      "favorite_all_noop": "合集中的应用均已收藏",
+      "install_selected": "安装选中项",
+      "installing_progress": "正在安装第 {{current}} / {{total}} 款：{{name}}",
+      "batch_install_done": "合集安装完成，成功 {{success}} 款",
+      "batch_install_partial": "合集安装结束：成功 {{success}} 款，失败或跳过 {{failed}} 款"
+    },
+    "share": {
+      "title": "分享应用合集",
+      "subtitle": "生成可一键打开客户端预览安装的 zstore:// 深链或 Markdown 推荐清单",
+      "close": "关闭",
+      "default_installed_title": "我的装机清单",
+      "default_favorites_title": "我的开源精选收藏",
+      "default_watched_title": "我的开源关注清单",
+      "title_label": "合集名称",
+      "title_placeholder": "我的开源软件清单",
+      "note_label": "一句话备注（可选）",
+      "note_placeholder": "例如：开发环境装机必备，开箱即用",
+      "apps_label": "已选应用",
+      "max_hint": "最多 {{max}} 款",
+      "search_placeholder": "筛选应用名称或仓库...",
+      "select_top": "全选前 {{max}}",
+      "clear": "清空",
+      "limit_reached": "已达单次分享上限 {{max}} 款",
+      "empty_candidates": "当前列表为空",
+      "empty_search": "没有匹配的应用",
+      "deeplink_label": "合集深链预览",
+      "length_counter": "{{length}} / {{max}} 字节",
+      "length_near_limit": "深链长度接近 2048 字节上限，建议精简备注或减少应用数",
+      "length_exceeded": "深链已超过 2048 字节协议上限，请移除部分应用或缩短备注后再复制深链",
+      "copy_deeplink": "复制深链链接",
+      "copy_markdown": "复制 Markdown 清单",
+      "copied_deeplink": "已复制合集深链",
+      "copied_markdown": "已复制 Markdown 清单",
+      "copy_failed": "复制失败，请手动复制",
+      "markdown_heading_fallback": "开源应用推荐清单"
+    }
   }
 }

@@ -24,6 +24,8 @@ function stubFor(cmd: string): unknown {
       return { id: 'x', platforms: [] };
     case 'get_readme_variants':
       return { variants: [] };
+    case 'resolve_collection_apps':
+      return [];
     case 'fetch_or_cache_asset_url':
       return 'https://example.com/x.png';
     case 'get_or_fetch_icon':
@@ -145,6 +147,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.searchAppsOnline('q', 'sid-1', 1, 20, true));
     await swallow(catalog.enrichTrendRepos([{ owner: 'o', repo: 'r' }], true));
     await swallow(catalog.getAppDetails('o/r', true));
+    await swallow(catalog.resolveCollectionApps(['o/r']));
     await swallow(catalog.getCachedAppDetailsBatch(['o/r']));
     await swallow(catalog.getConfirmedIconsBatch(['o/r']));
     await swallow(catalog.getRepoCardsBatch(['o/r']));
@@ -196,6 +199,7 @@ describe('ipc args naming (camelCase)', () => {
     expect(byCmd.get('list_custom_apps')).toMatchObject({ includeArchived: true });
     expect(byCmd.get('mark_submitted')).toMatchObject({ prUrl: 'https://example.com/pr' });
     expect(byCmd.get('collect_local_app')).toMatchObject({ id: 'o/r' });
+    expect(byCmd.get('resolve_collection_apps')).toEqual({ appIds: ['o/r'] });
     expect(byCmd.get('revert_collected_to_draft')).toMatchObject({ id: 'o/r' });
     expect(byCmd.get('withdraw_submitted')).toMatchObject({ id: 'o/r' });
     expect(collectCalls).toHaveLength(1);

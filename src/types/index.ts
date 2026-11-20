@@ -441,13 +441,22 @@ export interface StarredFeedCacheEntry {
   cached_at: number;
 }
 
+export interface CollectionModalData {
+  title: string;
+  note?: string | null;
+  app_ids: string[];
+}
+
+export type CollectionPreviewState = CollectionModalData;
+
 export type DeepLinkAction =
   | { action: 'app_detail'; payload: { app_id: string } }
   | { action: 'install_app'; payload: { app_id: string } }
   | { action: 'search'; payload: { query: string } }
   | { action: 'developer_profile'; payload: { owner: string } }
   | { action: 'open_view'; payload: { view: string } }
-  | { action: 'launchpad_app'; payload: { app_id: string } };
+  | { action: 'launchpad_app'; payload: { app_id: string } }
+  | { action: 'collection'; payload: CollectionModalData };
 
 // 关注（Watch）/ 订阅更新 —— 后端事件 `zstore://watch-updated` 载荷
 export interface WatchUpdatedPayload {

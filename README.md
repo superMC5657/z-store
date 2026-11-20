@@ -87,6 +87,7 @@ zstore://app/localsend/localsend   # open an app's detail page
 zstore://install/videolan/vlc      # open the install confirmation (never installs silently)
 zstore://search?q=markdown         # search inside ZStore
 zstore://developer/rustdesk        # list all open-source apps by an author
+zstore://collection?title=Rust&ids=rustdesk/rustdesk,localsend/localsend  # preview & batch-install a shared collection
 zstore://view/updates              # jump to available updates
 ```
 

@@ -255,5 +255,6 @@ export const LIST_FALLBACK = new Set([
   'get_search_history',
   'get_recently_viewed_apps',
   'get_watched_apps',
+  'resolve_collection_apps',
   'sync_launchpad_discussions',
 ]);

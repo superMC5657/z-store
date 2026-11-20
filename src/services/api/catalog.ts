@@ -218,6 +218,15 @@ export async function getAppDetails(id: string, forceRefresh = false): Promise<A
   return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
 }
 
+/** 批量本地水合合集应用概要（零网络，按输入顺序返回，非法或未知坐标由后端或兜底处理）。 */
+export async function resolveCollectionApps(appIds: readonly string[]): Promise<AppSummary[]> {
+  if (!Array.isArray(appIds) || appIds.length === 0) return [];
+  const raw = await tauriInvoke<AppSummary[]>(CMD.resolveCollectionApps, {
+    appIds: [...appIds],
+  });
+  return Array.isArray(raw) ? raw : [];
+}
+
 // 收藏/关注未收录行富卡回填（DB-only，零网络零写盘）：与入参一一对齐的
 // `(AppSummary | null)[]`，无缓存行即 `None -> null`。调用方以 Array.isArray 防御后端缺席。
 export async function getCachedAppDetailsBatch(ids: string[]): Promise<(AppSummary | null)[]> {

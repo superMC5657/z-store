@@ -21,7 +21,7 @@ import { buildRulesMap, buildUpdatesMap, selectUpdatableInstalled } from './view
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
-import { AppDetailViewModel, AppSummary, OAuthUser, ViewType, createNavigate } from './types';
+import { AppDetailViewModel, AppSummary, CollectionModalData, OAuthUser, ViewType, createNavigate } from './types';
 import { maskRecentViews } from './services/recentViewsMask';
 import { tauriApi } from './services/api';
 import {
@@ -64,6 +64,7 @@ const AppDetailModal = lazyNamed(() => import('./components/AppDetailModal'), 'A
 const DeveloperProfileModal = lazyNamed(() => import('./components/DeveloperProfileModal'), 'DeveloperProfileModal');
 const AppImportModal = lazyNamed(() => import('./components/AppImportModal'), 'AppImportModal');
 const RulesManagerModal = lazyNamed(() => import('./components/RulesManagerModal'), 'RulesManagerModal');
+const CollectionPreviewModal = lazyNamed(() => import('./components/CollectionPreviewModal'), 'CollectionPreviewModal');
 
 /** 安装请求：无校验资产警示弹窗确认后需携原上下文重试。 */
 interface InstallAppRequest {
@@ -96,6 +97,7 @@ export const App: React.FC = () => {
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
+  const [activeCollection, setActiveCollection] = useState<CollectionModalData | null>(null);
   // 一次性落点请求：深链要求「我的应用」落在「有更新」签；InstalledView 消费后复位
   const [focusMyAppsUpdates, setFocusMyAppsUpdates] = useState(false);
   // 开源广场深链定位目标（`zstore://launchpad/{id}`），视图高亮后清除。
@@ -308,6 +310,7 @@ export const App: React.FC = () => {
         if (focus === 'updates') setFocusMyAppsUpdates(true);
       },
       focusLaunchpadApp: setLaunchpadFocusId,
+      openCollection: setActiveCollection,
     },
     showToast,
     t,
@@ -831,6 +834,23 @@ export const App: React.FC = () => {
             void handleInstallRequest({ ...pending, allowUnverified: true });
           }}
         />
+      )}
+
+      {/* 合集预览与批量安装弹窗（zstore://collection 深链唤起） */}
+      {activeCollection && (
+        <React.Suspense fallback={null}>
+          <CollectionPreviewModal
+            collection={activeCollection}
+            installedIds={installedIds}
+            favoriteIds={favoriteIds}
+            onClose={() => setActiveCollection(null)}
+            onOpenDetail={(id) => handleOpenDetail(id)}
+            onLoadUncatalogedDetail={loadUncatalogedDetail}
+            onInstallApp={(id) => handleInstallApp(id)}
+            onToggleFavorite={handleToggleFavorite}
+            showToast={showToast}
+          />
+        </React.Suspense>
       )}
 
       {/* 应用详情弹窗 */}

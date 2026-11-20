@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import { useEffect, useRef, useState } from 'react';
 import { tauriApi } from '../../services/api';
-import { resolveViewTarget, type Navigate, type ViewFocus } from '../../types';
+import { resolveViewTarget, type CollectionModalData, type Navigate, type ViewFocus } from '../../types';
 
 interface DeepLinkRoutes {
   /** 集中导航入口（App.createNavigate 产物；合法 ViewType 校验收口于 types）。 */
@@ -13,6 +13,8 @@ interface DeepLinkRoutes {
   focusLaunchpadApp?: (appId: string) => void;
   /** 视图内落点（如「我的应用」的「有更新」签）；导航之后调用。 */
   focusView?: (focus: ViewFocus) => void;
+  /** 应用合集深链：弹出合集预览弹窗（绝不自动安装）。 */
+  openCollection?: (collection: CollectionModalData) => void;
 }
 
 interface UseDeepLinkParams {
@@ -40,6 +42,7 @@ export function useDeepLink({
     navigate,
     focusView,
     focusLaunchpadApp: onFocusLaunchpadApp,
+    openCollection,
   } = routes;
   // 深链安装守卫：`install_app` 深链仅暂存待确认状态——安装必须经由用户显式点击确认方可启动。
   const [stagedDeepLinkInstall, setStagedDeepLinkInstall] = useState<string | null>(null);
@@ -71,6 +74,9 @@ export function useDeepLink({
         navigate('launchpad');
         onFocusLaunchpadApp?.(action.payload.app_id);
         handleOpenDetail(action.payload.app_id);
+      } else if (action.action === 'collection') {
+        // 合集深链：仅弹出合集预览弹窗，绝不触碰 stagedDeepLinkInstall 或自动安装。
+        openCollection?.(action.payload);
       }
       showToast(t('toast.deeplink_responded', { url: rawUrl }), 'info');
     } catch (e) {

@@ -18,6 +18,8 @@ import {
   summaries,
   toDetail,
 } from '../fixtures';
+import { canonicalAppId } from '../../services/normalizeId';
+import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import {
   getDemoSettingsSaved,
   getInstalledApps,
@@ -610,4 +612,72 @@ export function handleSyncCatalog(): SyncCatalogResult {
     count: summaries.length,
     message: 'demo: bundled catalog is up to date',
   };
+}
+
+function buildDemoCollectionPlaceholder(cleanId: string): AppSummary {
+  let forge = 'github';
+  let forgeHost = 'github.com';
+  let pathPart = cleanId;
+  const colonIdx = cleanId.indexOf(':');
+  if (colonIdx > 0) {
+    forge = cleanId.slice(0, colonIdx);
+    pathPart = cleanId.slice(colonIdx + 1);
+    forgeHost =
+      forge === 'codeberg'
+        ? 'codeberg.org'
+        : forge === 'gitlab'
+          ? 'gitlab.com'
+          : forge === 'gitea'
+            ? 'gitea.com'
+            : 'github.com';
+  }
+  const parts = pathPart.split('/').filter(Boolean);
+  let owner = '';
+  let repo = cleanId;
+  if (parts.length >= 3) {
+    forgeHost = parts[0];
+    owner = parts[1];
+    repo = parts[2];
+  } else if (parts.length === 2) {
+    owner = parts[0];
+    repo = parts[1];
+  }
+  return {
+    id: cleanId,
+    name: repo,
+    owner,
+    repo,
+    icon: '',
+    icon_bg: DEFAULT_ICON_BG,
+    description: '',
+    stars: 0,
+    forks: 0,
+    license: '',
+    latest_version: 'latest',
+    category: 'external',
+    category_name: '跨平台开源',
+    is_verified: false,
+    forge,
+    forge_host: forgeHost,
+    homepage: null,
+    platforms: [],
+    is_cataloged: false,
+  };
+}
+
+export function handleResolveCollectionApps(a: InvokeArgs): AppSummary[] {
+  warnUnknownArgs(['appIds'], a, 'handleResolveCollectionApps');
+  const raw = a['appIds'];
+  const ids = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const out: AppSummary[] = [];
+  for (const item of ids) {
+    const cleanId = canonicalAppId(item);
+    if (!cleanId || seen.has(cleanId)) continue;
+    seen.add(cleanId);
+    const hit = findSummary(cleanId);
+    out.push(hit ?? buildDemoCollectionPlaceholder(cleanId));
+    if (out.length >= 30) break;
+  }
+  return out;
 }

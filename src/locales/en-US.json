@@ -515,7 +515,9 @@
     "update_now": "Update",
     "updating": "Updating...",
     "skip_version": "Skip this version",
-    "skip_version_tooltip": "Stop prompting for this version; later releases still notify"
+    "skip_version_tooltip": "Stop prompting for this version; later releases still notify",
+    "share_collection": "Share List",
+    "share_collection_tooltip": "Generate a collection deep link or Markdown list"
   },
   "featured": {
     "empty_title": "No Cataloged Apps",
@@ -786,7 +788,9 @@
     "starred_end": "All loaded · {{count}} apps",
     "starred_filter_empty_title": "No matching starred apps",
     "starred_filter_empty_desc": "No starred repositories match the current platform filter.",
-    "reset_device_filter": "Reset Filter"
+    "reset_device_filter": "Reset Filter",
+    "share_collection": "Share List",
+    "share_collection_tooltip": "Generate a collection deep link or Markdown list"
   },
   "rules": {
     "dismissed_at": "Seen on: {{date}}",
@@ -1171,5 +1175,58 @@
     "copied": "Copied to clipboard",
     "copy_failed": "Copy failed — please copy manually",
     "close": "Close"
+  },
+  "collection": {
+    "preview": {
+      "default_title": "App Collection",
+      "subtitle": "Shared via zstore://collection — review items before installing",
+      "close": "Close",
+      "loading": "Hydrating collection locally...",
+      "load_failed": "Failed to load collection: {{error}}",
+      "empty": "No valid apps in this collection",
+      "installed_tag": "Installed",
+      "installing_tag": "Installing...",
+      "incompatible_hint": "No matching platform listed",
+      "load_detail": "Load details",
+      "select_all_uninstalled": "Select All Uninstalled",
+      "deselect_all": "Deselect All",
+      "favorite_all": "Favorite All",
+      "favorite_all_done": "Added {{count}} apps to favorites",
+      "favorite_all_noop": "All apps in this collection are already favorited",
+      "install_selected": "Install Selected",
+      "installing_progress": "Installing {{current}} / {{total}}: {{name}}",
+      "batch_install_done": "Collection installed ({{success}} succeeded)",
+      "batch_install_partial": "Collection install finished: {{success}} succeeded, {{failed}} failed or skipped"
+    },
+    "share": {
+      "title": "Share App Collection",
+      "subtitle": "Generate a zstore:// deep link or Markdown recommendation list",
+      "close": "Close",
+      "default_installed_title": "My Installed Apps",
+      "default_favorites_title": "My Favorite Open-Source Apps",
+      "default_watched_title": "My Watched Open-Source Apps",
+      "title_label": "Collection Title",
+      "title_placeholder": "My Open-Source App Stack",
+      "note_label": "One-line Note (Optional)",
+      "note_placeholder": "e.g. Essential open-source tools for daily dev",
+      "apps_label": "Selected Apps",
+      "max_hint": "Max {{max}}",
+      "search_placeholder": "Filter apps by name or repo...",
+      "select_top": "Select Top {{max}}",
+      "clear": "Clear",
+      "limit_reached": "Reached limit of {{max}} apps",
+      "empty_candidates": "No apps available to share",
+      "empty_search": "No matching apps found",
+      "deeplink_label": "Deep Link Preview",
+      "length_counter": "{{length}} / {{max}} bytes",
+      "length_near_limit": "Deep link is close to the 2048-byte limit; consider trimming note or items",
+      "length_exceeded": "Deep link exceeds the 2048-byte protocol limit; remove items or shorten note before copying",
+      "copy_deeplink": "Copy Deep Link",
+      "copy_markdown": "Copy Markdown List",
+      "copied_deeplink": "Copied collection deep link",
+      "copied_markdown": "Copied Markdown list",
+      "copy_failed": "Copy failed — please copy manually",
+      "markdown_heading_fallback": "Recommended Open-Source Apps"
+    }
   }
 }

@@ -37,6 +37,7 @@ function renderDeepLink(options: { strict?: boolean } = {}) {
     navigate: vi.fn(),
     focusView: vi.fn(),
     onFocusLaunchpadApp: vi.fn(),
+    openCollection: vi.fn(),
     showToast: vi.fn(),
     t: ((key: string, opts?: Record<string, unknown>) => {
       const interpolation = opts ? ` ${JSON.stringify(opts)}` : '';
@@ -53,6 +54,7 @@ function renderDeepLink(options: { strict?: boolean } = {}) {
           selectDeveloper: props.setSelectedDeveloper,
           focusView: props.focusView,
           focusLaunchpadApp: props.onFocusLaunchpadApp,
+          openCollection: props.openCollection,
         },
         showToast: props.showToast,
         t: props.t,
@@ -184,6 +186,26 @@ describe('useDeepLink：五类动作分发', () => {
     });
     expect(handlers.navigate).toHaveBeenCalledWith('installed');
     expect(handlers.focusView).toHaveBeenCalledWith('updates');
+  });
+
+  it('collection：触发 openCollection 预览，绝不暂存自动安装', async () => {
+    const { rendered, handlers } = renderDeepLink();
+    const payload = {
+      title: 'Rust 装机',
+      note: '开发必备',
+      app_ids: ['rustdesk/rustdesk', 'localsend/localsend'],
+    };
+    mocks.handleDeepLink.mockResolvedValue({ action: 'collection', payload });
+
+    await act(async () => {
+      await rendered.result.current.handleDispatchDeepLink(
+        'zstore://collection?title=Rust+%E8%A3%85%E6%9C%BA&ids=rustdesk/rustdesk,localsend/localsend',
+      );
+    });
+
+    expect(handlers.openCollection).toHaveBeenCalledWith(payload);
+    expect(handlers.handleOpenDetail).not.toHaveBeenCalled();
+    expect(rendered.result.current.stagedDeepLinkInstall).toBeNull();
   });
 });
 

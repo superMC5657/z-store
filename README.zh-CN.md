@@ -87,6 +87,7 @@ zstore://app/localsend/localsend   # 打开应用详情
 zstore://install/videolan/vlc      # 唤起安装确认弹窗（绝不静默安装）
 zstore://search?q=markdown         # 在 ZStore 中搜索
 zstore://developer/rustdesk        # 查看作者名下的全部开源项目
+zstore://collection?title=Rust&ids=rustdesk/rustdesk,localsend/localsend  # 预览并批量安装分享合集
 zstore://view/updates              # 直达可用更新列表
 ```
 

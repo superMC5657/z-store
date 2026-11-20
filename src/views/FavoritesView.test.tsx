@@ -336,4 +336,13 @@ describe('favorites & watched counts, platform spread and empty states', () => {
     fireEvent.change(screen.getByPlaceholderText('搜索应用或仓库...'), { target: { value: 'nothing' } });
     expect(panel()).toBeNull();
   });
+
+  it('opens CollectionShareModal from FavoritesView when current list is non-empty', async () => {
+    await i18n.changeLanguage('zh-CN');
+    render(<FavoritesView {...base} apps={all} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '分享清单' }));
+    expect(await screen.findByRole('heading', { name: '分享应用合集' })).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'WinTool' })).toBeTruthy();
+  });
 });

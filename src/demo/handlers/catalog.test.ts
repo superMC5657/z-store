@@ -7,8 +7,10 @@ import {
   handleGetLatestCatalogApps,
   handleGetOrFetchIcon,
   handleGetPlatformsLite,
+  handleResolveCollectionApps,
   handleSearchAppsOnline,
 } from './catalog';
+import { handleHandleDeepLink } from './settings';
 import { argStr } from './common';
 
 function fullCount(category: string): number {
@@ -216,5 +218,35 @@ describe('allowedIds 平台预过滤（分类/最新入库 mock）', () => {
     const one = handleGetLatestCatalogApps({ allowedIds: [base.items[0].id] });
     expect(one.items.map((i) => i.id)).toEqual([base.items[0].id]);
     expect(one.total).toBe(1);
+  });
+});
+
+describe('collection demo handlers', () => {
+  it('resolve_collection_apps hydrates catalog hits and synthesizes unknown placeholders', () => {
+    const known = summaries[0];
+    const res = handleResolveCollectionApps({
+      appIds: [known.id.toUpperCase(), 'codeberg:acme/unknown-tool', known.id, 'bad-id'],
+    });
+    expect(res.map((s) => s.id)).toEqual([known.id, 'codeberg:acme/unknown-tool']);
+    expect(res[0].name).toBe(known.name);
+    expect(res[1].is_cataloged).toBe(false);
+    expect(res[1].forge).toBe('codeberg');
+    expect(res[1].forge_host).toBe('codeberg.org');
+  });
+
+  it('handle_deep_link parses collection links and rejects non-collection or nul links', () => {
+    const parsed = handleHandleDeepLink({
+      url: 'zstore://collection?title=Demo+List&note=Curated&ids=rustdesk/rustdesk,codeberg:a/b',
+    });
+    expect(parsed).toEqual({
+      action: 'collection',
+      payload: {
+        title: 'Demo List',
+        note: 'Curated',
+        app_ids: ['rustdesk/rustdesk', 'codeberg:a/b'],
+      },
+    });
+    expect(() => handleHandleDeepLink({ url: 'zstore://collection?ids=a/b,%00' })).toThrow();
+    expect(() => handleHandleDeepLink({ url: 'zstore://app/rustdesk/rustdesk' })).toThrow();
   });
 });

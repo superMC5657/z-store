@@ -698,6 +698,141 @@ pub(crate) fn hydrate_repo_cards_deferred(
     (out, crate::icons::plan_pending_icons(db, &pendings))
 }
 
+/// 合成合法仓库坐标的最小占位 `AppSummary`（全本地零网络，用于冷门未收录合集条目）。
+fn placeholder_collection_summary(clean_id: &str) -> Option<AppSummary> {
+    let coord = crate::forge::RepositoryUrlParser::parse(clean_id)?;
+    Some(AppSummary {
+        core: AppCore {
+            id: clean_id.to_string(),
+            name: coord.repo.clone(),
+            description_en: None,
+            owner: coord.owner,
+            repo: coord.repo,
+            icon: String::new(),
+            icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
+            description: String::new(),
+            stars: 0,
+            forks: 0,
+            license: String::new(),
+            latest_version: "latest".to_string(),
+            category: "external".to_string(),
+            category_name: "跨平台开源".to_string(),
+            is_verified: false,
+            forge: Some(coord.forge.as_str().to_string()),
+            forge_host: Some(coord.host),
+            homepage: None,
+            platforms: Vec::new(),
+            is_cataloged: Some(false),
+            source: None,
+            status: None,
+            added_at: None,
+        },
+    })
+}
+
+/// 批量本地水合合集应用列表（DB 阶段，持锁）：
+/// 归一化并去重前 `MAX_COLLECTION_APPS` 条合法坐标，优先合并目录，其次 `repo_card_cache` /
+/// `app_details` 本地缓存，均未命中则合成最小占位卡片并规划确认图标延迟任务。
+pub(crate) fn resolve_collection_apps_deferred(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    app_ids: &[String],
+    now: i64,
+) -> (Vec<AppSummary>, Vec<crate::icons::DeferredIcon>) {
+    let mut seen = std::collections::HashSet::new();
+    let mut clean_ids = Vec::new();
+    for raw in app_ids {
+        if let Some(canon) = crate::forge::canonical_app_id(raw.trim()) {
+            if seen.insert(canon.clone()) {
+                clean_ids.push(canon);
+                if clean_ids.len() >= crate::deeplink::MAX_COLLECTION_APPS {
+                    break;
+                }
+            }
+        }
+    }
+    if clean_ids.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let (hydrated, mut jobs) = hydrate_repo_cards_deferred(db, catalog, &clean_ids, now);
+    let mut summaries: Vec<Option<AppSummary>> = Vec::with_capacity(clean_ids.len());
+    let mut missing_indices: Vec<usize> = Vec::new();
+    let mut missing_pendings: Vec<crate::icons::PendingIcon> = Vec::new();
+
+    for (idx, (clean_id, card_opt)) in clean_ids.iter().zip(hydrated).enumerate() {
+        if let Some(card) = card_opt {
+            summaries.push(Some(card.summary));
+            continue;
+        }
+        if let Some(mut placeholder) = placeholder_collection_summary(clean_id) {
+            catalog.stamp_summary(&mut placeholder);
+            missing_indices.push(idx);
+            missing_pendings.push(crate::icons::PendingIcon::confirmed(
+                &placeholder.core.id,
+                &placeholder.core.owner,
+                &placeholder.core.repo,
+            ));
+            summaries.push(Some(placeholder));
+        } else {
+            summaries.push(None);
+        }
+    }
+
+    if !missing_pendings.is_empty() {
+        let missing_jobs = crate::icons::plan_pending_icons(db, &missing_pendings);
+        for (idx, job) in missing_indices.into_iter().zip(missing_jobs) {
+            if let Some(slot) = jobs.get_mut(idx) {
+                *slot = job;
+            }
+        }
+    }
+
+    let mut out_summaries = Vec::with_capacity(summaries.len());
+    let mut out_jobs = Vec::with_capacity(jobs.len());
+    for (summary_opt, job) in summaries.into_iter().zip(jobs) {
+        if let Some(summary) = summary_opt {
+            out_summaries.push(summary);
+            out_jobs.push(job);
+        }
+    }
+    (out_summaries, out_jobs)
+}
+
+/// 同步水合合集应用列表（图标磁盘阶段就地执行，测试入口）。
+#[cfg(test)]
+pub(crate) fn resolve_collection_apps_sync(
+    db: &crate::db::Database,
+    catalog: &crate::github::CatalogService,
+    app_ids: &[String],
+    now: i64,
+) -> Vec<AppSummary> {
+    let (mut summaries, jobs) = resolve_collection_apps_deferred(db, catalog, app_ids, now);
+    let icons_dir = crate::get_app_data_dir().join("icons");
+    let icons = crate::icons::materialize_icons_inline(db, &icons_dir, &jobs);
+    crate::icons::patch_core_icons(summaries.iter_mut().map(|s| Some(&mut s.core)), icons);
+    summaries
+}
+
+/// 批量本地水合合集应用概要（零网络）：用于 `zstore://collection` 预览弹窗。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn resolve_collection_apps(
+    state: State<'_, AppState>,
+    app_ids: Vec<String>,
+) -> crate::AppResult<Vec<AppSummary>> {
+    let (mut summaries, jobs) = {
+        let db = state.db()?;
+        resolve_collection_apps_deferred(&db, &state.catalog, &app_ids, crate::now_secs())
+    };
+    crate::icons::resolve_and_patch_icons(
+        &state,
+        jobs,
+        summaries.iter_mut().map(|s| Some(&mut s.core)),
+    )
+    .await;
+    Ok(summaries)
+}
+
 /// 获取应用详情；瞬时失败仅返回带 `is_stale = true` 的缓存回退或空壳，不污染 SQLite。
 pub async fn get_app_details_impl(
     state: &AppState,
@@ -1792,5 +1927,67 @@ mod repo_card_hydration_tests {
         assert!(
             resolve_cached_or_catalog_summary(&db, &state.catalog, &icons_dir, "bad id").is_none()
         );
+    }
+
+    #[test]
+    fn resolve_collection_apps_preserves_order_and_hydrates_all_tiers() {
+        let state = test_state();
+        state.catalog.update_items(vec![curated("acme/curated")]);
+        let mut local = curated("acme/local");
+        local.name = "Local Pick".to_string();
+        local.is_verified = false;
+        state.catalog.set_collected_items(vec![local]);
+
+        let db = state.db().unwrap();
+        db.upsert_repo_cards_batch(&[card("acme/cached-card", &["linux"], false)])
+            .unwrap();
+
+        let mut detail = crate::models::AppDetail {
+            core: card("acme/cached-detail", &["macos"], false)
+                .summary
+                .core,
+            changelog: String::new(),
+            readme_markdown: String::new(),
+            readme_variants: None,
+            releases: vec![],
+            cached_at: None,
+            is_stale: None,
+        };
+        detail.core.name = "Cached Detail App".to_string();
+        db.save_app_detail("acme/cached-detail", &detail).unwrap();
+
+        let input = vec![
+            "bad-id".to_string(),
+            "ACME/Curated".to_string(),
+            "acme/cached-card".to_string(),
+            "acme/curated".to_string(), // duplicate should be dropped
+            "acme/cached-detail".to_string(),
+            "codeberg:FreeTubeApp/FreeTube".to_string(),
+            "acme/local".to_string(),
+        ];
+        let out = resolve_collection_apps_sync(&db, &state.catalog, &input, 2_000);
+        assert_eq!(
+            out.iter().map(|s| s.core.id.as_str()).collect::<Vec<_>>(),
+            vec![
+                "acme/curated",
+                "acme/cached-card",
+                "acme/cached-detail",
+                "codeberg:freetubeapp/freetube",
+                "acme/local",
+            ]
+        );
+        assert_eq!(out[0].core.is_cataloged, Some(true));
+        assert_eq!(out[1].core.is_cataloged, Some(false));
+        assert_eq!(out[1].core.platforms, vec!["linux"]);
+        assert_eq!(out[2].core.is_cataloged, Some(false));
+        assert_eq!(out[2].core.name, "Cached Detail App");
+        assert_eq!(out[2].core.platforms, vec!["macos"]);
+        assert_eq!(out[3].core.is_cataloged, Some(false));
+        assert_eq!(out[3].core.name, "freetube");
+        assert_eq!(out[3].core.forge.as_deref(), Some("codeberg"));
+        assert_eq!(out[3].core.forge_host.as_deref(), Some("codeberg.org"));
+        assert!(out[3].core.platforms.is_empty());
+        assert_eq!(out[4].core.is_cataloged, Some(true));
+        assert_eq!(out[4].core.name, "Local Pick");
     }
 }
