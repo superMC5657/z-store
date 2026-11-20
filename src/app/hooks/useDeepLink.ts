@@ -3,16 +3,20 @@ import { useEffect, useRef, useState } from 'react';
 import { tauriApi } from '../../services/api';
 import { resolveViewTarget, type Navigate, type ViewFocus } from '../../types';
 
-interface UseDeepLinkParams {
-  handleOpenDetail: (id: string) => void;
-  handleSearchChange: (q: string) => Promise<void> | void;
-  setSelectedDeveloper: (dev: string | null) => void;
+interface DeepLinkRoutes {
   /** 集中导航入口（App.createNavigate 产物；合法 ViewType 校验收口于 types）。 */
   navigate: Navigate;
+  openDetail: (id: string) => void;
+  search: (q: string) => Promise<void> | void;
+  selectDeveloper: (dev: string | null) => void;
   /** 开源广场深链定位：切至 `launchpad` 后高亮对应新品卡片。 */
-  onFocusLaunchpadApp?: (appId: string) => void;
+  focusLaunchpadApp?: (appId: string) => void;
   /** 视图内落点（如「我的应用」的「有更新」签）；导航之后调用。 */
   focusView?: (focus: ViewFocus) => void;
+}
+
+interface UseDeepLinkParams {
+  routes: DeepLinkRoutes;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
 }
@@ -25,15 +29,18 @@ declare global {
 }
 
 export function useDeepLink({
-  handleOpenDetail,
-  handleSearchChange,
-  setSelectedDeveloper,
-  navigate,
-  focusView,
-  onFocusLaunchpadApp,
+  routes,
   showToast,
   t,
 }: UseDeepLinkParams) {
+  const {
+    openDetail: handleOpenDetail,
+    search: handleSearchChange,
+    selectDeveloper: setSelectedDeveloper,
+    navigate,
+    focusView,
+    focusLaunchpadApp: onFocusLaunchpadApp,
+  } = routes;
   // 深链安装守卫：`install_app` 深链仅暂存待确认状态——安装必须经由用户显式点击确认方可启动。
   const [stagedDeepLinkInstall, setStagedDeepLinkInstall] = useState<string | null>(null);
 

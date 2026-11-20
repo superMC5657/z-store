@@ -21,7 +21,7 @@ import { buildRulesMap, buildUpdatesMap, selectUpdatableInstalled } from './view
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
-import { AppDetailViewModel, AppSummary, OAuthUser, UpdateItem, UpdateCheckProgressPayload, UpdateRule, ViewType, WatchDismissedEntry, WatchUpdatedPayload, createNavigate } from './types';
+import { AppDetailViewModel, AppSummary, OAuthUser, ViewType, createNavigate } from './types';
 import { maskRecentViews } from './services/recentViewsMask';
 import { tauriApi } from './services/api';
 import {
@@ -34,6 +34,7 @@ import {
 import { normalizeId } from './services/normalizeId';
 
 import { InstallConfirmDialog } from './app/InstallConfirmDialog';
+import { useCatalogLists } from './app/hooks/useCatalogLists';
 import { usePlatformBackfill } from './app/hooks/usePlatformBackfill';
 import { useSearchState } from './app/hooks/useSearchState';
 import { useInstallState } from './app/hooks/useInstallState';
@@ -44,7 +45,8 @@ import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors, rowAliasKeys, selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
-import { useUpdateActions } from './app/hooks/useUpdateActions';
+import { useUpdatesState } from './app/hooks/useUpdatesState';
+import { useWatchState } from './app/hooks/useWatchState';
 import { useViewScrollMemory } from './app/hooks/useViewScrollMemory';
 import { AppContextProvider, type AppActions, type LibraryState } from './app/AppContext';
 import { useToasts } from './useToasts';
@@ -78,13 +80,17 @@ export const App: React.FC = () => {
   // 合法 ViewType 校验收口于 types（非法视图拒绝，不回落 home）。
   const navigate = useMemo(() => createNavigate(setCurrentView), [setCurrentView]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [apps, setApps] = useState<AppSummary[]>([]);
-  // 完整未裁剪目录（由 searchApps('')、zstore:catalog-synced 与详情回填同步），供收藏/趋势/Star/在线段判收录及详情优先展示，
-  // 避免顶栏输入搜索词覆盖 apps 后导致其余已收录项误判为未收录。
-  const [fullCatalogApps, setFullCatalogApps] = useState<AppSummary[]>([]);
-  const [updates, setUpdates] = useState<UpdateItem[]>([]);
-  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
-  const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
+  const catalogLists = useCatalogLists();
+  const {
+    apps,
+    fullCatalogApps,
+    onlineApps,
+    recentlyViewedApps,
+    uncatalogedExtraApps,
+    uncatalogedExtraAppsRef,
+    setRecentlyViewedApps,
+    setUncatalogedExtraApps,
+  } = catalogLists;
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [selectedApp, setSelectedApp] = useState<AppDetailViewModel | null>(null);
   const [selectedDeveloper, setSelectedDeveloper] = useState<string | null>(null);
@@ -104,13 +110,6 @@ export const App: React.FC = () => {
     handleToggleLanguage,
     handleUpdateSetting,
   } = useAppSettings();
-  const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
-  const [recentlyViewedApps, setRecentlyViewedApps] = useState<AppSummary[]>([]);
-  // 关注订阅（Watch）
-  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
-  const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);
-  // 已确认的关注提醒（规则管理「关注已读」，可恢复）
-  const [dismissedWatches, setDismissedWatches] = useState<WatchDismissedEntry[]>([]);
   // 设备平台全局过滤：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
   // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
@@ -121,19 +120,21 @@ export const App: React.FC = () => {
   useEffect(() => {
     noteStarredLogin(oauthLogin);
   }, [oauthLogin]);
-  // 卡片 memo 稳定回调支撑：经 ref 读取最新列表/详情，避免 handleOpenDetail 依赖 apps 而每搜必变
-  const appsRef = useRef<AppSummary[]>([]);
-  appsRef.current = apps;
-  const fullCatalogAppsRef = useRef<AppSummary[]>([]);
-  fullCatalogAppsRef.current = fullCatalogApps;
-  const recentsRef = useRef<AppSummary[]>([]);
-  recentsRef.current = recentlyViewedApps;
-  const watchedRef = useRef<Set<string>>(watchedIds);
-  watchedRef.current = watchedIds;
 
   // 应用内通知通道（关注提醒 / 自更新 / OAuth / 导入导出共用）
   const { toasts, showToast, handleDismissToast } = useToasts();
   const { t } = useTranslation();
+
+  // 关注订阅域（Watch）
+  const {
+    watchedIds,
+    watchNotifications,
+    activeDismissedWatches,
+    handleToggleWatch,
+    handleEnterWatchedTab,
+    handleDismissWatchNotification,
+    handleRestoreWatchNotification,
+  } = useWatchState({ isRulesModalOpen, showToast, t });
 
   // 详情弹窗几乎必开：首屏空闲时预取其分块，首次点卡片无需等待。
   useEffect(() => whenIdle(() => void AppDetailModal.preload().catch(() => undefined)), []);
@@ -184,9 +185,9 @@ export const App: React.FC = () => {
   }, [customApps, movedInIds]);
 
   // 卸载/取消管理成功即剔除该应用的残留更新项（ID 归一比较）。
+  const installedAppRemovedRef = useRef<(id: string) => void>(() => {});
   const handleInstalledAppRemoved = useCallback((id: string) => {
-    const key = normalizeId(id);
-    setUpdates((prev) => prev.filter((u) => normalizeId(u.app_id) !== key));
+    installedAppRemovedRef.current(id);
   }, []);
 
   // 1. 安装管理 Hook
@@ -230,11 +231,8 @@ export const App: React.FC = () => {
     isSearchingOnline,
     onlineSearchPerformed,
     isOnlineResultSet,
-    onlineApps,
-    setOnlineApps,
     onlineHasMore,
     isLoadingOnlineMore,
-    onlineAppsRef,
     handleSearchDraft,
     handleSearchChange,
     handleSearchSubmit,
@@ -242,11 +240,10 @@ export const App: React.FC = () => {
   } = useSearchState({
     currentView,
     navigate,
-    setApps,
+    catalogLists,
     lazyBackfillPlatforms: (summaries, seq, forceRefresh) => lazyBackfillRef.current(summaries, seq, forceRefresh),
     showToast,
     t,
-    catalogAppsRef: fullCatalogAppsRef,
   });
 
   // 主内容区按视图记忆滚动位置；首页搜索结果是临时状态，不记忆。
@@ -260,16 +257,8 @@ export const App: React.FC = () => {
     confirmPlatformOtherIds,
     lazyBackfillPlatforms,
   } = usePlatformBackfill({
-    apps,
-    onlineApps,
-    recentlyViewedApps,
-    appsRef,
-    onlineAppsRef,
-    recentsRef,
+    catalogLists,
     searchSeqRef,
-    setApps,
-    setOnlineApps,
-    setRecentlyViewedApps,
   });
   lazyBackfillRef.current = lazyBackfillPlatforms;
 
@@ -283,28 +272,24 @@ export const App: React.FC = () => {
 
   // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`；
   // 仅收藏页消费，不进 apps/计数/其它视图）
-  const {
-    uncatalogedExtraApps,
-    setUncatalogedExtraApps,
-    uncatalogedExtraAppsRef,
-    loadUncatalogedDetail,
-  } = useUncatalogedJoin({ favoriteIds, watchedIds, apps: mergedAppsForJoins });
+  const { loadUncatalogedDetail } = useUncatalogedJoin({
+    favoriteIds,
+    watchedIds,
+    apps: mergedAppsForJoins,
+    extraSlot: {
+      items: uncatalogedExtraApps,
+      setItems: setUncatalogedExtraApps,
+      ref: uncatalogedExtraAppsRef,
+    },
+  });
 
   // 4. 详情快照缓存与卡片列表同步（内存 0ms 秒开 + ETag 后台探查 + 富卡/平台治愈）
   const {
     activeDetailIdRef,
     handleOpenDetail,
   } = useDetailCacheSync({
+    catalogLists,
     selectedApp,
-    appsRef,
-    fullCatalogAppsRef,
-    onlineAppsRef,
-    recentsRef,
-    setApps,
-    setFullCatalogApps,
-    setOnlineApps,
-    setRecentlyViewedApps,
-    setUncatalogedExtraApps,
     setSelectedApp,
     setPlatformResolvedOtherIds,
     // customApps 未加载（null）即本地 lookup 未知：后端盖章行原样透传，避免误清本地标注。
@@ -316,65 +301,68 @@ export const App: React.FC = () => {
     stagedDeepLinkInstall,
     setStagedDeepLinkInstall,
   } = useDeepLink({
-    handleOpenDetail,
-    handleSearchChange,
-    setSelectedDeveloper,
-    navigate,
-    focusView: (focus) => {
-      if (focus === 'updates') setFocusMyAppsUpdates(true);
+    routes: {
+      navigate,
+      openDetail: handleOpenDetail,
+      search: handleSearchChange,
+      selectDeveloper: setSelectedDeveloper,
+      focusView: (focus) => {
+        if (focus === 'updates') setFocusMyAppsUpdates(true);
+      },
+      focusLaunchpadApp: setLaunchpadFocusId,
     },
-    onFocusLaunchpadApp: setLaunchpadFocusId,
     showToast,
     t,
   });
 
-  // 目录重拉（初始拉取 / zstore:catalog-synced）写 apps 时，顶栏有搜索词则只刷新全量基线，
-  // 不用全量目录冲掉用户正在查看的搜索结果；函数式更新（图标/平台补丁）照常透传。
+  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready/subscribeIconWrites + OAuth/导入刷新）
   const searchQueryRef = useRef(searchQuery);
   searchQueryRef.current = searchQuery;
-  const setAppsUnlessSearching = useCallback<React.Dispatch<React.SetStateAction<AppSummary[]>>>(
-    (next) => {
-      if (typeof next !== 'function' && searchQueryRef.current.trim()) return;
-      setApps(next);
-    },
-    [],
-  );
+  const resolvedLocalApps = customApps === null ? undefined : localLibrarySummaries;
 
-  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready/subscribeIconWrites +
-  // 关注/更新流/OAuth + 进入「我的应用」读更新快照 + 视图切换日志）
   useAppSubscriptions({
-    setApps: setAppsUnlessSearching,
-    setFullCatalogApps,
-    setOnlineApps,
-    setRecentlyViewedApps,
-    setUncatalogedExtraApps,
-    setInstalledApps,
-    setFavoriteIds,
-    setUpdateRules,
-    setWatchedIds,
-    setWatchNotifications,
-    setUpdates,
-    setOAuthUser,
-    setIsCheckingUpdates,
-    setUpdateCheckProgress,
-    appsRef,
-    fullCatalogAppsRef,
-    onlineAppsRef,
-    recentsRef,
-    uncatalogedExtraAppsRef,
-    currentSearchIdRef,
-    selectedPlatforms,
-    platformResolvedOtherIds,
-    applyPersistedSettings,
-    showToast,
-    t,
+    catalogLists,
+    searchContext: {
+      currentSearchIdRef,
+      hasActiveQuery: () => Boolean(searchQueryRef.current.trim()),
+    },
     currentView,
-    updatesCount: updates.length,
-    // customApps 未加载（null）即本地 lookup 未知：不误清已渲染的最近浏览黄标。
-    localApps: customApps === null ? undefined : localLibrarySummaries,
+    localApps: resolvedLocalApps,
+    library: {
+      setInstalledApps,
+      setFavoriteIds,
+      setOAuthUser,
+      applyPersistedSettings,
+    },
+    notify: { showToast, t },
   });
 
-  // 6. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
+  // 6. 更新与规则域（自有 updates / updateRules / 进度状态与流式订阅）
+  const {
+    updates,
+    updateRules,
+    isCheckingUpdates,
+    updateCheckProgress,
+    handleInstalledAppRemoved: removeUpdatesForApp,
+    refreshUpdatesSnapshotFromDb,
+    handleApplyUpdate,
+    handleSkipVersion,
+    handleClearRuleSkip,
+    handleToggleRuleFrozen,
+    handleToggleRuleHidden,
+    handleBatchUpdateAll,
+    handleCheckUpdates,
+  } = useUpdatesState({
+    catalogLists,
+    setInstalledApps,
+    searchQuery,
+    currentView,
+    showToast,
+    t,
+  });
+  installedAppRemovedRef.current = removeUpdatesForApp;
+
+  // 7. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
   const {
     catalogPlatformFilteredApps,
     fullMergedCatalogApps,
@@ -436,34 +424,10 @@ export const App: React.FC = () => {
   // 规则管理按 app_id 查可用更新（不过平台筛选：规则行本身不受平台筛选影响）
   const allUpdatesById = useMemo(() => buildUpdatesMap(updates), [updates]);
 
-  // 7. 更新规则动作簇（单项更新/跳过/锁定/隐藏/规则管理/批量升级/手动检查）
-  const {
-    handleApplyUpdate,
-    handleSkipVersion,
-    handleClearRuleSkip,
-    handleToggleRuleFrozen,
-    handleToggleRuleHidden,
-    handleBatchUpdateAll,
-    handleCheckUpdates,
-  } = useUpdateActions({
-    updates,
-    setUpdates,
-    setInstalledApps,
-    setUpdateRules,
-    setApps,
-    setFullCatalogApps,
-    setIsCheckingUpdates,
-    setUpdateCheckProgress,
-    searchQuery,
-    showToast,
-    t,
-    countVisibleUpdatable,
-  });
-
   // 「我的应用」检查更新：联网检查的同时重读本地已装列表（零网络），页面只保留这一个刷新入口。
   const handleCheckUpdatesAndRefresh = async () => {
     void loadInstalledApps();
-    await handleCheckUpdates();
+    await handleCheckUpdates(countVisibleUpdatable);
   };
 
   // 平台选择变更时回写至 localStorage
@@ -480,113 +444,6 @@ export const App: React.FC = () => {
     setRecentlyViewedApps([]);
     showToast(t('toast.clear_history_success'), 'info');
   };
-
-  const refreshDismissedWatches = useCallback(async () => {
-    try {
-      const rows = await tauriApi.getDismissedWatchNotifications();
-      setDismissedWatches(Array.isArray(rows) ? rows : []);
-    } catch {
-      // 读失败保留现有列表
-    }
-  }, []);
-
-  // 启动读一次（规则计数）；打开规则管理时再读，覆盖期间新版本使已读项失效的情况
-  useEffect(() => {
-    void refreshDismissedWatches();
-  }, [refreshDismissedWatches]);
-  useEffect(() => {
-    if (isRulesModalOpen) void refreshDismissedWatches();
-  }, [isRulesModalOpen, refreshDismissedWatches]);
-
-  const checkingWatchedRef = useRef(false);
-  const watchAutoCheckedRef = useRef(false);
-
-  // 关注 / 取消关注切换（后端未就绪时 Toast 提示且不崩溃）
-  // useCallback + ref 稳定引用：搜索键入/图标升级时不连带卡片重渲染，仅选中态变化的那张经 isWatched 重渲染
-  const handleToggleWatch = useCallback(async (id: string) => {
-    // 读写归一：读态经 normalizeId 查 watchedIds，写入口同样归一后再 has/watch/unwatch，
-    // 大小写/空格变体（Owner/Repo vs owner/repo）点后可翻转。
-    const key = normalizeId(id);
-    if (!key) return;
-    const isWatched = watchedRef.current.has(key);
-    try {
-      if (isWatched) {
-        await tauriApi.unwatchApp(key);
-      } else {
-        await tauriApi.watchApp(key);
-      }
-    } catch (e) {
-      showToast(t('toast.watch_failed', { error: String(e) }), 'error');
-      return;
-    }
-    setWatchedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-        showToast(t('toast.watch_unfollowed'), 'info');
-      } else {
-        next.add(key);
-        showToast(t('toast.watch_followed'), 'success');
-      }
-      return next;
-    });
-    if (isWatched) {
-      setWatchNotifications((prev) => prev.filter((n) => normalizeId(n.app_id) !== key));
-      void refreshDismissedWatches();
-    } else {
-      // 新关注的应用下次进「关注」签时随自动检查一并查
-      watchAutoCheckedRef.current = false;
-    }
-  }, [showToast, t, refreshDismissedWatches]);
-
-  // 关注应用的新版本检查，与「我的应用」的检查更新相互独立：每次打开应用后首次进入「关注」签时
-  // 后台自动跑一次（新关注后重置）。新提醒经 watch-updated 事件逐条 Toast，结束后以后端待处理列表为准；
-  // 失败静默，留待下次进入重试。
-  const handleEnterWatchedTab = useCallback(async () => {
-    if (checkingWatchedRef.current || watchAutoCheckedRef.current || watchedRef.current.size === 0) return;
-    watchAutoCheckedRef.current = true;
-    checkingWatchedRef.current = true;
-    try {
-      const pending = await tauriApi.checkWatchedUpdates(true);
-      if (Array.isArray(pending)) setWatchNotifications(pending);
-      void refreshDismissedWatches();
-    } catch {
-      watchAutoCheckedRef.current = false;
-    } finally {
-      checkingWatchedRef.current = false;
-    }
-  }, [refreshDismissedWatches]);
-
-  // 确认提醒：后端记下已确认版本（重启后不再出现），成功后移出列表；失败保留并提示
-  const handleDismissWatchNotification = useCallback(async (appId: string) => {
-    try {
-      await tauriApi.dismissWatchNotification(appId);
-    } catch (e) {
-      showToast(t('toast.watch_failed', { error: String(e) }), 'error');
-      return;
-    }
-    setWatchNotifications((prev) => prev.filter((n) => n.app_id !== appId));
-    void refreshDismissedWatches();
-  }, [showToast, t, refreshDismissedWatches]);
-
-  // 规则管理「关注已读」恢复：撤销确认后以后端为准重读待处理与已读两份列表。
-  // 后端失败时抛出，由规则管理就地提示（成功/失败反馈均在弹窗内，不另弹 Toast）。
-  const handleRestoreWatchNotification = useCallback(async (appId: string) => {
-    await tauriApi.restoreWatchNotification(appId);
-    const [pending] = await Promise.all([
-      tauriApi.getWatchNotifications().catch(() => null),
-      refreshDismissedWatches(),
-    ]);
-    if (Array.isArray(pending)) setWatchNotifications(pending);
-  }, [refreshDismissedWatches]);
-
-  // 同一应用的待处理提醒与已读记录互斥：新版本到来（实时事件）即令其已读记录失效，
-  // 规则计数与弹窗列表据此即时剔除，无需等下次重读
-  const activeDismissedWatches = useMemo(() => {
-    if (watchNotifications.length === 0) return dismissedWatches;
-    const pendingIds = new Set(watchNotifications.map((n) => normalizeId(n.app_id)));
-    return dismissedWatches.filter((d) => !pendingIds.has(normalizeId(d.app_id)));
-  }, [dismissedWatches, watchNotifications]);
 
   // 切换收藏状态（稳定回调，供 memo 卡片复用；入口归一，读写一致）
   // 后端 reject 时 toast 报错并保持原态：收藏集合仅在成功后更新，失败无乐观态可回滚
@@ -632,12 +489,7 @@ export const App: React.FC = () => {
     }
 
     // 导入成功后刷新已安装列表，并后台复核更新（DB-only 合成读，不阻塞界面交互）
-    tauriApi
-      .checkForUpdates(false)
-      .then((loadedUpdates) => {
-        if (Array.isArray(loadedUpdates)) setUpdates(loadedUpdates);
-      })
-      .catch(() => undefined);
+    refreshUpdatesSnapshotFromDb();
   };
 
   // 镜像切换失败向上抛，由设置页统一 toast `settings.proxy_save_failed`（单点呈现，App 侧不弹）；

@@ -56,21 +56,20 @@ pub fn link_has_next(link: Option<&str>) -> bool {
     .unwrap_or(false)
 }
 
-/// 原始 Star 列表 JSON → 逐项坐标与仓库 JSON（无 `full_name` 或非 `owner/repo` 形态的项跳过）。
-pub fn parse_starred_payloads(body: &str) -> Result<Vec<StarredRepoPayload>, String> {
-    let items: Vec<serde_json::Value> = serde_json::from_str(body)
-        .map_err(|e| format!("解析 GitHub Starred 列表数据失败: {}", e))?;
-    Ok(items
+/// 原始 Star 列表条目（兼容裸仓库对象与 `star+json` `{ starred_at, repo }` 包装）→ 逐项坐标与仓库 JSON。
+fn parse_starred_value_items(items: Vec<serde_json::Value>) -> Vec<StarredRepoPayload> {
+    items
         .into_iter()
         .filter_map(|item| {
-            let full_name = item.get("full_name")?.as_str()?.trim().to_string();
+            let repo_val = item.get("repo").filter(|v| v.is_object()).unwrap_or(&item);
+            let full_name = repo_val.get("full_name")?.as_str()?.trim().to_string();
             let (owner, repo) = full_name.split_once('/')?;
             if owner.is_empty() || repo.is_empty() || repo.contains('/') {
                 return None;
             }
             let id = crate::forge::canonical_app_id(&full_name)?;
-            let is_private = item.get("private").and_then(|v| v.as_bool()) == Some(true)
-                || item
+            let is_private = repo_val.get("private").and_then(|v| v.as_bool()) == Some(true)
+                || repo_val
                     .get("visibility")
                     .and_then(|v| v.as_str())
                     .is_some_and(|v| v.eq_ignore_ascii_case("private"));
@@ -81,10 +80,74 @@ pub fn parse_starred_payloads(body: &str) -> Result<Vec<StarredRepoPayload>, Str
                     owner: owner.to_string(),
                     repo: repo.to_string(),
                 },
-                payload: item.to_string(),
+                payload: repo_val.to_string(),
             })
         })
-        .collect())
+        .collect()
+}
+
+/// 原始 Star 列表 JSON → 逐项坐标与仓库 JSON（无 `full_name` 或非 `owner/repo` 形态的项跳过）。
+pub fn parse_starred_payloads(body: &str) -> Result<Vec<StarredRepoPayload>, String> {
+    let items: Vec<serde_json::Value> = serde_json::from_str(body)
+        .map_err(|e| format!("解析 GitHub Starred 列表数据失败: {}", e))?;
+    Ok(parse_starred_value_items(items))
+}
+
+/// 本人 Star 离线切片兜底：当用户查自己（`username == None`）且断网无 `per_page=20` 缓存时，
+/// 尝试从 `affinity` 已同步的 `/user/starred?per_page=100&page=K` 缓存载荷按页窗口切片组卡。
+pub fn slice_self_starred_from_affinity_cache(
+    db: &crate::db::Database,
+    page: u32,
+    per_page: u32,
+) -> Option<StarredPage> {
+    let page = page.max(1);
+    let per_page = per_page.clamp(1, STARRED_PAGE_MAX);
+    let start = (page as usize - 1) * per_page as usize;
+    let end = start + per_page as usize;
+    let aff_size = STARRED_PAGE_MAX as usize;
+    let first_aff_page = (start / aff_size) as u32 + 1;
+    let last_aff_page = ((end - 1) / aff_size) as u32 + 1;
+
+    let read_aff_raw = |aff_page: u32| -> Option<Vec<serde_json::Value>> {
+        let ep = CatalogService::affinity_starred_page_endpoint(aff_page);
+        let payload = db.get_cached_payload(&ep).ok().flatten()?;
+        serde_json::from_str::<Vec<serde_json::Value>>(&payload).ok()
+    };
+
+    let first_items = read_aff_raw(first_aff_page)?;
+    let offset_in_first = start % aff_size;
+    let mut selected_items: Vec<serde_json::Value> = Vec::new();
+    let mut has_more = false;
+
+    if first_aff_page == last_aff_page {
+        if offset_in_first < first_items.len() {
+            let take_end = (offset_in_first + per_page as usize).min(first_items.len());
+            selected_items.extend_from_slice(&first_items[offset_in_first..take_end]);
+        }
+        if offset_in_first + (per_page as usize) < first_items.len() {
+            has_more = true;
+        } else if first_items.len() >= aff_size {
+            has_more = read_aff_raw(first_aff_page + 1).is_some_and(|next| !next.is_empty());
+        }
+    } else {
+        if offset_in_first < first_items.len() {
+            selected_items.extend_from_slice(&first_items[offset_in_first..]);
+        }
+        if first_items.len() >= aff_size {
+            let second_items = read_aff_raw(last_aff_page)?;
+            let need_from_second = per_page as usize - selected_items.len();
+            let take_second = need_from_second.min(second_items.len());
+            selected_items.extend_from_slice(&second_items[..take_second]);
+            if need_from_second < second_items.len() {
+                has_more = true;
+            } else if second_items.len() >= aff_size {
+                has_more = read_aff_raw(last_aff_page + 1).is_some_and(|next| !next.is_empty());
+            }
+        }
+    }
+
+    let repos = parse_starred_value_items(selected_items);
+    Some(StarredPage { repos, has_more })
 }
 
 /// 当前凭据下的 Star 列表地址（与 `fetch_starred_page` 判定「是否已登录」的口径一致）。
@@ -154,8 +217,11 @@ impl CatalogService {
     /// - `304` 但旧载荷不可用时去掉 ETag 重拉一次；
     /// - 传输错误、限流（403/429）或 5xx 且有旧载荷时回退旧载荷并标 `is_stale`；
     ///   401 经 `check_auth_expired` 通知并上浮错误，404 永不回退。
+    ///
+    /// 错误附带 `recoverable` 标记（网络错误/403/429/5xx 为 `true`，401/404 为 `false`），
+    /// 供调用方决定是否回退本地 `affinity` 切片缓存。
     #[allow(clippy::too_many_arguments)]
-    pub async fn fetch_starred_page(
+    pub(crate) async fn fetch_starred_page_diag(
         &self,
         username: Option<&str>,
         token: Option<&str>,
@@ -164,11 +230,12 @@ impl CatalogService {
         cached_etag: Option<&str>,
         cached_payload: Option<&str>,
         api_base: Option<&str>,
-    ) -> Result<StarredFetchOutcome, String> {
+    ) -> Result<StarredFetchOutcome, (String, bool)> {
         use super::http::EtagGetOutcome;
-        let client = super::http::build_api_client()?;
+        let client = super::http::build_api_client().map_err(|e| (e, false))?;
         let headers = super::http::bearer_headers(token);
-        let target_url = starred_url_for_token(username, token, page, per_page)?;
+        let target_url =
+            starred_url_for_token(username, token, page, per_page).map_err(|e| (e, false))?;
         let cached = usable_payload(cached_payload);
         let mut send_etag = cached.and(cached_etag);
         loop {
@@ -183,7 +250,7 @@ impl CatalogService {
             match outcome {
                 EtagGetOutcome::Fresh { text, etag } => {
                     let page = StarredPage {
-                        repos: parse_starred_payloads(&text)?,
+                        repos: parse_starred_payloads(&text).map_err(|e| (e, false))?,
                         has_more: has_next,
                     };
                     return Ok(StarredFetchOutcome {
@@ -196,7 +263,8 @@ impl CatalogService {
                 EtagGetOutcome::NotModified => match cached {
                     Some(body) => {
                         return Ok(StarredFetchOutcome {
-                            page: page_from_cached(body, has_next, per_page)?,
+                            page: page_from_cached(body, has_next, per_page)
+                                .map_err(|e| (e, false))?,
                             etag_write: None,
                             touched_url: Some(target_url),
                             is_stale: None,
@@ -207,12 +275,12 @@ impl CatalogService {
                         continue;
                     }
                     None => {
-                        return Err(starred_error_message(Some(304), username, None));
+                        return Err((starred_error_message(Some(304), username, None), false));
                     }
                 },
                 EtagGetOutcome::Unauthorized => {
                     crate::check_auth_expired(401, "op=list_github_starred");
-                    return Err(starred_error_message(Some(401), username, None));
+                    return Err((starred_error_message(Some(401), username, None), false));
                 }
                 EtagGetOutcome::Failed => {
                     let recoverable = match diag.status {
@@ -222,21 +290,45 @@ impl CatalogService {
                     if recoverable {
                         if let Some(body) = cached {
                             return Ok(StarredFetchOutcome {
-                                page: page_from_cached(body, false, per_page)?,
+                                page: page_from_cached(body, false, per_page)
+                                    .map_err(|e| (e, false))?,
                                 etag_write: None,
                                 touched_url: None,
                                 is_stale: Some(true),
                             });
                         }
                     }
-                    return Err(starred_error_message(
-                        diag.status,
-                        username,
-                        diag.err_reason.as_deref(),
+                    return Err((
+                        starred_error_message(diag.status, username, diag.err_reason.as_deref()),
+                        recoverable,
                     ));
                 }
             }
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fetch_starred_page(
+        &self,
+        username: Option<&str>,
+        token: Option<&str>,
+        page: u32,
+        per_page: u32,
+        cached_etag: Option<&str>,
+        cached_payload: Option<&str>,
+        api_base: Option<&str>,
+    ) -> Result<StarredFetchOutcome, String> {
+        self.fetch_starred_page_diag(
+            username,
+            token,
+            page,
+            per_page,
+            cached_etag,
+            cached_payload,
+            api_base,
+        )
+        .await
+        .map_err(|(msg, _)| msg)
     }
 }
 

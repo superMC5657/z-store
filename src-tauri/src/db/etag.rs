@@ -7,6 +7,14 @@ use std::collections::HashMap;
 /// API ETag 缓存表最大保留行数（按 `last_checked_at DESC` LRU 淘汰）。
 pub const API_ETAG_CACHE_MAX_ROWS: usize = 3000;
 
+/// 单条 `api_etag_cache` 完整记录（供软 TTL 判断与条件请求复用）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EtagCacheEntry {
+    pub etag: String,
+    pub payload_json: String,
+    pub last_checked_at: i64,
+}
+
 impl Database {
     pub fn get_etag(&self, endpoint_url: &str) -> Result<Option<String>> {
         self.query_scalar_opt(
@@ -42,23 +50,62 @@ impl Database {
         )
     }
 
-    /// 批量读取 `(etag, payload_json)`，按端点索引（`IN (...)` 分片，未命中端点缺席）。
-    pub fn get_etags_and_payloads_batch(
+    /// 单次读取端点的 `(etag, payload_json, last_checked_at)`。
+    pub fn get_etag_entry(&self, endpoint_url: &str) -> Result<Option<EtagCacheEntry>> {
+        Ok(self
+            .query_vec(
+                "SELECT etag, payload_json, last_checked_at FROM api_etag_cache WHERE endpoint_url = ?1",
+                params![endpoint_url],
+                |row| {
+                    Ok(EtagCacheEntry {
+                        etag: row.get(0)?,
+                        payload_json: row.get(1)?,
+                        last_checked_at: row.get(2)?,
+                    })
+                },
+            )?
+            .into_iter()
+            .next())
+    }
+
+    /// 批量读取完整 `EtagCacheEntry`，按端点索引（`IN (...)` 分片，未命中端点缺席）。
+    pub fn get_etag_entries_batch(
         &self,
         urls: &[String],
-    ) -> Result<HashMap<String, (String, String)>> {
+    ) -> Result<HashMap<String, EtagCacheEntry>> {
         let keys = dedup_non_empty(urls.iter().map(String::as_str));
         let rows = self.query_in_chunks(
             &keys,
             |ph| {
                 format!(
-                    "SELECT endpoint_url, etag, payload_json FROM api_etag_cache \
+                    "SELECT endpoint_url, etag, payload_json, last_checked_at FROM api_etag_cache \
                      WHERE endpoint_url IN ({ph})"
                 )
             },
-            |row| Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?))),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    EtagCacheEntry {
+                        etag: row.get(1)?,
+                        payload_json: row.get(2)?,
+                        last_checked_at: row.get(3)?,
+                    },
+                ))
+            },
         )?;
         Ok(rows.into_iter().collect())
+    }
+
+    /// 批量读取 `(etag, payload_json)`，按端点索引（`IN (...)` 分片，未命中端点缺席）。
+    pub fn get_etags_and_payloads_batch(
+        &self,
+        urls: &[String],
+    ) -> Result<HashMap<String, (String, String)>> {
+        Ok(self
+            .get_etag_entries_batch(urls)?
+            .into_iter()
+            .map(|(k, v)| (k, (v.etag, v.payload_json)))
+            .collect())
     }
 
     pub fn save_etag(
@@ -80,6 +127,57 @@ impl Database {
             params![endpoint_url, etag, payload_json, timestamp],
         )?;
         Ok(())
+    }
+
+    /// 跨链路播种单仓 JSON：仅当端点缺席或现有 `etag == ''` 时写入，绝不覆盖非空 HTTP ETag。
+    pub fn seed_repo_payload_if_absent_or_untagged(
+        &self,
+        endpoint_url: &str,
+        payload_json: &str,
+        timestamp: i64,
+    ) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO api_etag_cache (endpoint_url, etag, payload_json, last_checked_at)
+            VALUES (?1, '', ?2, ?3)
+            ON CONFLICT(endpoint_url) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                last_checked_at = excluded.last_checked_at
+            WHERE api_etag_cache.etag = '';
+            "#,
+            params![endpoint_url, payload_json, timestamp],
+        )?;
+        Ok(())
+    }
+
+    /// 批量播种单仓 JSON（单事务边界，供搜索/Star 列表反哺趋势 enrich 复用，绝不覆盖非空 ETag）。
+    pub fn seed_repo_payloads_batch(
+        &self,
+        entries: &[(String, String)],
+        timestamp: i64,
+    ) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        self.with_immediate_transaction(|| {
+            let mut stmt = self.conn.prepare_cached(
+                r#"
+                INSERT INTO api_etag_cache (endpoint_url, etag, payload_json, last_checked_at)
+                VALUES (?1, '', ?2, ?3)
+                ON CONFLICT(endpoint_url) DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    last_checked_at = excluded.last_checked_at
+                WHERE api_etag_cache.etag = '';
+                "#,
+            )?;
+            for (url, payload) in entries {
+                if url.is_empty() || payload.is_empty() {
+                    continue;
+                }
+                stmt.execute(params![url, payload, timestamp])?;
+            }
+            Ok(())
+        })
     }
 
     /// 刷新指定端点 ETag 缓存的 `last_checked_at`（`304 Not Modified` 命中时保鲜 LRU 顺序）。
@@ -153,5 +251,47 @@ mod tests {
             hits["https://api/x"],
             ("W/1".to_string(), "{\"a\":1}".to_string())
         );
+        let entry = db.get_etag_entry("https://api/x").unwrap().unwrap();
+        assert_eq!(entry.etag, "W/1");
+        assert_eq!(entry.payload_json, "{\"a\":1}");
+        assert_eq!(entry.last_checked_at, 1);
+    }
+
+    #[test]
+    fn seed_repo_payloads_never_overwrites_non_empty_etag() {
+        let db = Database::open_in_memory().unwrap();
+        let tagged = "https://api.github.com/repos/a/tagged";
+        let untagged = "https://api.github.com/repos/a/untagged";
+        let absent = "https://api.github.com/repos/a/absent";
+
+        db.save_etag(tagged, "W/\"e1\"", "{\"stars\":10}", 100)
+            .unwrap();
+        db.seed_repo_payload_if_absent_or_untagged(untagged, "{\"stars\":1}", 50)
+            .unwrap();
+
+        db.seed_repo_payloads_batch(
+            &[
+                (tagged.to_string(), "{\"stars\":99}".to_string()),
+                (untagged.to_string(), "{\"stars\":2}".to_string()),
+                (absent.to_string(), "{\"stars\":3}".to_string()),
+            ],
+            200,
+        )
+        .unwrap();
+
+        let tagged_entry = db.get_etag_entry(tagged).unwrap().unwrap();
+        assert_eq!(tagged_entry.etag, "W/\"e1\"");
+        assert_eq!(tagged_entry.payload_json, "{\"stars\":10}");
+        assert_eq!(tagged_entry.last_checked_at, 100);
+
+        let untagged_entry = db.get_etag_entry(untagged).unwrap().unwrap();
+        assert_eq!(untagged_entry.etag, "");
+        assert_eq!(untagged_entry.payload_json, "{\"stars\":2}");
+        assert_eq!(untagged_entry.last_checked_at, 200);
+
+        let absent_entry = db.get_etag_entry(absent).unwrap().unwrap();
+        assert_eq!(absent_entry.etag, "");
+        assert_eq!(absent_entry.payload_json, "{\"stars\":3}");
+        assert_eq!(absent_entry.last_checked_at, 200);
     }
 }

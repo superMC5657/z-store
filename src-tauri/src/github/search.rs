@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct OnlineSearchResponse {
-    items: Vec<OnlineSearchItem>,
+    items: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,21 +66,38 @@ pub(crate) fn repo_json_is_private(payload_json: &str) -> Option<bool> {
     Some(is_private_flag(private, visibility))
 }
 
-/// Search API 载荷 → 卡片与私有仓库规范 id 集（`probe=false` 置空图标，零 DB）。
+/// Search API 载荷 → 卡片、私有仓库规范 id 集与 `(canonical_id, endpoint_url, raw_json)` 播种三元组（`probe=false` 置空图标，零 DB）。
 async fn summaries_from_search(
     client: &reqwest::Client,
     data: OnlineSearchResponse,
     token: Option<&str>,
-) -> (Vec<AppSummary>, Vec<String>) {
-    let private_ids: Vec<String> = data
-        .items
+) -> (Vec<AppSummary>, Vec<String>, Vec<(String, String, String)>) {
+    let mut items: Vec<OnlineSearchItem> = Vec::with_capacity(data.items.len());
+    let mut repo_payloads: Vec<(String, String, String)> = Vec::with_capacity(data.items.len());
+    for val in data.items {
+        let raw_json = val.to_string();
+        let Ok(it) = serde_json::from_value::<OnlineSearchItem>(val) else {
+            continue;
+        };
+        let owner = it.owner.login.trim();
+        let repo = it.full_name.split('/').nth(1).unwrap_or("").trim();
+        if !owner.is_empty() && !repo.is_empty() {
+            repo_payloads.push((
+                crate::forge::canonical_app_id_from_parts(owner, repo),
+                crate::github::github_repo_endpoint(owner, repo),
+                raw_json,
+            ));
+        }
+        items.push(it);
+    }
+    let private_ids: Vec<String> = items
         .iter()
         .filter(|it| is_private_flag(it.private, it.visibility.as_deref()))
         .filter_map(|it| crate::forge::canonical_app_id(&it.full_name))
         .collect();
     // `probe=false` 不发起任何 I/O，逐条顺序构造即可，无需并发 Future。
-    let mut summaries = Vec::with_capacity(data.items.len());
-    for it in data.items {
+    let mut summaries = Vec::with_capacity(items.len());
+    for it in items {
         let owner = it.owner.login;
         let repo = it.full_name.split('/').nth(1).unwrap_or("").to_string();
         if let Some(ref b) = it.default_branch {
@@ -116,7 +133,7 @@ async fn summaries_from_search(
             .await,
         );
     }
-    (summaries, private_ids)
+    (summaries, private_ids, repo_payloads)
 }
 
 /// 关键词在线搜索的 GitHub Search API 端点（纯函数，亦作 `api_etag_cache` 键）。
@@ -145,12 +162,22 @@ pub(crate) fn online_search_endpoint(
     ))
 }
 
-/// 关键词在线搜索结果：卡片 + 需落库的新 ETag `(url, etag, payload)` + 是否 304 命中（需 touch）+ 是否回退旧载荷。
+/// 关键词在线搜索结果：卡片 + 待落库的新 ETag `(url, etag, payload)` + 是否 304 命中（需 touch）+ 是否回退旧载荷 + 单仓 JSON 播种对。
 #[derive(Debug)]
 pub struct OnlineSearchFetch {
     pub summaries: Vec<AppSummary>,
     /// 本页私有仓库的规范 id（`private`/`visibility == "private"`）。
     pub private_ids: Vec<String>,
+    pub etag_write: Option<(String, String, String)>,
+    pub touched_url: Option<String>,
+    pub is_stale: bool,
+    /// 各条目对应的 `(canonical_id, /repos/{owner}/{repo}, raw_json)`（供跨链路播种 `api_etag_cache`）。
+    pub repo_payloads: Vec<(String, String, String)>,
+}
+
+/// 单仓条件请求结果（区分 `200 Fresh` / `304 NotModified` / 离线旧载荷回退 `is_stale`）。
+pub(crate) struct RepoEtagFetchOutcome {
+    pub item: AppSummary,
     pub etag_write: Option<(String, String, String)>,
     pub touched_url: Option<String>,
     pub is_stale: bool,
@@ -182,6 +209,7 @@ impl CatalogService {
                 etag_write: None,
                 touched_url: None,
                 is_stale: false,
+                repo_payloads: Vec::new(),
             });
         };
         let client = super::http::build_api_client()?;
@@ -197,26 +225,30 @@ impl CatalogService {
             EtagGetOutcome::Fresh { text, etag } => {
                 let data: OnlineSearchResponse = serde_json::from_str(&text)
                     .map_err(|e| format!("解析 GitHub 搜索结果失败: {}", e))?;
-                let (summaries, private_ids) = summaries_from_search(&client, data, token).await;
+                let (summaries, private_ids, repo_payloads) =
+                    summaries_from_search(&client, data, token).await;
                 Ok(OnlineSearchFetch {
                     summaries,
                     private_ids,
                     etag_write: etag.map(|e| (url, e, text)),
                     touched_url: None,
                     is_stale: false,
+                    repo_payloads,
                 })
             }
             EtagGetOutcome::NotModified => {
                 let data: OnlineSearchResponse = cached_ok
                     .and_then(|p| serde_json::from_str(p).ok())
                     .ok_or_else(|| "GitHub 搜索缓存缺失".to_string())?;
-                let (summaries, private_ids) = summaries_from_search(&client, data, token).await;
+                let (summaries, private_ids, repo_payloads) =
+                    summaries_from_search(&client, data, token).await;
                 Ok(OnlineSearchFetch {
                     summaries,
                     private_ids,
                     etag_write: None,
                     touched_url: Some(url),
                     is_stale: false,
+                    repo_payloads,
                 })
             }
             EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed => {
@@ -226,7 +258,7 @@ impl CatalogService {
                 if let Some(data) =
                     cached_ok.and_then(|p| serde_json::from_str::<OnlineSearchResponse>(p).ok())
                 {
-                    let (summaries, private_ids) =
+                    let (summaries, private_ids, repo_payloads) =
                         summaries_from_search(&client, data, token).await;
                     return Ok(OnlineSearchFetch {
                         summaries,
@@ -234,6 +266,7 @@ impl CatalogService {
                         etag_write: None,
                         touched_url: None,
                         is_stale: true,
+                        repo_payloads,
                     });
                 }
                 Err(match diag.status {
@@ -367,6 +400,31 @@ impl CatalogService {
         .await
     }
 
+    /// 带 `304 NotModified` / `is_stale` 状态区分的单仓条件拉取，供 `enrich_trend_repos` 等续期软 TTL 使用。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn fetch_online_repo_with_etag_outcome(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+        pre_confirmed: Option<String>,
+        cached_etag: Option<String>,
+        cached_payload: Option<String>,
+        probe_icons: bool,
+    ) -> Result<RepoEtagFetchOutcome, String> {
+        self.fetch_online_repo_with_etag_outcome_at(
+            owner,
+            repo,
+            token,
+            pre_confirmed,
+            cached_etag,
+            cached_payload,
+            probe_icons,
+            None,
+        )
+        .await
+    }
+
     /// `fetch_online_repo_with_etag` 的可换 API 基址实现（`api_base` 仅测试指向本地 mock）。
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn fetch_online_repo_with_etag_at(
@@ -380,6 +438,34 @@ impl CatalogService {
         probe_icons: bool,
         api_base: Option<&str>,
     ) -> Result<(AppSummary, Option<(String, String, String)>), String> {
+        let out = self
+            .fetch_online_repo_with_etag_outcome_at(
+                owner,
+                repo,
+                token,
+                pre_confirmed,
+                cached_etag,
+                cached_payload,
+                probe_icons,
+                api_base,
+            )
+            .await?;
+        Ok((out.item, out.etag_write))
+    }
+
+    /// `fetch_online_repo_with_etag_outcome` 的可换 API 基址实现（`api_base` 仅测试指向本地 mock）。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn fetch_online_repo_with_etag_outcome_at(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+        pre_confirmed: Option<String>,
+        cached_etag: Option<String>,
+        cached_payload: Option<String>,
+        probe_icons: bool,
+        api_base: Option<&str>,
+    ) -> Result<RepoEtagFetchOutcome, String> {
         let client = crate::shared_http_client();
         let headers = super::http::token_headers(token);
 
@@ -399,8 +485,13 @@ impl CatalogService {
                     token,
                 )
                 .await?;
-                let etag_to_save = etag.map(|e| (url, e, text));
-                Ok((item, etag_to_save))
+                let etag_write = etag.map(|e| (url, e, text));
+                Ok(RepoEtagFetchOutcome {
+                    item,
+                    etag_write,
+                    touched_url: None,
+                    is_stale: false,
+                })
             }
             super::http::EtagGetOutcome::NotModified => {
                 if let Some(ref cached_text) = cached_payload {
@@ -414,7 +505,12 @@ impl CatalogService {
                         token,
                     )
                     .await?;
-                    return Ok((item, None));
+                    return Ok(RepoEtagFetchOutcome {
+                        item,
+                        etag_write: None,
+                        touched_url: Some(url),
+                        is_stale: false,
+                    });
                 }
                 Err(format!("未找到该 GitHub 仓库: {}/{}", owner, repo))
             }
@@ -431,7 +527,12 @@ impl CatalogService {
                     )
                     .await
                     {
-                        return Ok((item, None));
+                        return Ok(RepoEtagFetchOutcome {
+                            item,
+                            etag_write: None,
+                            touched_url: None,
+                            is_stale: true,
+                        });
                     }
                 }
                 Err(format!("未找到该 GitHub 仓库: {}/{}", owner, repo))

@@ -26,7 +26,7 @@ import {
   putTrendEnrichMemory,
   snapshotTrendEnrichCache,
 } from '../../services/trends';
-import { __resetIconStoreForTests } from '../../services/iconStore';
+import { __resetIconStoreForTests, patchAppIconList } from '../../services/iconStore';
 
 const mocks = vi.hoisted(() => ({
   getAppDetails: vi.fn(),
@@ -118,7 +118,15 @@ interface Harness {
 }
 
 function renderSync(
-  overrides: Partial<Parameters<typeof useDetailCacheSync>[0]> = {},
+  overrides: {
+    selectedApp?: AppDetailViewModel | null;
+    appsRef?: { current: AppSummary[] };
+    fullCatalogAppsRef?: { current: AppSummary[] };
+    onlineAppsRef?: { current: AppSummary[] };
+    recentsRef?: { current: AppSummary[] };
+    setFullCatalogApps?: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+    localApps?: readonly AppSummary[];
+  } = {},
 ): Harness {
   // spies 与 hook 入参对象分离：断言面恒为 vi.fn（无 Dispatch 联合类型）。
   const spies = {
@@ -129,14 +137,43 @@ function renderSync(
     setSelectedApp: vi.fn(),
     setPlatformResolvedOtherIds: vi.fn(),
   };
+  const appsRef = overrides.appsRef ?? { current: [] as AppSummary[] };
+  const fullCatalogAppsRef = overrides.fullCatalogAppsRef ?? { current: [] as AppSummary[] };
+  const onlineAppsRef = overrides.onlineAppsRef ?? { current: [] as AppSummary[] };
+  const recentsRef = overrides.recentsRef ?? { current: [] as AppSummary[] };
+  const patchAllLists = (updater: (prev: AppSummary[]) => AppSummary[]) => {
+    spies.setApps(updater);
+    overrides.setFullCatalogApps?.(updater);
+    spies.setOnlineApps(updater);
+    spies.setRecentlyViewedApps(updater);
+    spies.setUncatalogedExtraApps(updater);
+  };
+  const patchIcons = (tid: string, icon: string) => {
+    patchAllLists((prev) => patchAppIconList(prev, tid, icon));
+  };
+  const findById = (idLower: string) => {
+    const lk = idLower.trim().toLowerCase();
+    return (
+      appsRef.current.find((a) => a.id.toLowerCase() === lk) ??
+      onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk) ??
+      recentsRef.current.find((a) => a.id.toLowerCase() === lk)
+    );
+  };
   const params = {
-    selectedApp: null as AppDetailViewModel | null,
-    appsRef: { current: [] as AppSummary[] },
-    onlineAppsRef: { current: [] as AppSummary[] },
-    recentsRef: { current: [] as AppSummary[] },
-    ...spies,
-    localApps: undefined as readonly AppSummary[] | undefined,
-    ...overrides,
+    catalogLists: {
+      appsRef,
+      fullCatalogAppsRef,
+      onlineAppsRef,
+      recentsRef,
+      setRecentlyViewedApps: spies.setRecentlyViewedApps,
+      patchAllLists,
+      patchIcons,
+      findById,
+    },
+    selectedApp: overrides.selectedApp ?? null,
+    setSelectedApp: spies.setSelectedApp,
+    setPlatformResolvedOtherIds: spies.setPlatformResolvedOtherIds,
+    localApps: overrides.localApps,
   };
   const rendered = renderHook(() =>
     useDetailCacheSync(params as Parameters<typeof useDetailCacheSync>[0]),

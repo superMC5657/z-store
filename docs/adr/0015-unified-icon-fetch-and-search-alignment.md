@@ -36,7 +36,7 @@
 ## 5. 列表与坐标共享裁决
 
 - 列表顺序与分页缓存按视图隔离：搜索 L1 只活搜索页，Star 列表用 `starred` 命名空间。
-- 图标/坐标层共享：前端图标写入口唯一收口 `services/iconStore.ts::admitIconHit`（空永不覆盖实、搜索 `search_id` / 趋势 `board` 世代门控）。
+- 图标/坐标层共享：前端 `zstore://icon-ready` 由根级 `useAppSubscriptions` 单一订阅（`trends/board.ts` 不重复挂载 IPC 监听），图标写入口唯一收口 `services/iconStore.ts::admitIconHit`（空永不覆盖实、按 `context.kind` 正交执行 `search_id` / `board`+`gen` 水位 / `starred` 水位三路世代门控，受理后经 `subscribeIconWrites` 扇出至各视图列表与趋势镜像）。
 - 单仓富卡派生字段三链路双向共享：具平台摘要与已确认 Other 经 `services/repoEnrichCache.ts`（底层即 `trendEnrichCache` / `trendConfirmedOtherCache`）在搜索、趋势与 Star 列表间互通；未确认的 loading 空平台只活当次列表，永不入池（见 ADR-0026 §2.3）。
 
 ## 6. 单一流式路径

@@ -6,6 +6,7 @@
  * - `needsFavoriteIconWarm`：空/非远端需查轮换，合法远端仅文件预热。
  */
 import { renderHook, waitFor } from '@testing-library/react';
+import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../types';
 import { tauriApi } from '../services/api';
@@ -310,6 +311,13 @@ describe('buildRecordCatalogedMap (record wins, false wins)', () => {
   });
 });
 
+function useJoinWithLocalSlot(favoriteIds: Set<string>, watchedIds: Set<string>, apps: AppSummary[]) {
+  const [items, setItems] = useState<AppSummary[]>([]);
+  const ref = useRef<AppSummary[]>([]);
+  ref.current = items;
+  return useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot: { items, setItems, ref } });
+}
+
 describe('useUncatalogedJoin batch filtering & eviction short-circuit', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -321,11 +329,11 @@ describe('useUncatalogedJoin batch filtering & eviction short-circuit', () => {
     const watchedSpy = vi.spyOn(tauriApi, 'getWatchedApps').mockResolvedValue([]);
 
     const { result } = renderHook(() =>
-      useUncatalogedJoin({
-        favoriteIds: new Set(['Catalog/App']),
-        watchedIds: new Set(),
-        apps: [row('catalog/app', ['windows'])],
-      }),
+      useJoinWithLocalSlot(
+        new Set(['Catalog/App']),
+        new Set(),
+        [row('catalog/app', ['windows'])],
+      ),
     );
 
     expect(result.current.uncatalogedExtraApps).toEqual([]);
@@ -360,7 +368,7 @@ describe('useUncatalogedJoin batch filtering & eviction short-circuit', () => {
         favoriteIds: Set<string>;
         watchedIds: Set<string>;
         apps: AppSummary[];
-      }) => useUncatalogedJoin({ favoriteIds, watchedIds, apps }),
+      }) => useJoinWithLocalSlot(favoriteIds, watchedIds, apps),
       {
         initialProps: {
           favoriteIds: new Set(['Catalog/App', 'Unknown/Repo']),

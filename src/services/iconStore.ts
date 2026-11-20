@@ -399,14 +399,148 @@ function hasExistingRealIcon(targets: string[], getCurrentIcon?: AdmitIconHitArg
   return false;
 }
 
-/**
- * 世代门控快照：`search_id`（搜索）/`board`+`gen`（榜单）三段。
- * 双非空不等即过期，任一为空即放行。
- */
+/** 世代门控快照：`kind` + `search_id`（搜索）/`board`+`gen`（榜单）/`gen`（Star）。 */
 interface GenerationGate {
+  kind: string;
   search_id?: string | null;
   board?: string | null;
   gen?: number | null;
+  minGen?: number;
+}
+
+/**
+ * 趋势 / Star 列表模块级世代门控：
+ * 各视图通过下列 setter/watermark 声明期望世代，
+ * 拦截切榜、强刷与换账号/新查询瞬间仍在途的旧 IPC 事件。
+ */
+interface ViewGateSlot {
+  active: { board?: string; gen?: number } | null;
+  minGenWatermark: number;
+  highestSeenGen: number;
+}
+
+const viewGates: Record<'trend' | 'starred', ViewGateSlot> = {
+  trend: { active: null, minGenWatermark: 0, highestSeenGen: 0 },
+  starred: { active: null, minGenWatermark: 0, highestSeenGen: 0 },
+};
+
+function advanceGateWatermark(slot: ViewGateSlot): void {
+  slot.minGenWatermark = Math.max(slot.minGenWatermark, slot.highestSeenGen);
+}
+
+function resetViewGateSlot(slot: ViewGateSlot): void {
+  slot.active = null;
+  slot.minGenWatermark = 0;
+  slot.highestSeenGen = 0;
+}
+
+export function setActiveTrendIconGate(gate: { board: string; gen?: number } | null): void {
+  const slot = viewGates.trend;
+  if (!gate) {
+    advanceGateWatermark(slot);
+    slot.active = null;
+    return;
+  }
+  if (slot.active?.board && normalizeId(slot.active.board) !== normalizeId(gate.board)) {
+    advanceGateWatermark(slot);
+  }
+  slot.active = { board: gate.board, gen: gate.gen };
+}
+
+export function advanceTrendIconGateOnRefresh(): void {
+  advanceGateWatermark(viewGates.trend);
+}
+
+export function setActiveStarredIconGate(gate: { gen?: number } | null): void {
+  viewGates.starred.active = gate ? { gen: gate.gen } : null;
+}
+
+export function advanceStarredIconGateOnNewQuery(): void {
+  advanceGateWatermark(viewGates.starred);
+}
+
+export interface IconReadyBridgeCallbacks {
+  onBeforeAdmit?: (payload: IconReadyPayload) => void;
+  getCurrentSearchId?: () => string;
+  getCurrentIcon?: (id: string) => string | undefined;
+}
+
+let iconReadyRefCount = 0;
+let iconReadyGen = 0;
+let iconReadyUnlisten: (() => void) | null = null;
+let activeBridgeCallbacks: IconReadyBridgeCallbacks | null = null;
+
+function releaseIconReadyHandle(): void {
+  iconReadyGen += 1;
+  const unlisten = iconReadyUnlisten;
+  iconReadyUnlisten = null;
+  if (unlisten) {
+    try {
+      unlisten();
+    } catch {
+      // 解绑幂等
+    }
+  }
+}
+
+/**
+ * 引用计数共享 `zstore://icon-ready` 订阅：
+ * 全站同时挂载多个消费方（应用级总线与独立趋势会话）时仅注册单条 IPC 监听、每事件仅执行一次 `admitIconHit`；
+ * 独立渲染 `TrendsView` 时亦可自动建立与释放订阅。
+ */
+export function ensureIconReadySubscription(
+  subscribe: (cb: (payload: IconReadyPayload) => void) => Promise<() => void>,
+  callbacks?: IconReadyBridgeCallbacks,
+): () => void {
+  const ownsCallbacks = Boolean(callbacks);
+  if (callbacks) {
+    activeBridgeCallbacks = callbacks;
+  }
+  iconReadyRefCount += 1;
+  if (iconReadyRefCount === 1) {
+    const myGen = ++iconReadyGen;
+    void subscribe((payload) => {
+      if (iconReadyGen !== myGen || iconReadyRefCount === 0) return;
+      const raw = (payload ?? {}) as unknown as Record<string, unknown>;
+      const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+      const ctx = (raw['context'] ?? null) as IconHitContext | null;
+      activeBridgeCallbacks?.onBeforeAdmit?.(payload);
+      admitIconHit({
+        id: asStr(raw['id']),
+        icon: asStr(raw['icon']),
+        level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
+        via: asStr(raw['via']),
+        context: ctx,
+        currentSearchId: activeBridgeCallbacks?.getCurrentSearchId?.(),
+        getCurrentIcon: activeBridgeCallbacks?.getCurrentIcon,
+      });
+    })
+      .then((unlisten) => {
+        if (iconReadyGen !== myGen || iconReadyRefCount === 0) {
+          try {
+            unlisten();
+          } catch {
+            // 迟到解绑忽略异常
+          }
+          return;
+        }
+        iconReadyUnlisten = unlisten;
+      })
+      .catch(() => {});
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (ownsCallbacks && activeBridgeCallbacks === callbacks) {
+      activeBridgeCallbacks = null;
+    }
+    iconReadyRefCount = Math.max(0, iconReadyRefCount - 1);
+    if (iconReadyRefCount === 0) {
+      releaseIconReadyHandle();
+    }
+  };
 }
 
 /**
@@ -853,6 +987,7 @@ function applyBadgeHit(
 /** Incoming generation snapshot from `context` (normalized; empty means no gate). */
 function resolveIncomingGate(ctx: IconHitContext | null | undefined): GenerationGate {
   return {
+    kind: ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '',
     search_id:
       ctx && typeof ctx.search_id === 'string' && ctx.search_id
         ? ctx.search_id
@@ -862,12 +997,36 @@ function resolveIncomingGate(ctx: IconHitContext | null | undefined): Generation
   };
 }
 
-/** Expected generation snapshot (live getters first, static values as fallback; empty means no gate). */
-function resolveExpectedGate(args: AdmitIconHitArgs, incomingBoard: string): GenerationGate {
+function checkGenAndWatermark(
+  incomingGen: number | null | undefined,
+  expectedGen: number | null | undefined,
+  minGen: number | undefined,
+  reason: string,
+): string | undefined {
+  if (typeof incomingGen !== 'number') return undefined;
+  if (typeof expectedGen === 'number' && incomingGen !== expectedGen) return reason;
+  if (typeof minGen === 'number' && minGen > 0 && incomingGen <= minGen) return reason;
+  return undefined;
+}
+
+/** Expected generation snapshot (scoped by `kind`, using live getters / active view gates). */
+function resolveExpectedGate(args: AdmitIconHitArgs, incoming: GenerationGate): GenerationGate {
+  if (incoming.kind === 'starred') {
+    return {
+      kind: 'starred',
+      gen: viewGates.starred.active?.gen,
+      minGen: viewGates.starred.minGenWatermark,
+    };
+  }
+  const activeTrend = viewGates.trend.active;
   let expectedGen: number | undefined;
   try {
     if (typeof args.getBoardGen === 'function') {
-      const key = normalizeId(args.board) || normalizeId(incomingBoard) || undefined;
+      const key =
+        normalizeId(args.board) ||
+        normalizeId(incoming.board) ||
+        normalizeId(activeTrend?.board) ||
+        undefined;
       const v = args.getBoardGen(key);
       if (typeof v === 'number' && Number.isFinite(v)) expectedGen = v;
     }
@@ -881,18 +1040,43 @@ function resolveExpectedGate(args: AdmitIconHitArgs, incomingBoard: string): Gen
   ) {
     expectedGen = args.boardGen;
   }
+  if (incoming.kind === 'trend') {
+    if (expectedGen === undefined && activeTrend?.gen !== undefined) {
+      expectedGen = activeTrend.gen;
+    }
+    const board =
+      typeof args.board === 'string' && args.board
+        ? args.board
+        : (activeTrend?.board ?? '');
+    return {
+      kind: 'trend',
+      board,
+      gen: expectedGen,
+      minGen: viewGates.trend.minGenWatermark,
+    };
+  }
   return {
+    kind: incoming.kind,
     search_id: resolveCurrentSearchId(args),
     board: typeof args.board === 'string' ? args.board : '',
     gen: expectedGen,
   };
 }
 
-/** Generation staleness (`search_id`/`board`/`gen` orthogonal; first mismatch wins, empty always passes). */
+/** Generation staleness scoped by `kind` (`search` / `trend` / `starred`). */
 function findStaleGateReason(
   incoming: GenerationGate,
   expected: GenerationGate,
 ): string | undefined {
+  if (incoming.kind === 'starred' || incoming.kind === 'trend') {
+    if (incoming.kind === 'trend') {
+      const ib = normalizeId(incoming.board);
+      const eb = normalizeId(expected.board);
+      if (ib && eb && ib !== eb) return 'stale-board';
+    }
+    const reason = incoming.kind === 'starred' ? 'stale-starred-gen' : 'stale-board-gen';
+    return checkGenAndWatermark(incoming.gen, expected.gen, expected.minGen, reason);
+  }
   const a = typeof incoming.search_id === 'string' ? incoming.search_id : '';
   const b = typeof expected.search_id === 'string' ? expected.search_id : '';
   if (a && b && a !== b) return 'stale-search-id';
@@ -1061,12 +1245,15 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
   }
   const icon = rawIcon;
 
-  // 世代门控：过期判断只此一处，正交三维（`search_id`/`board`/`gen` 各自双非空不等即过期，任一为空即放行，不看 `kind`）。
+  // 世代门控：按 `context.kind`（search / trend / starred）正交判断过期，拦截跨搜/跨榜/跨查询在途事件。
   const incoming = resolveIncomingGate(args.context ?? null);
-  const incomingBoard = typeof incoming.board === 'string' ? incoming.board : '';
-  const expected = resolveExpectedGate(args, incomingBoard);
+  const expected = resolveExpectedGate(args, incoming);
   const stale = findStaleGateReason(incoming, expected);
   if (stale) return { accepted: false, targets, icon, reason: stale };
+  if ((incoming.kind === 'trend' || incoming.kind === 'starred') && typeof incoming.gen === 'number') {
+    const slot = viewGates[incoming.kind];
+    slot.highestSeenGen = Math.max(slot.highestSeenGen, incoming.gen);
+  }
 
   // `level`纯L单调：数字越小优先级越高，低优不顶高优；缺省即放行且不推进记忆。
   // 仅 1..5 合法；`data:`/`m2` 不推进 `level` 记忆（只做 stale 判定，不写）。
@@ -1092,7 +1279,7 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
   return admitRemoteHit(targets, icon, pureLevel, via, nextLevel, args.patch);
 }
 
-/** 仅供测试：清空 `level`/图标记忆（含展示数据态）。 */
+/** 仅供测试：清空 `level`/图标记忆（含展示数据态与世代门控态）。 */
 export function __resetIconStoreForTests(): void {
   iconLevelById.clear();
   iconById.clear();
@@ -1102,6 +1289,11 @@ export function __resetIconStoreForTests(): void {
   iconPreloadQueue.clear();
   iconPreloadBackoffUntil.clear();
   iconPreloadScheduled = false;
+  resetViewGateSlot(viewGates.trend);
+  resetViewGateSlot(viewGates.starred);
+  iconReadyRefCount = 0;
+  activeBridgeCallbacks = null;
+  releaseIconReadyHandle();
 }
 
 /**

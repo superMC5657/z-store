@@ -78,9 +78,14 @@ pub async fn list_github_starred(
             db.get_cached_payload(&url).ok().flatten(),
         )
     };
-    let fetched = state
+    let is_self_query = username
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .is_none();
+    let fetched = match state
         .catalog
-        .fetch_starred_page(
+        .fetch_starred_page_diag(
             username.as_deref(),
             token.as_deref(),
             page,
@@ -89,11 +94,50 @@ pub async fn list_github_starred(
             cached_payload.as_deref(),
             None,
         )
-        .await?;
+        .await
+    {
+        Ok(out) => out,
+        Err((err, recoverable)) => {
+            let affinity_fallback = if is_self_query && recoverable {
+                state.db().ok().and_then(|db| {
+                    crate::github::developer_starred::slice_self_starred_from_affinity_cache(
+                        &db, page, per_page,
+                    )
+                })
+            } else {
+                None
+            };
+            match affinity_fallback {
+                Some(fallback_page) => crate::github::developer_starred::StarredFetchOutcome {
+                    page: fallback_page,
+                    etag_write: None,
+                    touched_url: None,
+                    is_stale: Some(true),
+                },
+                None => return Err(err.into()),
+            }
+        }
+    };
     let not_modified = fetched.touched_url.is_some();
     let persist_cards = fetched.is_stale != Some(true);
     let etag_write = fetched.etag_write;
     let touched_url = fetched.touched_url;
+    let repo_seeds: Vec<(String, String)> = if persist_cards {
+        fetched
+            .page
+            .repos
+            .iter()
+            .filter(|r| !state.catalog.is_cataloged(&r.coord.id))
+            .map(|r| {
+                (
+                    crate::github::github_repo_endpoint(&r.coord.owner, &r.coord.repo),
+                    r.payload.clone(),
+                )
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let cards = super::catalog_search::cards_from_repo_payloads_offloaded(
         &state,
         fetched.page.repos,
@@ -105,6 +149,9 @@ pub async fn list_github_starred(
             }
             if let Some(u) = &touched_url {
                 let _ = db.touch_etag(u, now);
+            }
+            if !repo_seeds.is_empty() {
+                let _ = db.seed_repo_payloads_batch(&repo_seeds, now);
             }
         },
     )

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
-import { admitIconHit, getBufferedIcon, patchAppIconList } from '../../services/iconStore';
+import { admitIconHit, getBufferedIcon } from '../../services/iconStore';
+import type { CatalogListsStore } from './useCatalogLists';
 import { annotateIsCataloged, buildCatalogIdSet, prepareRecentViews, selectCatalogBase } from '../selectors';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import { resolveRemoteIconUrl } from '../../services/custom';
@@ -23,16 +24,18 @@ import {
 } from '../../services/trends';
 
 interface UseDetailCacheSyncParams {
+  catalogLists: Pick<
+    CatalogListsStore,
+    | 'appsRef'
+    | 'fullCatalogAppsRef'
+    | 'onlineAppsRef'
+    | 'recentsRef'
+    | 'setRecentlyViewedApps'
+    | 'patchAllLists'
+    | 'patchIcons'
+    | 'findById'
+  >;
   selectedApp: AppDetailViewModel | null;
-  appsRef: React.MutableRefObject<AppSummary[]>;
-  fullCatalogAppsRef?: React.MutableRefObject<AppSummary[]>;
-  onlineAppsRef: React.MutableRefObject<AppSummary[]>;
-  recentsRef: React.MutableRefObject<AppSummary[]>;
-  setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setFullCatalogApps?: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setUncatalogedExtraApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   setSelectedApp: React.Dispatch<React.SetStateAction<AppDetailViewModel | null>>;
   setPlatformResolvedOtherIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   /** 本地收录合并行（含 source='local'/status，供详情 Header 黄标判定；不改排序/去重）。 */
@@ -79,20 +82,22 @@ function findCuratedEntry(
 }
 
 export function useDetailCacheSync({
+  catalogLists,
   selectedApp,
-  appsRef,
-  fullCatalogAppsRef,
-  onlineAppsRef,
-  recentsRef,
-  setApps,
-  setFullCatalogApps,
-  setOnlineApps,
-  setRecentlyViewedApps,
-  setUncatalogedExtraApps,
   setSelectedApp,
   setPlatformResolvedOtherIds,
   localApps,
 }: UseDetailCacheSyncParams) {
+  const {
+    appsRef,
+    fullCatalogAppsRef,
+    onlineAppsRef,
+    recentsRef,
+    setRecentlyViewedApps,
+    patchAllLists,
+    patchIcons,
+    findById,
+  } = catalogLists;
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
   const activeDetailIdRef = useRef<string | null>(null);
   const selectedAppRef = useRef<AppDetailViewModel | null>(null);
@@ -379,22 +384,8 @@ export function useDetailCacheSync({
       });
       return changed ? next : prev;
     };
-    // 双键（idClean + detail.id，大小写不敏感）：与 patchSummary 同目标口径，覆盖两者不一致
-    // 图标写口唯一经店内 `admitIconHit`（写透四列表 + 文件预热 + M1 缓冲，不走窗口总线）。
-    const iconPatch = (tid: string, icon: string): void => {
-      setApps((prev) => patchAppIconList(prev, tid, icon));
-      setFullCatalogApps?.((prev) => patchAppIconList(prev, tid, icon));
-      setOnlineApps((prev) => patchAppIconList(prev, tid, icon));
-      setRecentlyViewedApps((prev) => patchAppIconList(prev, tid, icon));
-      setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
-    };
-    setApps(patchList);
-    setFullCatalogApps?.(patchList);
-    // 在线段与本地段上下分段展示：详情回填打内存补丁到 onlineApps（店内 `admitIconHit` 写透，不走窗口总线）
-    setOnlineApps(patchList);
-    setRecentlyViewedApps(patchList);
-    // 收藏占位行同步治愈：`favoriteIds ∖ apps` 合成行也在详情回填口径内（标记保持不动）
-    setUncatalogedExtraApps(patchList);
+    // 图标写口唯一经店内 `admitIconHit`（经 catalogLists.patchIcons 写透全部列表 + 文件预热 + M1 缓冲）。
+    patchAllLists(patchList);
     // 搜索列表 M1 缓存全字段写透：翻页/重搜回访时立即呈现详情更新后的最新数据
     patchSearchListCacheRows(patchList);
     // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
@@ -452,16 +443,7 @@ export function useDetailCacheSync({
     // dirty 非空或已确认 other 即派发富卡事件（含 platforms 仅非空才带）；旧事件与 icon 通道不动。
     if (!isStaleDetail) {
       try {
-        const prevLookup = (k: string): AppSummary | undefined => {
-          const lk = k.trim().toLowerCase();
-          if (!lk) return undefined;
-          return (
-            appsRef.current.find((a) => a.id.toLowerCase() === lk) ??
-            onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk) ??
-            recentsRef.current.find((a) => a.id.toLowerCase() === lk)
-          );
-        };
-        const healed = upsertTrendEnrichRichcard(detail, prevLookup);
+        const healed = upsertTrendEnrichRichcard(detail, findById);
         if (healed && (healed.dirtyFields.length > 0 || detailConfirmedEmpty)) {
           const richKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
           const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
@@ -483,30 +465,27 @@ export function useDetailCacheSync({
     }
 
     if (patchedIcon) {
-      // 详情实图：经店内唯一写口（buffer + 文件预热 + 四列表写透）。
+      // 详情实图：经店内唯一写口（buffer + 文件预热 + 全列表写透）。
       // patchedIcon 已剥 data:（上分流），此处恒为转正 http，直送安全。
-      admitIconHit({ id: idClean, icon: patchedIcon, patch: iconPatch });
+      admitIconHit({ id: idClean, icon: patchedIcon, patch: patchIcons });
     } else {
       // 卡有 http 实图 + M1 命中即跳过 restoreOrFetchIconCycle（省 IPC，所见即存）：
       // 列表已有转正 http 直接画，缓冲已有实图首绘即对；仅双空才走 cycle 兜底。
       // data: 不触发此处（已分流，Header 经 iconOverride 即时看）。
       // 安全说明：每次进详情 Header 必挂载并无条件调 restoreOrFetchIconCycle（Header.tsx），
-      // 同一结果经店内唯一写口扇出到四列表，故此处跳过只是省掉重复 IPC，不丢加载。
+      // 同一结果经店内唯一写口扇出到全列表，故此处跳过只是省掉重复 IPC，不丢加载。
       const bufferedHit = getBufferedIcon(idClean);
       if (typeof bufferedHit === 'string' && bufferedHit.trim() !== '') {
         return;
       }
-      const cardIcon =
-        appsRef.current.find((a) => a.id.toLowerCase() === idClean)?.icon ??
-        onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean)?.icon ??
-        recentsRef.current.find((a) => a.id.toLowerCase() === idClean)?.icon;
+      const cardIcon = findById(idClean)?.icon;
       if (
         typeof cardIcon === 'string' &&
         (cardIcon.trim().startsWith('http://') || cardIcon.trim().startsWith('https://'))
       ) {
         return;
       }
-      // detail.icon 为空：详情弹窗靠 Header 轮换态照常显示，列表三段用 iconCycle.url 经店内写口回填落盘。
+      // detail.icon 为空：详情弹窗靠 Header 轮换态照常显示，列表用 iconCycle.url 经店内写口回填落盘。
       void tauriApi.restoreOrFetchIconCycle(idClean).then((cycle) => {
         // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url=可持久化 URL；
         // 落盘/回填一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
@@ -518,17 +497,17 @@ export function useDetailCacheSync({
           // cycle 空但非 L5 时按下 `admitIconHit` 空守卫自然丢弃，保持占位）。
           const emptyLevel = typeof cycle?.level === 'number' && cycle.level === 5 ? 5 : undefined;
           if (emptyLevel === 5) {
-            admitIconHit({ id: idClean, icon: '', level: 5, patch: iconPatch });
+            admitIconHit({ id: idClean, icon: '', level: 5, patch: patchIcons });
           }
           return;
         }
         const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
-        admitIconHit({ id: idClean, icon: persistUrl, level: cycleLevel, patch: iconPatch });
+        admitIconHit({ id: idClean, icon: persistUrl, level: cycleLevel, patch: patchIcons });
       }).catch(() => {
         // 取不到轮换图标则保持占位，不阻塞
       });
     }
-  }, [annotateEntry, appsRef, onlineAppsRef, recentsRef, setApps, setFullCatalogApps, setUncatalogedExtraApps, setOnlineApps, setPlatformResolvedOtherIds, setRecentlyViewedApps, setSelectedApp]);
+  }, [annotateEntry, findById, patchAllLists, patchIcons, setPlatformResolvedOtherIds, setSelectedApp]);
 
   // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
   // 经 useCallback + ref 稳定：搜索键入改 apps 时回调引用不变，memo 卡片不跟风重渲染

@@ -8,7 +8,7 @@
  * - 领域词：`IconFetch` → `icon-ready` → `admitIconHit`；`Search List Cache` 组装经缓冲回读。
  * - 合规：`normalizeId` 归一遵 ADR-0010；level 纯L + `via` 正交遵 ADR-0015；展示分层遵 ADR-0005。
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSEMBLED_ROW_ICON_QUEUE_CAP,
   __flushIconPreloadsForTests,
@@ -17,12 +17,18 @@ import {
   __resetIconWriteSubscribersForTests,
   __setIconDataCacheForTests,
   admitIconHit,
+  advanceStarredIconGateOnNewQuery,
+  advanceTrendIconGateOnRefresh,
+  ensureIconReadySubscription,
   getBufferedIcon,
   isIconPersistedOrQueued,
   patchIconMirror,
   queueAssembledRowIcons,
   resolveIconWithBuffer,
+  setActiveStarredIconGate,
+  setActiveTrendIconGate,
   subscribeIconWrites,
+  type IconReadyPayload,
 } from './iconStore';
 
 const REAL = 'https://cdn.simpleicons.org/r';
@@ -125,5 +131,141 @@ describe('deepen icon-write seam behind single interface', () => {
     } as never as Record<string, never>;
     const viaStore = patchIconMirror(prev as never, 'o/r', '');
     expect((viaStore as Record<string, { icon: string }>)['o/r'].icon).toBe('');
+  });
+
+  it('三维世代门控：trend board/gen 与 starred 水位正交拦截在途旧事件', () => {
+    setActiveTrendIconGate({ board: 'weekly' });
+    // 1. 同榜 gen=1 受理并记录水位
+    const t1 = admitIconHit({
+      id: 'o/t1',
+      icon: REAL,
+      level: 2,
+      context: { kind: 'trend', board: 'weekly', gen: 1 },
+      currentSearchId: 'sid-active',
+    });
+    expect(t1.accepted).toBe(true);
+
+    // 2. 切榜到 daily：旧榜 weekly 与旧世代 gen=1 一律拦截
+    setActiveTrendIconGate({ board: 'daily' });
+    const staleBoard = admitIconHit({
+      id: 'o/t2',
+      icon: REAL,
+      level: 2,
+      context: { kind: 'trend', board: 'weekly', gen: 2 },
+    });
+    expect(staleBoard.accepted).toBe(false);
+    expect(staleBoard.reason).toBe('stale-board');
+
+    const staleTrendGen = admitIconHit({
+      id: 'o/t3',
+      icon: REAL,
+      level: 2,
+      context: { kind: 'trend', board: 'daily', gen: 1 },
+    });
+    expect(staleTrendGen.accepted).toBe(false);
+    expect(staleTrendGen.reason).toBe('stale-board-gen');
+
+    // 3. 新榜 gen=2 受理；同榜强刷推进水位后 gen=2 变过期，gen=3 放行
+    expect(
+      admitIconHit({
+        id: 'o/t4',
+        icon: REAL,
+        level: 2,
+        context: { kind: 'trend', board: 'daily', gen: 2 },
+      }).accepted,
+    ).toBe(true);
+    advanceTrendIconGateOnRefresh();
+    expect(
+      admitIconHit({
+        id: 'o/t5',
+        icon: REAL,
+        level: 2,
+        context: { kind: 'trend', board: 'daily', gen: 2 },
+      }).reason,
+    ).toBe('stale-board-gen');
+    expect(
+      admitIconHit({
+        id: 'o/t6',
+        icon: REAL,
+        level: 2,
+        context: { kind: 'trend', board: 'daily', gen: 3 },
+      }).accepted,
+    ).toBe(true);
+
+    // 4. Starred 水位与显式 gen 门控：不受 trend/search 门控干扰
+    expect(
+      admitIconHit({
+        id: 'o/s1',
+        icon: REAL,
+        level: 2,
+        context: { kind: 'starred', gen: 5 },
+        currentSearchId: 'sid-active',
+      }).accepted,
+    ).toBe(true);
+    advanceStarredIconGateOnNewQuery();
+    const staleStar = admitIconHit({
+      id: 'o/s2',
+      icon: REAL,
+      level: 2,
+      context: { kind: 'starred', gen: 5 },
+    });
+    expect(staleStar.accepted).toBe(false);
+    expect(staleStar.reason).toBe('stale-starred-gen');
+    setActiveStarredIconGate({ gen: 6 });
+    expect(
+      admitIconHit({
+        id: 'o/s3',
+        icon: REAL,
+        level: 2,
+        context: { kind: 'starred', gen: 6 },
+      }).accepted,
+    ).toBe(true);
+
+    // 5. 卸载置 null 时推进水位：重进同榜后旧 gen=3 在途事件仍被拦截
+    setActiveTrendIconGate(null);
+    setActiveTrendIconGate({ board: 'daily' });
+    const postDispose = admitIconHit({
+      id: 'o/t7',
+      icon: REAL,
+      level: 2,
+      context: { kind: 'trend', board: 'daily', gen: 3 },
+    });
+    expect(postDispose.accepted).toBe(false);
+    expect(postDispose.reason).toBe('stale-board-gen');
+  });
+
+  it('ensureIconReadySubscription 引用计数：双消费方仅挂单条监听、单次 admit、全释放才解绑', async () => {
+    let listener: ((payload: IconReadyPayload) => void) | undefined;
+    const unlisten = vi.fn();
+    const subscribe = vi.fn(async (cb: (payload: IconReadyPayload) => void) => {
+      listener = cb;
+      return unlisten;
+    });
+    const seen: unknown[] = [];
+    const unsubWrites = subscribeIconWrites((h) => seen.push(h));
+    try {
+      const rel1 = ensureIconReadySubscription(subscribe, {
+        getCurrentSearchId: () => 'sid-1',
+      });
+      const rel2 = ensureIconReadySubscription(subscribe);
+      await Promise.resolve();
+      expect(subscribe).toHaveBeenCalledTimes(1);
+
+      listener?.({
+        id: 'o/shared',
+        icon: REAL,
+        level: 2,
+        via: 'live',
+        context: { kind: 'search', search_id: 'sid-1' },
+      });
+      expect(seen).toHaveLength(1);
+
+      rel2();
+      expect(unlisten).not.toHaveBeenCalled();
+      rel1();
+      expect(unlisten).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubWrites();
+    }
   });
 });

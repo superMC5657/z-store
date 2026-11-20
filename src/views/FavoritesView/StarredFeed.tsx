@@ -13,7 +13,7 @@ import {
 } from '../../services/search/searchListCache';
 import { appendUniqueOnlineRows, assembleOnlineRowsWithIcons } from '../../services/search/onlineRows';
 import { normalizeId, normalizeIdLowerSet } from '../../services/normalizeId';
-import { patchAppIconList, subscribeIconWrites } from '../../services/iconStore';
+import { advanceStarredIconGateOnNewQuery, patchAppIconList, subscribeIconWrites } from '../../services/iconStore';
 import {
   hydrateCardsByIds,
   recordSharedConfirmedOthers,
@@ -297,6 +297,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     const current = targetRef.current;
     if (current && !belongsToLogin(current, login)) {
       queryGenRef.current++;
+      advanceStarredIconGateOnNewQuery();
       targetRef.current = null;
       emptyPagesRef.current = [];
       pageIdsRef.current = [];
@@ -355,7 +356,6 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
 
   const { resolvedOtherIds } = useListPlatformBackfill({
     rows,
-    rowsRef,
     setRows,
     seqRef: queryGenRef,
     sharedResolvedOtherIds: platformResolvedOtherIds,
@@ -427,6 +427,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       target.username !== undefined ? { mode: 'user', username: target.username } : { mode: 'self' },
     );
     const gen = ++queryGenRef.current;
+    advanceStarredIconGateOnNewQuery();
     setError(null);
 
     const resync = target.key === queryKey && targetRef.current?.key === target.key;

@@ -185,6 +185,10 @@ pub(crate) fn hidden_rule_ids(
         .collect())
 }
 
+/// `api_etag_cache` 仓库载荷软 TTL（12 小时，对齐趋势 L2 周期）：未满 12h 零网络秒返，
+/// 满 12h 后进入条件请求发 `If-None-Match`（`304` 零配额 `touch_etag` 续期）。
+pub(crate) const ENRICH_ETAG_SOFT_TTL_SECS: i64 = 12 * 3600;
+
 /// 一批行的本地回填快照：已解析确认图标 + `app_icon_cycles` + `repo_card_cache` + `app_details` 摘要
 /// + `api_etag_cache`。加载阶段每表常数次分片查询；回填计算阶段零 SQL、零磁盘。
 #[derive(Default)]
@@ -193,7 +197,7 @@ pub(crate) struct BackfillCtx {
     icons: crate::icons::ResolvedIcons,
     cards: HashMap<String, crate::db::RepoCardSnapshot>,
     details: HashMap<String, crate::models::AppDetail>,
-    etags: HashMap<String, (String, String)>,
+    etags: HashMap<String, crate::db::etag::EtagCacheEntry>,
 }
 
 /// `BackfillCtx` 的预读键集合。
@@ -277,9 +281,7 @@ impl BackfillCtx {
             details: db
                 .get_app_detail_summaries_batch(&keys.ids, false)
                 .unwrap_or_default(),
-            etags: db
-                .get_etags_and_payloads_batch(&keys.urls)
-                .unwrap_or_default(),
+            etags: db.get_etag_entries_batch(&keys.urls).unwrap_or_default(),
             icons: known.cloned().unwrap_or_default(),
             cycles,
         };
@@ -314,11 +316,45 @@ impl BackfillCtx {
     }
 
     fn etag(&self, url: &str) -> Option<String> {
-        self.etags.get(url).map(|(etag, _)| etag.clone())
+        self.etags
+            .get(url)
+            .map(|e| e.etag.trim())
+            .filter(|e| !e.is_empty())
+            .map(str::to_string)
     }
 
     fn payload(&self, url: &str) -> Option<String> {
-        self.etags.get(url).map(|(_, payload)| payload.clone())
+        self.etags.get(url).map(|e| e.payload_json.clone())
+    }
+
+    /// 仅当 `api_etag_cache` 条目存在且在 `max_age_secs` 软 TTL 窗口内时返回载荷。
+    fn fresh_etag_payload(&self, url: &str, now: i64, max_age_secs: i64) -> Option<String> {
+        let entry = self.etags.get(url)?;
+        if now >= entry.last_checked_at && now.saturating_sub(entry.last_checked_at) < max_age_secs
+        {
+            Some(entry.payload_json.clone())
+        } else {
+            None
+        }
+    }
+
+    /// 抽取 `api_etag_cache` 条件请求参数 `(cached_etag, cached_payload, soft_fresh_payload)`。
+    fn enrich_etag_inputs(
+        &self,
+        repo_url: &str,
+        now: i64,
+        is_force: bool,
+    ) -> (Option<String>, Option<String>, Option<String>) {
+        let cached_payload = self.payload(repo_url);
+        if is_force {
+            (None, cached_payload, None)
+        } else {
+            (
+                self.etag(repo_url),
+                cached_payload,
+                self.fresh_etag_payload(repo_url, now, ENRICH_ETAG_SOFT_TTL_SECS),
+            )
+        }
     }
 }
 
@@ -560,17 +596,52 @@ fn project_curated_hit(
     project_curated_hit_in(&ctx, catalog, item)
 }
 
-/// 单仓直查命中：卡片 + 平台已确认 Other + 私有标记。
+/// 单仓直查命中：卡片 + 平台已确认 Other + 私有标记 + 是否需后台流式补图。
 struct DirectLookupHit {
     item: AppSummary,
     confirmed_other: bool,
     is_private: bool,
+    needs_icon_stream: bool,
+}
+
+/// 派生搜索结果后台流式图标探测（按 `SEARCH_GEN` 协作取消）。
+fn spawn_search_icon_stream(
+    app_handle: &AppHandle,
+    candidates: Vec<crate::icons::RepoCoord>,
+    token: Option<String>,
+    search_id: &str,
+    stop_gen: u64,
+) {
+    if candidates.is_empty() {
+        return;
+    }
+    let handle = app_handle.clone();
+    let jobs: Vec<crate::icons::IconFetchJob> = candidates
+        .into_iter()
+        .map(|coord| {
+            coord.into_job(crate::icons::IconFetchCtx::Search {
+                search_id: search_id.to_string(),
+                gen: stop_gen,
+            })
+        })
+        .collect();
+    let cfg = crate::config::get_project_config().limits.icon_fetch;
+    let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
+        std::sync::Arc::new(move || SEARCH_GEN.load(Ordering::SeqCst) != stop_gen);
+    tokio::spawn(crate::icons::fetch_icons_stream(
+        handle,
+        jobs,
+        token,
+        cfg,
+        emit_icon_job,
+        Some(should_stop),
+    ));
 }
 
 /// GitHub 单仓直查（`owner/repo`、`https://github.com/...`、`gh:...`）：
 /// 非强刷先查本地富卡（收录库 / 新鲜单仓富卡 / 详情缓存 / 仓库 ETag 载荷），未命中再走 `/repos/{o}/{r}` 条件请求；
 /// 返回前统一回填详情与 `releases/latest` 平台、确认图标并盖收录章，未收录行写入 `repo_card_cache`。
-/// 失败返回 `None`，由调用方回退关键词搜索。
+/// 首屏不阻塞同步探图；缺确认图标时由调用方派生 `fetch_icons_stream`。失败返回 `None`，由调用方回退关键词搜索。
 async fn direct_github_lookup(
     state: &AppState,
     coord: &crate::forge::UniversalRepoCoord,
@@ -587,12 +658,9 @@ async fn direct_github_lookup(
     pre_keys.add_coord(&target, true);
     let pre_ctx = prefetch_backfill(state, &pre_keys, None, |_| {}).await;
     let pre_confirmed = pre_ctx.confirmed_icon(&target.id, &target.owner, &target.repo);
-    let cached_etag = if is_force {
-        None
-    } else {
-        pre_ctx.etag(&repo_url)
-    };
-    let cached_payload = pre_ctx.payload(&repo_url);
+    let now = crate::now_secs();
+    let (cached_etag, cached_payload, soft_fresh_payload) =
+        pre_ctx.enrich_etag_inputs(&repo_url, now, is_force);
     let local_hit = if is_force {
         None
     } else {
@@ -601,28 +669,29 @@ async fn direct_github_lookup(
             &state.catalog,
             &target,
             pre_confirmed.as_deref(),
-            cached_payload.as_deref(),
+            soft_fresh_payload.as_deref(),
             true,
         )
     };
     let from_repo_card = matches!(&local_hit, Some((_, LocalHitSource::RepoCard)));
-    let (mut item, etag_write) = match local_hit {
-        Some((hit, _)) => (hit, None),
+    let (mut item, etag_write, touched_url, is_stale_hit) = match local_hit {
+        Some((hit, _)) => (hit, None, None, false),
         None => {
             let token = crate::commands::resolve_active_github_token(state);
-            state
+            let out = state
                 .catalog
-                .fetch_online_repo_with_etag(
+                .fetch_online_repo_with_etag_outcome(
                     &target.owner,
                     &target.repo,
                     token.as_deref(),
-                    pre_confirmed,
+                    Some(pre_confirmed.clone().unwrap_or_default()),
                     cached_etag,
                     cached_payload.clone(),
-                    true,
+                    false,
                 )
                 .await
-                .ok()?
+                .ok()?;
+            (out.item, out.etag_write, out.touched_url, out.is_stale)
         }
     };
     let payload_private = etag_write
@@ -634,8 +703,12 @@ async fn direct_github_lookup(
     post_keys.add_item(&item);
     post_keys.add_curated(&state.catalog, &item);
     let ctx = prefetch_backfill(state, &post_keys, Some(&pre_ctx.icons), |db| {
+        let now = crate::now_secs();
         if let Some((url, etag, text)) = &etag_write {
-            let _ = db.save_etag(url, etag, text, crate::now_secs());
+            let _ = db.save_etag(url, etag, text, now);
+        }
+        if let Some(url) = &touched_url {
+            let _ = db.touch_etag(url, now);
         }
     })
     .await;
@@ -644,11 +717,13 @@ async fn direct_github_lookup(
     if !project_curated_hit_in(&ctx, &state.catalog, &mut item) {
         let cycle = backfill_uncataloged_card_in(&ctx, &mut item);
         confirmed_other = repo_card_confirmed_other(&ctx, &item);
-        let staged_card = if from_repo_card {
-            card_private = ctx
-                .card(&item.core.id)
-                .and_then(|s| s.card.as_ref())
-                .is_some_and(|c| c.is_private);
+        let staged_card = if from_repo_card || is_stale_hit {
+            if from_repo_card {
+                card_private = ctx
+                    .card(&item.core.id)
+                    .and_then(|s| s.card.as_ref())
+                    .is_some_and(|c| c.is_private);
+            }
             None
         } else {
             stage_repo_card(&state.catalog, &item, confirmed_other, payload_private)
@@ -665,10 +740,14 @@ async fn direct_github_lookup(
         }
     }
     state.catalog.stamp_summary(&mut item);
+    let needs_icon_stream = !state.catalog.is_cataloged(&item.core.id)
+        && !item.core.icon.contains("simpleicons.org")
+        && item.core.icon.trim().is_empty();
     Some(DirectLookupHit {
         item,
         confirmed_other,
         is_private: payload_private.unwrap_or(card_private),
+        needs_icon_stream,
     })
 }
 
@@ -733,6 +812,7 @@ pub async fn search_apps_online(
     let actual_search_id = search_id.unwrap_or_else(|| current_gen.to_string());
     // 直查单条：page>1 直接回空（与 mock/前端翻页契约对齐，避免翻页重复首条）。
     let eff_page = crate::config::LimitsConfig::normalize_online_search_page(page);
+    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state)?;
     // 1. 优先检查是否为多源 (Codeberg, Gitea, 自建源) 仓库 URL 或 short syntax
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&query) {
         if coord.forge != crate::forge::ForgeType::GitHub {
@@ -773,6 +853,12 @@ pub async fn search_apps_online(
                     .dev("force", is_force);
                 ev.info();
                 let app_id = coord.to_app_id();
+                if hidden_ids.contains(&app_id) {
+                    return Ok(OnlineSearchResult::rows_only(
+                        Vec::new(),
+                        actual_search_id.clone(),
+                    ));
+                }
                 let icon =
                     resolve_confirmed_icon_offloaded(&state, &app_id, &coord.owner, &coord.repo)
                         .await
@@ -832,6 +918,12 @@ pub async fn search_apps_online(
                 ));
             }
             if let Some(hit) = direct_github_lookup(&state, &coord, is_force).await {
+                if hidden_ids.contains(&hit.item.core.id) {
+                    return Ok(OnlineSearchResult::rows_only(
+                        Vec::new(),
+                        actual_search_id.clone(),
+                    ));
+                }
                 let mut ev =
                     crate::z_log::WideEvent::new("search", "online ok").with_started(search_start);
                 ev.field("query", crate::log_support::short_reason(&query))
@@ -839,6 +931,21 @@ pub async fn search_apps_online(
                     .dev("mode", "direct")
                     .dev("force", is_force);
                 ev.info();
+                if hit.needs_icon_stream {
+                    let token = crate::commands::resolve_active_github_token(&state);
+                    let icon_coord = crate::icons::RepoCoord {
+                        id: hit.item.core.id.to_lowercase(),
+                        owner: hit.item.core.owner.clone(),
+                        repo: hit.item.core.repo.clone(),
+                    };
+                    spawn_search_icon_stream(
+                        &app_handle,
+                        vec![icon_coord],
+                        token,
+                        &actual_search_id,
+                        current_gen,
+                    );
+                }
                 let id = hit.item.core.id.to_lowercase();
                 let mut result =
                     OnlineSearchResult::rows_only(vec![hit.item], actual_search_id.clone());
@@ -854,7 +961,6 @@ pub async fn search_apps_online(
     }
 
     let token = crate::commands::resolve_active_github_token(&state);
-    let hidden_ids: std::collections::HashSet<String> = hidden_rule_ids(&state)?;
 
     // 关键词搜索走 `api_etag_cache` 条件请求：非强刷时短锁预读 ETag 与旧载荷，`await` 期间零 DB。
     let endpoint = crate::github::search::online_search_endpoint(&query, page, per_page);
@@ -900,6 +1006,16 @@ pub async fn search_apps_online(
     let mut confirmed_other_set: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     let mut results = fetched.summaries;
+    let repo_seeds: Vec<(String, String)> = if search_stale {
+        Vec::new()
+    } else {
+        fetched
+            .repo_payloads
+            .into_iter()
+            .filter(|(id, _, _)| !state.catalog.is_cataloged(id))
+            .map(|(_, url, json)| (url, json))
+            .collect()
+    };
 
     // 整页批量预读（短锁，ETag 落库/保鲜同一临界区）→ 释放锁读图标文件 → 纯内存回填；
     // icon_cycle 与单仓富卡写包各一次事务批量落库。
@@ -915,6 +1031,9 @@ pub async fn search_apps_online(
         }
         if let Some(url) = &fetched.touched_url {
             let _ = db.touch_etag(url, now);
+        }
+        if !repo_seeds.is_empty() {
+            let _ = db.seed_repo_payloads_batch(&repo_seeds, now);
         }
     })
     .await;
@@ -1006,36 +1125,13 @@ pub async fn search_apps_online(
             .collect()
     };
 
-    if !candidates.is_empty() {
-        let handle = app_handle.clone();
-        let sid = actual_search_id.clone();
-        let bg_token = token.clone();
-        // 搜索与趋势统一走流式路（见 ADR-0015 §7）：
-        // pool=5 buffer_unordered、快命中即返不等慢、慢仅快未命中且有 token 时跑、
-        // 整批总量按页伸缩、逐张到达 emit。
-        let jobs: Vec<crate::icons::IconFetchJob> = candidates
-            .into_iter()
-            .map(|coord| {
-                coord.into_job(crate::icons::IconFetchCtx::Search {
-                    search_id: sid.clone(),
-                    gen: current_gen,
-                })
-            })
-            .collect();
-        let cfg = crate::config::get_project_config().limits.icon_fetch;
-        // 协作取消：重搜后旧世代 job 开探前即止（在飞探完仍走 emit，由 save_and_emit 收敛）。
-        let stop_gen = current_gen;
-        let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
-            std::sync::Arc::new(move || SEARCH_GEN.load(Ordering::SeqCst) != stop_gen);
-        tokio::spawn(crate::icons::fetch_icons_stream(
-            handle,
-            jobs,
-            bg_token,
-            cfg,
-            emit_icon_job,
-            Some(should_stop),
-        ));
-    }
+    spawn_search_icon_stream(
+        &app_handle,
+        candidates,
+        token,
+        &actual_search_id,
+        current_gen,
+    );
 
     let row_ids: Vec<String> = filtered_results
         .iter()
@@ -1211,11 +1307,12 @@ fn resolve_local_enrich_hit_in(
     None
 }
 
-/// 单仓直查结果：卡片、待落库 ETag，以及是否为远端（含 `304`）成功结果（失败回退为 `false`）。
+/// 单仓直查结果：卡片、待落库 ETag、304 待 touch 端点，以及是否为远端（含 `304`）成功结果（失败回退为 `false`）。
 #[derive(Default)]
 struct EnrichFetchOutcome {
     item: Option<AppSummary>,
     etag: Option<(String, String, String)>,
+    touched_url: Option<String>,
     fetched: bool,
 }
 
@@ -1236,7 +1333,7 @@ async fn fetch_enrich_batch(
             }
             match tokio::time::timeout(
                 timeout_each,
-                catalog.fetch_online_repo_with_etag(
+                catalog.fetch_online_repo_with_etag_outcome(
                     &job.coord.owner,
                     &job.coord.repo,
                     token.as_deref(),
@@ -1249,14 +1346,16 @@ async fn fetch_enrich_batch(
             )
             .await
             {
-                Ok(Ok((item, etag_to_save))) => EnrichFetchOutcome {
-                    item: Some(item),
-                    etag: etag_to_save,
-                    fetched: true,
+                Ok(Ok(out)) => EnrichFetchOutcome {
+                    item: Some(out.item),
+                    etag: out.etag_write,
+                    touched_url: out.touched_url,
+                    fetched: !out.is_stale,
                 },
                 Ok(Err(_)) | Err(_) => EnrichFetchOutcome {
                     item: job.fallback_detail,
                     etag: None,
+                    touched_url: None,
                     fetched: false,
                 },
             }
@@ -1324,21 +1423,18 @@ pub async fn enrich_trend_repos(
     let mut card_writable: Vec<bool> = vec![false; targets.len()];
     let mut pre_etags: Vec<(Option<String>, Option<String>, Option<AppSummary>)> =
         vec![(None, None, None); targets.len()];
+    let now = crate::now_secs();
     for (idx, coord) in targets.iter().enumerate() {
         let repo_url = crate::github::github_repo_endpoint(&coord.owner, &coord.repo);
-        let cached_etag = if is_force {
-            None
-        } else {
-            pre_ctx.etag(&repo_url)
-        };
-        let cached_payload = pre_ctx.payload(&repo_url);
+        let (cached_etag, cached_payload, soft_fresh_payload) =
+            pre_ctx.enrich_etag_inputs(&repo_url, now, is_force);
         if !is_force {
             if let Some((hit, source)) = resolve_local_enrich_hit_in(
                 &pre_ctx,
                 catalog,
                 coord,
                 pre_confirmed[idx].as_deref(),
-                cached_payload.as_deref(),
+                soft_fresh_payload.as_deref(),
                 true,
             ) {
                 card_writable[idx] =
@@ -1392,15 +1488,19 @@ pub async fn enrich_trend_repos(
     };
     let mut results: Vec<Option<AppSummary>> = local_hits;
     let mut etags_to_save: Vec<(String, String, String)> = Vec::new();
+    let mut etags_to_touch: Vec<String> = Vec::new();
     for (idx, outcome) in remote_indices.into_iter().zip(remote_results) {
         results[idx] = outcome.item;
         card_writable[idx] = outcome.fetched;
         if let Some(entry) = outcome.etag {
             etags_to_save.push(entry);
         }
+        if let Some(url) = outcome.touched_url {
+            etags_to_touch.push(url);
+        }
     }
 
-    // 结果行批量预读（短锁，新 ETag 落库同一临界区；预读阶段已解析的确认图标复用）→
+    // 结果行批量预读（短锁，新 ETag 落库 / 304 续期同一临界区；预读阶段已解析的确认图标复用）→
     // 纯内存回填 → icon_cycle 与单仓富卡写包各一次事务批量落库。
     let mut post_keys = PrefetchKeys::default();
     for item in results.iter().flatten() {
@@ -1410,6 +1510,9 @@ pub async fn enrich_trend_repos(
         let now = crate::now_secs();
         for (url, etag, text) in &etags_to_save {
             let _ = db.save_etag(url, etag, text, now);
+        }
+        for url in &etags_to_touch {
+            let _ = db.touch_etag(url, now);
         }
     })
     .await;
@@ -2538,5 +2641,59 @@ mod repo_card_pipeline_tests {
         assert!(
             resolve_local_enrich_hit_sourced(&db, &catalog, &coord, None, None, false).is_none()
         );
+    }
+
+    #[test]
+    fn backfill_ctx_enforces_12h_soft_ttl_on_api_etag_cache() {
+        let db = crate::db::Database::open_in_memory().unwrap();
+        let catalog = crate::github::CatalogService::new();
+        let coord = crate::icons::RepoCoord {
+            id: "acme/soft-ttl".to_string(),
+            owner: "acme".to_string(),
+            repo: "soft-ttl".to_string(),
+        };
+        let url = crate::github::github_repo_endpoint(&coord.owner, &coord.repo);
+        let payload = r#"{
+            "name": "soft-ttl",
+            "description": "Cached repo payload",
+            "stargazers_count": 42,
+            "forks_count": 3
+        }"#;
+        let checked_at = 1_700_000_000i64;
+        db.save_etag(&url, "W/\"e1\"", payload, checked_at).unwrap();
+
+        let mut keys = super::PrefetchKeys::default();
+        keys.add_coord(&coord, true);
+        let ctx = super::BackfillCtx::load_inline(&db, &keys, None);
+        assert_eq!(ctx.etag(&url).as_deref(), Some("W/\"e1\""));
+
+        // 未满 12h：返回载荷并可零网络命中
+        let fresh =
+            ctx.fresh_etag_payload(&url, checked_at + 3600, super::ENRICH_ETAG_SOFT_TTL_SECS);
+        assert!(fresh.is_some());
+        let (hit, source) = super::resolve_local_enrich_hit_in(
+            &ctx,
+            &catalog,
+            &coord,
+            None,
+            fresh.as_deref(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(source, super::LocalHitSource::Payload);
+        assert_eq!(hit.core.stars, 42);
+
+        // 满 12h：soft TTL 返回 None，必须进入条件请求队列携带 ETag 校验 304
+        assert!(ctx
+            .fresh_etag_payload(
+                &url,
+                checked_at + super::ENRICH_ETAG_SOFT_TTL_SECS,
+                super::ENRICH_ETAG_SOFT_TTL_SECS,
+            )
+            .is_none());
+        // 时钟回拨（now < last_checked_at）：同样不复用软缓存
+        assert!(ctx
+            .fresh_etag_payload(&url, checked_at - 10, super::ENRICH_ETAG_SOFT_TTL_SECS)
+            .is_none());
     }
 }

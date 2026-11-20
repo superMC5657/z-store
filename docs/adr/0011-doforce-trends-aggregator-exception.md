@@ -39,6 +39,6 @@
 
 ## 未收录行 enrichment 复用搜索链路
 
-- 趋势榜单中不在收录库的仓库，展示时经 Rust 命令 `enrich_trend_repos` 批量补齐为搜索式 `AppSummary`（`fetch_online_repo` → `fallback_summary` 口径：空图标 initials 回退、分类猜测、`platforms=["windows"]` 兜底、`verified=false`）。
-- 非新例外：复用搜索链路与配额/鉴权（`resolve_active_github_token` + `notify_rate_limit`），无新增 host、无 `ForgeProvider` 旁路；并发上限 5、单仓 10s 熔断、入参上限 40，单仓失败落 `None`（前端保留占位于未完成列表，榜单永不因此变空）。
+- 趋势榜单中不在收录库的仓库，展示时经 Rust 命令 `enrich_trend_repos` 批量补齐为搜索式 `AppSummary`（`fetch_online_repo_with_etag_outcome` → `fallback_summary` 口径：空图标 initials 回退、分类猜测、`platforms=[]`（随后经前端 `get_platforms_lite` 异步推导）、`verified=false`；命中 `api_etag_cache` 时在 12 小时软 TTL 内零网络返回，满 12 小时发送 `If-None-Match` 条件校验并经 `304` 续期）。
+- 非新例外：复用搜索链路与配额/鉴权（`resolve_active_github_token` + `notify_rate_limit`；`fetch_trends_text` 仅对允许宿主 `api.github.com` 附加活跃 Token，`trend.doforce.dpdns.org` 与 `github.com` 严禁随行凭据），无新增 host、无 `ForgeProvider` 旁路；并发上限 5、单仓 10s 熔断、入参上限 40，单仓失败落 `None`（前端保留占位于未完成列表，榜单永不因此变空）。
 - 前端 12h 记忆（与 doforce 快照同 TTL）；右按钮直开 GitHub，不调安装链；卡片主点击走详情（目录外坐标经 `external_synth` 解析）。

@@ -1,7 +1,7 @@
 # ZStore Feature Specs & Issue Tracker 目录索引
 
 > 本目录为 ZStore 项目的本地需求工单与技术规格中枢（Local Markdown Issue-Tracker），遵循 [`docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md) 约定。  
-> 记录了项目自 MVP 启动以来**全部 35 个特性与架构专题**的完整演化脉络。所有专题均按照实际**执行时序（Execution Order）**依次编号并归档。
+> 记录了项目自 MVP 启动以来**全部 36 个特性与架构专题**的完整演化脉络。所有专题均按照实际**执行时序（Execution Order）**依次编号并归档。
 
 ---
 
@@ -35,7 +35,7 @@
 | **#14** | Phase 3: 性能与缓存 | [`perf-and-cache-hardening`](./perf-and-cache-hardening/spec.md) | 全链路性能治理与 HTTP/目录缓存加固 | 2026-11-10 | `e482f20` | ADR-0007, 0012 | 5 / 5 Resolved |
 | **#15** | Phase 3: 性能与缓存 | [`icon-and-cache-local-first`](./icon-and-cache-local-first/spec.md) | 图标与富卡全字段本地缓存优先与写透 | 2026-11-11 | `f80b164` | ADR-0003, 0019 | 6 / 6 Resolved |
 | **#16** | Phase 3: 性能与缓存 | [`catalog-db-refactor`](./catalog-db-refactor/spec.md) | Catalog 清单与 SQLite 分层重构架构规范 | 2026-11-12 | `b76e1f7` | ADR-0017 | Schema v2 落地 |
-| **#17** | Phase 3: 性能与缓存 | [`module-deepening`](./module-deepening/spec.md) | 全仓模块合并加深与浅层碎片文件清理 | 2026-11-12 | `675542e` | ADR-0004, 0018 | 8 / 9 Resolved |
+| **#17** | Phase 3: 性能与缓存 | [`module-deepening`](./module-deepening/spec.md) | 全仓模块合并加深与浅层碎片文件清理 | 2026-11-12 | `675542e` | ADR-0004, 0018 | 9 / 9 Resolved |
 | **#18** | Phase 3: 性能与缓存 | [`manage-ui-redesign`](./manage-ui-redesign/spec.md) | 管理中心（已安装 & 更新）UI 深度重设计 | 2026-11-12 | `92b3fe5` | UI 体验规范 | 5 / 5 Resolved |
 | **#19** | Phase 3: 性能与缓存 | [`button-size-and-inverted-icon-parity`](./button-size-and-inverted-icon-parity/spec.md) | 全站同级按钮盒尺寸严格统一与反色图标 | 2026-11-13 | `d59aa1d` | UI 体验规范 | 6 / 6 Resolved |
 | **#20** | Phase 4: 本地推荐 | [`feature-local-affinity-recommendation`](./feature-local-affinity-recommendation/spec.md) | 本地用户画像与 Catalog 动态推荐一期 | 2026-11-13 | `d5e9cd2` | ADR-0013 | 6 / 6 Resolved |
@@ -54,6 +54,7 @@
 | **#33** | Phase 7: 底座与优化 | [`backend-catalog-index-and-affinity-cache`](./backend-catalog-index-and-affinity-cache/spec.md) | 后端专题三：`CatalogService` 哈希索引与画像预计算 | 2026-11-18 | `867a5d4` | ADR-0010, 0024 | 3 / 3 Resolved |
 | **#34** | Phase 7: 底座与优化 | [`backend-sqlite-batching-and-async-offload`](./backend-sqlite-batching-and-async-offload/spec.md) | 后端专题四：SQLite 批量读写去重与阻塞 IO 异步卸载 | 2026-11-18 | `67f053e` | ADR-0003, 0027 | 3 / 3 Resolved |
 | **#35** | Phase 7: 底座与优化 | [`backend-contract-consistency-and-hygiene`](./backend-contract-consistency-and-hygiene/spec.md) | 后端专题五：后端元数据校验、端点 SSOT 与收尾卫生 | 2026-11-18 | `a5fb3b8` | ADR-0010, 0018 | 2 / 2 Resolved |
+| **#36** | Phase 7: 底座与优化 | [`richcard-pipeline-optimization`](./richcard-pipeline-optimization/spec.md) | 在线搜索 / 趋势榜 / GitHub Star 富卡链路收敛与缓存治理 | 2026-11-20 | HEAD | ADR-0011, 0015, 0027 | 5 / 5 Resolved |
 
 ---
 
@@ -187,8 +188,8 @@
 
 #### #17 · `module-deepening`
 - **定位**：全仓模块合并加深与浅层碎片文件清理
-- **核心交付**：深度实践 Deep Modules 理念，清除仅做薄透传的中间胶水文件，合并前后端命令与服务层，提高内聚度。
-- **工单规模**：9 张工单（8 项已 Resolved）。
+- **核心交付**：深度实践 Deep Modules 理念，清除仅做薄透传的中间胶水文件，合并前后端命令与服务层，并以 `useCatalogLists` / `useUpdatesState` / `useWatchState` 收敛 `App.tsx` 多列表与大参数 Hook，提高内聚度。
+- **工单规模**：9 张工单（全部 Resolved）。
 
 #### #18 · `manage-ui-redesign`
 - **定位**：管理中心（已安装 & 更新）UI 深度重设计
@@ -360,8 +361,6 @@
   - 原规划的待收录批量向官方仓库提交 PR 功能在 commit `d67848f` 中被**正式废弃并全量删除**，收敛为单应用 Issue 模板提交，后续进一步被 `#29 feature-launchpad` 自动化上架流接管。
 - **`feature-deep-link` (#06) 中的 Android Shizuku 静默安装（Issue 04）**：
   - 该工单属于跨平台移动端“技术预研（Research）”，相关方案作为设计储备，未在当前桌面端（Windows / Linux / macOS）合入生产链路。
-- **`module-deepening` (#17) 中的 Issue 09 (`App.tsx` 多列表状态合并)**：
-  - 属于第四阶段重构设想，工单状态保持 `needs-triage`，前三阶段核心模块加深（Issues 01~08）完成后未在本轮铺开。
 
 ### 3. 专项审查报告类文档（非业务功能 Spec）
 - **`code-review-2026-09-20` (#07)** 与 **`code-review-2026-10-21` (#12)**：

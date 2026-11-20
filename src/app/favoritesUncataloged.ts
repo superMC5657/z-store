@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { AppDetail, AppSummary } from '../types';
 import type { AppIconCycleResult } from '../services/api';
 import { tauriApi } from '../services/api';
@@ -237,10 +237,17 @@ function findMissingIds(
   return missing;
 }
 
+interface ExtraListSlot {
+  items: AppSummary[];
+  setItems: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  ref: React.MutableRefObject<AppSummary[]>;
+}
+
 interface UseUncatalogedJoinParams {
   favoriteIds: Set<string>;
   watchedIds: Set<string>;
   apps: AppSummary[];
+  extraSlot: ExtraListSlot;
 }
 
 /**
@@ -257,14 +264,12 @@ interface UseUncatalogedJoinParams {
  * 资产区默认 DB-only：占位 + 缓存富卡自动呈现，`getAppDetails`/
  * `restoreOrFetchIconCycle` 仅手动触发。
  */
-export function useUncatalogedJoin({ favoriteIds, watchedIds, apps }: UseUncatalogedJoinParams) {
+export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }: UseUncatalogedJoinParams) {
   // 收藏/关注未收录富卡行 left-join：`(favoriteIds∪watchedIds)` 先占位，
   // 再经 `getCachedAppDetailsBatch`（DB-only）回填富卡 + 记录表打标，仅收藏页消费，
   // 不进 `apps`/计数/其它视图；`platforms: []` 即 loading 恒可见，平台三态不动）。
   // 占位行经缓存批量升级；`None` 行留待行内加载按钮或详情打开手动拉取。
-  const [uncatalogedExtraApps, setUncatalogedExtraApps] = useState<AppSummary[]>([]);
-  const uncatalogedExtraAppsRef = useRef<AppSummary[]>([]);
-  uncatalogedExtraAppsRef.current = uncatalogedExtraApps;
+  const { items: uncatalogedExtraApps, setItems: setUncatalogedExtraApps, ref: uncatalogedExtraAppsRef } = extraSlot;
   const favoriteExtraInflightRef = useRef<Set<string>>(new Set());
   // 记录收录标记表（归一小写键 → is_cataloged，行打标唯一依据；目录 apps 仅补充去重）。
   const recordCatalogedRef = useRef<Map<string, boolean>>(new Map());

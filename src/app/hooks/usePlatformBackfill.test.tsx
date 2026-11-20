@@ -67,28 +67,54 @@ function makeRow(id: string, platforms: string[] = []): AppSummary {
   };
 }
 
-function renderBackfill(overrides: Partial<Parameters<typeof usePlatformBackfill>[0]> = {}) {
-  // spies 与 hook 入参对象分离：断言面恒为 vi.fn（无 Dispatch 联合类型）。
+function renderBackfill(overrides: {
+  apps?: AppSummary[];
+  onlineApps?: AppSummary[];
+  recentlyViewedApps?: AppSummary[];
+  appsRef?: { current: AppSummary[] };
+  onlineAppsRef?: { current: AppSummary[] };
+  recentsRef?: { current: AppSummary[] };
+  searchSeqRef?: { current: number };
+} = {}) {
   const spies = {
     setApps: vi.fn(),
     setOnlineApps: vi.fn(),
     setRecentlyViewedApps: vi.fn(),
+    patchPlatforms: vi.fn(),
   };
+  spies.patchPlatforms.mockImplementation((patched: Map<string, string[]>) => {
+    const updater = (prev: AppSummary[]) =>
+      prev.map((row) => {
+        const plats = patched.get(row.id.toLowerCase());
+        return plats ? { ...row, platforms: plats } : row;
+      });
+    spies.setApps(updater);
+    spies.setOnlineApps(updater);
+    spies.setRecentlyViewedApps(updater);
+  });
+  const apps = overrides.apps ?? [];
+  const onlineApps = overrides.onlineApps ?? [];
+  const recentlyViewedApps = overrides.recentlyViewedApps ?? [];
+  const appsRef = overrides.appsRef ?? { current: apps };
+  const onlineAppsRef = overrides.onlineAppsRef ?? { current: onlineApps };
+  const recentsRef = overrides.recentsRef ?? { current: recentlyViewedApps };
+  const searchSeqRef = overrides.searchSeqRef ?? { current: 0 };
   const deps = {
-    apps: [] as AppSummary[],
-    onlineApps: [] as AppSummary[],
-    recentlyViewedApps: [] as AppSummary[],
-    appsRef: { current: [] as AppSummary[] },
-    onlineAppsRef: { current: [] as AppSummary[] },
-    recentsRef: { current: [] as AppSummary[] },
-    searchSeqRef: { current: 0 },
-    ...spies,
-    ...overrides,
+    catalogLists: {
+      apps,
+      onlineApps,
+      recentlyViewedApps,
+      appsRef,
+      onlineAppsRef,
+      recentsRef,
+      patchPlatforms: spies.patchPlatforms,
+    },
+    searchSeqRef,
   };
   const rendered = renderHook(() =>
     usePlatformBackfill(deps as Parameters<typeof usePlatformBackfill>[0]),
   );
-  return { rendered, deps: spies, refs: { appsRef: deps.appsRef, searchSeqRef: deps.searchSeqRef } };
+  return { rendered, deps: spies, refs: { appsRef, searchSeqRef } };
 }
 
 function applyList(setter: { mock: { calls: unknown[][] } }, prev: AppSummary[]): AppSummary[] {
@@ -190,6 +216,25 @@ describe('usePlatformBackfill：lazyBackfillPlatforms', () => {
       rendered.result.current.lazyBackfillPlatforms(rows, 0);
     });
     expect(mocks.getPlatformsLite).toHaveBeenCalledTimes(1);
+  });
+
+  it('同 seq 顺序去重：已返回 is_stale 的空行同 seq 内不重复发起请求，forceRefresh=true 可重探', async () => {
+    const { rendered } = renderBackfill({ searchSeqRef: { current: 1 } });
+    mocks.getPlatformsLite.mockResolvedValue({ id: 'acme/empty', platforms: [], is_stale: true });
+    const rows = [makeRow('acme/empty')];
+    await act(async () => {
+      rendered.result.current.lazyBackfillPlatforms(rows, 1);
+    });
+    await act(async () => {
+      rendered.result.current.lazyBackfillPlatforms(rows, 1);
+    });
+    expect(mocks.getPlatformsLite).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rendered.result.current.lazyBackfillPlatforms(rows, 1, true);
+    });
+    expect(mocks.getPlatformsLite).toHaveBeenCalledTimes(2);
+    expect(mocks.getPlatformsLite).toHaveBeenLastCalledWith('acme/empty', true);
   });
 });
 
@@ -306,13 +351,11 @@ describe('useListPlatformBackfill：独立分页列表通用回填通道', () =>
 
     const { result } = renderHook(() => {
       const [rows, setRows] = useState<AppSummary[]>(initial);
-      const rowsRef = { current: rows };
       const seqRef = { current: 1 };
       return {
         rows,
         ...useListPlatformBackfill({
           rows,
-          rowsRef,
           setRows,
           seqRef,
           sharedResolvedOtherIds: new Set<string>(),

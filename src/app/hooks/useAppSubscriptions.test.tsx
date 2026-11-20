@@ -16,9 +16,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AppSummary,
   OAuthUser,
-  UpdateItem,
-  UpdateRule,
-  WatchUpdatedPayload,
 } from '../../types';
 import { DEFAULT_SETTINGS } from '../../services/api';
 
@@ -147,53 +144,86 @@ function makeRow(id: string, over: Partial<AppSummary> = {}): AppSummary {
 
 const unmounts: Array<() => void> = [];
 
+import { patchAppIconList } from '../../services/iconStore';
+
 function renderSubs(
-  overrides: Partial<Parameters<typeof useAppSubscriptions>[0]> = {},
+  overrides: {
+    appsRef?: { current: AppSummary[] };
+    fullCatalogAppsRef?: { current: AppSummary[] };
+    localApps?: readonly AppSummary[];
+    currentView?: 'home' | 'installed';
+  } = {},
   options: { strict?: boolean } = {},
 ) {
-  // spies 与 hook 入参对象分离：断言面恒为 vi.fn（无 Dispatch 联合类型）。
   const spies = {
     setApps: vi.fn(),
+    setFullCatalogApps: vi.fn(),
     setOnlineApps: vi.fn(),
     setRecentlyViewedApps: vi.fn(),
     setUncatalogedExtraApps: vi.fn(),
     setInstalledApps: vi.fn(),
     setFavoriteIds: vi.fn(),
-    setUpdateRules: vi.fn(),
-    setWatchedIds: vi.fn(),
-    setWatchNotifications: vi.fn(),
-    setUpdates: vi.fn(),
     setOAuthUser: vi.fn(),
-    setIsCheckingUpdates: vi.fn(),
-    setUpdateCheckProgress: vi.fn(),
     applyPersistedSettings: vi.fn(),
     showToast: vi.fn(),
   };
+  const appsRef = overrides.appsRef ?? { current: [] as AppSummary[] };
+  const fullCatalogAppsRef = overrides.fullCatalogAppsRef ?? { current: [] as AppSummary[] };
+  const onlineAppsRef = { current: [] as AppSummary[] };
+  const recentsRef = { current: [] as AppSummary[] };
+  const uncatalogedExtraAppsRef = { current: [] as AppSummary[] };
+  const currentSearchIdRef = { current: '' };
+  const patchIcons = (tid: string, icon: string) => {
+    const updater = (prev: AppSummary[]) => patchAppIconList(prev, tid, icon);
+    spies.setApps(updater);
+    spies.setFullCatalogApps(updater);
+    spies.setOnlineApps(updater);
+    spies.setRecentlyViewedApps(updater);
+    spies.setUncatalogedExtraApps(updater);
+  };
+  const findById = (idLower: string) => {
+    const lk = idLower.trim().toLowerCase();
+    return (
+      appsRef.current.find((a) => a.id.toLowerCase() === lk) ??
+      onlineAppsRef.current.find((a) => a.id.toLowerCase() === lk) ??
+      recentsRef.current.find((a) => a.id.toLowerCase() === lk) ??
+      uncatalogedExtraAppsRef.current.find((a) => a.id.toLowerCase() === lk)
+    );
+  };
   const deps = {
-    ...spies,
-    appsRef: { current: [] as AppSummary[] },
-    onlineAppsRef: { current: [] as AppSummary[] },
-    recentsRef: { current: [] as AppSummary[] },
-    uncatalogedExtraAppsRef: { current: [] as AppSummary[] },
-    currentSearchIdRef: { current: '' },
-    selectedPlatforms: new Set(['windows', 'macos', 'linux', 'ios', 'android', 'other']),
-    platformResolvedOtherIds: new Set<string>(),
-    t: (key: string, opts?: Record<string, unknown>) =>
-      `${key}${opts ? ` ${JSON.stringify(opts)}` : ''}`,
-    currentView: 'home' as const,
-    updatesCount: 0,
-    localApps: undefined as readonly AppSummary[] | undefined,
-    ...overrides,
+    catalogLists: {
+      appsRef,
+      fullCatalogAppsRef,
+      setApps: spies.setApps,
+      setFullCatalogApps: spies.setFullCatalogApps,
+      setRecentlyViewedApps: spies.setRecentlyViewedApps,
+      patchIcons,
+      findById,
+    },
+    searchContext: { currentSearchIdRef },
+    currentView: overrides.currentView ?? ('home' as const),
+    localApps: overrides.localApps,
+    library: {
+      setInstalledApps: spies.setInstalledApps,
+      setFavoriteIds: spies.setFavoriteIds,
+      setOAuthUser: spies.setOAuthUser,
+      applyPersistedSettings: spies.applyPersistedSettings,
+    },
+    notify: {
+      showToast: spies.showToast,
+      t: ((key: string, opts?: Record<string, unknown>) =>
+        `${key}${opts ? ` ${JSON.stringify(opts)}` : ''}`) as never,
+    },
   };
   const rendered = renderHook(
-    () => useAppSubscriptions(deps as unknown as Parameters<typeof useAppSubscriptions>[0]),
+    () => useAppSubscriptions(deps as Parameters<typeof useAppSubscriptions>[0]),
     options.strict ? { wrapper: StrictMode } : undefined,
   );
   unmounts.push(rendered.unmount);
   return {
     rendered,
     deps: spies as Record<string, ReturnType<typeof vi.fn>>,
-    currentSearchIdRef: deps.currentSearchIdRef,
+    currentSearchIdRef,
   };
 }
 
@@ -248,15 +278,11 @@ beforeEach(() => {
 });
 
 describe('useAppSubscriptions：初始加载扇出', () => {
-  it('目录/已装/收藏/规则/快照/最近浏览/设置 全部落位，且不从前端重复调 syncCatalog/registerDeepLinkScheme', async () => {
+  it('目录/已装/收藏/最近浏览/设置 全部落位，且不从前端重复调 syncCatalog/registerDeepLinkScheme', async () => {
     const catalog = [makeRow('acme/atlas')];
     mocks.searchApps.mockResolvedValue(catalog);
     mocks.getInstalledApps.mockResolvedValue([]);
     mocks.getFavorites.mockResolvedValue(['acme/atlas']);
-    mocks.getUpdateRules.mockResolvedValue([
-      { app_id: 'acme/atlas', is_frozen: false, is_hidden: false, updated_at: 0 },
-    ] as UpdateRule[]);
-    mocks.getCachedUpdates.mockResolvedValue([]);
     const localApps = [makeRow('acme/atlas', { source: 'local', status: 'collected' })];
     mocks.getRecentlyViewedApps.mockResolvedValue([makeRow('acme/atlas', { source: undefined, status: undefined })]);
 
@@ -265,7 +291,6 @@ describe('useAppSubscriptions：初始加载扇出', () => {
 
     expect(deps.setApps).toHaveBeenCalledWith(catalog);
     expect(deps.setFavoriteIds).toHaveBeenCalledWith(new Set(['acme/atlas']));
-    expect(deps.setUpdateRules).toHaveBeenCalledWith([expect.objectContaining({ app_id: 'acme/atlas' })]);
     // 最近浏览黄标叠加：目录命中 + localApps 标记。
     const recents = applySetter<AppSummary[]>(deps.setRecentlyViewedApps, []);
     expect(recents[0].is_cataloged).toBe(true);
@@ -476,65 +501,7 @@ describe('useAppSubscriptions：目录同步与图标升级', () => {
   });
 });
 
-describe('useAppSubscriptions：watch / 更新流 / OAuth', () => {
-  it('watch：关注集加载；更新事件 toast + 同 app 通知去重', async () => {
-    mocks.getWatchedApps.mockResolvedValue([
-      { app_id: 'acme/atlas', is_cataloged: true, added_at: 0 },
-    ]);
-    const { deps } = renderSubs();
-    await flush();
-    expect(deps.setWatchedIds).toHaveBeenCalledWith(new Set(['acme/atlas']));
-
-    const payload = { app_id: 'acme/atlas', version: '2.0.0', app_name: 'Atlas' };
-    await act(async () => {
-      watchUpdated.emit(payload);
-      watchUpdated.emit({ ...payload, version: '2.1.0' });
-      await flush();
-    });
-    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('toast.watch_update_released'), 'info');
-    const notifications = applySetter<WatchUpdatedPayload[]>(deps.setWatchNotifications, []);
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].version).toBe('2.1.0');
-  });
-
-  it('更新流：逐条 upsert（大小写不敏感）+ 进度 + 完成复位', async () => {
-    const { deps } = renderSubs();
-    await flush();
-
-    const item: UpdateItem = {
-      app_id: 'ACME/ATLAS',
-      app_name: 'Atlas',
-      current_version: '1.0.0',
-      latest_version: '2.0.0',
-      changelog: '',
-    };
-    await act(async () => {
-      updateItemFound.emit({ ...item, app_id: 'acme/atlas' });
-      updateItemFound.emit(item);
-      await flush();
-    });
-    const updates = applySetter(deps.setUpdates, [item] as UpdateItem[]);
-    expect(updates).toHaveLength(1);
-
-    await act(async () => {
-      updateCheckProgress.emit({ checked: 3, total: 10, app_id: 'a', app_name: 'b' });
-      await flush();
-    });
-    expect(deps.setUpdateCheckProgress).toHaveBeenLastCalledWith({
-      checked: 3,
-      total: 10,
-      app_id: 'a',
-      app_name: 'b',
-    });
-
-    await act(async () => {
-      updateCheckFinished.emit(null);
-      await flush();
-    });
-    expect(deps.setIsCheckingUpdates).toHaveBeenLastCalledWith(false);
-    expect(deps.setUpdateCheckProgress).toHaveBeenLastCalledWith(null);
-  });
-
+describe('useAppSubscriptions：OAuth / 导入刷新', () => {
   it('OAuth：过期 → warning toast + oauth-changed 派发 + 登录态重载', async () => {
     const user: OAuthUser = { login: 'acme', has_list_scope: true, is_expired: false };
     mocks.getOAuthUser.mockResolvedValue(user);
@@ -562,15 +529,13 @@ describe('useAppSubscriptions：watch / 更新流 / OAuth', () => {
     }
   });
 
-  it('zstore:data-imported：设置/收藏/关注全量回放', async () => {
+  it('zstore:data-imported：设置/收藏全量回放', async () => {
     mocks.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, theme: 'light' });
     mocks.getFavorites.mockResolvedValue(['acme/atlas']);
-    mocks.getWatchedApps.mockResolvedValue([{ app_id: 'beta/bravo', is_cataloged: false, added_at: 0 }]);
     const { deps } = renderSubs();
     await flush();
     deps.applyPersistedSettings.mockClear();
     deps.setFavoriteIds.mockClear();
-    deps.setWatchedIds.mockClear();
 
     await act(async () => {
       window.dispatchEvent(new Event('zstore:data-imported'));
@@ -579,21 +544,6 @@ describe('useAppSubscriptions：watch / 更新流 / OAuth', () => {
 
     expect(deps.applyPersistedSettings).toHaveBeenCalledWith(expect.objectContaining({ theme: 'light' }));
     expect(deps.setFavoriteIds).toHaveBeenCalledWith(new Set(['acme/atlas']));
-    expect(deps.setWatchedIds).toHaveBeenCalledWith(new Set(['beta/bravo']));
-  });
-
-  it('切到 updates 视图：重读 DB 快照（零网络）', async () => {
-    const { rendered, deps } = renderSubs();
-    await flush();
-    deps.setUpdates.mockClear();
-    mocks.getCachedUpdates.mockResolvedValue([]);
-
-    await act(async () => {
-      rendered.rerender();
-    });
-    // rerender 不换 currentView 也不触发；换视图才触发。
-    expect(mocks.getCachedUpdates).toHaveBeenCalledTimes(1);
-    void rendered;
   });
 });
 
@@ -601,7 +551,7 @@ describe('useAppSubscriptions：迟到订阅守卫', () => {
   it('卸载后才 resolve 的订阅立即解绑（不泄漏）', async () => {
     let releaseUnlisten: ((fn: () => void) => void) | undefined;
     const unlisten = vi.fn();
-    watchUpdated.on.mockImplementationOnce(
+    oauthExpired.on.mockImplementationOnce(
       () =>
         new Promise<() => void>((resolve) => {
           releaseUnlisten = resolve;
@@ -620,12 +570,10 @@ describe('useAppSubscriptions：迟到订阅守卫', () => {
   it('正常卸载：已注册的 unlisten 全部执行', async () => {
     const { rendered } = renderSubs();
     await flush();
-    const total = searchIconUpgraded.size() + watchUpdated.size() + updateItemFound.size()
-      + updateCheckProgress.size() + updateCheckFinished.size() + oauthExpired.size();
+    const total = searchIconUpgraded.size() + catalogSynced.size() + oauthExpired.size();
     expect(total).toBeGreaterThan(0);
     rendered.unmount();
-    const after = searchIconUpgraded.size() + watchUpdated.size() + updateItemFound.size()
-      + updateCheckProgress.size() + updateCheckFinished.size() + oauthExpired.size();
+    const after = searchIconUpgraded.size() + catalogSynced.size() + oauthExpired.size();
     expect(after).toBe(0);
   });
 });

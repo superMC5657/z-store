@@ -21,17 +21,14 @@ import {
   type SeqGuard,
 } from '../../lib/platformFilter';
 
+import type { CatalogListsStore } from './useCatalogLists';
+
 interface UsePlatformBackfillParams {
-  apps: AppSummary[];
-  onlineApps: AppSummary[];
-  recentlyViewedApps: AppSummary[];
-  appsRef: React.MutableRefObject<AppSummary[]>;
-  onlineAppsRef: React.MutableRefObject<AppSummary[]>;
-  recentsRef: React.MutableRefObject<AppSummary[]>;
+  catalogLists: Pick<
+    CatalogListsStore,
+    'apps' | 'onlineApps' | 'recentlyViewedApps' | 'appsRef' | 'onlineAppsRef' | 'recentsRef' | 'patchPlatforms'
+  >;
   searchSeqRef: React.MutableRefObject<number>;
-  setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setOnlineApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
-  setRecentlyViewedApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
 }
 
 function mergeConfirmedIds(prev: Set<string>, ids: readonly string[]): Set<string> {
@@ -135,17 +132,18 @@ async function executeLiteBackfillBatch(opts: {
 }
 
 export function usePlatformBackfill({
-  apps,
-  onlineApps,
-  recentlyViewedApps,
-  appsRef,
-  onlineAppsRef,
-  recentsRef,
+  catalogLists,
   searchSeqRef,
-  setApps,
-  setOnlineApps,
-  setRecentlyViewedApps,
 }: UsePlatformBackfillParams) {
+  const {
+    apps,
+    onlineApps,
+    recentlyViewedApps,
+    appsRef,
+    onlineAppsRef,
+    recentsRef,
+    patchPlatforms,
+  } = catalogLists;
   // 平台加载中追踪：summary 为空但详情尚未落定的行保持 loading（不展示 Other、不计入 other 桶、不过滤），
   // 详情取回仍为空才记入已确认 other（展示徽标、计入统计、参与过滤）。后端一律 `[]`，other 纯前端虚拟。
   const [platformResolvedOtherIds, setPlatformResolvedOtherIds] = useState<Set<string>>(() => new Set<string>());
@@ -156,6 +154,10 @@ export function usePlatformBackfill({
   platformResolvedOtherRef.current = platformResolvedOtherIds;
   const seqGuardRef = useRef<SeqGuard | null>(null);
   if (!seqGuardRef.current) seqGuardRef.current = createSeqGuard(() => searchSeqRef.current);
+  const attemptedRef = useRef<{ seq: number; keys: Set<string> }>({
+    seq: searchSeqRef.current,
+    keys: new Set(),
+  });
 
   const confirmPlatformOtherIds = useCallback((ids: readonly string[]) => {
     if (ids.length === 0) return;
@@ -174,6 +176,9 @@ export function usePlatformBackfill({
     const guard = seqGuardRef.current;
     const inflight = inflightGuardRef.current;
     if (!guard || !inflight) return;
+    if (attemptedRef.current.seq !== seq || forceRefresh) {
+      attemptedRef.current = { seq, keys: new Set() };
+    }
     void executeLiteBackfillBatch({
       summaries,
       seq,
@@ -181,15 +186,11 @@ export function usePlatformBackfill({
       inflight,
       seqGuard: guard,
       resolvedOther: platformResolvedOtherRef.current,
-      onPatched: (patched) => {
-        setApps((prev) => patchRowsPlatforms(prev, patched));
-        // 在线段同口径回填：卡片共用同一 loading 语义，在线段不闪 Other。
-        setOnlineApps((prev) => patchRowsPlatforms(prev, patched));
-        setRecentlyViewedApps((prev) => patchRowsPlatforms(prev, patched));
-      },
+      attempted: attemptedRef.current.keys,
+      onPatched: patchPlatforms,
       onConfirmedEmpty: confirmPlatformOtherIds,
     });
-  }, [confirmPlatformOtherIds, setApps, setOnlineApps, setRecentlyViewedApps]);
+  }, [confirmPlatformOtherIds, patchPlatforms]);
 
   // 首绘回填：本地收录（含初始全量/搜索/目录同步）的 loading 行同样走轻量确认，
   // 首绘不闪 Other，落定后单次更新。重复调用经在途/已确认集合去重。
@@ -251,7 +252,6 @@ export function usePlatformBackfill({
 
 interface UseListPlatformBackfillParams {
   rows: readonly AppSummary[];
-  rowsRef: React.MutableRefObject<AppSummary[]>;
   setRows: React.Dispatch<React.SetStateAction<AppSummary[]>>;
   seqRef: React.MutableRefObject<number>;
   sharedResolvedOtherIds: ReadonlySet<string>;
@@ -266,13 +266,14 @@ interface UseListPlatformBackfillParams {
  */
 export function useListPlatformBackfill({
   rows,
-  rowsRef,
   setRows,
   seqRef,
   sharedResolvedOtherIds,
   onConfirmOtherIds,
   forceRefresh = false,
 }: UseListPlatformBackfillParams): { resolvedOtherIds: ReadonlySet<string> } {
+  const rowsRef = useRef<readonly AppSummary[]>(rows);
+  rowsRef.current = rows;
   const [localResolvedOtherIds, setLocalResolvedOtherIds] = useState<Set<string>>(() => new Set<string>());
   const [drainTick, setDrainTick] = useState(0);
   const inflightGuardRef = useRef<InflightGuard | null>(null);

@@ -53,7 +53,19 @@ function renderDeepLink(options: { strict?: boolean } = {}) {
     }) as never,
   };
   const rendered = renderHook(
-    (props: typeof handlers) => useDeepLink(props),
+    (props: typeof handlers) =>
+      useDeepLink({
+        routes: {
+          navigate: props.navigate,
+          openDetail: props.handleOpenDetail,
+          search: props.handleSearchChange,
+          selectDeveloper: props.setSelectedDeveloper,
+          focusView: props.focusView,
+          focusLaunchpadApp: props.onFocusLaunchpadApp,
+        },
+        showToast: props.showToast,
+        t: props.t,
+      }),
     {
       initialProps: handlers,
       ...(options.strict ? { wrapper: StrictMode } : {}),

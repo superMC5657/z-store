@@ -3,7 +3,7 @@
  *
  * 合并抓榜数据源（trending HTML / doforce / GitHub Search）、L1/L2 排行索引读写、
  * SWR-fill、`repo_card_cache` 批量水合、enrich 批处理、lite 补验、15s settle 兜底、
- * 详情治愈总线（detail-platforms / detail-richcard）与 `icon-ready` 流式图标于单一
+ * 详情治愈总线（detail-platforms / detail-richcard）与 `subscribeIconWrites` 图标镜像更新于单一
  * `TrendBoardSession` 控制器。
  *
  * 约束（ADR-0011 / ADR-0014 / ADR-0027）：
@@ -17,9 +17,12 @@ import { tauriApi } from '../api';
 import { hydrateCardsByIds } from '../repoEnrichCache';
 import {
   admitIconHit,
+  advanceTrendIconGateOnRefresh,
+  ensureIconReadySubscription,
   patchIconMirror,
   queueAssembledRowIcons,
   resolveIconWithBuffer,
+  setActiveTrendIconGate,
   subscribeIconWrites,
 } from '../iconStore';
 import {
@@ -1107,7 +1110,7 @@ export interface TrendBoardSession {
 
 /**
  * 创建趋势榜会话控制器：收口 SWR 直展、`repo_card_cache` 批量水合、DB 确认图标回填、
- * enrich 批处理、lite 补验、settle 超时、详情治愈总线与 `icon-ready` 订阅。
+ * enrich 批处理、lite 补验、settle 超时、详情治愈总线与 `iconStore` 镜像同步。
  * 单仓卡片变更只写富卡镜像（`repoEnrichCache`），不重写榜单 L2 快照。
  */
 export function createTrendBoardSession(
@@ -1269,85 +1272,6 @@ export function createTrendBoardSession(
     };
   }
 
-  function attachStreamIconListener(startEpoch: number): () => void {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    void tauriApi
-      .onIconReady((payload) => {
-        if (cancelled || sessionEpoch !== startEpoch) return;
-        const raw = (payload ?? {}) as unknown as Record<string, unknown>;
-        const ctx = (raw['context'] ?? null) as {
-          kind: string;
-          search_id?: string;
-          board?: string;
-          gen?: number;
-        } | null;
-        const kind = ctx && typeof ctx.kind === 'string' ? ctx.kind.trim().toLowerCase() : '';
-        if (kind !== 'trend') return;
-        const asStr = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
-        const res = admitIconHit({
-          id: asStr(raw['id']),
-          icon: asStr(raw['icon']),
-          level: typeof raw['level'] === 'number' ? (raw['level'] as number) : undefined,
-          via: asStr(raw['via']),
-          context: ctx,
-          board: currentActiveBoard,
-          getCurrentIcon: (tid) => enrichedApps[tid.toLowerCase()]?.icon,
-          patch: (tid, icon) => {
-            updateEnrichedApps((prev) => {
-              let changed = false;
-              const next = { ...prev };
-              for (const k of Object.keys(prev)) {
-                const cur = prev[k];
-                const alias = String(cur?.id ?? '').trim().toLowerCase();
-                if (k.toLowerCase() === tid || (alias !== '' && alias === tid)) {
-                  if (cur.icon !== icon) {
-                    next[k] = { ...cur, icon };
-                    changed = true;
-                  }
-                }
-              }
-              return changed ? next : prev;
-            });
-          },
-        });
-        if (!res.accepted || !res.icon) return;
-        try {
-          const targets = res.targets ?? [];
-          if (targets.length === 0) return;
-          const toHydrate: Record<string, AppSummary> = {};
-          for (const t of targets) {
-            for (const k of Object.keys(enrichedApps)) {
-              const cur = enrichedApps[k];
-              if (!cur) continue;
-              const alias = String(cur.id ?? '').trim().toLowerCase();
-              if (k.toLowerCase() === t || (alias !== '' && alias === t)) {
-                toHydrate[k] = { ...cur, icon: res.icon };
-              }
-            }
-          }
-          if (Object.keys(toHydrate).length === 0) return;
-          putTrendEnrichMemory(toHydrate);
-        } catch {
-          // 镜像同步失败不影响内存即时补齐
-        }
-      })
-      .then((u) => {
-        if (cancelled || sessionEpoch !== startEpoch) {
-          u();
-          return;
-        }
-        unlisten = u;
-      })
-      .catch(() => {
-        // 非 Tauri 环境无事件总线
-      });
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }
-
   /** enrich 批量取回后并入镜像（`enrichTrendRepos` 内已写富卡池，榜单 L2 不重写）。 */
   function runEnrichment(
     toEnrich: TrendRepo[],
@@ -1433,23 +1357,28 @@ export function createTrendBoardSession(
 
     start() {
       if (activeCleanups.length > 0) return;
-      const startEpoch = sessionEpoch;
-      const unsubStreamIcons = attachStreamIconListener(startEpoch);
+      setActiveTrendIconGate({ board: currentActiveBoard });
+      const releaseIconReady = ensureIconReadySubscription(tauriApi.onIconReady);
       const unsubHeal = attachHealBus();
       const unsubIconWrites = subscribeIconWrites(({ targets, icon }) => {
-        let next = enrichedApps;
+        const prevEnriched = enrichedApps;
+        let next = prevEnriched;
         for (const t of targets) {
           next = patchIconMirror(next, t, icon);
         }
-        if (next !== enrichedApps) {
+        if (next !== prevEnriched) {
           updateEnrichedApps(next);
           if (typeof icon === 'string' && !icon.startsWith('data:')) {
-            putTrendEnrichMemory(next);
+            const toHydrate: Record<string, AppSummary> = {};
+            for (const k of Object.keys(next)) {
+              if (next[k] !== prevEnriched[k]) toHydrate[k] = next[k];
+            }
+            if (Object.keys(toHydrate).length > 0) putTrendEnrichMemory(toHydrate);
           }
         }
       });
       activeCleanups = [
-        unsubStreamIcons,
+        releaseIconReady,
         unsubHeal,
         unsubIconWrites,
       ];
@@ -1467,6 +1396,7 @@ export function createTrendBoardSession(
       hydration = null;
       staleHydratedKeys.clear();
       boardSeq += 1;
+      setActiveTrendIconGate(null);
       const cleanups = activeCleanups;
       activeCleanups = [];
       for (const cleanup of cleanups) cleanup();
@@ -1475,6 +1405,7 @@ export function createTrendBoardSession(
     syncBoard({ trendResult, activeBoard }) {
       currentActiveBoard = activeBoard;
       currentTrendResult = trendResult;
+      setActiveTrendIconGate({ board: activeBoard });
       if (trendResult?.status !== 'ok' || trendResult.repos.length === 0) {
         if (lastSwrResult !== trendResult) {
           lastSwrResult = trendResult;
@@ -1499,11 +1430,14 @@ export function createTrendBoardSession(
       currentActiveBoard = activeBoard;
       currentTrendResult = trendResult;
       boardSeq += 1;
+      advanceTrendIconGateOnRefresh();
+      setActiveTrendIconGate({ board: activeBoard });
     },
 
     syncEnrichment({ trendResult, activeBoard, displayItems, boardReady, consumeForceEnrich }) {
       if (trendResult?.status !== 'ok' || !boardReady) return;
       const enrichForce = consumeForceEnrich();
+      if (enrichForce) advanceTrendIconGateOnRefresh();
       if (
         enrichCycle.trendResult !== trendResult ||
         enrichCycle.activeBoard !== activeBoard ||

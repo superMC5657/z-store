@@ -1,6 +1,6 @@
 # Feature Spec: 全仓模块合并加深（Module Deepening & De-fragmentation）
 
-> 状态：Phase 1–3 已完成（`01`–`08` 为 `done`，`09` 为 `needs-triage`）
+> 状态：Phase 1–4 全部完成（`01`–`09` 均为 `done`）
 > 关联契约：`CONTEXT.md`（领域词汇与架构原则 D1–D10）、`docs/agents/domain.md`、`docs/agents/issue-tracker.md`、`docs/agents/triage-labels.md`、ADR-0004/0005/0006/0007/0010/0014/0015/0017/0018/0021。
 > 设计方法：`codebase-design`（Deep Modules、Interface as Test Surface、Deletion Test、One-vs-Two Adapter Seam Discipline、Replace-Don't-Layer Testing）。
 
@@ -55,7 +55,7 @@
 | 06 | [`06-frontend-trends-board-deepening.md`](file:///z:/rust_workplace/z-store/.scratch/module-deepening/issues/06-frontend-trends-board-deepening.md) | 前端 `services/trends/` 真正收口与 `useTrendEnrichment` 瘦身 | `done` | `05` |
 | 07 | [`07-frontend-ipc-and-desktop-bridge-cleanup.md`](file:///z:/rust_workplace/z-store/.scratch/module-deepening/issues/07-frontend-ipc-and-desktop-bridge-cleanup.md) | 前端 `api/zlog`、`appProcess`、`fallbackOpener` 与重复 `openUrl` 兜底清理 | `done` | `05` |
 | 08 | [`08-frontend-leaf-microfiles-consolidation.md`](file:///z:/rust_workplace/z-store/.scratch/module-deepening/issues/08-frontend-leaf-microfiles-consolidation.md) | 前端单函数/单常量/超薄 UI 碎片文件汇总合并（含 `platformStorage` / `notify` / `pending*` 等） | `done` | `07` |
-| 09 | [`09-frontend-app-state-store-deepening.md`](file:///z:/rust_workplace/z-store/.scratch/module-deepening/issues/09-frontend-app-state-store-deepening.md) | 前端 `App.tsx` 与大接口浅 Hook（`useAppSubscriptions`/`useUpdateActions`/`usePlatformBackfill`）状态域收敛 | `needs-triage` | `05, 06, 08` |
+| 09 | [`09-frontend-app-state-store-deepening.md`](file:///z:/rust_workplace/z-store/.scratch/module-deepening/issues/09-frontend-app-state-store-deepening.md) | 前端 `App.tsx` 与大接口浅 Hook（`useCatalogLists`/`useUpdatesState`/`useWatchState`/`useAppSubscriptions`/`usePlatformBackfill`）状态域收敛 | `done` | `05, 06, 08` |
 
 ### 并行阶段拓扑
 

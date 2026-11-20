@@ -19,17 +19,19 @@ import {
 import { normalizeId } from '../../services/normalizeId';
 import { zlogWarn } from '../../lib/z-log';
 import type { OnlineSearchPage } from '../../services/api/catalog';
+import type { CatalogListsStore } from './useCatalogLists';
 
 interface UseSearchStateParams {
   currentView: ViewType;
   /** 集中导航入口（App.createNavigate 产物；合法性校验收口于 types）。 */
   navigate: Navigate;
-  setApps: React.Dispatch<React.SetStateAction<AppSummary[]>>;
+  catalogLists: Pick<
+    CatalogListsStore,
+    'setApps' | 'fullCatalogAppsRef' | 'onlineApps' | 'setOnlineApps' | 'onlineAppsRef'
+  >;
   lazyBackfillPlatforms: (summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
-  /** 合并目录全量（远端精选 + 本地收录）：L2 快照水合时收录项零 IPC 直接投影。 */
-  catalogAppsRef?: React.MutableRefObject<readonly AppSummary[]>;
 }
 
 const EMPTY_CATALOG: readonly AppSummary[] = [];
@@ -98,12 +100,18 @@ export function adoptEchoInWindow(ref: { current: string }, kind: string, sid: s
 export function useSearchState({
   currentView,
   navigate,
-  setApps,
+  catalogLists,
   lazyBackfillPlatforms,
   showToast,
   t,
-  catalogAppsRef,
 }: UseSearchStateParams) {
+  const {
+    setApps,
+    fullCatalogAppsRef: catalogAppsRef,
+    onlineApps,
+    setOnlineApps,
+    onlineAppsRef,
+  } = catalogLists;
   const [searchQuery, setSearchQuery] = useState('');
   const searchQueryRef = useRef('');
   const localCompletedQueryRef = useRef<string | null>(null);
@@ -117,7 +125,6 @@ export function useSearchState({
   // 在线搜索翻页状态：用户显式触发在线搜索后拉第 1 页，触底且满页/has_more 时 page+1 追加到在线段。
   // 上下分段：apps 永远是本地结果，在线结果单独存 onlineApps（HomeView 本地在上、在线在下两段展示）。
   const [isOnlineResultSet, setIsOnlineResultSet] = useState(false);
-  const [onlineApps, setOnlineApps] = useState<AppSummary[]>([]);
   const [onlineHasMore, setOnlineHasMore] = useState(false);
   const [isLoadingOnlineMore, setIsLoadingOnlineMore] = useState(false);
   const onlinePageRef = useRef(1);
@@ -125,8 +132,6 @@ export function useSearchState({
   const isOnlineResultSetRef = useRef(false);
   const onlineQueryRef = useRef('');
   const isLoadingOnlineMoreRef = useRef(false);
-  const onlineAppsRef = useRef<AppSummary[]>([]);
-  onlineAppsRef.current = onlineApps;
 
   // 清空当前在线结果集与翻页游标（同步更新 state 与 ref，避免 stale 读）。
   const clearOnlineResults = () => {

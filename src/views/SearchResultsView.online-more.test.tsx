@@ -11,6 +11,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import React from 'react';
 import { SearchResultsView } from './SearchResultsView';
 import { makeApp } from './test-utils/filterFixture';
+import { tauriApi } from '../services/api';
 
 type IoCallback = (entries: Array<{ isIntersecting: boolean }>) => void;
 
@@ -177,5 +178,25 @@ describe('SearchResultsView online search armed boundary', () => {
     });
     expect(getByTestId('search-online-empty').textContent).toContain('正在搜索本地应用');
     expect(queryByTestId('search-online-trigger')).toBeNull();
+  });
+
+  it('在线段空图标不触发 restoreOrFetchIconCycle，仅本地段空图标按需补齐', async () => {
+    const restoreSpy = vi
+      .spyOn(tauriApi, 'restoreOrFetchIconCycle')
+      .mockResolvedValue({ url: '', level: 5 } as never);
+    try {
+      const onlineApps = Array.from({ length: 20 }, (_, i) =>
+        makeApp({ id: `online/empty-${i}`, name: `OnlineEmpty${i}`, icon: '' }),
+      );
+      const localApps = [makeApp({ id: 'local/empty-a', name: 'LocalEmptyA', icon: '' })];
+      renderOnlineSearch({ apps: localApps, onlineApps, isOnlineResults: true });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(restoreSpy).toHaveBeenCalledTimes(1);
+      expect(restoreSpy).toHaveBeenCalledWith('local/empty-a');
+    } finally {
+      restoreSpy.mockRestore();
+    }
   });
 });

@@ -134,11 +134,9 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = (props) => {
     onLoadMore: handleLoadMore,
   });
 
-  const iconRows = useMemo(
-    () => [...displayedLocal, ...activeOnlineApps],
-    [displayedLocal, activeOnlineApps],
-  );
-  useRowIconBackfill(iconRows);
+  // 仅本地段走 useRowIconBackfill；在线段由后端 fetch_icons_stream(pool=5) + assembleOnlineRowsWithIcons 流式补图，
+  // 避免首帧 20 路并发 restoreOrFetchIconCycle 重复探图风暴。
+  useRowIconBackfill(displayedLocal);
 
   const card = (app: AppSummary, extra?: Partial<React.ComponentProps<typeof AppCard>>) => (
     <AppCard

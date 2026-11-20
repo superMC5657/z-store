@@ -1,6 +1,6 @@
 # Issue 09: Consolidate `App.tsx` Multi-List State & Large-Interface Hooks
 
-Status: needs-triage
+Status: resolved
 Blocked by: 05, 06, 08
 
 ## Summary
@@ -17,14 +17,19 @@ Every cross-cutting event (`zstore://icon-ready`, detail refresh, platform lite 
 ## Scope
 
 - `src/App.tsx`
+- `src/app/hooks/mountCtx.ts`
+- `src/app/hooks/useCatalogLists.ts`
+- `src/app/hooks/useUpdatesState.ts`
+- `src/app/hooks/useWatchState.ts`
 - `src/app/hooks/useAppSubscriptions.ts`
-- `src/app/hooks/useUpdateActions.ts`
 - `src/app/hooks/usePlatformBackfill.ts`
 - `src/app/hooks/useDetailCacheSync.ts`
+- `src/app/hooks/useDeepLink.ts`
 - `src/app/hooks/useSearchState.ts`
 - `src/app/hooks/useInstallState.ts`
+- `src/app/favoritesUncataloged.ts`
 - `src/app/selectors.ts`
-- `src/App.*.test.tsx` & `src/app/hooks/*.test.tsx`
+- `src/App.*.test.tsx` & `src/app/hooks/*.test.tsx` & `src/app/*.test.ts`
 
 ## Implementation Details (Design Proposal for Triage)
 
@@ -46,6 +51,6 @@ This refactor changes internal state ownership across `App.tsx` and 4+ hook test
 
 ## Acceptance Criteria
 
-- [ ] No hook under `src/app/hooks/` requires > 6 parameters or duplicates 3–4 list `setState` patching blocks.
-- [ ] `useUpdateActions` owns its `updates` / `updateRules` state or is merged into a cohesive `useUpdatesState` deep module.
-- [ ] All `src/App.*.test.tsx`, `src/app/hooks/*.test.tsx`, `pnpm test`, and `pnpm build` pass.
+- [x] No hook under `src/app/hooks/` requires > 6 parameters or duplicates 3–4 list `setState` patching blocks.
+- [x] `useUpdateActions` owns its `updates` / `updateRules` state or is merged into a cohesive `useUpdatesState` deep module.
+- [x] All `src/App.*.test.tsx`, `src/app/hooks/*.test.tsx`, `pnpm test`, and `pnpm build` pass.

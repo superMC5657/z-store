@@ -273,4 +273,84 @@ mod tests {
             .unwrap();
         assert!(err.contains("ghost"), "{}", err);
     }
+
+    #[test]
+    fn parse_starred_payloads_unwraps_star_json_and_bare_repo() {
+        let body = serde_json::json!([
+            {
+                "starred_at": "2026-01-01T00:00:00Z",
+                "repo": { "full_name": "acme/wrapped", "private": true }
+            },
+            { "full_name": "acme/bare", "private": false }
+        ])
+        .to_string();
+        let parsed = parse_starred_payloads(&body).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].coord.id, "acme/wrapped");
+        assert!(parsed[0].is_private);
+        assert!(parsed[0].payload.contains("\"acme/wrapped\""));
+        assert!(!parsed[0].payload.contains("starred_at"));
+        assert_eq!(parsed[1].coord.id, "acme/bare");
+        assert!(!parsed[1].is_private);
+    }
+
+    #[test]
+    fn slice_self_starred_from_affinity_cache_slices_pages_and_computes_has_more() {
+        use crate::github::developer_starred::slice_self_starred_from_affinity_cache;
+        use crate::github::CatalogService;
+        let db = crate::db::Database::open_in_memory().unwrap();
+        assert!(slice_self_starred_from_affinity_cache(&db, 1, 20).is_none());
+
+        let page1_items: Vec<serde_json::Value> = (0..100)
+            .map(|i| {
+                serde_json::json!({
+                    "starred_at": "2026-01-01T00:00:00Z",
+                    "repo": { "full_name": format!("acme/r-{i}") }
+                })
+            })
+            .collect();
+        let page2_items: Vec<serde_json::Value> = (100..125)
+            .map(|i| serde_json::json!({ "full_name": format!("acme/r-{i}") }))
+            .collect();
+        db.save_etag(
+            &CatalogService::affinity_starred_page_endpoint(1),
+            "\"p1\"",
+            &serde_json::Value::Array(page1_items).to_string(),
+            100,
+        )
+        .unwrap();
+        db.save_etag(
+            &CatalogService::affinity_starred_page_endpoint(2),
+            "\"p2\"",
+            &serde_json::Value::Array(page2_items).to_string(),
+            100,
+        )
+        .unwrap();
+
+        // 第 1 页（0..20）
+        let p1 = slice_self_starred_from_affinity_cache(&db, 1, 20).unwrap();
+        assert_eq!(p1.repos.len(), 20);
+        assert_eq!(p1.repos[0].coord.id, "acme/r-0");
+        assert_eq!(p1.repos[19].coord.id, "acme/r-19");
+        assert!(p1.has_more);
+
+        // 第 5 页（80..100）：跨页边界看 affinity page 2 是否存在
+        let p5 = slice_self_starred_from_affinity_cache(&db, 5, 20).unwrap();
+        assert_eq!(p5.repos.len(), 20);
+        assert_eq!(p5.repos[0].coord.id, "acme/r-80");
+        assert_eq!(p5.repos[19].coord.id, "acme/r-99");
+        assert!(p5.has_more);
+
+        // 第 6 页（100..120）
+        let p6 = slice_self_starred_from_affinity_cache(&db, 6, 20).unwrap();
+        assert_eq!(p6.repos.len(), 20);
+        assert_eq!(p6.repos[0].coord.id, "acme/r-100");
+        assert!(p6.has_more);
+
+        // 第 7 页（120..125）：尾页无更多
+        let p7 = slice_self_starred_from_affinity_cache(&db, 7, 20).unwrap();
+        assert_eq!(p7.repos.len(), 5);
+        assert_eq!(p7.repos[4].coord.id, "acme/r-124");
+        assert!(!p7.has_more);
+    }
 }

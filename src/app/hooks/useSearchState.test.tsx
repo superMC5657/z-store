@@ -10,6 +10,7 @@
  * - 触底翻页：守卫（loading 中 / 无下一页不拉）、按 id 去重追加、缓存翻页；
  * - 回声窗纯函数（echo）三语义锁定。
  */
+import { useRef, useState } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../../types';
@@ -85,7 +86,26 @@ function renderSearch(currentView: 'home' | 'installed' | 'trends' | 'categories
     showToast: vi.fn(),
     t: ((key: string, fallback?: string) => fallback ?? key) as never,
   };
-  const rendered = renderHook(() => useSearchState(deps));
+  const rendered = renderHook(() => {
+    const [onlineApps, setOnlineApps] = useState<AppSummary[]>([]);
+    const onlineAppsRef = useRef<AppSummary[]>(onlineApps);
+    onlineAppsRef.current = onlineApps;
+    const fullCatalogAppsRef = useRef<AppSummary[]>([]);
+    return useSearchState({
+      currentView: deps.currentView,
+      navigate: deps.navigate,
+      catalogLists: {
+        setApps: deps.setApps,
+        fullCatalogAppsRef,
+        onlineApps,
+        setOnlineApps,
+        onlineAppsRef,
+      },
+      lazyBackfillPlatforms: deps.lazyBackfillPlatforms,
+      showToast: deps.showToast,
+      t: deps.t,
+    });
+  });
   return { rendered, deps };
 }
 
