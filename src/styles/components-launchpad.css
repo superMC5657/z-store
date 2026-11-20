@@ -1011,3 +1011,277 @@ button.launchpad-comment-author:hover {
     transform: none;
   }
 }
+
+/* 投稿预检向导弹窗（LaunchpadSubmitModal） */
+.detail-modal.launchpad-submit-modal {
+  max-width: 940px;
+  max-height: 90%;
+}
+
+.launchpad-submit-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-acrylic-dialog);
+  flex-shrink: 0;
+}
+
+.launchpad-submit-heading h3 {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: 590;
+  letter-spacing: -0.018em;
+  color: var(--text-primary);
+}
+
+.launchpad-submit-heading p {
+  margin: 4px 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.launchpad-submit-form-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.launchpad-submit-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.launchpad-submit-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.launchpad-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.launchpad-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.launchpad-field label {
+  font-size: var(--font-sm);
+  font-weight: 510;
+  color: var(--text-primary);
+}
+
+.launchpad-field-required {
+  color: var(--text-tertiary);
+  margin-left: 2px;
+}
+
+.launchpad-field-hint {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  line-height: 1.35;
+}
+
+.launchpad-field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.launchpad-input,
+.launchpad-select,
+.launchpad-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-sm);
+  transition: border-color 0.12s var(--ease-smooth), box-shadow 0.12s var(--ease-smooth);
+}
+
+.launchpad-input,
+.launchpad-select {
+  height: 30px;
+  padding: 0 9px;
+}
+
+.launchpad-textarea {
+  padding: 7px 9px;
+  resize: vertical;
+  min-height: 58px;
+  line-height: 1.45;
+}
+
+.launchpad-input:focus-visible,
+.launchpad-select:focus-visible,
+.launchpad-textarea:focus-visible {
+  outline: 2px solid var(--border-highlight);
+  outline-offset: 1px;
+  border-color: var(--border-highlight);
+}
+
+.launchpad-field :is(:user-invalid, [aria-invalid="true"]) {
+  border-color: var(--status-danger);
+}
+
+.launchpad-field-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--status-danger);
+  line-height: 1.35;
+}
+
+.launchpad-note-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+.launchpad-preflight-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+
+.launchpad-preflight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.launchpad-preflight-head h4,
+.launchpad-preview-head h4 {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: 590;
+  color: var(--text-primary);
+}
+
+.launchpad-preflight-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.launchpad-preflight-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-acrylic-hover);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.launchpad-preflight-item.is-pass svg {
+  color: var(--text-primary);
+}
+
+.launchpad-preflight-item.is-warn svg {
+  color: var(--status-warning);
+}
+
+.launchpad-preflight-item.is-fail {
+  border-color: rgba(220, 38, 38, 0.25);
+  background: var(--status-danger-bg);
+  color: var(--text-primary);
+}
+
+.launchpad-preflight-item.is-fail svg {
+  color: var(--status-danger);
+}
+
+.launchpad-preflight-item svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.launchpad-preflight-empty {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  line-height: 1.45;
+}
+
+.launchpad-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.launchpad-preview-hint {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.launchpad-preview-stage {
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 10px;
+  background: var(--bg-acrylic-hover);
+}
+
+.launchpad-preview-stage .app-card.launchpad-card:hover {
+  transform: none;
+}
+
+.launchpad-submit-footer {
+  justify-content: space-between;
+  padding: 12px 20px;
+}
+
+.launchpad-submit-footer-note {
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+}
+
+.launchpad-submit-footer-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 780px) {
+  .launchpad-submit-body {
+    grid-template-columns: 1fr;
+  }
+}

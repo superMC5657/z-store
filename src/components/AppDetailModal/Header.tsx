@@ -4,6 +4,7 @@ import {
   Bug,
   Clock,
   AlertTriangle,
+  Share2,
   X,
   Globe,
 } from 'lucide-react';
@@ -11,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi, type AppIconCycleResult } from '../../services/api';
 import { AppIconFrame } from '../AppIconFrame';
+import { ShareBadgeModal } from '../ShareBadgeModal';
 import { admitIconHit } from '../../services/iconStore';
 import { notifyToast } from '../../useToasts';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
@@ -78,6 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
   // 图标轮换态（T3 刷新图标）
   const [iconCycle, setIconCycle] = useState<AppIconCycleResult | null>(null);
   const [isCyclingIcon, setIsCyclingIcon] = useState(false);
+  const [shareBadgeOpen, setShareBadgeOpen] = useState(false);
   // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
   const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
 
@@ -91,6 +94,7 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     let isMounted = true;
     setIconCycle(null);
+    setShareBadgeOpen(false);
     if (!isTauri || !app.id) {
       return () => {
         isMounted = false;
@@ -385,6 +389,17 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
         <button
           type="button"
+          className="modal-header-btn"
+          data-testid="detail-share-badge-btn"
+          onClick={() => setShareBadgeOpen(true)}
+          aria-label={t('share_badge.entry_button')}
+          title={t('share_badge.entry_button')}
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          <Share2 size={14} strokeWidth={1.5} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
           className="modal-header-btn modal-close-btn"
           onClick={onClose}
           aria-label={t('detail.close_aria')}
@@ -392,6 +407,16 @@ export const Header: React.FC<HeaderProps> = ({
           <X size={14} strokeWidth={1.5} />
         </button>
       </div>
+
+      {shareBadgeOpen && (
+        <ShareBadgeModal
+          id={app.id}
+          name={displayName}
+          kind="catalog"
+          layer="confirm"
+          onClose={() => setShareBadgeOpen(false)}
+        />
+      )}
 
       <AppIconFrame
         size="lg"

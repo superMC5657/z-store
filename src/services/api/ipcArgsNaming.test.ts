@@ -298,6 +298,8 @@ describe('ipc args naming (camelCase)', () => {
         currentlyReacted: false,
       }),
     );
+    await swallow(launchpad.preflightLaunchpadSubmission('o/r'));
+    await swallow(launchpad.preflightLaunchpadSubmission('o/r', 'https://example.com/icon.png'));
 
     expect(captured.map((c) => c.cmd)).toEqual([
       'get_launchpad_feed',
@@ -308,6 +310,8 @@ describe('ipc args naming (camelCase)', () => {
       'toggle_launchpad_upvote',
       'toggle_launchpad_comment_upvote',
       'toggle_launchpad_reaction',
+      'preflight_launchpad_submission',
+      'preflight_launchpad_submission',
     ]);
     expect(captured[0].args).toEqual({ forceRefresh: true });
     expect(captured[1].args).toEqual({ forceRefresh: true });
@@ -323,6 +327,8 @@ describe('ipc args naming (camelCase)', () => {
       content: 'THUMBS_UP',
       currentlyReacted: false,
     });
+    expect(captured[8].args).toEqual({ repoUrl: 'o/r' });
+    expect(captured[9].args).toEqual({ repoUrl: 'o/r', customIconUrl: 'https://example.com/icon.png' });
     expectAllCamel();
   });
 

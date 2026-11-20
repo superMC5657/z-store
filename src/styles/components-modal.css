@@ -660,3 +660,168 @@
 .rules-notice.is-error {
   color: #ef4444;
 }
+
+/* README 徽章与深链分享弹窗（ShareBadgeModal） */
+.detail-modal.share-badge-modal {
+  max-width: 560px;
+}
+
+.share-badge-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-acrylic-dialog);
+  flex-shrink: 0;
+}
+
+.share-badge-heading h3 {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: 590;
+  letter-spacing: -0.018em;
+  color: var(--text-primary);
+}
+
+.share-badge-heading p {
+  margin: 4px 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.share-badge-body {
+  padding: 16px 20px;
+  gap: 14px;
+}
+
+.share-badge-style-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.share-badge-style-label {
+  font-size: var(--font-sm);
+  font-weight: 510;
+  color: var(--text-primary);
+}
+
+.share-badge-preview-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+
+.share-badge-preview-box.is-light-surface {
+  background: #ffffff;
+}
+
+.share-badge-preview-box.is-dark-surface {
+  background: #141518;
+}
+
+.share-badge-pill {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 4px;
+  overflow: hidden;
+  font-family: Verdana, Geneva, DejaVu Sans, sans-serif;
+  font-size: 11px;
+  line-height: 20px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  user-select: all;
+}
+
+.share-badge-pill-label {
+  padding: 0 8px;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.share-badge-pill-value.is-dark {
+  padding: 0 8px;
+  background: #111111;
+  color: #e4e4e7;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.share-badge-pill-value.is-light {
+  padding: 0 8px;
+  background: #f4f4f5;
+  color: #111111;
+}
+
+.share-badge-preview-img {
+  max-width: 100%;
+  height: 20px;
+}
+
+.share-badge-snippet {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-acrylic-card);
+}
+
+.share-badge-snippet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.share-badge-snippet-title {
+  font-size: var(--font-sm);
+  font-weight: 510;
+  color: var(--text-primary);
+}
+
+.share-badge-snippet-hint {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.share-badge-code {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+
+.share-badge-feedback {
+  font-size: var(--font-xs);
+  color: var(--status-success);
+  margin-right: auto;
+}
+
+.share-badge-feedback.is-error {
+  color: var(--status-danger);
+}

@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import '../../i18n';
-import { ArrowBigUp, ExternalLink, Inbox, MessageSquare } from 'lucide-react';
+import { ArrowBigUp, ExternalLink, Inbox, MessageSquare, Share2 } from 'lucide-react';
 import type { AppSummary, LaunchpadEntry } from '../../types';
 import { AppIconFrame } from '../../components/AppIconFrame';
 import { CachedAvatar } from '../../components/CachedAvatar';
@@ -35,6 +35,7 @@ export interface LaunchpadCardProps {
   onOpenDiscussion: (entry: LaunchpadEntry) => void;
   onOpenSource: (entry: LaunchpadEntry) => void;
   onMoveInApp?: (app: AppSummary) => void;
+  onShareBadge?: (entry: LaunchpadEntry) => void;
 }
 
 const DAY_MS = 86_400_000;
@@ -135,6 +136,7 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
   onOpenDiscussion,
   onOpenSource,
   onMoveInApp,
+  onShareBadge,
 }) => {
   const { t, i18n } = useTranslation();
   const app = entry.summary;
@@ -328,6 +330,18 @@ export const LaunchpadCard: React.FC<LaunchpadCardProps> = ({
               onClick={() => onMoveInApp?.(app)}
             >
               <Inbox size={13} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          )}
+          {onShareBadge && (
+            <button
+              type="button"
+              className="btn-fluent btn-secondary btn-compact btn-icon-only launchpad-action"
+              data-testid={`launchpad-share-${app.id}`}
+              title={t('launchpad.share_badge')}
+              aria-label={t('launchpad.share_badge')}
+              onClick={() => onShareBadge(entry)}
+            >
+              <Share2 size={13} strokeWidth={1.5} aria-hidden="true" />
             </button>
           )}
           <button

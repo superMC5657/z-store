@@ -303,3 +303,57 @@ pub struct LaunchpadUpvoteResult {
     pub viewer_has_upvoted: bool,
     pub mode: LaunchpadVoteMode,
 }
+
+/// 应用内投稿预检检查项键枚举。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PreflightCheckKey {
+    Coord,
+    Duplicate,
+    License,
+    Release,
+    Icon,
+}
+
+/// 应用内投稿预检状态枚举。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PreflightCheckStatus {
+    Pass,
+    Warn,
+    Fail,
+}
+
+/// 应用内投稿预检单项状态。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreflightCheckItem {
+    pub key: PreflightCheckKey,
+    pub status: PreflightCheckStatus,
+    pub detail: String,
+}
+
+/// `preflight_launchpad_submission` 响应（全字段 snake_case）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchpadPreflightResult {
+    pub ok: bool,
+    pub canonical_id: String,
+    pub forge: String,
+    pub forge_host: String,
+    pub owner: String,
+    pub repo: String,
+    pub repo_name: String,
+    pub description: String,
+    pub homepage: Option<String>,
+    pub license: String,
+    pub latest_version: String,
+    pub platforms: Vec<String>,
+    pub installable_asset_count: usize,
+    pub has_checksum_manifest: bool,
+    pub resolved_icon_url: String,
+    pub stars: u64,
+    pub forks: u64,
+    pub maker_avatar_url: String,
+    pub already_in_launchpad: bool,
+    pub already_in_catalog: bool,
+    pub checks: Vec<PreflightCheckItem>,
+}

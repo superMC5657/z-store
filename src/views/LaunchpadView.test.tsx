@@ -436,7 +436,7 @@ describe('LaunchpadView', () => {
     expect(buttons).toHaveLength(2);
 
     fireEvent.click(buttons[1]);
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
     expect(buttons[0].getAttribute('aria-expanded')).toBe('false');
     expect(buttons[1].getAttribute('aria-expanded')).toBe('true');
     const emptyWrapper = screen.getAllByRole('menuitem')[0].closest('.flyout-menu')?.parentElement;
@@ -446,7 +446,7 @@ describe('LaunchpadView', () => {
     expect(screen.getAllByRole('menuitem')[0].closest<HTMLElement>('.flyout-menu')?.style.transform).toBe('');
 
     fireEvent.click(buttons[0]);
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
     expect(buttons[0].getAttribute('aria-expanded')).toBe('true');
     expect(buttons[1].getAttribute('aria-expanded')).toBe('false');
     const headerWrapper = screen.getAllByRole('menuitem')[0].closest('.flyout-menu')?.parentElement;
@@ -590,6 +590,30 @@ describe('LaunchpadView', () => {
     expect(await screen.findByTestId('launchpad-comment-input')).toBeTruthy();
     expect(screen.getByTestId('launchpad-discussion-upvote').textContent).toBe('2');
     expect(screen.getByTestId('launchpad-discussion-upvote').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('从 Flyout 打开应用内投稿预检向导，从卡片分享按钮打开 README 徽章弹窗', async () => {
+    api.getLaunchpadFeed.mockResolvedValue(feed([], [entry('acme/hyper')]));
+    renderView();
+    const card = await screen.findByTestId('launchpad-card-acme/hyper');
+
+    // Open share badge modal from LaunchpadCard
+    fireEvent.click(within(card).getByTestId('launchpad-share-acme/hyper'));
+    const shareDialog = await screen.findByRole('dialog');
+    expect(shareDialog.className).toContain('share-badge-modal');
+    expect(within(shareDialog).getByTestId('share-code-deeplink').textContent).toBe(
+      'zstore://launchpad/acme/hyper',
+    );
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    // Open submission preflight wizard from header flyout menu
+    fireEvent.click(screen.getByRole('button', { name: '提交我的开源作品' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /应用内预检投稿/ }));
+    const wizardDialog = await screen.findByRole('dialog');
+    expect(wizardDialog.className).toContain('launchpad-submit-modal');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });
 

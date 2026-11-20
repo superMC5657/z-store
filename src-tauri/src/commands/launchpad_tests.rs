@@ -497,3 +497,83 @@ async fn partial_graphql_response_and_newer_manifest_do_not_corrupt_counts_or_re
     assert_eq!(items[0].summary.core.forks, 9);
     assert_eq!(items[0].summary.core.latest_version, "v0.9.0");
 }
+
+#[tokio::test]
+async fn verify_custom_icon_d8_validates_png_and_rejects_html() {
+    let mut png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR".to_vec();
+    png.resize(320, 0);
+    let png_server = serve(move |req| {
+        if req.starts_with("HEAD ") {
+            Reply::status("405 Method Not Allowed")
+        } else {
+            Reply::status("206 Partial Content")
+                .header("Content-Type", "image/png")
+                .body(png.clone())
+        }
+    })
+    .await;
+    assert!(verify_custom_icon_d8(&client(), &format!("{}/logo.png", png_server.base)).await);
+    assert_eq!(png_server.hits(), 2);
+    assert!(png_server.requests()[0].starts_with("HEAD "));
+    assert!(png_server.requests()[1]
+        .to_ascii_lowercase()
+        .contains("range: bytes=0-65535"));
+
+    let tiny_server = serve(|req| {
+        if req.starts_with("HEAD ") {
+            Reply::status("405 Method Not Allowed")
+        } else {
+            Reply::status("206 Partial Content")
+                .header("Content-Type", "image/png")
+                .body(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR".to_vec())
+        }
+    })
+    .await;
+    assert!(!verify_custom_icon_d8(&client(), &format!("{}/tiny.png", tiny_server.base)).await);
+
+    let miss_server = serve(|_| Reply::status("404 Not Found")).await;
+    assert!(!verify_custom_icon_d8(&client(), &format!("{}/missing.png", miss_server.base)).await);
+    assert_eq!(miss_server.hits(), 1);
+
+    let html_server = serve(|_| {
+        Reply::ok("<html>not an image</html>").header("Content-Type", "text/html")
+    })
+    .await;
+    assert!(!verify_custom_icon_d8(&client(), &format!("{}/logo.png", html_server.base)).await);
+    assert_eq!(html_server.hits(), 1);
+}
+
+#[test]
+fn is_id_in_launchpad_snapshot_detects_existing_entries() {
+    let db = Database::open_in_memory().unwrap();
+    let url = "https://example.com/launchpad.json";
+    db.save_launchpad_feed_cache(url, MANIFEST).unwrap();
+    assert!(is_id_in_launchpad_snapshot(&db, url, "acme/hyper-term"));
+    assert!(is_id_in_launchpad_snapshot(&db, url, "RustDesk/RustDesk"));
+    assert!(!is_id_in_launchpad_snapshot(&db, url, "other/missing"));
+}
+
+#[tokio::test]
+async fn resolve_preflight_icon_rejects_http_and_data_schemes() {
+    let coord = crate::forge::RepositoryUrlParser::parse("acme/demo").unwrap();
+    let c = client();
+
+    let http_res = resolve_preflight_icon(&c, &c, &coord, None, Some("http://example.com/a.png")).await;
+    assert!(matches!(
+        http_res,
+        crate::launchpad::PreflightIconOutcome::CustomInvalidScheme(_)
+    ));
+
+    let data_res = resolve_preflight_icon(
+        &c,
+        &c,
+        &coord,
+        None,
+        Some("data:image/png;base64,iVBOR"),
+    )
+    .await;
+    assert!(matches!(
+        data_res,
+        crate::launchpad::PreflightIconOutcome::CustomInvalidScheme(_)
+    ));
+}

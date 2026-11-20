@@ -14,6 +14,10 @@ pub struct ForgeRepoInfo {
     pub default_branch: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_avatar_url: Option<String>,
 }
 
 impl ForgeRepoInfo {
@@ -36,8 +40,40 @@ impl ForgeRepoInfo {
             language,
             default_branch: default_branch.unwrap_or_else(|| "main".to_string()),
             homepage: homepage.filter(|h| !h.trim().is_empty()),
+            license: None,
+            owner_avatar_url: None,
         }
     }
+
+    /// 补充源仓库开源协议（保留原始 SPDX 标识供门禁核验）与作者头像直链。
+    pub fn with_license_and_avatar(
+        mut self,
+        license: Option<String>,
+        owner_avatar_url: Option<String>,
+    ) -> Self {
+        self.license = license
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        self.owner_avatar_url = owner_avatar_url
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        self
+    }
+}
+
+/// 从 Forge 仓库 JSON 的 `license` 字段（字符串或含 `spdx_id`/`key`/`name` 的对象）提取协议名。
+pub(crate) fn extract_license_value(val: Option<&serde_json::Value>) -> Option<String> {
+    let raw = match val? {
+        serde_json::Value::String(s) => s.as_str(),
+        serde_json::Value::Object(map) => map
+            .get("spdx_id")
+            .or_else(|| map.get("key"))
+            .or_else(|| map.get("name"))
+            .and_then(|v| v.as_str())?,
+        _ => return None,
+    };
+    let trimmed = raw.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// 三家 `classify_asset + as_str` 共用映射的唯一落点。

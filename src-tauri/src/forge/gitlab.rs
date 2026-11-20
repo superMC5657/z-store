@@ -4,7 +4,9 @@ use super::coord::ForgeType;
 use super::http::{
     api_headers, get_with_d7_retry, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE,
 };
-use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
+use super::provider::{
+    extract_license_value, parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo,
+};
 use serde::Deserialize;
 
 pub struct GitLabProvider;
@@ -33,7 +35,10 @@ impl ForgeProvider for GitLabProvider {
                 urlencoding::encode(owner),
                 urlencoding::encode(repo)
             );
-            let url = format!("https://{}/api/v4/projects/{}", host, encoded_path);
+            let url = format!(
+                "https://{}/api/v4/projects/{}?license=true",
+                host, encoded_path
+            );
             let span = HttpSpan::start();
             let resp = get_with_d7_retry(&client, &url, &headers)
                 .await
@@ -46,15 +51,33 @@ impl ForgeProvider for GitLabProvider {
             }
 
             #[derive(Deserialize)]
+            struct GitLabNamespace {
+                avatar_url: Option<String>,
+            }
+
+            #[derive(Deserialize)]
             struct GitLabRepoPayload {
                 name: String,
                 description: Option<String>,
                 star_count: Option<u64>,
                 forks_count: Option<u64>,
                 default_branch: Option<String>,
+                #[serde(default)]
+                license: Option<serde_json::Value>,
+                #[serde(default)]
+                avatar_url: Option<String>,
+                #[serde(default)]
+                namespace: Option<GitLabNamespace>,
             }
 
             let payload: GitLabRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
+            let license =
+                extract_license_value(payload.license.as_ref()).map(|s| s.to_ascii_uppercase());
+            let avatar = payload
+                .namespace
+                .and_then(|n| n.avatar_url)
+                .filter(|s| !s.trim().is_empty())
+                .or(payload.avatar_url);
 
             Ok(ForgeRepoInfo::from_counts(
                 payload.name,
@@ -64,7 +87,8 @@ impl ForgeProvider for GitLabProvider {
                 None,
                 payload.default_branch,
                 None,
-            ))
+            )
+            .with_license_and_avatar(license, avatar))
         })
     }
 

@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
-import { BookOpen, FilePlus, Megaphone, Pin, Plus, RefreshCw, Rocket, WifiOff } from 'lucide-react';
+import { BookOpen, FilePlus, Megaphone, Pin, Plus, RefreshCw, Rocket, SearchCheck, WifiOff } from 'lucide-react';
 import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { tauriApi } from '../services/api';
 import { notifyToast } from '../useToasts';
 import { CountBadge } from '../components/CountBadge';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { FlyoutMenu } from '../components/FlyoutMenu';
+import { ShareBadgeModal } from '../components/ShareBadgeModal';
 import { EMPTY_IDS, FilterEmptyState, ViewShell, noopAction, resolvePlatformReset } from './ViewShell';
 import { useAppContextProps, type AppContextProps } from '../app/AppContext';
 import { LaunchpadCard } from './LaunchpadView/LaunchpadCard';
+import { LaunchpadSubmitModal } from './LaunchpadView/LaunchpadSubmitModal';
 import type { LaunchpadDiscussionSyncedPayload } from './LaunchpadView/LaunchpadDiscussionModal';
 import { lazyNamed } from '../lib/lazyNamed';
 import { sortLaunchpadItems } from './LaunchpadView/sortLaunchpad';
@@ -88,6 +90,8 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
   const [error, setError] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<LaunchpadSortMode>('recommended');
   const [openSubmitMenu, setOpenSubmitMenu] = useState<'header' | 'empty' | null>(null);
+  const [submitWizardOpen, setSubmitWizardOpen] = useState(false);
+  const [shareEntry, setShareEntry] = useState<LaunchpadEntry | null>(null);
   const [starring, setStarring] = useState<ReadonlySet<string>>(EMPTY_IDS);
   const [upvoting, setUpvoting] = useState<ReadonlySet<string>>(EMPTY_IDS);
   const [discussionAppId, setDiscussionAppId] = useState<string | null>(null);
@@ -391,6 +395,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
         onOpenDiscussion={handleOpenDiscussion}
         onOpenSource={handleOpenSource}
         onMoveInApp={handleMoveIn}
+        onShareBadge={setShareEntry}
       />
     );
   };
@@ -424,7 +429,21 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
           <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
           <span>{t('launchpad.submit')}</span>
         </button>
-        <FlyoutMenu isOpen={isOpen} onClose={() => setOpenSubmitMenu(null)} align={align} width={260}>
+        <FlyoutMenu isOpen={isOpen} onClose={() => setOpenSubmitMenu(null)} align={align} width={280}>
+          <button
+            type="button"
+            role="menuitem"
+            className="flyout-item"
+            onClick={() => {
+              setOpenSubmitMenu(null);
+              setSubmitWizardOpen(true);
+            }}
+          >
+            <span className="flyout-item-icon"><SearchCheck size={14} strokeWidth={1.5} /></span>
+            <span className="flyout-item-content">
+              <span className="flyout-item-title"><span>{t('launchpad.submit_wizard')}</span></span>
+            </span>
+          </button>
           <button type="button" role="menuitem" className="flyout-item" onClick={() => openSubmit(submitIssueUrl)}>
             <span className="flyout-item-icon"><FilePlus size={14} strokeWidth={1.5} /></span>
             <span className="flyout-item-content">
@@ -552,6 +571,24 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
             onDiscussionSynced={handleDiscussionSynced}
           />
         </React.Suspense>
+      )}
+
+      {submitWizardOpen && (
+        <LaunchpadSubmitModal
+          submitIssueUrl={submitIssueUrl}
+          oauthUser={oauthUser}
+          onClose={() => setSubmitWizardOpen(false)}
+        />
+      )}
+
+      {shareEntry && (
+        <ShareBadgeModal
+          id={shareEntry.summary.id}
+          name={shareEntry.summary.name}
+          kind="launchpad"
+          layer="base"
+          onClose={() => setShareEntry(null)}
+        />
       )}
     </ViewShell>
   );

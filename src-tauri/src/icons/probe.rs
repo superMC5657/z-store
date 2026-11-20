@@ -354,6 +354,23 @@ async fn verify_image(
     Some((bytes.len(), ctype))
 }
 
+/// 投稿预检自定义图标 Range 拉取上限（64 KiB）。
+pub(crate) const PREFLIGHT_ICON_RANGE_CAP: usize = 64 * 1024;
+
+fn parse_total_len_headers(headers: &HeaderMap) -> Option<usize> {
+    headers
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.rsplit('/').next())
+        .and_then(|s| s.parse::<usize>().ok())
+        .or_else(|| {
+            headers
+                .get(reqwest::header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<usize>().ok())
+        })
+}
+
 /// Range 请求拉取首 32KB 验证 content-type 与魔数；服务端忽略 Range 返回全量时仅取首块截断。
 async fn fetch_range_head(
     client: &reqwest::Client,
@@ -387,18 +404,7 @@ async fn fetch_range_head(
         .to_string();
     // content-range 声明的总长度可直接用于“≥300B”判定，避免读 body；
     // 服务器忽略 Range 回 200 时退到 content-length，同样免 body 预检。
-    let total_len = resp
-        .headers()
-        .get(reqwest::header::CONTENT_RANGE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.rsplit('/').next())
-        .and_then(|s| s.parse::<usize>().ok())
-        .or_else(|| {
-            resp.headers()
-                .get(reqwest::header::CONTENT_LENGTH)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<usize>().ok())
-        });
+    let total_len = parse_total_len_headers(resp.headers());
     if !headers_hit(&ctype, total_len) {
         return RangeProbeOutcome::Verified(None);
     }
@@ -422,6 +428,98 @@ async fn fetch_range_head(
     // 返回服务端声明的总长度（若有），否则返回已下载的首包长度，保证 ≥300。
     let reported = total_len.unwrap_or(first.len()).max(first.len());
     RangeProbeOutcome::Verified(Some((reported, ctype)))
+}
+
+/// D8 首包验图（token-less 图标池）：校验扩展名、HEAD 预检（404/410 短路 + Content-Type/长度），
+/// 再发 `Range: bytes=0-65535` 读取至多 64 KiB，校验长度 ≥300B 与图片魔数。
+pub(crate) async fn verify_custom_icon_d8(client: &reqwest::Client, url: &str) -> bool {
+    use futures_util::StreamExt;
+    if !crate::icons::url_ext_allowed(url) {
+        return false;
+    }
+    let timeout = crate::config::api_timeout_or(std::time::Duration::from_secs(8));
+    if let Ok(Ok(head_res)) = tokio::time::timeout(
+        timeout,
+        client
+            .head(url)
+            .headers(crate::forge::http::icon_headers())
+            .send(),
+    )
+    .await
+    {
+        if is_terminal_http_miss(head_res.status()) {
+            return false;
+        }
+        if head_res.status().is_success() {
+            if let Some(len) = head_res
+                .headers()
+                .get(reqwest::header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<usize>().ok())
+            {
+                if len < MIN_IMAGE_BYTES {
+                    return false;
+                }
+            }
+            let ctype = head_res
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .unwrap_or("");
+            if !ctype.is_empty() && !content_type_is_image(ctype) {
+                return false;
+            }
+        }
+    }
+
+    let req = client
+        .get(url)
+        .headers(crate::forge::http::icon_headers())
+        .header(
+            reqwest::header::RANGE,
+            format!("bytes=0-{}", PREFLIGHT_ICON_RANGE_CAP - 1),
+        )
+        .send();
+    let Ok(Ok(resp)) = tokio::time::timeout(timeout, req).await else {
+        return false;
+    };
+    let status = resp.status();
+    if !(status.is_success() || status.as_u16() == 206) {
+        return false;
+    }
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .unwrap_or("");
+    if !ctype.is_empty() && !content_type_is_image(ctype) {
+        return false;
+    }
+    if parse_total_len_headers(resp.headers()).is_some_and(|n| n < MIN_IMAGE_BYTES) {
+        return false;
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut head = Vec::with_capacity(4096);
+    while let Some(chunk_res) = stream.next().await {
+        let Ok(chunk) = chunk_res else {
+            return false;
+        };
+        let remaining = PREFLIGHT_ICON_RANGE_CAP.saturating_sub(head.len());
+        if remaining == 0 {
+            break;
+        }
+        let take = chunk.len().min(remaining);
+        head.extend_from_slice(&chunk[..take]);
+        if head.len() >= PREFLIGHT_ICON_RANGE_CAP
+            || (head.len() >= MIN_IMAGE_BYTES && crate::icons::sniff_image_mime(&head).is_some())
+        {
+            break;
+        }
+    }
+    head.len() >= MIN_IMAGE_BYTES && crate::icons::sniff_image_mime(&head).is_some()
 }
 
 #[derive(Debug, Deserialize)]

@@ -704,3 +704,39 @@ export interface LaunchpadUpvoteResult {
   viewer_has_upvoted: boolean;
   mode: 'upvote' | 'reaction';
 }
+
+export type LaunchpadTier = 'free' | 'spotlight-7d' | 'spotlight-14d' | 'spotlight-30d';
+
+export type PreflightCheckKey = 'coord' | 'duplicate' | 'license' | 'release' | 'icon';
+
+export type PreflightCheckStatus = 'pass' | 'warn' | 'fail';
+
+export interface PreflightCheckItem {
+  key: PreflightCheckKey;
+  status: PreflightCheckStatus;
+  detail: string;
+}
+
+export interface LaunchpadPreflightResult {
+  ok: boolean;
+  canonical_id: string;
+  forge: string;
+  forge_host: string;
+  owner: string;
+  repo: string;
+  repo_name: string;
+  description: string;
+  homepage: string | null;
+  license: string;
+  latest_version: string;
+  platforms: string[];
+  installable_asset_count: number;
+  has_checksum_manifest: boolean;
+  resolved_icon_url: string;
+  stars: number;
+  forks: number;
+  maker_avatar_url: string;
+  already_in_launchpad: boolean;
+  already_in_catalog: boolean;
+  checks: PreflightCheckItem[];
+}

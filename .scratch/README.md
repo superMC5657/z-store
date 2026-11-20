@@ -1,6 +1,6 @@
 # ZStore Feature Specs & Issue Tracker 目录索引
 
-> 本目录为 ZStore 项目的本地需求工单与技术规格索引（遵循 [`docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md) 与 [`AGENTS.md`](../AGENTS.md)），按执行时序汇总 **36 个特性与治理专题**及其演进取舍。
+> 本目录为 ZStore 项目的本地需求工单与技术规格索引（遵循 [`docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md) 与 [`AGENTS.md`](../AGENTS.md)），按执行时序汇总 **37 个特性与治理专题**及其演进取舍。
 
 ---
 
@@ -54,6 +54,7 @@
 | **#34** | Phase 7: 底座与优化 | [`backend-sqlite-batching-and-async-offload`](./backend-sqlite-batching-and-async-offload/spec.md) | 后端专题四：SQLite 批量读写与阻塞 IO 异步卸载 | 2026-11-18 | `67f053e` | ADR-0003, 0027 | 3 / 3 Resolved |
 | **#35** | Phase 7: 底座与优化 | [`backend-contract-consistency-and-hygiene`](./backend-contract-consistency-and-hygiene/spec.md) | 后端专题五：元数据校验、端点 SSOT 与构建卫生 | 2026-11-18 | `a5fb3b8` | ADR-0010, 0018 | 2 / 2 Resolved |
 | **#36** | Phase 7: 底座与优化 | [`richcard-pipeline-optimization`](./richcard-pipeline-optimization/spec.md) | 在线搜索 / 趋势榜 / Star 富卡链路收敛与缓存治理 | 2026-11-20 | `b9a3137` | ADR-0011, 0015, 0027 | 5 / 5 Resolved |
+| **#37** | Phase 8: 发现深化与生态工具 | [`feature-launchpad-preflight-and-badges`](./feature-launchpad-preflight-and-badges/spec.md) | 开源广场应用内投稿预检向导与 README 徽章生成器 | 2026-11-20 | — | ADR-0018, 0029 | 4 / 4 Resolved |
 
 ---
 
@@ -212,6 +213,13 @@
 
 #### #36 · `richcard-pipeline-optimization`
 - **定位**：在线搜索 / 趋势榜 / Star 富卡链路收敛与缓存治理（5 / 5 Resolved），抑制在线搜索补图风暴、统一请求复用与单订阅世代门控。
+
+---
+
+### Phase 8: 开源广场自检与分享工具
+
+#### #37 · `feature-launchpad-preflight-and-badges`
+- **定位**：开源广场应用内投稿预检向导与 README 徽章生成器（4 / 4 Resolved），提供仓库坐标、OSI 协议、Release 产物与图标探测的本地预检与 `<LaunchpadCard>` 实时预览，并支持一键生成深链与单色 README 徽章。
 
 ---
 

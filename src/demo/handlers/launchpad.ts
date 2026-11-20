@@ -4,6 +4,7 @@ import type {
   LaunchpadDiscussionDetail,
   LaunchpadEntry,
   LaunchpadFeedResponse,
+  LaunchpadPreflightResult,
   LaunchpadPulseItem,
   LaunchpadReactionContent,
   LaunchpadReactionGroup,
@@ -426,4 +427,141 @@ export function handleToggleLaunchpadReaction(a: InvokeArgs): LaunchpadReactionG
   if (!target) throw new Error('无效的讨论或评论 ID');
   target.reaction_groups = toggleReactionList(target.reaction_groups, content, currentlyReacted);
   return target.reaction_groups;
+}
+
+function parseDemoRepoCoord(raw: string): {
+  forge: 'github' | 'codeberg' | 'gitea' | 'gitlab';
+  host: string;
+  owner: string;
+  repo: string;
+  canonicalId: string;
+} | null {
+  const s = raw.trim().replace(/^@(?![^/]*:)/, '');
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      const u = new URL(s);
+      const host = u.hostname.toLowerCase();
+      const parts = u.pathname.replace(/\.git$/i, '').split('/').filter(Boolean);
+      if (parts.length < 2) return null;
+      const [owner, repo] = parts;
+      const forge =
+        host === 'github.com'
+          ? 'github'
+          : host === 'codeberg.org'
+            ? 'codeberg'
+            : host.includes('gitlab')
+              ? 'gitlab'
+              : 'gitea';
+      const canonicalId =
+        forge === 'github'
+          ? `${owner}/${repo}`.toLowerCase()
+          : (forge === 'codeberg' && host === 'codeberg.org') || (forge === 'gitlab' && host === 'gitlab.com')
+            ? `${forge}:${owner}/${repo}`.toLowerCase()
+            : `${forge}:${host}/${owner}/${repo}`.toLowerCase();
+      return { forge, host, owner, repo, canonicalId };
+    } catch {
+      return null;
+    }
+  }
+  const m = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(s);
+  if (!m) return null;
+  const [, owner, repo] = m;
+  return {
+    forge: 'github',
+    host: 'github.com',
+    owner,
+    repo,
+    canonicalId: `${owner}/${repo}`.toLowerCase(),
+  };
+}
+
+export function handlePreflightLaunchpadSubmission(a: InvokeArgs): LaunchpadPreflightResult {
+  warnUnknownArgs(['repoUrl', 'customIconUrl'], a, 'preflight_launchpad_submission');
+  const repoUrl = argStr(a, 'repoUrl');
+  const customIconUrl = argStr(a, 'customIconUrl').trim();
+  const parsed = parseDemoRepoCoord(repoUrl);
+  if (!parsed) {
+    return {
+      ok: false,
+      canonical_id: '',
+      forge: '',
+      forge_host: '',
+      owner: '',
+      repo: '',
+      repo_name: '',
+      description: '',
+      homepage: null,
+      license: '',
+      latest_version: '',
+      platforms: [],
+      installable_asset_count: 0,
+      has_checksum_manifest: false,
+      resolved_icon_url: '',
+      stars: 0,
+      forks: 0,
+      maker_avatar_url: '',
+      already_in_launchpad: false,
+      already_in_catalog: false,
+      checks: [
+        {
+          key: 'coord',
+          status: 'fail',
+          detail: '无法识别仓库地址，请输入 owner/repo 或完整 https 仓库地址',
+        },
+      ],
+    };
+  }
+
+  const lowerRepo = parsed.repo.toLowerCase();
+  const alreadyInLaunchpad = allSeeds().some((s) => s.id.toLowerCase() === parsed.canonicalId);
+  const badLicense = /non-osi|proprietary|no-license|busl/.test(lowerRepo);
+  const noRelease = /no-release|source-only/.test(lowerRepo);
+  const invalidCustomIcon = customIconUrl !== '' && (!/^https:\/\/\S+$/i.test(customIconUrl) || /\s/.test(customIconUrl));
+
+  const license = badLicense ? 'NOASSERTION' : 'MIT';
+  const platforms = noRelease ? [] : ['windows', 'macos', 'linux'];
+  const assetCount = noRelease ? 0 : 3;
+  const resolvedIcon = invalidCustomIcon ? '' : customIconUrl || '';
+  const ok = !badLicense && !noRelease && !invalidCustomIcon;
+
+  return {
+    ok,
+    canonical_id: parsed.canonicalId,
+    forge: parsed.forge,
+    forge_host: parsed.host,
+    owner: parsed.owner,
+    repo: parsed.repo,
+    repo_name: parsed.repo,
+    description: `${parsed.repo} — Demo preflight repository summary`,
+    homepage: `https://${parsed.host}/${parsed.owner}/${parsed.repo}`,
+    license,
+    latest_version: noRelease ? '' : 'v0.4.2',
+    platforms,
+    installable_asset_count: assetCount,
+    has_checksum_manifest: !noRelease,
+    resolved_icon_url: resolvedIcon,
+    stars: 128,
+    forks: 14,
+    maker_avatar_url: parsed.forge === 'github' ? `https://github.com/${parsed.owner}.png` : '',
+    already_in_launchpad: alreadyInLaunchpad,
+    already_in_catalog: false,
+    checks: [
+      { key: 'coord', status: 'pass', detail: `仓库可达：${parsed.canonicalId}（${parsed.host}）` },
+      alreadyInLaunchpad
+        ? { key: 'duplicate', status: 'warn', detail: '已在开源广场上架，重复投稿可能会被忽略' }
+        : { key: 'duplicate', status: 'pass', detail: '未在开源广场或精选目录发现重复条目' },
+      badLicense
+        ? { key: 'license', status: 'fail', detail: '未检测到明确的 OSI SPDX 协议（NOASSERTION）' }
+        : { key: 'license', status: 'pass', detail: 'OSI 开源协议校验通过：MIT' },
+      noRelease
+        ? { key: 'release', status: 'fail', detail: '最新 Release 缺少 >1 MiB 的可安装二进制资产' }
+        : { key: 'release', status: 'pass', detail: 'v0.4.2 含 3 个可安装资产（windows, macos, linux）与校验清单' },
+      invalidCustomIcon
+        ? { key: 'icon', status: 'fail', detail: '自定义图标直链仅支持 https:// 链接（拒绝 http:// 与 data:）' }
+        : customIconUrl
+          ? { key: 'icon', status: 'pass', detail: '自定义 https:// 图标首包验图通过' }
+          : { key: 'icon', status: 'warn', detail: '将使用默认首字母图标，建议补充图标直链或仓库 logo' },
+    ],
+  };
 }

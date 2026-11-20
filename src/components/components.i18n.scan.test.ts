@@ -26,6 +26,7 @@ const MIGRATED_FILES = [
   'ResizeHandles.tsx',
   'RulesManagerModal.tsx',
   'SegmentedControl.tsx',
+  'ShareBadgeModal.tsx',
   'Sidebar.tsx',
   'TitleBar.tsx',
   'Toast.tsx',
@@ -56,6 +57,7 @@ const MIGRATED_FILES = [
   '../views/LaunchpadView.tsx',
   '../views/LaunchpadView/LaunchpadCard.tsx',
   '../views/LaunchpadView/LaunchpadDiscussionModal.tsx',
+  '../views/LaunchpadView/LaunchpadSubmitModal.tsx',
   '../views/LaunchpadView/DiscussionComposer.tsx',
   '../views/LaunchpadView/DiscussionMarkdown.tsx',
 ];

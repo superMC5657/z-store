@@ -62,9 +62,9 @@ Built something useful with Vibe Coding and cut a release, but not sure how to r
 
 **Launchpad** is a dedicated space inside ZStore for new indie open-source tools. It's kept separate from the curated catalog, so fresh projects get seen right away instead of waiting months to qualify.
 
-- **Launch with one Issue**: Open an Issue on [z-store-launchpad](https://github.com/superMC5657/z-store-launchpad) (public repo, OSI-approved license, installable release). Automated checks validate the repo and publish your card along with your one-line **Maker Note**.
+- **Launch with one Issue & in-app preflight**: Run the in-app **Launchpad Submission Preflight** wizard (or open an Issue on [z-store-launchpad](https://github.com/superMC5657/z-store-launchpad)) to validate public repo reachability, the 37-item OSI license gate, installable release assets, and icon probing with a live `<LaunchpadCard>` preview before submitting the pre-filled Issue Form.
 - **Engagement inside the app**: Users can read your note, upvote with `+1`, discuss via GitHub Discussions, **Star** the repo, and **Install** it — without leaving ZStore.
-- **Shareable deep links**: Every launch gets a `zstore://launchpad/owner/repo` link for your README or release notes.
+- **Shareable deep links & README badges**: Every launch and app detail header provides a one-click generator for `zstore://launchpad/owner/repo` / `zstore://app/owner/repo` deep links and monochrome (`#111111` / `#f4f4f5`) README Markdown/HTML badges.
 - **Transparent Spotlight & sponsorships**: Up to 4 Spotlight slots at the top sustain the project through curated open-source highlights and clearly labeled developer-oriented commercial sponsorships. Sponsored entries are strictly isolated from the curated catalog and recommendation scoring, with no ad networks and no behavioral tracking.
 
 ### 3 · Installs and updates, handled

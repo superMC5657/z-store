@@ -32,6 +32,7 @@ import {
   handleAddLaunchpadComment,
   handleGetLaunchpadDiscussion,
   handleGetLaunchpadFeed,
+  handlePreflightLaunchpadSubmission,
   handleSyncLaunchpadDiscussions,
   handleToggleLaunchpadUpvote,
   handleToggleLaunchpadCommentUpvote,
@@ -458,6 +459,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleToggleLaunchpadCommentUpvote(a);
     case 'toggle_launchpad_reaction':
       return handleToggleLaunchpadReaction(a);
+    case 'preflight_launchpad_submission':
+      return handlePreflightLaunchpadSubmission(a);
 
     default:
       warnOnce(cmd);

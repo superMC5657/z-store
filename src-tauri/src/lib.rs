@@ -586,6 +586,7 @@ pub fn run() {
             commands::toggle_launchpad_upvote,
             commands::toggle_launchpad_comment_upvote,
             commands::toggle_launchpad_reaction,
+            commands::preflight_launchpad_submission,
             commands::get_featured_page,
             commands::get_affinity_profile_summary,
             commands::save_interest_seeds,

@@ -2,6 +2,7 @@ import type {
   LaunchpadDiscussionComment,
   LaunchpadDiscussionDetail,
   LaunchpadFeedResponse,
+  LaunchpadPreflightResult,
   LaunchpadPulseItem,
   LaunchpadReactionContent,
   LaunchpadReactionGroup,
@@ -121,5 +122,17 @@ export async function toggleLaunchpadReaction(
     subjectId: args.subjectId,
     content: args.content,
     currentlyReacted: args.currentlyReacted,
+  });
+}
+
+/** 开源广场应用内投稿预检（只读核验坐标、OSI 协议、Release 安装包与图标）。 */
+export async function preflightLaunchpadSubmission(
+  repoUrl: string,
+  customIconUrl?: string,
+): Promise<LaunchpadPreflightResult> {
+  const cleanIcon = customIconUrl?.trim();
+  return tauriInvoke<LaunchpadPreflightResult>(CMD.preflightLaunchpadSubmission, {
+    repoUrl,
+    ...(cleanIcon ? { customIconUrl: cleanIcon } : {}),
   });
 }

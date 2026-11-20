@@ -186,3 +186,226 @@ fn entry_projection_normalizes_platforms_and_discussion_url() {
     assert_eq!(e.stars_7d_delta, 0);
     assert_eq!(e.summary.core.forge.as_deref(), Some("github"));
 }
+
+fn preflight_coord(input: &str) -> (crate::forge::UniversalRepoCoord, String) {
+    parse_preflight_coord(input).expect("valid coord")
+}
+
+fn preflight_repo(license: Option<&str>) -> crate::forge::ForgeRepoInfo {
+    crate::forge::ForgeRepoInfo::from_counts(
+        "HyperTerm".to_string(),
+        Some("GPU terminal".to_string()),
+        Some(42),
+        Some(5),
+        Some("Rust".to_string()),
+        Some("main".to_string()),
+        Some("https://hyper.example.dev".to_string()),
+    )
+    .with_license_and_avatar(
+        license.map(str::to_string),
+        Some("https://avatars.githubusercontent.com/u/1?v=4".to_string()),
+    )
+}
+
+fn preflight_asset(name: &str, size_bytes: u64) -> crate::models::ReleaseAsset {
+    crate::models::ReleaseAsset {
+        name: name.to_string(),
+        download_url: format!("https://example.com/{name}"),
+        size_bytes,
+        sha256: None,
+        os: String::new(),
+        arch: String::new(),
+        kind: String::new(),
+    }
+}
+
+fn preflight_release(tag: &str, assets: Vec<crate::models::ReleaseAsset>) -> crate::forge::ForgeReleaseInfo {
+    crate::forge::ForgeReleaseInfo {
+        tag_name: tag.to_string(),
+        name: Some(tag.to_string()),
+        body: None,
+        published_at: None,
+        assets,
+    }
+}
+
+#[test]
+fn preflight_coord_accepts_shorthand_at_prefix_and_forges() {
+    let (c1, id1) = preflight_coord("@Acme/Hyper-Term");
+    assert_eq!(c1.forge, crate::forge::ForgeType::GitHub);
+    assert_eq!(id1, "acme/hyper-term");
+
+    let (c2, id2) = preflight_coord("https://codeberg.org/FreeTube/FreeTube");
+    assert_eq!(c2.forge, crate::forge::ForgeType::Codeberg);
+    assert_eq!(id2, "codeberg:freetube/freetube");
+
+    assert!(parse_preflight_coord("invalid query").is_none());
+    assert!(!invalid_coord_preflight_result("bad").ok);
+}
+
+#[test]
+fn preflight_accepts_mit_with_valid_assets_and_icon() {
+    let (coord, id) = preflight_coord("acme/hyper-term");
+    let repo = preflight_repo(Some("MIT"));
+    let release = preflight_release(
+        "v1.2.0",
+        vec![
+            preflight_asset("HyperTerm-1.2.0-setup.exe", 18_000_000),
+            preflight_asset("HyperTerm-1.2.0.AppImage", 22_000_000),
+            preflight_asset("SHA256SUMS", 512),
+        ],
+    );
+    let allowed = crate::config::LicenseGateConfig::default().allowed;
+    let res = evaluate_launchpad_preflight(LaunchpadPreflightInput {
+        coord: &coord,
+        canonical_id: &id,
+        already_in_launchpad: false,
+        already_in_catalog: false,
+        repo_res: Ok(&repo),
+        release_res: Ok(&release),
+        icon_outcome: PreflightIconOutcome::AutoProbed(Some(
+            "https://cdn.simpleicons.org/hyper".to_string(),
+        )),
+        allowed_licenses: &allowed,
+    });
+    assert!(res.ok);
+    assert_eq!(res.canonical_id, "acme/hyper-term");
+    assert_eq!(res.license, "MIT");
+    assert_eq!(res.latest_version, "v1.2.0");
+    assert_eq!(res.platforms, vec!["windows", "linux"]);
+    assert_eq!(res.installable_asset_count, 2);
+    assert!(res.has_checksum_manifest);
+    assert_eq!(res.resolved_icon_url, "https://cdn.simpleicons.org/hyper");
+    assert!(res
+        .checks
+        .iter()
+        .all(|c| c.status == PreflightCheckStatus::Pass));
+}
+
+#[test]
+fn preflight_blocks_noassertion_and_non_osi_licenses() {
+    let (coord, id) = preflight_coord("acme/prop");
+    let allowed = crate::config::LicenseGateConfig::default().allowed;
+    let release = preflight_release(
+        "v1.0.0",
+        vec![preflight_asset("app-setup.exe", 5_000_000)],
+    );
+
+    for bad_license in [Some("NOASSERTION"), Some("BUSL-1.1"), None] {
+        let repo = preflight_repo(bad_license);
+        let res = evaluate_launchpad_preflight(LaunchpadPreflightInput {
+            coord: &coord,
+            canonical_id: &id,
+            already_in_launchpad: false,
+            already_in_catalog: false,
+            repo_res: Ok(&repo),
+            release_res: Ok(&release),
+            icon_outcome: PreflightIconOutcome::AutoProbed(None),
+            allowed_licenses: &allowed,
+        });
+        assert!(!res.ok, "expected fail for license {:?}", bad_license);
+        let check = res
+            .checks
+            .iter()
+            .find(|c| c.key == PreflightCheckKey::License)
+            .unwrap();
+        assert_eq!(check.status, PreflightCheckStatus::Fail);
+    }
+}
+
+#[test]
+fn preflight_blocks_missing_or_source_only_releases() {
+    let (coord, id) = preflight_coord("acme/no-bin");
+    let repo = preflight_repo(Some("Apache-2.0"));
+    let allowed = crate::config::LicenseGateConfig::default().allowed;
+
+    let src_only = preflight_release(
+        "v0.1.0",
+        vec![
+            preflight_asset("app-0.1.0-source.tar.gz", 20_000_000),
+            preflight_asset("tiny.exe", 500_000),
+        ],
+    );
+    let res1 = evaluate_launchpad_preflight(LaunchpadPreflightInput {
+        coord: &coord,
+        canonical_id: &id,
+        already_in_launchpad: false,
+        already_in_catalog: false,
+        repo_res: Ok(&repo),
+        release_res: Ok(&src_only),
+        icon_outcome: PreflightIconOutcome::AutoProbed(None),
+        allowed_licenses: &allowed,
+    });
+    assert!(!res1.ok);
+    assert_eq!(
+        res1.checks
+            .iter()
+            .find(|c| c.key == PreflightCheckKey::Release)
+            .unwrap()
+            .status,
+        PreflightCheckStatus::Fail
+    );
+
+    let res2 = evaluate_launchpad_preflight(LaunchpadPreflightInput {
+        coord: &coord,
+        canonical_id: &id,
+        already_in_launchpad: false,
+        already_in_catalog: false,
+        repo_res: Ok(&repo),
+        release_res: Err("HTTP 404"),
+        icon_outcome: PreflightIconOutcome::AutoProbed(None),
+        allowed_licenses: &allowed,
+    });
+    assert!(!res2.ok);
+    assert_eq!(
+        res2.checks
+            .iter()
+            .find(|c| c.key == PreflightCheckKey::Release)
+            .unwrap()
+            .status,
+        PreflightCheckStatus::Fail
+    );
+}
+
+#[test]
+fn preflight_blocks_invalid_custom_icon_scheme_and_warns_on_duplicates() {
+    let (coord, id) = preflight_coord("acme/hyper-term");
+    let repo = preflight_repo(Some("MIT"));
+    let release = preflight_release(
+        "v1.0.0",
+        vec![preflight_asset("app-setup.exe", 5_000_000)],
+    );
+    let allowed = crate::config::LicenseGateConfig::default().allowed;
+
+    let bad_icon = evaluate_launchpad_preflight(LaunchpadPreflightInput {
+        coord: &coord,
+        canonical_id: &id,
+        already_in_launchpad: true,
+        already_in_catalog: true,
+        repo_res: Ok(&repo),
+        release_res: Ok(&release),
+        icon_outcome: PreflightIconOutcome::CustomInvalidScheme("仅支持 https://".to_string()),
+        allowed_licenses: &allowed,
+    });
+    assert!(!bad_icon.ok);
+    assert!(bad_icon.already_in_launchpad);
+    assert!(bad_icon.already_in_catalog);
+    assert_eq!(
+        bad_icon
+            .checks
+            .iter()
+            .find(|c| c.key == PreflightCheckKey::Duplicate)
+            .unwrap()
+            .status,
+        PreflightCheckStatus::Warn
+    );
+    assert_eq!(
+        bad_icon
+            .checks
+            .iter()
+            .find(|c| c.key == PreflightCheckKey::Icon)
+            .unwrap()
+            .status,
+        PreflightCheckStatus::Fail
+    );
+}

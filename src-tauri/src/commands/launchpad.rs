@@ -804,6 +804,149 @@ pub async fn toggle_launchpad_reaction(
     Ok(groups)
 }
 
+pub(crate) fn is_id_in_launchpad_snapshot(
+    db: &Database,
+    source_url: &str,
+    canonical_id: &str,
+) -> bool {
+    let Ok(Some((payload, _))) = db.get_launchpad_feed_cache(source_url) else {
+        return false;
+    };
+    let Some(manifest) = parse_snapshot(&payload) else {
+        return false;
+    };
+    manifest
+        .items
+        .iter()
+        .any(|item| item.id.eq_ignore_ascii_case(canonical_id))
+}
+
+/// D8 首包验图（token-less 图标池）：委托 `icons::verify_custom_icon_d8` 执行完整 D8 验图。
+pub(crate) async fn verify_custom_icon_d8(client: &reqwest::Client, url: &str) -> bool {
+    crate::icons::verify_custom_icon_d8(client, url).await
+}
+
+pub(crate) async fn resolve_preflight_icon(
+    icon_client: &reqwest::Client,
+    api_client: &reqwest::Client,
+    coord: &crate::forge::UniversalRepoCoord,
+    github_token: Option<&str>,
+    custom_icon_url: Option<&str>,
+) -> crate::launchpad::PreflightIconOutcome {
+    let auto_probe = || async {
+        if coord.forge == crate::forge::ForgeType::GitHub {
+            let slow_headers = github_token.filter(|t| !t.trim().is_empty()).map(|t| {
+                crate::forge::http::preset_headers(
+                    crate::forge::http::ApiPreset::GithubApi,
+                    Some(t),
+                    crate::forge::http::AuthScheme::Bearer,
+                )
+            });
+            crate::icons::probe_single_live(
+                icon_client,
+                api_client,
+                slow_headers.as_ref(),
+                &coord.owner,
+                &coord.repo,
+            )
+            .await
+            .map(|(url, _)| url)
+        } else {
+            crate::icons::probe_l2_simple(icon_client, &coord.owner, &coord.repo).await
+        }
+    };
+
+    let custom_raw = custom_icon_url.map(str::trim).unwrap_or("");
+    if custom_raw.is_empty() {
+        return crate::launchpad::PreflightIconOutcome::AutoProbed(auto_probe().await);
+    }
+    let clean_https = crate::launchpad::sanitize_icon(custom_raw);
+    if clean_https.is_empty() || custom_raw.chars().any(char::is_whitespace) {
+        return crate::launchpad::PreflightIconOutcome::CustomInvalidScheme(
+            "自定义图标直链仅支持无空白的 https:// 链接（拒绝 http:// 与 data:）".to_string(),
+        );
+    }
+    if verify_custom_icon_d8(icon_client, &clean_https).await {
+        crate::launchpad::PreflightIconOutcome::CustomValid(clean_https)
+    } else {
+        crate::launchpad::PreflightIconOutcome::CustomUnreachableFallback(auto_probe().await)
+    }
+}
+
+/// 开源广场应用内投稿预检：只读校验坐标、重复性、37 项 OSI 协议、Release 产物与图标可用性。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn preflight_launchpad_submission(
+    state: State<'_, AppState>,
+    repo_url: String,
+    custom_icon_url: Option<String>,
+) -> crate::AppResult<crate::launchpad::LaunchpadPreflightResult> {
+    let Some((coord, canonical_id)) = crate::launchpad::parse_preflight_coord(&repo_url) else {
+        return Ok(crate::launchpad::invalid_coord_preflight_result(&repo_url));
+    };
+
+    let cfg = crate::config::get_project_config();
+    let source_url = cfg.launchpad.default_source_url.trim().to_string();
+    let already_in_catalog = state.catalog.is_cataloged(&canonical_id);
+    let github_token = state.active_github_token();
+    let (already_in_launchpad, host_token) = {
+        let db = state.db()?;
+        let in_lp = is_id_in_launchpad_snapshot(&db, &source_url, &canonical_id);
+        let tok = if coord.forge == crate::forge::ForgeType::GitHub {
+            github_token.clone()
+        } else {
+            db.get_host_token(&coord.host)
+                .ok()
+                .flatten()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+        (in_lp, tok)
+    };
+
+    let timeout_secs = cfg.network.api_timeout_seconds;
+    let icon_client = crate::forge::http::new_icon_client(timeout_secs)
+        .map_err(crate::AppError::from)?;
+    let api_client = crate::forge::http::new_api_client(timeout_secs)
+        .map_err(crate::AppError::from)?;
+
+    let token_ref = host_token.as_deref();
+    let (repo_res, release_res, icon_outcome) = tokio::join!(
+        crate::forge::ForgeRegistry::fetch_repo(&coord, token_ref),
+        crate::forge::ForgeRegistry::fetch_latest_release(&coord, token_ref),
+        resolve_preflight_icon(
+            &icon_client,
+            &api_client,
+            &coord,
+            github_token.as_deref(),
+            custom_icon_url.as_deref(),
+        ),
+    );
+
+    if let Ok(ref repo_info) = repo_res {
+        if coord.forge == crate::forge::ForgeType::GitHub {
+            crate::icons::remember_repo_default_branch(
+                &coord.owner,
+                &coord.repo,
+                &repo_info.default_branch,
+            );
+        }
+    }
+
+    let allowed = &cfg.license_gate.allowed;
+    Ok(crate::launchpad::evaluate_launchpad_preflight(
+        crate::launchpad::LaunchpadPreflightInput {
+            coord: &coord,
+            canonical_id: &canonical_id,
+            already_in_launchpad,
+            already_in_catalog,
+            repo_res: repo_res.as_ref().map_err(String::as_str),
+            release_res: release_res.as_ref().map_err(String::as_str),
+            icon_outcome,
+            allowed_licenses: allowed,
+        },
+    ))
+}
+
 #[cfg(test)]
 #[path = "launchpad_tests.rs"]
 mod tests;

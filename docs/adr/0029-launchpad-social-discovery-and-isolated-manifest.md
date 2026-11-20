@@ -4,8 +4,8 @@
 - 日期：2026-11-16
 - 关联：ADR-0006（多托管源 `ForgeProvider`）、ADR-0009（独立生态清单仓库）、ADR-0010（规范应用标识）、ADR-0018（开源协议门禁）、ADR-0020（OAuth 令牌边界）、ADR-0025（动态系统代理与资产缓存收敛；本 ADR 受控扩展其镜像回退范围）、ADR-0027（单仓富卡独立缓存表）
 - 修订：§2.2 的置顶边界已调整为允许 Launchpad 顶部 `Spotlight` 赞助位接入经审核的开发者向商业赞助与广告，仍与 `catalog_apps` / 推荐算法物理隔离且保持客户端零埋点。
-- 落地计划：`.scratch/feature-launchpad/`
-- 实现：`src-tauri/src/launchpad/`、`src-tauri/src/commands/launchpad.rs`、`src-tauri/src/github/discussions.rs`、`src-tauri/src/db/launchpad.rs`、`src-tauri/src/deeplink.rs`、`src-tauri/config.toml`、`src/views/LaunchpadView.tsx`、`src/views/LaunchpadView/`、`src/services/api/launchpad.ts`、`src/demo/handlers/launchpad.ts`；独立数据仓：`superMC5657/z-store-launchpad`（本地 `z:\web_workplace\z-store-launchpad`）
+- 落地计划：`.scratch/feature-launchpad/`、`.scratch/feature-launchpad-preflight-and-badges/`
+- 实现：`src-tauri/src/launchpad/`、`src-tauri/src/commands/launchpad.rs`、`src-tauri/src/github/discussions.rs`、`src-tauri/src/db/launchpad.rs`、`src-tauri/src/deeplink.rs`、`src-tauri/config.toml`、`src/views/LaunchpadView.tsx`、`src/views/LaunchpadView/`、`src/components/ShareBadgeModal.tsx`、`src/services/api/launchpad.ts`、`src/demo/handlers/launchpad.ts`；独立数据仓：`superMC5657/z-store-launchpad`（本地 `z:\web_workplace\z-store-launchpad`）
 
 ## 1. 背景
 
@@ -40,6 +40,11 @@
 ### 2.4 镜像回退的受控扩展
 
 ADR-0025 仅允许 `catalog.default_source_url` 经镜像回退。`launchpad.default_source_url` 同为公开、无鉴权的静态清单，纳入同一规则：直连（含系统代理）首跳遭遇传输错误、429 或 5xx，且用户启用了非 `direct` 的 `MirrorNode` 时，经镜像重试一次；镜像不发条件请求、不携带任何令牌，响应必须通过版本与全量规范标识校验才落库，镜像侧 ETag 不落库。
+
+### 2.5 应用内只读投稿预检向导与 README 单色徽章分享器
+
+- **零写权限预检向导（`<LaunchpadSubmitModal>`）**：客户端提供 `preflight_launchpad_submission` 只读预检命令，在提交前现场核验跨托管源仓库可达性、广场/精选重复检测、37 项 OSI SPDX 协议门禁（始终按 `[license_gate]` 白名单口径核验，不受本地草稿放行开关影响）、Release 可安装二进制资产与平台推导、以及 D8 `https://` 自定义图标首包魔数嗅探或自动探测，并在弹窗内直接复用 `<LaunchpadCard>` 实时预览卡片渲染效果。预检通过后仍通过系统浏览器打开预填好表单字段的 `submit-launchpad.yml` GitHub Issue Form，由作者本人确认提交，保持 `OAUTH_SCOPE = "public_repo user"` 不扩大上游仓库写权限。
+- **单色徽章与协议深链分享器（`<ShareBadgeModal>`）**：广场卡片与详情页顶栏统一提供分享入口，一键生成 `zstore://launchpad/{id}` / `zstore://app/{id}` 原生协议深链、D4 单色样式（`#111111` / `#f4f4f5`）Shields 徽章及官网着陆页跳转的 Markdown / HTML 嵌入代码（规避 GitHub README 过滤非 `https://` 协议链接）。
 
 ## 3. 后果
 

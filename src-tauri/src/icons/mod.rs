@@ -38,7 +38,9 @@ pub use image_sniff::{
     detect_image_mime, infer_ext_from_url, is_valid_image, mime_to_ext, resolve_ext,
     sniff_image_mime, url_ext_allowed, url_path_ext,
 };
-pub(crate) use probe::{probe_repo_logo, remember_repo_default_branch, ProbedIcon};
+pub(crate) use probe::{
+    probe_repo_logo, remember_repo_default_branch, verify_custom_icon_d8, ProbedIcon,
+};
 pub(crate) use quota_throttle::QuotaThrottle;
 pub(crate) use singleflight::Flights;
 

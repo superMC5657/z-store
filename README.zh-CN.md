@@ -62,9 +62,9 @@ ZStore 把这两头连在了一起，而且不依赖任何中心服务器：
 
 **开源广场（Launchpad）** 是专为独立开源新作准备的曝光入口。它和精选收录库完全分开，不用苦等沉淀期，刚发布就能被逛商店的人看到。
 
-- **一个 Issue 免费上架**：在 [z-store-launchpad](https://github.com/superMC5657/z-store-launchpad) 按模板提交（要求公开仓库、OSI 认可的开源协议、可安装的 Release）。自动化检查通过并合入后立即上架，展示你的**作者自荐语**。
+- **应用内预检 + 一个 Issue 免费上架**：在商店内直接使用**投稿预检向导**（或前往 [z-store-launchpad](https://github.com/superMC5657/z-store-launchpad) 按模板提交），提交前当场核验公开仓库可达性、37 项 OSI 开源协议门禁、Release 可安装资产与图标探测效果，并在弹窗内实时预览广场卡片，通过后一键打开预填好的 GitHub Issue 表单确认提交。
 - **应用内直接互动**：用户在 ZStore 里就能看介绍、点 `+1` 顶帖、通过 GitHub Discussions 提建议、点 **Star**，还能直接点**安装**试用。
-- **自带直达链接与徽章**：上架后自动生成 `zstore://launchpad/owner/repo` 深层链接，贴进项目 README 或发布帖，就能把读者直接带到你的应用卡片。
+- **自带深链与单色 README 徽章**：广场卡片与详情页顶栏均提供一键分享弹窗，可复制 `zstore://launchpad/owner/repo` / `zstore://app/owner/repo` 深层链接，以及 `#111111` / `#f4f4f5` 单色 Shields Markdown/HTML 徽章代码直接贴回项目 README 引流。
 - **克制透明的置顶赞助**：顶部最多 4 个**置顶推荐（Spotlight）**，用于支持项目长期维护——既展示优质开源新品，也接受经人工审核的开发者向商业赞助与广告（明确标注状态标签）。赞助位与精选收录库、搜索和推荐算法完全隔离，不接第三方广告联盟，客户端零埋点、零追踪。
 
 ### 3 · 安装和更新，顺手搞定

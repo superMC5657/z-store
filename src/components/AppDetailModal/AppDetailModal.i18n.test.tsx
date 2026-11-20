@@ -571,4 +571,27 @@ describe('AppDetailModal components i18n (zh-CN <-> en-US)', () => {
     expect(i18n.t('install_confirm.unverified_intro')).toContain('SHA-256 checksum list');
     expect(i18n.t('install_confirm.unverified_source')).toBe('Unverified asset (Release has no checksums list)');
   });
+
+  it('opens ShareBadgeModal at confirm layer from Header share button', async () => {
+    await i18n.changeLanguage('zh-CN');
+    render(
+      <Header
+        app={FIXTURE_APP}
+        displayName="Demo App"
+        displayDesc="A test demo app"
+        displayCategory="开发工具"
+        platformLoading={false}
+        onClose={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('detail-share-badge-btn'));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.className).toContain('share-badge-modal');
+    expect(dialog.closest('.modal-backdrop')?.className).toContain('modal-layer-confirm');
+    expect(screen.getByTestId('share-code-deeplink').textContent).toBe('zstore://app/test/demo-app');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
 });

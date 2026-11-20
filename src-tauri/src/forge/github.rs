@@ -43,6 +43,16 @@ impl ForgeProvider for GitHubProvider {
             }
 
             #[derive(Deserialize)]
+            struct GitHubLicense {
+                spdx_id: Option<String>,
+            }
+
+            #[derive(Deserialize)]
+            struct GitHubOwner {
+                avatar_url: Option<String>,
+            }
+
+            #[derive(Deserialize)]
             struct GitHubRepoPayload {
                 name: String,
                 description: Option<String>,
@@ -51,6 +61,10 @@ impl ForgeProvider for GitHubProvider {
                 language: Option<String>,
                 default_branch: Option<String>,
                 homepage: Option<String>,
+                #[serde(default)]
+                license: Option<GitHubLicense>,
+                #[serde(default)]
+                owner: Option<GitHubOwner>,
             }
 
             let payload: GitHubRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
@@ -63,6 +77,10 @@ impl ForgeProvider for GitHubProvider {
                 payload.language,
                 payload.default_branch,
                 payload.homepage,
+            )
+            .with_license_and_avatar(
+                payload.license.and_then(|l| l.spdx_id),
+                payload.owner.and_then(|o| o.avatar_url),
             ))
         })
     }

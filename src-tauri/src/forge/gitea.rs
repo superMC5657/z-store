@@ -4,7 +4,9 @@ use super::coord::ForgeType;
 use super::http::{
     api_headers, get_with_d7_retry, new_api_client, AuthScheme, HttpSpan, JSON_ACCEPT_VALUE,
 };
-use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
+use super::provider::{
+    extract_license_value, parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo,
+};
 use serde::Deserialize;
 
 pub struct GiteaProvider {
@@ -58,6 +60,11 @@ impl ForgeProvider for GiteaProvider {
             }
 
             #[derive(Deserialize)]
+            struct GiteaOwner {
+                avatar_url: Option<String>,
+            }
+
+            #[derive(Deserialize)]
             struct GiteaRepoPayload {
                 name: String,
                 description: Option<String>,
@@ -66,9 +73,23 @@ impl ForgeProvider for GiteaProvider {
                 primary_language: Option<String>,
                 default_branch: Option<String>,
                 website: Option<String>,
+                #[serde(default)]
+                licenses: Option<Vec<String>>,
+                #[serde(default)]
+                license: Option<serde_json::Value>,
+                #[serde(default)]
+                owner: Option<GiteaOwner>,
             }
 
             let payload: GiteaRepoPayload = resp.json().await.map_err(|e| e.to_string())?;
+            let license = payload
+                .licenses
+                .and_then(|list| {
+                    list.into_iter()
+                        .map(|s| s.trim().to_string())
+                        .find(|s| !s.is_empty())
+                })
+                .or_else(|| extract_license_value(payload.license.as_ref()));
 
             Ok(ForgeRepoInfo::from_counts(
                 payload.name,
@@ -78,7 +99,8 @@ impl ForgeProvider for GiteaProvider {
                 payload.primary_language,
                 payload.default_branch,
                 payload.website,
-            ))
+            )
+            .with_license_and_avatar(license, payload.owner.and_then(|o| o.avatar_url)))
         })
     }
 
