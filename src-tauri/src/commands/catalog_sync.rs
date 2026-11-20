@@ -2,9 +2,7 @@ use crate::models::SyncCatalogResult;
 use crate::AppState;
 use tauri::State;
 
-/// 每日自动同步边界小时（UTC）：06:00 UTC，对应北京时间（UTC+8）每天下午 14:00。
-/// 上游 `Refresh Catalog Baseline` Action 于 `00:00 UTC`（北京时间 08:00）触发，
-/// 即使遇 GitHub 整点队列延迟到中午 12 点后完成，14:00 切日仍可稳定拉到当日新清单。
+/// 每日自动同步边界小时（UTC）：06:00 UTC（北京时间 14:00），错开上游每日构建窗口。
 pub const CATALOG_SYNC_RESET_UTC_HOUR: u8 = 6;
 /// 设置项键：最近一次成功核验/同步远端收录清单的同步日标识（`YYYY-MM-DD`，按北京时间 14:00 / 06:00 UTC 切日）。
 pub const SETTING_CATALOG_LAST_SYNCED_DAY: &str = "catalog_last_synced_day";
@@ -78,9 +76,7 @@ fn record_catalog_sync_cycle(db: &crate::db::Database, url: &str, cycle_day: &st
     let _ = db.set_setting(SETTING_CATALOG_LAST_SYNCED_URL, url.trim());
 }
 
-/// 收录清单同步：
-/// - `force=Some(true)`（设置页手动同步）：跳过冷却与 ETag 复用，立即强制拉取远端；
-/// - `force=None/Some(false)`（启动后台同步）：按北京时间下午 14:00（06:00 UTC）为界“每天一次”检查，本周期已同步直接跳过网络，跨边界后走 ETag 304 条件请求。
+/// 收录清单同步：`force=Some(true)` 强制拉取远端；否则同周期日内跳过，跨周期走 ETag 条件请求。
 #[tauri::command]
 pub async fn sync_catalog(
     state: State<'_, AppState>,
@@ -292,8 +288,7 @@ pub(crate) fn should_use_local_fallback(strict_errors: bool, catalog_has_rows: b
     !strict_errors && !catalog_has_rows
 }
 
-/// 清单同步落库（Repository 收口）：单事务内权威覆盖 `catalog_apps` + 转正归档 `custom_apps` +
-/// 回填收藏/关注收录标记（+ 可选同事务落盘新 ETag）；提交成功后同步刷新 `CatalogService` 内存热读索引。
+/// 同事务落库清单与可选 ETag，并刷新内存目录索引。
 fn apply_manifest_to_db(
     state: &AppState,
     items: &[crate::github::models::CatalogItem],

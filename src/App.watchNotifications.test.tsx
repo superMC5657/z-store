@@ -1,9 +1,4 @@
-/**
- * 关注提醒持久化（真实 <App/> 链路）：
- * 启动时经 getWatchNotifications 读回后端保存的待处理提醒，在收藏页「关注」签顶部「有新版本」分节列出；
- * 「知道了」经 dismissWatchNotification 落库后移出，列表清空后分节不再渲染；
- * 已确认项在规则管理「关注已读」签列出（规则入口在「我的应用」），「恢复提醒」后回到关注签。
- */
+/** 测试关注提醒的持久化加载、「知道了」确认移出与规则管理恢复流程。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { WatchDismissedEntry, WatchUpdatedPayload } from './types';

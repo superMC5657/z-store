@@ -1,11 +1,4 @@
-//! Windows 系统代理实时读取（`HKCU\...\Internet Settings`）。
-//!
-//! - `ProxyEnable == 0` 即直连快照（关闭系统代理立即恢复直连）；
-//! - `ProxyServer` 支持 `host:port`、`scheme://host:port` 与多协议
-//!   `http=..;https=..;socks=..`（https 优先 → http → 其他 → 裸地址）；
-//! - `ProxyOverride` 绕过列表合并进 `no_proxy`（`<local>` → 本地回环，`*.domain` → `.domain`）。
-//!
-//! 解析器为跨平台纯函数（可在任意平台单测），注册表读取仅 Windows 编译。
+//! Windows 系统代理实时读取（解析 `HKCU\...\Internet Settings` 注册表配置）。
 
 use super::ProxySnapshot;
 

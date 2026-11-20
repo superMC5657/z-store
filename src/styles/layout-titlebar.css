@@ -68,7 +68,7 @@
   margin: 0 16px;
 }
 
-/* 搜索框：Linear Cmd+K 调色板入口样式（max-width 640px / caret #5E6AD2 / 双层焦点光晕） */
+/* 搜索框 */
 .search-box {
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -331,12 +331,7 @@
   color: #ffffff;
 }
 
-/* ---- 无边框缩放支持（Ubuntu Wayland/X11 全边缘大小调整） ---- */
-/* 由 `ResizeHandles.tsx` 占用的 8 个不可见区域，位于
-   `.app-window` (position: relative) 内部。完全透明且无边框/阴影；
-   命中测试位于内容区/标题栏之上、浮层/弹窗/下拉菜单之下。
-   标题栏保持仅移动拖拽；窗口控制区/搜索框隔离区保持正常可用 ——
-   手柄仅占据最外层 8px 边缘与 12px 角落。 */
+/* 无边框缩放手柄（用于 Ubuntu Wayland/X11 等无系统边框场景），位于标题栏之上、弹窗/浮层之下 */
 .resize-handle {
   position: absolute;
   z-index: 30;

@@ -1,15 +1,4 @@
-/**
- * 前端 z-log 脱敏镜像测试（与后端 `src-tauri/src/z_log.rs::redact` 同规则）。
- *
- * 安全契约镜像（样例与后端单测同源）：
- * - `Bearer/bearer/Token/token` 标记形态打码；
- * - `code/device_code/user_code/api_key/api-key/apikey` 键值打码
- *   （含 JSON 紧凑/宽松形态 `"code":"v"`，与后端 is_kv_post 含引号一致）；
- * - `vscode` 类路径段内的 `code` 子串永不触发；
- * - 邮箱整体替换 `***@***`；
- * - 宽字符混排不断裂。
- * 另锁前端特有行为：`[sid=][req=]` 前缀、1s 去重窗、initZLog 全局错误钩子脱敏。
- */
+/** 前端 z-log 脱敏规则、1s 去重窗及全局错误钩子测试。 */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const pluginLog = vi.hoisted(() => ({

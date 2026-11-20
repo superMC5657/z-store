@@ -7,10 +7,7 @@ interface IconInfo {
   iconBg: string;
 }
 
-/**
- * 统一解析应用的图标与背景色：
- * 优先使用自身覆盖配置，其次按 canonical id（owner/repo）在收录库中精确查找，未匹配则提供稳健默认兜底。
- */
+/** 统一解析应用的图标与背景色（优先覆盖值，其次按 id 查收录库，否则返回默认兜底）。 */
 export function resolveAppIconInfo(
   appId: string,
   apps: AppSummary[] = [],
@@ -25,10 +22,7 @@ export function resolveAppIconInfo(
   };
 }
 
-/**
- * 解析已安装应用的展示名称：
- * 优先匹配收录库中的名称，未匹配则回退到原生 app_name。
- */
+/** 解析已安装应用的展示名称（优先使用收录库名称，未命中回退 `app.app_name`）。 */
 export function resolveInstalledAppName(
   app: InstalledApp,
   apps: AppSummary[] = []
@@ -40,14 +34,12 @@ export function resolveInstalledAppName(
   return app.app_name;
 }
 
-/**
- * 格式化秒级 Unix 时间戳为本地日期字符串 (YYYY/MM/DD)
- */
-/** 展示用版本号：去掉首尾空白与前导 `v`/`V`（标签常带 `v`，界面文案自带前缀）。 */
+/** 展示用版本号：去掉首尾空白与前导 `v`/`V`。 */
 export function stripVersionPrefix(version: string): string {
   return version.trim().replace(/^v/i, '');
 }
 
+/** 格式化秒级 Unix 时间戳为本地日期字符串。 */
 export function formatAppDate(ts: number, locale = 'zh-CN'): string {
   return new Date(ts * 1000).toLocaleDateString(locale === 'en-US' ? 'en-US' : 'zh-CN', {
     year: 'numeric',
@@ -67,10 +59,7 @@ export function arePlatformsEqual(a?: readonly string[], b?: readonly string[]):
   return true;
 }
 
-/**
- * 格式化字节大小为可读字符串（B 整数 / KB·MB 一位小数 / GB 两位小数）。
- * 缺失、非数值、非有限或非正输入一律回退 '0 B'。
- */
+/** 格式化字节大小为可读字符串；无效或非正输入返回 `'0 B'`。 */
 export function formatBytes(bytes?: number): string {
   if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
@@ -106,10 +95,7 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-/**
- * 根据当前语言获取应用展示描述
- * 英文或非中文环境下优先展示 description_en，无则回退到 description
- */
+/** 根据当前语言获取应用描述（非中文环境优先 `description_en`）。 */
 export function getAppDescription(
   app: { description: string; description_en?: string },
   locale?: string
@@ -135,21 +121,12 @@ export function getCategoryLabel(
   return translated || defaultName;
 }
 
-/**
- * 显式收录位 fail-closed 读取：仅布尔值按原值返回，缺席/非布尔一律 false。
- * 详情 Header、记录表、关注快照共用；卡片 `isAppCataloged` 另有 category 兜底，不走此处。
- */
+/** 显式收录位 fail-closed 读取：仅布尔值按原值返回，缺席或非布尔返回 false。 */
 export function isCatalogedFailClosed(value: unknown): boolean {
   return typeof value === 'boolean' ? value : false;
 }
 
-/**
- * 收录态判定（卡片展示层口径）：
- * 显式 `is_cataloged` 标记优先（数据层占位行/已标注行携带），
- * 缺席时按 `category !== 'external'` 兜底；空分类视为未收录。
- * 详情页 Header 另行 fail-closed（显式位缺席即未收录，不按 category 兜底）。
- * 仅展示层读取，绝不参与数据源 join。
- */
+/** 卡片层收录态判定：显式 `is_cataloged` 优先，缺席时按 `category !== 'external'` 兜底。 */
 export function isAppCataloged(app: {
   category?: string | null;
   is_cataloged?: unknown;
@@ -161,10 +138,7 @@ export function isAppCataloged(app: {
   return cat !== 'external';
 }
 
-/**
- * 非产物后缀：签名 / 校验和 / 元数据 / 映射表，不可安装也无需展示。
- * 命中任一即视为非产物（大小写不敏感）。
- */
+/** 非产物文件名后缀（签名、校验和、元数据等）。 */
 const NON_PRODUCT_SUFFIXES = [
   '.sig',
   '.asc',
@@ -197,11 +171,7 @@ const NON_PRODUCT_NAME_HINTS = [
   'md5sums',
 ];
 
-/**
- * 判断 Release 资产是否为真实产物：
- * 过滤签名（.sig/.asc）、校验和与汇总文件、元数据（latest.json / .yml / .blockmap 等）。
- * 后缀产物（.tar.gz / .7z / .apk 等）一律保留——它们仍可下载。
- */
+/** 判断 Release 资产是否为可下载的真实产物（排除签名、校验和与元数据文件）。 */
 export function isProductAssetName(name: string): boolean {
   if (!name || typeof name !== 'string') return false;
   const lower = name.toLowerCase();
@@ -210,16 +180,7 @@ export function isProductAssetName(name: string): boolean {
   return true;
 }
 
-/**
- * 宿主原生可安装的资产类型（与后端 execute_installation_inner 的平台分发对齐）：
- * - windows: msi / setup_exe
- * - macos: dmg / pkg
- * - linux: deb / rpm / appimage
- * - portable_zip / portable_tarball（二进制 tar.gz，便携解压纳入管理）：仅本平台可安装，
- *   要求资产 os 与宿主一致或为通用 all（大小写不敏感），缺 os 时 fail-closed 仅下载。
- *   跨平台仅下载，与后端 select_best_asset 一致。
- * 其余（apk / tarball / other 等）后端只会跳过，前端应提供下载而非安装。
- */
+/** 判断资产类型是否支持在当前宿主原生安装或便携接入（便携包仅限与宿主同 OS 或 `all`）。 */
 export function isInstallableAssetKind(kind: string, hostOs: string, assetOs?: string): boolean {
   const k = (kind || '').toLowerCase();
   const os = (hostOs || '').toLowerCase();
@@ -273,12 +234,7 @@ interface AssetRelevance {
   name: string;
 }
 
-/**
- * 资产相对宿主的相关度打分（与后端 score_asset 权重对齐）：
- * 系统匹配 +100 / 通用 +30 / 系统失配 -100；
- * 架构一致 +50 / 通用 +25 / x86_64 宿主可运行 x86 +10 / 失配 -50；
- * 类型档位 +20/+15/+12/+10，tar 便携包 +5 垫底（有原生包永远选原生）。
- */
+/** 计算资产相对宿主的匹配分（与后端 `score_asset` 权重对齐）。 */
 function scoreAssetRelevance(a: AssetRelevance, hostOs: string, hostArch: string): number {
   const os = (hostOs || '').toLowerCase();
   const arch = (hostArch || '').toLowerCase();
@@ -296,10 +252,7 @@ function scoreAssetRelevance(a: AssetRelevance, hostOs: string, hostArch: string
   return score;
 }
 
-/**
- * 按宿主相关度降序排列资产（分数相同按文件名稳定排序，保证抽屉顺序确定）。
- * 返回新数组，不修改入参。
- */
+/** 按宿主相关度降序排列资产副本（同分按文件名排序）。 */
 export function sortAssetsByRelevance<T extends AssetRelevance>(
   assets: T[],
   hostOs: string,
@@ -338,10 +291,7 @@ export function detectHostArch(userAgent?: string): HostArch {
   return 'x86_64';
 }
 
-/**
- * 当前代码仓库网页地址：`https://{forge_host || 'github.com'}/{owner}/{repo}`。
- * `forge_host` 误带的协议头与尾斜杠会被剥除；owner/repo 任一为空返回 `''`。
- */
+/** 构造仓库网页地址，缺失 `owner` 或 `repo` 返回空串。 */
 export function buildAppRepoUrl(app: {
   forge_host?: string | null;
   owner?: string | null;
@@ -377,15 +327,7 @@ function comparableRepoPath(pathname: string): string {
     .toLowerCase();
 }
 
-/**
- * 详情顶栏「官方主页」外链决议（渲染期守卫，覆盖未经后端 `resolve_homepage` 清洗的列表行/富卡主页）：
- * - 仅接受无内部空白、无内嵌凭据、主机合法（含 `.`、`localhost` 或 IPv6）的绝对 `http(s)` 网址；
- *   与后端 `normalize_http_homepage` 不同，裸域名（如 `zed.dev`）不补 `https://`，直接拒绝；
- * - 与 `repoUrl` 主机（小写、去 `www.`、保留非默认端口）及仓库路径（整段解码、折叠 `/`、去尾 `/` 与 `.git`、小写）
- *   都相等时视为仓库自身页面，返回 `null`，避免与仓库外链重复（后端 `is_same_repo_homepage` 为逐段解码，
- *   仅在路径段内含 `%2F` 时结论可能不同）；
- * - 其余返回原文，仅把协议头归一为小写。
- */
+/** 校验并解析「官方主页」外链：拒绝非 http(s)、含凭据或与仓库同址的 URL。 */
 export function resolveExternalHomepageUrl(homepage: unknown, repoUrl: string): string | null {
   if (typeof homepage !== 'string') return null;
   const trimmed = homepage.trim();
@@ -424,10 +366,7 @@ export function resolveExternalHomepageUrl(homepage: unknown, repoUrl: string): 
   return trimmed.replace(/^https?:/i, (scheme) => scheme.toLowerCase());
 }
 
-/**
- * 官方主页标签文案（详情标签栏与待收录预览卡共用）：`https://www.example.com/docs/?a=1#x` → `example.com/docs`。
- * 纯文本裁剪而非 `new URL`，草稿中尚不合法的输入照常展示，非 ASCII 域名也不会被转成 punycode。
- */
+/** 格式化主页显示文案（纯文本裁剪，避免草稿输入或非 ASCII 域名被转码）。 */
 export function formatHomepageDisplay(url: string | null | undefined): string {
   if (typeof url !== 'string') return '';
   return url

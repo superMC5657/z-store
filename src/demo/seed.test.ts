@@ -1,7 +1,4 @@
-/**
- * 演示种子自洽性：种子引用的应用都在 catalog.json 里、版本从目录派生，
- * 更新规则在「我的应用」里都看得到效果，待收录各组满足后端对应档位的校验。
- */
+/** 验证演示种子与 catalog.json、更新规则及待收录校验规则的自洽性。 */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildDemoUpdates, findSummary, summaries } from './fixtures';
 import { getInstalledApps, hydrate, LS, lsGet } from './demoState';

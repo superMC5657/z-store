@@ -287,11 +287,7 @@ type FilteredFeedPage = {
   matched_ids: string[];
 };
 
-/**
- * 与 Rust `paginate_with_allowed_ids` 同语义：`matched_ids` 为过滤前全部 ID；
- * `allowedIds` 为数组时（含空数组）按小写 trim 集合过滤后再分页，非数组即不过滤。
- * 默认第 1 页 20 条、`perPage` 钳制 1-50。
- */
+/** 与后端分页逻辑一致：`matched_ids` 为过滤前全集，传入 `allowedIds` 数组时过滤后再分页。 */
 function paginateWithAllowedIds(matched: AppSummary[], a: InvokeArgs): FilteredFeedPage {
   const matched_ids = matched.map((s) => s.id);
   const rawAllowed = a['allowedIds'];
@@ -474,7 +470,7 @@ const DEMO_SCAN_SAMPLES: readonly DemoScanSample[] = [
   },
 ];
 
-/** 与后端同口径：已纳管的应用不再出现在扫描结果里；每个置信度档位最多取两条。 */
+/** 排除已纳管应用，每个置信度档位最多返回两条扫描匹配。 */
 export function handleScanAndMatchLocalApps(): AppMatchResult[] {
   const managed = new Set(getInstalledApps().map((i) => i.app_id.toLowerCase()));
   const perTier: Record<string, number> = {};

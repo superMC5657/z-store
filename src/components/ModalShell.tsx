@@ -2,10 +2,7 @@ import React, { useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalA11y } from './useModalA11y';
 
-/**
- * 弹窗叠放层级，对应 `components-modal.css` 中的层级修饰类：
- * `sub`(90) < `base`(100) < `confirm`(200) < `top`(1000)，均高于标题栏 / 缩放手柄、低于 Toast。
- */
+/** 弹窗叠放层级（对应 `components-modal.css` 修饰类：`sub < base < confirm < top`）。 */
 export type ModalLayer = 'sub' | 'base' | 'confirm' | 'top';
 
 const LAYER_CLASS: Record<ModalLayer, string | null> = {
@@ -44,11 +41,7 @@ function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
   else (ref as React.MutableRefObject<T | null>).current = value;
 }
 
-/**
- * 全站模态弹窗的外层壳：遮罩 + `.detail-modal` 面板、Portal 到 `.app-window`、
- * 层级修饰类、遮罩点击关闭与栈式 Esc / 焦点陷阱（`useModalA11y`）。
- * 面板内部的 Header / Body / Footer 由各弹窗自行组合。
- */
+/** 全站模态弹窗外壳：Portal 至 `.app-window`，提供层级控制、遮罩关闭与无障碍焦点管理。 */
 export const ModalShell: React.FC<ModalShellProps> = ({
   layer = 'base',
   closeOnBackdrop = true,

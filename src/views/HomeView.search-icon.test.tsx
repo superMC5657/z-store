@@ -1,10 +1,4 @@
-/**
- * 回归：搜索页首屏 icon='' 经统一 `zstore://icon-ready` 回填后转 img。
- * 回声 sid 为唯一真源：回声窗内（期望空）live L2/L3 按回声 sid 即收；
- * 期望立定后 `context.search_id` 失配（旧串号）才丢弃保持 initials
- * （与 App.tsx + `iconStore.admitIconHit` 世代门控同语义）。
- * `level`纯L单调（via正交）；`data:` 只进 M1 内存，m2+http 远端落盘自愈；M2首屏直填不走emit。
- */
+/** 测试搜索页首屏图标通过 `zstore://icon-ready` 事件与回声 sid 门控回填。 */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 

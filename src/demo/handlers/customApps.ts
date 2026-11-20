@@ -5,10 +5,7 @@ import { argStr, nowSecs, warnUnknownArgs, type InvokeArgs } from './common';
 import backendConfigToml from '../../../src-tauri/config.toml?raw';
 
 /**
- * 「待收录」草稿域 mock（`custom_apps` 表，ADR-0017）：读写 `LS.customApps`（种子见 seed.ts）。
- * 状态流转门禁、列表排序、Issue 预填链接与 payload 形态均对齐
- * `src-tauri/src/commands/catalog_custom.rs` 与 `db/custom_apps.rs`；
- * 字段级提交档校验由前端 `draftModel` 在调用前完成，这里不重复。
+ * 「待收录」草稿域 mock：读写 `LS.customApps`，模拟状态流转门禁、列表排序与 Issue 预填生成。
  */
 
 /** 与后端 `CATALOG_REPO_ISSUES_URL` 同值。 */
@@ -155,11 +152,7 @@ function nonBlank(s: string | null | undefined): s is string {
   return typeof s === 'string' && s.trim() !== '';
 }
 
-/**
- * 单条 Issue payload：模板风格 2 空格缩进、字符串数组单行内联、空值字段省略；
- * 丢弃 install_dirs / search_subdirs / publishers / added_at，`is_verified` 预置 true
- *（仅预填副本，存储仍为 false）。
- */
+/** 生成单条 Issue 预填 JSON 载荷（2 空格缩进、内联字符串数组、省略空值字段并将副本 `is_verified` 置 true）。 */
 function prPayloadJson(item: DraftItemWire): string {
   const fields: string[] = [];
   const put = (key: string, rendered: string): void => {
@@ -235,10 +228,7 @@ export function handleGetCustomAppPrPayload(a: InvokeArgs): string {
   return prPayloadJson(e.item);
 }
 
-/**
- * 许可名单（ADR-0018）：直接解析后端同一份 `config.toml` 的 `[license_gate]` 段，
- * 不在前端另维护名单（`statefulHandlers.test.ts` 锁定能解析出非空名单）。
- */
+/** 解析后端 `config.toml` 的 `[license_gate]` 段作为唯一许可名单来源。 */
 export function parseLicenseGate(toml: string): { enabled: boolean; allowed: string[] } {
   const section = /^\[license_gate\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(toml)?.[1] ?? '';
   const enabled = !/^\s*enabled\s*=\s*false\b/m.test(section);

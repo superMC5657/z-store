@@ -1,10 +1,4 @@
-/**
- * enrich 缓存与合并契约：
- * - takeFreshEnrichEntry：force→缺席→平台→确认→TTL 分支；
- * - enrichTrendRepos(forceRefresh: true)：跳缓存直取；
- * - fillMissingFromPrev：空/占位回退；
- * - mergeIconSticky：data: 单口。
- */
+/** `enrich` 缓存新鲜度判定、`forceRefresh` 与字段合并测试。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearTrendConfirmedOtherCache,

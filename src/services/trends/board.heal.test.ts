@@ -1,10 +1,4 @@
-/**
- * 富卡治愈回归（经 `createTrendBoardSession` 深度控制器验证 `zstore:detail-richcard-healed`）：
- * - 占位简介即使误带 dirty 也不覆盖实值；
- * - 镜像键缺席时经行 id 别名仍可命中；
- * - 预 enrich 行创建时剥图标通道与占位简介；
- * - 会话生命周期（`dispose()` 后重新 `start()` 与多会话隔离）。
- */
+/** 趋势榜单富卡治愈事件与会话生命周期测试。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DETAIL_RICHCARD_HEAL_EVENT,

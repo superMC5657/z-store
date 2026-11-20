@@ -120,8 +120,7 @@ export async function getWatchNotifications(): Promise<WatchUpdatedPayload[]> {
   return sanitizeWatchNotifications(await tauriInvoke<WatchUpdatedPayload[]>(CMD.getWatchNotifications));
 }
 
-// 检查关注应用的新版本（不论是否安装），返回检查后的全部待处理提醒；
-// 联网走 ETag 条件请求（forceRefresh=true，见 ADR-0019 §2.4）。
+// 检查关注应用的新版本，返回待处理提醒列表。
 export async function checkWatchedUpdates(forceRefresh = true): Promise<WatchUpdatedPayload[]> {
   return sanitizeWatchNotifications(
     await tauriInvoke<WatchUpdatedPayload[]>(CMD.checkWatchedUpdates, { forceRefresh }),

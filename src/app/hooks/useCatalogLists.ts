@@ -3,17 +3,7 @@ import type { AppSummary } from '../../types';
 import { patchAppIconList } from '../../services/iconStore';
 import { patchRowsPlatforms } from '../../services/search/onlineRows';
 
-/**
- * 收口全站五组重叠 `AppSummary[]` 列表态与同步 ref：
- * - `apps`：当前主目录 / 本地搜索结果；
- * - `fullCatalogApps`：未受顶栏搜索词裁剪的完整目录基线；
- * - `onlineApps`：在线搜索段结果；
- * - `recentlyViewedApps`：最近浏览历史；
- * - `uncatalogedExtraApps`：收藏/关注未收录占位行。
- *
- * 通过 `patchAllLists` / `patchCoreLists` / `patchIcons` / `patchPlatforms` / `findById`
- * 提供统一的多列表写透与查找入口。
- */
+/** 管理全站五组 `AppSummary[]` 列表态与同步 ref，并提供统一的多列表补丁与查找入口。 */
 export interface CatalogListsStore {
   apps: AppSummary[];
   fullCatalogApps: AppSummary[];

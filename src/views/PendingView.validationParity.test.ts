@@ -1,10 +1,4 @@
-/**
- * 草稿校验契约（parity）：同一组样例分别跑 TS 的 `validatePendingDraft`（UI 即时镜像）
- * 与 Rust 的 `validate_custom_item`（权威门禁），断言 ok 与首个阻断字段一致。
- *
- * 样例唯一来源：`tests/fixtures/draft-validation-cases.json`（Rust 侧同文件 include_str!）。
- * 新增校验规则先加样例，两侧同时红再实现，避免两套口径漂移。
- */
+/** 验证 TS 侧 `validatePendingDraft` 与 Rust 侧 `validate_custom_item` 的校验对齐。 */
 import { describe, expect, it } from 'vitest';
 import casesFixture from '../../tests/fixtures/draft-validation-cases.json';
 import type { LicenseAllowlistResult } from '../services/api/catalog';
@@ -62,10 +56,7 @@ function draftFromCase(item: CaseItem): PendingDraftItem {
   };
 }
 
-/**
- * 首个阻断字段（与 Rust `validate_custom_item` 的首错顺序对齐）：
- * identity → name → description → category → homepage → license。
- */
+/** 按与后端一致的首错优先级返回首个阻断字段。 */
 function blockedField(errors: ReturnType<typeof validatePendingDraft>): string | undefined {
   if (errors.id || errors.owner || errors.repo) return 'identity';
   if (errors.name) return 'name';

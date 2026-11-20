@@ -39,9 +39,7 @@ pub(crate) async fn load_installed_apps(state: &AppState) -> AppResult<Vec<Insta
             rebase_cached_update(&db, app_id, version);
         }
     }
-    // 只读扫描契约：可执行文件消失绝不能在此处直接删除数据库记录
-    // （不得调用 remove_installed_app）；
-    // 数据库行予以保留，幽灵应用仅在返回视图中隐藏，并在日志中体现数量。
+    // 只读扫描不删除数据库记录，幽灵应用仅在返回视图中隐藏。
     if !refresh.ghost_app_ids.is_empty() {
         let mut ev = crate::z_log::WideEvent::new("scanner", "ghosts hidden");
         ev.field("count", refresh.ghost_app_ids.len());
@@ -206,10 +204,7 @@ fn rebase_cached_update(db: &crate::db::Database, app_id: &str, version: &str) {
     }
 }
 
-/// Linux 启动 + 落盘回填共享体（launch 4b-1 desktop / 4b-2 PATH 共用，
-/// 收敛 spawn + save 回填两块 near-identical 重复）。
-/// `found` 为已解析的落盘路径；文件不存在返回 Ok(false)（调用方继续下一候选），
-/// 启动成功回填数据库并返回 Ok(true)，spawn 失败返回 Err（`origin` 写入错误上下文）。
+/// Linux 候选路径启动并同步回填数据库安装路径；文件不存在返回 `Ok(false)`。
 #[cfg(target_os = "linux")]
 fn spawn_and_backfill(
     state: &AppState,
@@ -242,7 +237,7 @@ fn spawn_and_backfill(
     Ok(true)
 }
 
-/// 启动应用：路径解析、全源可执行文件嗅探与进程启动在阻塞线程池执行（IPC 契约不变）。
+/// 启动应用：在阻塞线程池中解析可执行路径并启动进程。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn launch_app(app_handle: AppHandle, app_id: String) -> AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
@@ -289,7 +284,7 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
         || target_path.to_lowercase().ends_with(".deb")
         || target_path.to_lowercase().ends_with(".rpm");
 
-    // 1. 如果路径本身是存在的可执行文件或快捷方式/应用包，且并非临时下载安装包
+    // 直接启动有效的可执行文件或快捷方式
     if !is_temp_installer {
         #[cfg(target_os = "macos")]
         if path_obj.exists()
@@ -348,7 +343,7 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
         }
     }
 
-    // 2. 检查安装路径是否为目录或无效，调用全源智能嗅探器寻找真正的 exe
+    // 探测真实可执行路径
     let candidate_exe = crate::scanner::AppScanner::resolve_installed_app_path(
         &app_name,
         &app_id,
@@ -377,8 +372,7 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
                 .spawn()
                 .map_err(|e| format!("启动应用程序失败: {}", e))?;
 
-            // 如果该应用已被添加管理，自动将探测到的真实物理路径写回数据库，加速下次启动
-            // clone 保留所有权，供后续 Linux 4b 兜底继续回填（Windows 行为不变）。
+            // 写回探测到的真实路径以加速下次启动。
             if let Some(mut updated) = installed_app_opt.clone() {
                 if target_path != exe_str {
                     if let Ok(db) = state.db() {
@@ -392,7 +386,7 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
         }
     }
 
-    // 3. 检查便携应用目录 ~/AppData/Local/Programs/z-store-apps/<app_id>/
+    // 检查便携应用目录
     let portable_dir = crate::installer::dirs_or_fallback(&app_id);
     if portable_dir.is_dir() {
         if let Some(exe_str) = crate::scanner::AppScanner::resolve_executable_path(
@@ -414,7 +408,7 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
         }
     }
 
-    // 4. 在 Windows 桌面查找同名快捷方式
+    // 在 Windows 桌面查找同名快捷方式
     #[cfg(target_os = "windows")]
     {
         let desktop = std::env::var("USERPROFILE")
@@ -437,12 +431,9 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
         }
     }
 
-    // 4b. Linux：desktop Exec / PATH 兜底（deb 应用记录路径为空或符号链接失效时，
-    // 如 Motrix `/usr/bin/motrix -> /etc/alternatives/motrix`）。Windows 编译时消除。
+    // Linux 兜底：通过 desktop Exec 或 PATH 查找并启动。
     #[cfg(target_os = "linux")]
     {
-        // 候选裸名共享派生（与 installer_install / scanner dpkg 共用
-        // `AppScanner::linux_candidate_names`，收敛重复）。
         let catalog_ids = state
             .catalog
             .get_catalog_item(&app_id)
@@ -452,14 +443,14 @@ fn launch_app_blocking(state: &AppState, app_id: String) -> AppResult<bool> {
             &catalog_ids,
             &[app_name.clone(), app_id.clone()],
         );
-        // 4b-1. desktop Exec 解析（全仓唯一 walker，见 scanner）
+        // desktop Exec 解析
         if let Some(found) = crate::scanner::AppScanner::resolve_linux_via_desktop(&bare_names) {
             if spawn_and_backfill(state, &installed_app_opt, &target_path, &found, "桌面文件")?
             {
                 return Ok(true);
             }
         }
-        // 4b-2. PATH/which 直启（桌面文件缺失但二进制在 PATH 中时）
+        // PATH/which 直启
         for name in &bare_names {
             if name.contains(' ') || name.contains('/') {
                 continue;

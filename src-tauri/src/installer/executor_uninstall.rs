@@ -226,10 +226,7 @@ fn validate_lnk_for_launch(exe: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 进程句柄所有权包装：`Drop` 时关闭非空句柄，正常返回、错误提前返回与 Future 取消
-/// 走同一条释放路径，无需（也不允许）手动 `CloseHandle`，杜绝泄漏与双重关闭。
-/// Windows 内核对象句柄进程级有效、不绑定线程，跨线程共享等待安全；
-/// 裸指针默认非 Send/Sync 是 FFI 泛化保守，这里显式放行。
+/// 进程句柄 RAII 包装：析构时关闭非空句柄，避免泄露或双重关闭（内核句柄进程级有效，跨线程等待安全）。
 #[cfg(target_os = "windows")]
 struct OwnedProcessHandle(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(target_os = "windows")]
@@ -254,10 +251,7 @@ impl Drop for OwnedProcessHandle {
     }
 }
 
-/// 以 ShellExecuteEx("open") 拉起 .lnk 并等待其进程退出：与 `cmd start /WAIT` 走
-/// 同一系统路由，但路径以单个宽字符串直传 shell32，不存在 cmd 元字符解析面。
-/// 同步的 `WaitForSingleObject` 以 500ms 切片在阻塞线程池执行，不占用 async worker；
-/// 句柄经 `Arc` 共享，任务被取消时由最后一个持有者（含仍在等待的阻塞线程）关闭。
+/// 以 ShellExecuteEx("open") 直调 `.lnk`（绕过 cmd 元字符解析）并分片轮询等待进程退出。
 #[cfg(target_os = "windows")]
 async fn shell_execute_open_wait(file: &str) -> Result<std::process::ExitStatus, String> {
     use std::os::windows::ffi::OsStrExt;
@@ -334,10 +328,7 @@ async fn shell_execute_open_wait(file: &str) -> Result<std::process::ExitStatus,
     }
     Ok(std::process::ExitStatus::from_raw(exit_code))
 }
-/// 执行官方卸载向导并异步挂起等待用户操作完成，随后核验卸载状态
-/// 取消判定复用 `super::is_user_cancellation`（SSOT），
-/// 成功经 `InstallOutcome::Installed(..).into_result()` 归一为 `Ok(())`；
-/// 本文件不持有本地取消谓词/退出码映射副本。
+/// 执行官方卸载向导并等待用户操作完成，随后核验卸载状态。
 pub async fn execute_uninstallation(
     uninstaller_cmd: &str,
     main_install_path: &str,
@@ -383,10 +374,7 @@ async fn execute_uninstallation_inner(
                 .await
                 .map_err(|e| format!("卸载向导运行异常: {}", e))?;
 
-            // 关键机制：NSIS 卸载向导会复制自身到 %TEMP%\~nsu.tmp\Un_A.exe 或 Au_.exe 并退出原进程，
-            // 绝不能对 electron-builder/NSIS 程序强加 `_?=` 参数，否则其内置的 PowerShell 进程探测
-            // 会误将自身视作正在运行的主应用并弹出“应用正在运行中”假报错。
-            // 此处让 NSIS 正常释放到 %TEMP%，并通过独占文件锁检测异步挂起等待其在 Temp 中真正运行完毕。
+            // NSIS 会复制自身到 %TEMP% 并退出原进程，不能加 `_?=` 否则其内置探测会误判应用正在运行。
             if is_nsis {
                 let mut temp_uninstaller = None;
                 for _ in 0..20 {

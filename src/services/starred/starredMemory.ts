@@ -1,8 +1,4 @@
-/**
- * Star 同步的会话内存（模块级，只活在内存）：查询进度记忆、本会话与 GitHub 同步过的目标，
- * 以及登录名跟踪——登录名一变（登出/换账号）即清掉所有 `@me:` 私有条目，含分页缓存，
- * 不依赖收藏页是否挂载。
- */
+/** Star 同步会话内存：记录查询进度、本会话网络同步状态，并在登出/换号时清理私有条目。 */
 import { clearPrivateSharedRepoCards } from '../repoEnrichCache';
 import {
   clearPrivateSearchListCacheEntries,
@@ -76,10 +72,7 @@ export function isNetworkSynced(key: string): boolean {
   return networkSyncedKeys.has(key);
 }
 
-/**
- * 清掉内存里所有私有数据：`@me:` 查询（分页缓存、查询记录与同步标记）、
- * 含私有仓库的在线搜索分页，以及共享单仓富卡镜像中的私有仓库卡片。
- */
+/** 清除所有 `@me:` 私有查询记忆及关联的私有缓存条目。 */
 export function forgetPrivateStarredQueries(): void {
   clearSearchListCacheNamespace(STARRED_CACHE_NAMESPACE, PRIVATE_QUERY_PREFIX);
   clearPrivateSearchListCacheEntries();

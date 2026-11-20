@@ -1,10 +1,7 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import type { AppSummary, OAuthUser } from '../types';
 
-/**
- * 跨视图共享的库状态：安装/收藏/关注等成员集合、本地收录与全局平台筛选。
- * App 是唯一提供方，视图经 `useAppContextProps` 读取。
- */
+/** 跨视图共享的库状态，由 App 统一提供、视图通过 `useAppContextProps` 读取。 */
 export interface LibraryState {
   installedIds: Set<string>;
   installingIds: Set<string>;
@@ -51,10 +48,7 @@ export const AppContextProvider: React.FC<AppContextProviderProps> = ({ library,
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
 
-/**
- * 以上下文补齐视图 Props：显式传入（非 `undefined`）的字段优先，其余取自上下文。
- * 无提供方时（单测/独立渲染）上下文为空，字段缺席语义与直接传 Props 一致。
- */
+/** 以上下文补齐视图 Props：显式传入的值优先，其余取自上下文。 */
 export function useAppContextProps<P extends AppContextProps>(props: P): P {
   const ctx = useContext(AppContext);
   const merged: Record<string, unknown> = { ...ctx };

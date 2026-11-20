@@ -1,15 +1,6 @@
 /**
- * 设备平台多选过滤器（决策方案 B 语义 + 前端虚拟 Other 桶）。
- *
- * - 空选择是有效状态，表示“不选任何平台”（各视图据此渲染平台筛选为空的引导状态）。
- * - 无论在构建还是消费选择集合时，未知平台 ID 均会被直接忽略。
- * - `platforms` 缺失或为空的应用（类库等非可安装应用，后端保持 `[]` 不打标）
- *   归入前端虚拟 `other` 桶：仅当选中 `other` 时匹配。`other` 纯前端存在，
- *   从不经过 IPC，也从不参与安装目标匹配。
- *
- * loading 生命周期深模块收归于此（唯一深模块）：
- * inflight 集合 + seq 守卫 + lite 批量（5/批、上限 20）+ settle 定时（15s）
- * + confirmed 并集 + 键归一唯一实现 + 主列表目标选择/快照 + 趋势富卡行判定。
+ * 设备平台多选过滤器与平台 loading 生命周期管理。
+ * 空选择为有效状态（不选任何平台）；缺失或空 `platforms` 归入前端虚拟 `other` 桶。
  */
 
 export type PlatformId = 'windows' | 'macos' | 'linux' | 'ios' | 'android' | 'other';
@@ -68,11 +59,7 @@ export function normalizeLoadingKey(id: unknown): string {
   return typeof id === 'string' ? id.trim().toLowerCase() : '';
 }
 
-/**
- * 加载中态判定：summary 为空且尚未经详情确认。
- * - 空平台 + 未在追踪集合中即为 loading（含在途与尚未发起），
- * - 空 + 已在集合中即为已确认 other。
- */
+/** 判定 summary 平台为空且尚未确认归属的 loading 状态。 */
 export function isPlatformLoading(
   app: LoadingRow,
   resolvedOtherIds: ReadonlySet<string>,
@@ -105,12 +92,7 @@ function knownSelected(selected: ReadonlySet<string>): Set<string> {
   return out;
 }
 
-/**
- * 当应用支持至少一个已选中的已知平台时返回 true。
- * `platforms` 缺失或为空（类库等非可安装应用）仅归入虚拟 `other` 桶；
- * 未知平台字符串不匹配任何桶。
- * 空选择集合（或仅含未知平台）时不匹配任何应用。
- */
+/** 应用支持至少一个已选平台时返回 true；空 `platforms` 仅匹配 `other` 桶。 */
 export function matchPlatformSet(app: LoadingRow, selected: ReadonlySet<string>): boolean {
   const wanted = knownSelected(selected);
   if (wanted.size === 0) return false;
@@ -118,10 +100,7 @@ export function matchPlatformSet(app: LoadingRow, selected: ReadonlySet<string>)
   return app.platforms.some((p) => wanted.has(normalizePlatform(p)));
 }
 
-/**
- * 在选择集合中切换某个平台的状态。空选择为有效状态，表示不选任何平台。
- * 若传入未知平台 ID，则原样返回副本。
- */
+/** 切换平台选中状态；未知平台 ID 时返回原集合副本。 */
 export function togglePlatformSet(prev: ReadonlySet<PlatformId>, id: string): Set<PlatformId> {
   const n = normalizePlatform(id);
   const next = new Set<PlatformId>();
@@ -138,15 +117,7 @@ export function togglePlatformSet(prev: ReadonlySet<PlatformId>, id: string): Se
   return next;
 }
 
-/**
- * 将持久化选择结果（已解码的字符串数组）解析为已知平台 ID 集合。
- * 空数组 / 仅未知项 / null / undefined 均解析为空 Set（绝不回退至全选），
- * 确保 `[]` 能完整往返持久化。
- *
- * 注意：此函数与本模块中的 `parseSelectedPlatforms` 有所区别——
- * 后者接收原始 localStorage 字符串（string | null | undefined），并在缺失或损坏时回退至全选集合；
- * 而本数组版本从不回退，null 即表示空选择。
- */
+/** 将字符串数组解析为已知平台集合；null/undefined 或空数组均返回空 Set（不回退全选）。 */
 export function parseSelectedPlatformArray(input: readonly string[] | null | undefined): Set<PlatformId> {
   const out = new Set<PlatformId>();
   if (input === null || input === undefined) return out;
@@ -157,11 +128,7 @@ export function parseSelectedPlatformArray(input: readonly string[] | null | und
   return out;
 }
 
-/**
- * 加载中落定超时：lite 不可用/stale/失败的行至多等待此后降级为已确认 Other，
- * 而非无限 shimmer。加载中期间行恒可见，落定后走正常 Other 过滤/计数/徽标。
- * App 主列表与 Trends 榜单共用同一超时。
- */
+/** loading 落定超时：超时后仍未获平台信息则降级为已确认 Other，避免无限 shimmer。 */
 export const LOADING_SETTLE_MS = 15_000;
 
 /** lite 通道分批大小（与 `resolveLoadingPlatformsLite` 内步长同源）。 */
@@ -181,12 +148,7 @@ interface LoadingLiteResult {
   is_stale?: boolean | null;
 }
 
-/**
- * 加载中行 lite 批量确认的唯一实现（App 主列表与 Trends 榜单共用，杜绝第三份拷贝）。
- * 分批 5、上限由调用方切片（约定 20），批次间检查 `shouldAbort` 即整批丢弃。
- * stale/失败/异常一律保持 loading（既不治愈也不确认，交由 settle 超时兜底）；
- * 非空治愈进 `patched`，空非 stale 进 `confirmedEmpty`。
- */
+/** 分批调用 `fetchLite` 解析平台；stale 或失败保持 loading（交由 settle 超时兜底）。 */
 async function resolveLoadingPlatformsLite(
   targets: readonly LoadingLiteTarget[],
   fetchLite: (liteId: string) => Promise<LoadingLiteResult | null | undefined>,
@@ -225,12 +187,7 @@ async function resolveLoadingPlatformsLite(
 /* loading 生命周期：inflight/seq 守卫、lite 批量、settle 定时归本模块。 */
 /* ------------------------------------------------------------------ */
 
-/**
- * 趋势未收录行 loading 判定（目录/富卡/裸行三处同口径）：
- * - 无 enrich（裸行）：未确认即 loading，恒可见；
- * - 有 enrich 且具真实平台：已落定；
- * - 有 enrich 但空：坐标键或 id 别名任一已确认即落定，否则 loading。
- */
+/** 判定趋势行是否仍处于平台 loading 状态。 */
 export function isEnrichedRowLoading(
   repoKeyLower: string,
   enriched: LoadingRow | undefined,
@@ -312,10 +269,7 @@ export interface SeqGuard {
   isStale(captured: number): boolean;
 }
 
-/**
- * seq 守卫工厂：`readCurrent` 指向调用方拥有的计数器
- * （App 侧为搜索 seq ref，趋势侧为榜单 seq ref；计数器归调用方，守卫模式归本模块）。
- */
+/** 创建 seq 守卫，用于在切榜或重搜时丢弃过期的在途结果。 */
 export function createSeqGuard(readCurrent: () => number): SeqGuard {
   return {
     capture: () => readCurrent(),
@@ -330,10 +284,7 @@ export function createSeqGuard(readCurrent: () => number): SeqGuard {
 /** lite 通道取数形态（与 `getPlatformsLite` 回包对齐）。 */
 export type LiteFetch = (liteId: string) => Promise<LoadingLiteResult | null | undefined>;
 
-/**
- * lite 批量确认唯一实现（分批 5，超 `LITE_TARGET_CAP` 截断；stale/失败保持 loading 交 settle 兜底）。
- * 调用方（主列表/榜单）经此同一口。
- */
+/** 执行 lite 批量确认（截断至 `LITE_TARGET_CAP`）；stale 或失败保持 loading。 */
 export async function runLiteBatch(
   targets: readonly LoadingLiteTarget[],
   fetchLite: LiteFetch,
@@ -385,19 +336,13 @@ export function collectListLoadingKeys(
 interface SettleSchedule {
   /** 发起时快照的 loading 键（去重保序后）。 */
   keys: string[];
-  /**
-   * 落定时复核：按最新状态过滤出仍 loading 的键
-   * （具平台/已确认一律剔除，永不覆盖具平台）。
-   */
+  /** 落定时复核：仅保留仍处于 loading 的键，避免覆盖已获取到的平台。 */
   recheck: (keys: readonly string[]) => string[];
   /** 确认提交（仅仍 loading 非空时调用一次）。 */
   onConfirm: (stillLoading: string[]) => void;
 }
 
-/**
- * settle 定时唯一实现：`LOADING_SETTLE_MS` 后复核快照，仍 loading 才确认提交；
- * 无 loading 直接返回空清理函数。返回清理函数（调用方 effect 返回，超时前卸载即取消）。
- */
+/** 调度 settle 定时器：超时后复核快照并确认仍处于 loading 的键；返回清理函数。 */
 export function scheduleSettleConfirm(schedule: SettleSchedule): () => void {
   const keys: string[] = [];
   const seen = new Set<string>();
@@ -430,11 +375,7 @@ export function scheduleSettleConfirm(schedule: SettleSchedule): () => void {
 export const PLATFORM_FILTER_STORAGE_KEY = 'zstore:platform-filter:v2';
 const PLATFORM_RESET_EVENT = 'zstore:reset-platform-filter';
 
-/**
- * 将原始 localStorage 字符串解析为经过验证的平台选择集合。
- * 未知 ID 会被白名单过滤剔除，有效空数组按 `[]` 原样返回；
- * 仅在键缺失或 JSON 损坏/非数组时回退至全选集合（等效于“无过滤”）。
- */
+/** 解析 localStorage 字符串为平台集合；仅在缺失或无效 JSON 时回退全选（有效 `[]` 保持为空）。 */
 export function parseSelectedPlatforms(raw: string | null | undefined): Set<PlatformId> {
   const full = new Set<PlatformId>(PLATFORM_IDS);
   if (!raw) return full;
@@ -469,10 +410,7 @@ export function loadSelectedPlatforms(): Set<PlatformId> {
   }
 }
 
-/**
- * 未接入 `onResetPlatformFilter` 时的兜底重置方案：
- * 清理持久化存储并广播 `zstore:reset-platform-filter` 重置事件。
- */
+/** 清理持久化存储并广播平台过滤器重置事件。 */
 export function broadcastPlatformReset(): void {
   try {
     window.localStorage.removeItem(PLATFORM_FILTER_STORAGE_KEY);

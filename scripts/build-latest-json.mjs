@@ -1,17 +1,11 @@
 #!/usr/bin/env node
 /**
- * 生成 Tauri updater 版本清单(双区:海外直链 latest.json + 镜像加速 latest-cn.json)。
+ * 生成 Tauri updater 版本清单（latest.json / latest-cn.json）。
  *
- * 用法示例(连续调用两次,仅 --proxy-prefix 不同):
+ * 用法示例:
  *   node scripts/build-latest-json.mjs --name <app> --repo <owner/repo> --tag <vX.Y.Z> \
  *     --assets '[{"target":"windows-x86_64","file":"<setup>.exe"}]' --dir artifacts \
- *     --proxy-prefix "" --extended --output artifacts/latest.json
- *   node scripts/build-latest-json.mjs --name <app> --repo <owner/repo> --tag <vX.Y.Z> \
- *     --assets '[{"target":"windows-x86_64","file":"<setup>.exe"}]' --dir artifacts \
- *     --extended --output artifacts/latest-cn.json
- *
- * 说明: --extended 为各平台附加 name/size/sha256(缺文件报错)。
- * 平台 key: windows-x86_64 / darwin-aarch64 / darwin-x86_64 / linux-x86_64。
+ *     [--proxy-prefix ""] [--extended] --output artifacts/latest.json
  */
 import { readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'

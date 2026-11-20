@@ -16,10 +16,7 @@ interface DeveloperProfileModalProps {
   onOpenAppDetail: (appId: string) => void;
   onInstallApp: (appId: string) => Promise<void>;
   installedIds?: Set<string>;
-  /**
-   * 已纳管集合（必传；显式 `null` = managed 未加载，
-   * 已安装命中行渲染中性占位）。
-   */
+  /** 已纳管集合；`null` 表示尚未加载（已安装命中行渲染中性占位）。 */
   managedIds: Set<string> | null;
 }
 

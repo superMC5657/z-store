@@ -1,13 +1,6 @@
 /**
- * Live-demo Tauri mock（`/live-demo` 嵌入页）。
- *
- * 仅用于浏览器的 Tauri IPC 层替代实现。在 `App` 挂载前安装
- * （参见 `src/main.tsx` 的 demo 分支），以确保 `services/api.ts` 计算出
- * `isTauri === true`，并且所有 `tauriApi` 调用均通过 `invoke` 执行。
- *
- * 作用域：仅覆盖视图层涉及的命令（参见 `demoInvoke` 的 switch）。其他所有命令
- * 均回退至符合数据结构的默认安全值（返回列表的命令返回 `[]`，其余返回 `null`），
- * 并附带单次告警，从而使未 mock 的界面软失败而非导致嵌入页崩溃。
+ * Live-demo 浏览器端 Tauri IPC mock：在 `App` 挂载前安装使 `isTauri === true`，
+ * 仅模拟视图层涉及的命令，其余命令返回安全默认值并记录单次告警。
  */
 import type { AppSettings } from '../types';
 import {
@@ -143,10 +136,7 @@ import {
 const DEMO_UI_SCALE: AppSettings['ui_scale'] = '100';
 const DEMO_FONT_SIZE: AppSettings['font_size'] = '14';
 
-// 可用于 grep 检查的构建标记：普通字符串字面量（固定硬编码数值），
-// 以便代码压缩后仍能原样保留——可通过 grep 搜索
-// `zstore:demo:display-defaults` / `ui_scale=100` / `font_size=14` 进行验证。
-// 在 installDemoMock 中挂载到 window，避免被 tree-shaking 移除。
+// 构建可检索标记字面量，在 installDemoMock 中挂载到 window 以防 tree-shaking 移除
 const DEMO_DISPLAY_DEFAULTS_MARKER = 'zstore:demo:display-defaults:ui_scale=100:font_size=14';
 
 const ALLOWED_UI_SCALES: ReadonlySet<string> = new Set(['100', '110', '125', '150']);

@@ -6,11 +6,7 @@ import { tauriApi } from '../../services/api';
 import { resolveRemoteIconUrl } from '../../services/custom';
 import { admitIconHit, queueAssembledRowIcons } from '../../services/iconStore';
 
-/**
- * 后端回读的行（推荐、主流、最近浏览）不带本地收录标记，星数也可能是旧快照：
- * 按合并目录 `apps` 与本地库 `localApps` 叠加收录标记（蓝标优先）并把星数对齐目录值。
- * 不重排、不去重。`localApps` 缺席时回退目录自带的本地行，就绪后经依赖自动重标。
- */
+/** 为后端回读行叠加收录/本地标注（蓝标优先），并将星数对齐当前目录值。 */
 export function useRowAnnotator(
   apps: readonly AppSummary[],
   localApps?: readonly AppSummary[],
@@ -43,10 +39,7 @@ export function useRowAnnotator(
   );
 }
 
-/**
- * 列表图标补齐：空图标行逐个按需拉取一次（去重，单行失败不阻塞），
- * http 远端图标入队落盘（`data:`/空跳过，店内去重）。
- */
+/** 为空图标行按需拉取远端图标（按 id 去重）并入队缓存已知图标。 */
 export function useRowIconBackfill(rows: readonly AppSummary[]): void {
   const fetchedRef = useRef<Set<string>>(new Set<string>());
   useEffect(() => {

@@ -1,7 +1,4 @@
-/**
- * 详情顶栏「官方主页」外链入口：展示/隐藏判定、完整网址悬停提示、统一 `tauriApi.openUrl`
- * 外链通道（不走 `window.open`、不冒泡关闭遮罩）与 D4 单色样式契约。
- */
+/** 测试详情顶栏「官方主页」与「问题反馈」外链入口的展示、悬停提示与事件隔离。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import i18n from '../../i18n';

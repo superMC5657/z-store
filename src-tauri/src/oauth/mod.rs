@@ -1,12 +1,4 @@
-//! GitHub OAuth Device Flow 与 Star 操作及用户资料同步。
-//!
-//! 说明：
-//! - Device Flow 无需应用密钥（secret），客户端仅需 `client_id`；
-//!   解析优先级：设置项覆盖（`github_oauth_client_id`）＞ 全局配置（`config.toml` 中 `default_client_id`）；
-//! - 申请 scope 为 `public_repo user`：`public_repo` 是 Star 写操作的最小 scope
-//!   （`read:user` 等只读 scope 会返回 403/404），`user` 覆盖 GitHub Star List 管理；
-//!   均不触碰任何私有仓库，符合最小权限原则。
-//! - OAuth 令牌仅存于本地 SQLite（`user_settings.github_oauth_token`），永不打印日志。
+//! GitHub OAuth Device Flow、Star 操作及用户资料同步（仅申请 `public_repo user` scope，不触碰私有仓库）。
 
 pub mod star;
 
@@ -354,7 +346,7 @@ pub fn clear_oauth_session(db: &crate::db::Database) -> Result<Option<String>, S
         .filter(|s| !s.trim().is_empty()))
 }
 
-/// ADR-0010：GitHub Star 仅面向 owner/repo 形态的 canonical 应用标识。
+/// 解析 GitHub Star 使用的 `owner/repo` 坐标（拒绝非 GitHub 或畸形标识）。
 pub fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
     let id = crate::forge::canonical_app_id(app_id)
         .ok_or_else(|| format!("GitHub Star 仅支持 owner/repo 仓库坐标: {}", app_id))?;

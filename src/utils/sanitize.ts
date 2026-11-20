@@ -1,7 +1,4 @@
-/**
- * 轻量级且严格的客户端 HTML 净化器
- * 利用浏览器内置 DOMParser 进行 AST 级白名单过滤，彻底防御外部 README/Changelog 潜在的 XSS 攻击
- */
+/** 客户端 HTML 净化器：基于 DOMParser 白名单过滤 README/Changelog，防御 XSS。 */
 
 const ALLOWED_TAGS = new Set([
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6',

@@ -1,10 +1,4 @@
-/**
- * L5 配线回归（用户报障：详情切到 L5 后富卡/列表不变旧图 stale）。
- *
- * 驱动精确症状的真实代码路径：渲染详情 Header，点击轮换按钮切到 L5，
- * 断言切流经店内唯一写口 `admitIconHit({ icon: '', level: 5 })`。
- * 另断言弹窗自身即时变徽章（防误伤）。
- */
+/** 测试详情 Header 图标轮换到 L5 空态时向 `admitIconHit` 广播清零信号并展示徽章。 */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';

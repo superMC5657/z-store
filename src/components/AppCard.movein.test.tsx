@@ -1,11 +1,4 @@
-/**
- * 移入收录入口内收回归测试（用户定案：只进富卡内部、仅未收录生效）：
- * - AppCard 内部操作区渲染门控：无回调 / 已收录 / 显式 is_cataloged /
- *   source=custom / custom 已存在一律不渲染；
- * - 点击走 onMoveInApp 且不冒泡到卡片详情（stopPropagation）；
- * - Home 在线段：内部单入口（无卡外按钮）、点击存草稿 + 派发
- *   `zstore:custom-apps-changed`、`customIds` 命中即隐藏。
- */
+/** 测试富卡「移入收录」内部入口的渲染门控、点击防冒泡及草稿抑制行为。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';

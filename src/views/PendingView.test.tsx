@@ -51,7 +51,7 @@ function draftEntry(partial: Partial<CustomDraftEntry> & { id: string }): Custom
 }
 
 describe('PendingView validation (backend validate_custom_item UI mirror)', () => {
-  // ADR-0018：名单唯一源头为后端；单测以快照形态显式传入，不依赖硬编码。
+  // 名单唯一源头为后端；单测以快照形态显式传入，不依赖硬编码。
   const gate: LicenseAllowlistResult = {
     enabled: true,
     allowed: ['MIT', 'ISC', 'Apache-2.0', 'GPL-3.0', 'GPL-3.0+', 'MPL-2.0', 'Unlicense'],
@@ -1159,7 +1159,7 @@ describe('PendingView 富卡 stars/forks 取真值（pendingDraftToAppSummary）
     );
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
-    // AppCard 星标经 formatStars 渲染：12000 → 12.0k，恒 0 回归即为 '0'
+    // AppCard 星标经 formatStars 渲染：12000 → 12.0k
     expect(document.querySelector('.pending-editor .app-tag-star')?.textContent).toContain('12.0k');
   });
 

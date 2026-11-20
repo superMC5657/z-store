@@ -1,12 +1,4 @@
-/* components-pending.css · 待收录页布局与样式（Linear 去彩单色规范）。
- *
- * 规范要求：
- * - 左右分栏走 CSS 类（无内联双列），中小宽度（<=900px）由样式表堆叠。
- * - 分栏列定义：.pending-layout > * 具有 min-width: 0，窄宽可收缩，防横向溢出。
- * - 容器 overflow-x: hidden 兜底。
- * - 表单控件：.pending-view .input-fluent 满宽 width: 100%。
- * - 标题超长省略：.pending-editor-title 具有 text-overflow: ellipsis。
- */
+/* components-pending.css · 待收录页布局与表单样式。 */
 
 .pending-view {
   min-width: 0;

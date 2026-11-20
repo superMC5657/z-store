@@ -1,16 +1,6 @@
 import type { AppSummary, TrendRepo } from '../../types';
 
-/**
- * 趋势榜单测试夹具。
- *
- * - boardFixture：一份四仓快照，纯 ranker 排序互不相同
- *   （增速比 / 活跃代理 / 新仓兜底口径）。
- * - trendingHtmlFixture：github.com/trending 页片段，3 个 Box-row：
- *   atlas（逗号增量 + 总量）、beacon（单数 "1 star today" + 缺 forks 链接）、
- *   comet（stargazers 三段链接在前 + 无增量 span + k 缩写总量 + 无描述）。
- * - doforceFixture：doforce 条目（repo 带前导斜杠），rising 与 healthy 排序故意分叉；
- *   doforceEdgeFixture：缺 change 与字符串数字 change 的边缘条目。
- */
+/** 趋势榜单测试夹具（榜单快照、trending HTML 片段、doforce 数据及富卡构造器）。 */
 export function makeTrendRepo(overrides: Partial<TrendRepo> & { id: string }): TrendRepo {
   const [owner = 'acme', ...rest] = overrides.id.split('/');
   const repo = rest.join('/') || overrides.id;
@@ -78,10 +68,7 @@ export function trendingHtmlFixture(): string {
   ].join('\n');
 }
 
-/**
- * doforce 条目夹具（`repo` 带前导斜杠）：rising（按 change）为 dune > beacon > atlas；
- * healthy（按 forks + change）为 atlas > dune > beacon，两榜故意分叉。
- */
+/** doforce 条目夹具：rising 与 healthy 榜单排序结果相反，用于区分榜单选择。 */
 export function doforceFixture(): Record<string, unknown>[] {
   return [
     {

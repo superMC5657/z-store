@@ -341,7 +341,7 @@ fn test_app_details_cache_crud() {
     assert_eq!(cached_by_id.core.latest_version, "v1.3.1");
     assert!(cached_by_id.cached_at.is_some());
 
-    // 4. 缓存键精确匹配：非 canonical 形态（裸名 /  host 前缀变体）一律不命中（ADR-0010 单键语义）
+    // 非 canonical 形态一律不命中
     assert!(db.get_app_detail("rustdesk", Some(1800)).unwrap().is_none());
     assert!(db
         .get_app_detail("github.com/rustdesk/rustdesk", Some(1800))
@@ -1433,8 +1433,6 @@ fn test_detail_refresh_updates_unpinned_selection() {
 
 #[test]
 fn test_detail_refresh_keeps_pinned_l5_badge() {
-    // pinned L5（用户手动选空徽章）：详情刷新不复活图标，保持 level=5 与双空选中态，
-    // 备选槽仍可补齐供重选。
     let db = fixtures::test_db();
     let app_id = "pinned/l5";
     let l2 = "https://cdn.simpleicons.org/l5keep";

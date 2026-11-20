@@ -1,11 +1,4 @@
-/**
- * 05 回归：图标就绪写透搜索列表缓存行（翻页一致性）。
- * - 同一规范应用标识的图标到达后，全部缓存条目（各页）中同 id 行即换新图，
- *   翻页回访/重搜命中即新图，不出现翻页丢图；
- * - 大小写归一（`normalizeId`，遵 ADR-0010），未知 id 即无操作；
- * - 写透不续 TTL（`at` 不动）、`ids` 不变；
- * - L5 显式空（`''`）亦写透（切徽章后回访同页即徽章，不复活旧图）。
- */
+/** 搜索列表缓存的图标与行数据写透补丁测试。 */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../../types';
 import { tauriApi } from '../api';

@@ -1,7 +1,4 @@
-/**
- * trends 内部纯函数与缓存常数单元测试（parse / cache / enrich 内部语义）。
- * 外部模块与视图测试通过 `services/trends` 公共门面检验端到端行为，本文件锁定内部细粒度算法与阈值。
- */
+/** trends 内部解析、缓存键值与重试延时单元测试。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 import type { AppSummary } from '../../types';

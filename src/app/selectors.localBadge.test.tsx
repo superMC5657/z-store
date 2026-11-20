@@ -1,8 +1,4 @@
-/**
- * 本地收录橘黄徽标全链路锁定（selectors 搬运 source/status）：
- * - 在线同 id 命中本地时补 source='local'，蓝标优先（is_verified true 不叠加）；
- * - 不改排序/去重语义，原引用透传（memo 友好）。
- */
+/** 测试本地收录徽标在 selectors 全链路中的标注与蓝标优先行为。 */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import {

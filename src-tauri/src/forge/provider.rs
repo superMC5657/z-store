@@ -63,10 +63,7 @@ pub(crate) fn parse_assets(
         .collect()
 }
 
-/// 单资产分类唯一落点（msix/setup_exe 双轨合一）：`crate::installer::classify_asset`
-/// 基础上，`.msix` 特判保留 `setup_exe` kind（classify 归 Other）、`os=all` 归 `windows`。
-/// forge `parse_assets` 与 GitHub 详情 `build_release_assets` 共用的单资产分类入口。
-/// 返回 `(kind_str, os, arch)`，均已 String 化供 `ReleaseAsset` 直填。
+/// 单资产分类入口，将 `.msix` 映射为 `setup_exe` / `windows`。
 pub(crate) fn classify_asset_fields(name: &str) -> (String, String, String) {
     let is_msix = name.to_lowercase().ends_with(".msix");
     let (kind, os, arch) = crate::installer::classify_asset(name);
@@ -91,8 +88,7 @@ pub struct ForgeReleaseInfo {
     pub assets: Vec<ReleaseAsset>,
 }
 
-/// Forge provider 抽象（ADR-0006）。async 方法以 boxed future 返回（`BoxFuture`），
-/// 使 trait 对象安全：Registry 持 `Box<dyn ForgeProvider>` 唯一注册表分发。
+/// Forge provider 抽象，使用 boxed future 保持 trait 对象安全。
 pub trait ForgeProvider: Send + Sync {
     fn forge_type(&self) -> ForgeType;
 

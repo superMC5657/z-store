@@ -21,13 +21,7 @@ interface AppIconFrameProps {
   title?: string;
 }
 
-/**
- * 全站统一的应用图标框：
- * - 外框是带 `--bg-input` 底色与 `--border-subtle` 描边的中性容器；
- * - 内容按光学安全留白内缩：图片走 `fit="contain"` 防非方形/满幅图标被圆角裁切，
- *   首字母徽章与 emoji 内缩为同尺寸、铺 `iconBg` 的小圆角内块；
- * - `AppIcon` 在内缩模式下容器透明，中性底板只由外框提供。
- */
+/** 全站统一应用图标外框：提供中性背景与描边，内容通过光学安全留白内缩居中。 */
 export const AppIconFrame: React.FC<AppIconFrameProps> = ({
   icon,
   name,

@@ -1,7 +1,4 @@
-/**
- * 待收录草稿领域模型（纯函数与类型，无 React）：
- * 校验/归一/分组判定的单一实现，供 PendingView 与 pending/ 子组件共用。
- */
+/** 待收录草稿领域纯函数与类型：负责表单校验、协议归一与分组判定。 */
 import type { TFunction } from 'i18next';
 import type { AppSummary } from '../../types';
 import {
@@ -22,10 +19,7 @@ type PendingDraftStatus = DraftStatus;
 /** 视图条目 = 草稿领域形状（唯一定义见 `services/custom.ts`）。 */
 export type CustomDraftEntry = DraftEntry;
 
-/**
- * 待收录页四个互斥顶层 Tab：
- * 草稿 / 待提交（收录系 collected/local_collected）/ 已提交（submitted）/ 已归档。
- */
+/** 待收录页四个互斥顶层 Tab：草稿 / 待提交 / 已提交 / 已归档。 */
 export type PendingGroupId = 'draft' | 'to_submit' | 'submitted' | 'archived';
 
 /** Tab 渲染顺序，也是首次进入时智能默认落点的优先顺序。 */
@@ -34,11 +28,7 @@ export const PENDING_GROUP_ORDER: readonly PendingGroupId[] = ['draft', 'to_subm
 /** 收录态判定唯一口径收敛于 selectors。 */
 export const isPendingCollectedStatus = isCollectedStatus;
 
-/**
- * 待收录草稿转富卡展示态（collected/submitted/archived 右侧富卡化复用 AppCard）：
- * 黄标只属于收录及其后链路（由映射投影决定，草稿无 source）；
- * 投影唯一口径在 `services/custom`。
- */
+/** 将待收录草稿转为富卡摘要投影。 */
 export function pendingDraftToAppSummary(
   item: PendingDraftItem,
   status: PendingDraftStatus,
@@ -47,12 +37,7 @@ export function pendingDraftToAppSummary(
   return itemToSummary(item, status, archived);
 }
 
-/**
- * 待收录草稿简介按当前语言取展示文案（列表/富卡预览/空态共用）：
- * - 英文环境优先 description_en，非中文环境外优先 description；
- * - 主语言为空回退另一语言，两空返回 ''（调用方以 trends.no_desc 兜底，不新增文案）；
- * - 仅 trim 判空，不改表单两框可编辑性。
- */
+/** 按当前语言选择待收录草稿简介（主语言为空时回退另一语言，均为空返回空串）。 */
 export function resolvePendingDraftDescription(
   item: Pick<PendingDraftItem, 'description' | 'description_en'>,
   language?: string,
@@ -101,11 +86,7 @@ export const PENDING_EMPTY_DRAFT: PendingDraftItem = {
   identifiers: {},
 };
 
-/**
- * 协议归一（与后端 `normalize_license` 逐字符同口径）：去首尾空白 → 大写 →
- * 每个空格/下划线单独折 `-`（连续空白因此各出一个 `-`，不做 run 折叠）→
- * 尾 `+` 视为或后续版本。
- */
+/** 按后端同口径规范化开源协议字符串（空格/下划线转 `-`，尾部 `+` 转为 `-OR-LATER`）。 */
 export function normalizeLicense(raw: string): string {
   let s = raw.trim().toUpperCase().replace(/[ _]/g, '-');
   if (s.endsWith('+')) {
@@ -115,11 +96,7 @@ export function normalizeLicense(raw: string): string {
   return s;
 }
 
-/**
- * 后端许可名单输入（经 `get_license_allowlist` 拉取的唯一源头）：
- * 完整快照、纯名单数组（视为门禁开）、`Set` 均可；`null/undefined` 表示
- * 名单未加载——调用方不得回退写死名单（提交提示重试，暂存直接放行）。
- */
+/** 后端许可名单快照输入；`null`/`undefined` 表示尚未加载（不回退本地写死名单）。 */
 export type LicenseAllowlistInput =
   | LicenseAllowlistResult
   | readonly string[]
@@ -127,11 +104,7 @@ export type LicenseAllowlistInput =
   | null
   | undefined;
 
-/**
- * 名单命中判定（SubmitStrict license 口径）：两侧均经 `normalizeLicense`
- * 归一后比对，大小写/空格形态同样命中。名单缺席一律不命中（fail-closed，
- * 调用方在提交前先保证已加载，加载失败走重试提示）。
- */
+/** 判断协议是否命中许可名单（fail-closed：名单缺席一律返回 false）。 */
 export function isOsiApprovedLicense(license: string, allowlist: LicenseAllowlistInput): boolean {
   const norm = normalizeLicense(license);
   if (!norm) return false;
@@ -152,21 +125,10 @@ export function canonicalDraftId(owner: string, repo: string): string {
 
 export type PendingDraftErrors = Partial<Record<'id' | 'name' | 'owner' | 'repo' | 'description' | 'category' | 'homepage' | 'license', string>>;
 
-/**
- * 草稿校验档位（与后端 `ValidateMode` 同语义）：
- * - `draft`：暂存档，仅校验身份（`id==canonical` 且与 `owner/repo` 对齐）；
- *   `license` 占位/空 `homepage`/不完整字段均放行，不触许可名单；
- * - `submit`：提交档，全量校验（必填 + `homepage` http(s) + 许可名单 D1），
- *   名单取后端 `get_license_allowlist` 快照。
- */
+/** 校验档位：`draft` 仅校验身份坐标，`submit` 进行全量与许可名单校验。 */
 type PendingValidateMode = 'draft' | 'submit';
 
-/**
- * 草稿全字段校验（与后端 `validate_custom_item` 同口径的 UI 镜像）：
- * 暂存松（身份即可）、提交严（另查必填/homepage/license 名单）。
- * 提交档缺名单时报 `license_gate_unavailable`（fail-closed，不回退写死名单；
- * 组件侧加载失败直接提示重试，不会走到此处）。
- */
+/** 全字段校验草稿；`submit` 档缺少许可名单时返回 `license_gate_unavailable`。 */
 export function validatePendingDraft(
   item: PendingDraftItem,
   mode: PendingValidateMode = 'submit',

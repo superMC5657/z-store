@@ -1,22 +1,9 @@
 #!/usr/bin/env node
 /**
- * 一键同步项目版本号到四个文件:
- *   package.json · src-tauri/Cargo.toml · src-tauri/Cargo.lock · src-tauri/tauri.conf.json
+ * 同步版本号到 package.json、Cargo.toml、Cargo.lock、tauri.conf.json。
  *
- * 用法(项目名默认读取 package.json 的 name,也可通过 --name 覆盖):
- *   pnpm bump 1.2.3            # 直接设置版本
- *   pnpm bump --patch          # 0.1.0 -> 0.1.1
- *   pnpm bump --minor          # 0.1.0 -> 0.2.0
- *   pnpm bump --major          # 0.1.0 -> 1.0.0
- *   pnpm bump <...> --dry-run  # 只预览,不写文件
- *
- * 说明:
- *   - 以 package.json 的 version 为基准读取当前版本;写前会校验各文件是否一致,
- *     不一致时告警并一并修正。
- *   - 采用文本级替换,保持各文件原有格式与注释不变(不经过 JSON/Toml 序列化)。
- *   - Cargo.toml / Cargo.lock 只改 appName 指定的 package 段,
- *     不会误伤其它依赖的 version 行。
- *   - 脚本完全与项目解耦,可跨项目直接迁移。
+ * 用法:
+ *   pnpm bump <x.y.z> | --patch | --minor | --major [--dry-run] [--name <appName>]
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'

@@ -15,11 +15,7 @@ interface CountBadgeProps {
   hideZero?: boolean;
 }
 
-/**
- * 全站唯一的数量角标：灰底圆角矩形，紧跟在标签文本之后。
- * 前置一个空格文本节点：父级是 flex 容器时不占版面，但让读屏与 textContent 读作「标签 N」而非「标签N」。
- * 规范见 docs/count-display.md。
- */
+/** 数量角标：前置空格节点使读屏与 textContent 在 flex 布局下仍保留词间空格。 */
 export const CountBadge: React.FC<CountBadgeProps> = ({ value, active = false, hideZero = false }) => {
   if (!Number.isFinite(value) || value < 0) return null;
   if (hideZero && value === 0) return null;

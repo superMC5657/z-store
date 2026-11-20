@@ -1,11 +1,4 @@
-/**
- * Toast 提示特征化测试。
- *
- * 锁定 App 级 Toast 契约：
- * - window 上的 `zstore:toast` 事件在通知区域展示文本；
- * - 仅展示最新的 Toast 消息；
- * - 点击关闭按钮可清除当前提示。
- */
+/** 测试 App 级 Toast 事件订阅、最新消息替换与关闭交互。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';

@@ -27,8 +27,7 @@ import { normalizeId } from '../services/normalizeId';
 import { filterMaskedRecentViews } from '../services/recentViewsMask';
 import { isCollectedStatus } from '../services/custom';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
-// loading 语义唯一深模块为 `lib/platformFilter`：本选择器直接消费 lib，
-// 对外仅保留 LOADING_SETTLE_MS/isEnrichedRowLoading 两件重导出。
+// 平台加载中判定与落定超时常量从 lib/platformFilter 重导出
 export {
   LOADING_SETTLE_MS,
   isEnrichedRowLoading,
@@ -48,10 +47,7 @@ interface UseAppSelectorsParams {
   recentlyViewedApps: AppSummary[];
   currentView: ViewType;
   stagedDeepLinkInstall: string | null;
-  /**
-   * 自维护 overlay 可选项（ADR-0017）：未归档 custom 列表 + showCustom 开关（默认开）。
-   * 缺席即无 overlay，直接返回 remote 本体。
-   */
+  /** 未归档本地收录条目列表与显示开关（默认开启）。 */
   customApps?: AppSummary[];
   showCustom?: boolean;
   searchQuery?: string;
@@ -72,10 +68,7 @@ export interface PendingCountEntry {
 /** 平台分布计数：侧栏 6 枚平台芯片下方的数字。 */
 export type PlatformCounts = Record<PlatformId, number>;
 
-/**
- * 侧栏「待收录」角标口径：未归档条目按 `selectedPlatforms` 过滤后的条数
- * （等于待收录页草稿 / 待提交 / 已提交三个 Tab 在同一平台筛选下的条数之和）。
- */
+/** 统计未归档且匹配当前平台筛选的待收录条目数。 */
 export function selectPendingFilteredCount(
   entries: readonly PendingCountEntry[],
   selectedPlatforms: ReadonlySet<string>,
@@ -94,10 +87,7 @@ export interface InstalledPlatformRow {
   platforms: string[];
 }
 
-/**
- * 为每条已装应用解析平台：目录行（含加载中/已确认 Other 的空平台）优先；
- * 不在目录内（被隐藏的收录应用、未收录已装）取水合卡片的非空平台；仍无则按安装方式推导。
- */
+/** 为每条已装应用解析平台列表，按「目录行 → 水合卡片 → 安装方式推断」回退。 */
 export function resolveInstalledPlatformRows(
   installedApps: readonly InstalledApp[],
   appsById: ReadonlyMap<string, AppSummary>,
@@ -169,18 +159,6 @@ function mergeUniqueById(base: AppSummary[], extras: readonly AppSummary[]): App
   return out.length === base.length ? base : out;
 }
 
-/**
- * 派生选择器。
- *
- * 两条互不污染的派生链：
- * - 全量目录链：`fullCatalogApps`（缺席回退 `apps`）+ 本地库 → `fullMergedCatalogApps`
- *   → `catalogPlatformFilteredApps`，服务除搜索结果外的全部视图，顶栏搜索词绝不裁剪它；
- * - 搜索链：`apps`（顶栏搜索命中）+ 按词过滤的本地库 → `searchPlatformFilteredApps`，仅服务 home 搜索态。
- *
- * 另含：平台优先派生（加载中恒可见，落定后走 matchPlatformSet）；收藏页 left-join 供给；
- * 已安装/更新列表经 `appsById` O(1) 查表；视图级侧栏平台计数通道；深链确认弹窗解析。
- */
-
 function selectPlatformFilteredApps(
   apps: AppSummary[],
   selectedPlatforms: Set<PlatformId>,
@@ -217,10 +195,7 @@ export function selectPlatformCounts(
   return counts;
 }
 
-/**
- * 合并多组应用供侧栏平台计数：按行别名键（`rowAliasKeys`）去重，
- * 同仓多行存在时合并平台并集（空平台行被具平台行升级），避免本地结果与在线搜索结果重复或漏计。
- */
+/** 按行别名键去重并合并多组应用的平台并集，供侧栏平台计数。 */
 export function mergeAppsForPlatformCounts(
   baseApps: readonly AppSummary[],
   extraApps: readonly AppSummary[] = [],
@@ -287,10 +262,7 @@ function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
   return map;
 }
 
-/**
- * installed/managed 集合的同一构建（raw + normalizeId 归一各一条）：
- * 两集合当前恒等，判定分叉只在读取侧（isInstalled/isManaged），构建只留一个实现。
- */
+/** 构建包含原始 id 与 `normalizeId` 归一 id 的已安装集合。 */
 function buildInstalledIdSet(installedApps: InstalledApp[]): Set<string> {
   const set = new Set<string>();
   for (const a of installedApps) {
@@ -301,11 +273,7 @@ function buildInstalledIdSet(installedApps: InstalledApp[]): Set<string> {
   return set;
 }
 
-/**
- * 已纳管判定：组件统一经此判态，消灭发现页误报“已安装”。
- * - isManaged：已纳入 ZStore 管理（绿色已安装，来源 installedApps）。
- * 大小写归一经 `normalizeId` 单口；raw 直命中优先，归一兜底。
- */
+/** 判断应用是否已纳入 ZStore 管理（大小写归一）。 */
 export function isManaged(id: string, managedIds: Set<string>): boolean {
   if (!id || managedIds.size === 0) return false;
   if (managedIds.has(id)) return true;
@@ -314,11 +282,7 @@ export function isManaged(id: string, managedIds: Set<string>): boolean {
   return false;
 }
 
-/**
- * 已安装（已纳管）归一判定：调用方禁止再手写 `installedIds.has(id)` raw 直查
- * （大小写变体 ID 下与 managed 判态分叉）。raw 直命中优先，归一兜底；
- * 集合缺席（null/undefined）即未安装。
- */
+/** 判断应用是否已安装（原始键与 `normalizeId` 归一键均命中）。 */
 export function isInstalled(id: string, installedIds: Set<string> | null | undefined): boolean {
   if (!id || !installedIds || installedIds.size === 0) return false;
   if (installedIds.has(id)) return true;
@@ -327,10 +291,7 @@ export function isInstalled(id: string, installedIds: Set<string> | null | undef
   return false;
 }
 
-/**
- * managed 三态（冷启闪烁守卫）：`null` = managed 列表尚未加载（未知），
- * `Set<string>` = 已知集合。未知态调用方渲染中性占位。
- */
+/** 返回三态纳管状态：`null` 表示列表尚未加载完成，避免冷启闪烁。 */
 export function selectManagedState(
   id: string,
   managedIds: Set<string> | null,
@@ -353,10 +314,7 @@ export function selectBadgeState(
   return 'none';
 }
 
-/**
- * 收藏页 left-join 合并器：
- * 收录段（已平台过滤）+ 未收录占位段（同口径平台过滤后并入，小写去重防双显）。
- */
+/** 合并平台过滤后的收录段与未收录占位段（小写 id 去重）。 */
 export function selectFavoritesViewApps(
   platformFilteredApps: AppSummary[],
   uncatalogedExtraApps: AppSummary[],
@@ -381,7 +339,7 @@ export function selectFavoritesViewApps(
   return [...platformFilteredApps, ...deduped];
 }
 
-// ---------- 全局合并显示 + showCustom 开关 + 转正提示（ADR-0017 自维护 overlay） ----------
+// ---------- 全局合并显示与本地收录标记 ----------
 
 /** 自维护 overlay 开关默认值：开（关闭即隐藏全部 custom 行）。 */
 const SHOW_CUSTOM_DEFAULT = true;
@@ -406,13 +364,10 @@ function isLocalAppRow(app: { source?: string }): boolean {
   return app.source === 'local';
 }
 
-/** 本地收录态判定唯一口径：实现居 `services/custom`（services 层同消费），此处单一重导出（CONTEXT.md 承诺）。 */
+/** 本地收录态判定（实现位于 `services/custom`）。 */
 export { isCollectedStatus };
 
-/**
- * 本地库成员判定（可搜可装/黄标的唯一口径）：
- * 收录态与「已提交」都在库；`draft` 不在库，`archived` 由调用方另判（权威交还远端）。
- */
+/** 判定状态是否属于本地库成员（已收录或已提交）。 */
 export function isLocalLibraryStatus(status: unknown): boolean {
   return isCollectedStatus(status) || status === 'submitted';
 }
@@ -479,10 +434,7 @@ function customItemToSummary(item: {
   };
 }
 
-/**
- * 判定应用是否匹配搜索词（用于搜索态 custom 本地库叠加过滤）：
- * 匹配 name / id / owner / repo / description / description_en / category / category_name / aliases。
- */
+/** 判定应用是否在各文本字段中匹配搜索词。 */
 function appMatchesQuery(app: AppSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -513,15 +465,8 @@ function appMatchesQuery(app: AppSummary, query: string): boolean {
 }
 
 /**
- * 全局合并（远端优先去重，仅收录态补位）：
- * - remote 在前，collected 在后；同 id（归一）取远端行；
- * - showCustom=false 即返回 remote 本体（引用透传，调用方可 memo 命中）；
- * - 仅合 status 为 collected 系且未归档的行（draft/submitted/已归档一律跳过），
- *   补位行经 markLocalSource 打标（source=local，is_cataloged 恒 true）；
- * - 支持 CustomAppEntry（{item,status,archived}）与扁平行（含 status/archived）两种形态；
- *   无 status 的行视为未收录直接跳过。
- * - 搜索态（传 searchQuery 且非空）按词过滤，避免误将不相关的收录行追加到搜索结果。
- * Home/分类/搜索三处共用同一口（调用方先合并再平台过滤）。
+ * 合并远端目录与本地库补位行（远端优先去重），并为同仓远端行叠加本地标记。
+ * 传入非空 `searchQuery` 时按词过滤补位行。
  */
 export function selectMergedCatalogApps(
   remote: AppSummary[],
@@ -615,10 +560,7 @@ export function selectMergedCatalogApps(
   return out;
 }
 
-// ---------- 在线/趋势 enrich 显式 is_cataloged 标注 ----------
-// 后端 AppSummary 无 is_cataloged（models.rs），在线/富卡 category 为
-// guess_category 猜的真实分类（http.rs 默认 dev），需按 catalog id 集显式标注才不误判已收录。
-// 此处按 catalog id 集（canonical 小写，复用 normalizeId）显式标注，显式标记优先于兜底。
+// ---------- 在线/趋势行 `is_cataloged` 显式标注 ----------
 
 /** catalog id 集（含行别名归一，去空去重）。 */
 export function buildCatalogIdSet(catalogApps: readonly AppSummary[]): Set<string> {
@@ -630,10 +572,7 @@ export function buildCatalogIdSet(catalogApps: readonly AppSummary[]): Set<strin
   return out;
 }
 
-/** 选取未裁剪全量目录，缺席时回退当前列表。 */
-/**
- * 统一处理后端返回的最近浏览列表：应用前端清空遮罩并按当前目录/本地收录标注 `is_cataloged` 与黄标。
- */
+/** 统一处理后端返回的最近浏览列表：应用清空遮罩并标注 `is_cataloged` 与本地标记。 */
 export function prepareRecentViews(
   recents: readonly AppSummary[],
   fullCatalogApps: readonly AppSummary[] | undefined,
@@ -646,6 +585,7 @@ export function prepareRecentViews(
   return visible.map((r) => annotateIsCataloged(r, catalogIds, localApps));
 }
 
+/** 选取未裁剪全量目录，缺席时回退当前列表。 */
 export function selectCatalogBase(
   fullCatalogApps: readonly AppSummary[] | undefined,
   apps: readonly AppSummary[],
@@ -666,17 +606,8 @@ export function hasIdAliasMatch(
 }
 
 /**
- * 兼容层说明：后端 `AppSummary`/`AppDetail` 投影是收录态的权威来源；
- * 以下客户端标注只为乐观本地行与缺省字段载荷补齐字段，不是真值。
- *
- * 单行显式标注（不改原对象）：
- * - source=custom 草稿行与 source=local 收录行恒 true（不被 catalog 集覆盖，
- *   不碰 is_verified，草稿/本地收录均不配已认证蓝标，本地收录配橘黄 local 变体）；
- * - 其余按 catalog 集命中/未命中显式携带以优先于 category 兜底；
- * - 本地收录叠加：同 id 命中本地收录且自身未验证（is_verified !== true）时补
- *   source='local'（蓝标优先不动；远端已验证仍蓝，仅远端缺席/未验证才显黄），
- *   status 一并搬运供 badge 兜底判定；
- * - 已有正确值即原引用透传（memo 友好）。
+ * 为单行补齐 `is_cataloged` 与未验证本地收录的 `source='local'` 标记（无变更返回原引用）。
+ * 后端投影为权威来源，此处用于乐观本地行与缺省字段载荷的展示补齐。
  */
 export function annotateIsCataloged<T extends AppSummary>(
   row: T,
@@ -725,11 +656,7 @@ export function annotateIsCataloged<T extends AppSummary>(
 }
 
 /**
- * 历史行（最近浏览等）按当前本地收录集合重标：
- * - `undefined` 即 customApps 未加载（未知），原样透传，不误清后端盖章；
- * - 空集合是「确知没有本地收录」，按现行口径重算即清掉陈旧 `source=local`
- *   （退回草稿/删除后必须去黄，收录与撤销成对）；
- * - 无变化返回原引用（set state 不触发多余渲染）。
+ * 按当前本地收录集合重标历史行（`undefined` 表示未加载，原样透传；无变化返回原引用）。
  */
 export function restampLocalMarks<T extends AppSummary>(
   rows: T[],
@@ -746,10 +673,7 @@ export function restampLocalMarks<T extends AppSummary>(
   return changed ? next : rows;
 }
 
-/**
- * 行别名键（canonical id 归一 + 仅限 GitHub 的 owner/repo 别名，避免跨 Forge 同名仓库冲突）：
- * 非 GitHub canonical id（带 `forge:` 前缀或非 github forge）仅保留自身 canonical id。
- */
+/** 返回规范化的行别名键；非 GitHub forge 仅保留自身 canonical id。 */
 export function rowAliasKeys(row: RowIdentity): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -864,11 +788,7 @@ function resolveLocalLookup(
   return mergeLocalLookups(inferred, localAppsOrIds);
 }
 
-/**
- * 在线段标注（online 落定处调用）：
- * 命中 catalog 即 true（已收录，在线结果仍正确隐藏按钮），未命中即 false；
- * 同 id 命中本地收录时叠加 source='local'/status（蓝标优先：自身已验证不叠加）。
- */
+/** 为在线列表标注 `is_cataloged` 与未验证本地收录的 `source='local'` 标记。 */
 export function annotateOnlineCataloged<T extends AppSummary>(
   onlineApps: readonly T[],
   catalogAppsOrIds: readonly AppSummary[] | ReadonlySet<string>,
@@ -890,11 +810,7 @@ export function annotateOnlineCataloged<T extends AppSummary>(
   return changed ? out : (onlineApps as T[]);
 }
 
-/**
- * 趋势 enrich 镜像标注（enrich 合并处调用，Record 口径）：
- * 同上，未命中=false，命中=true；key 与 app.id 双通道归一（防别名漂移）；
- * 本地收录同 id 叠加 source/status（蓝优先）。
- */
+/** 为趋势富卡镜像记录标注 `is_cataloged` 与本地标记，无变更返回原引用。 */
 export function annotateEnrichMirrorCataloged(
   mirror: Record<string, AppSummary>,
   catalogAppsOrIds: readonly AppSummary[] | ReadonlySet<string>,
@@ -921,14 +837,7 @@ export function annotateEnrichMirrorCataloged(
   return changed ? next : mirror;
 }
 
-/**
- * 兼容层：后端 `AppSummary`/`AppDetail` 投影是权威来源，本函数只为
- * 乐观本地行与缺省字段载荷补齐字段，不是真值。
- *
- * 本地收录标记搬运（不改收录判定）：
- * 命中本地收录即补 `source='local'` + `status` + `is_cataloged=true`，未命中原引用透传。
- * 蓝优先：已验证行不叠加；`source=custom` 草稿行原样保留；已是本地行仅补显式收录位。
- */
+/** 为命中本地收录且未验证的行补齐 `source='local'` 与 `is_cataloged=true`。 */
 export function annotateLocalSource<T extends AppSummary>(
   row: T,
   localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
@@ -944,11 +853,7 @@ export function annotateLocalSource<T extends AppSummary>(
   return { ...row, source: 'local', status: wantStatus, is_cataloged: true } as T;
 }
 
-/**
- * 裸行（enrich 富卡缺席的占位小行）本地收录徽标判定：
- * 身份按 `rowAliasKeys` 归一对齐（大小写 / owner-repo 漂移仍命中），
- * 已认证行由自身蓝标承担（此处不返回橘黄），命中本地收录即 'local'，否则 null。
- */
+/** 判定裸行（未认证且命中本地收录）是否显示本地收录徽标。 */
 export function resolveBareRowLocalBadgeVariant(
   row: RowIdentity & { is_verified?: boolean },
   localAppsOrIds?: readonly AppSummary[] | ReadonlySet<string>,
@@ -1127,10 +1032,7 @@ export function useAppSelectors({
     setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
   }, [setSelectedPlatforms]);
 
-  // 视图级侧栏平台计数通道：各视图按自身作用域上报分布（null = 显式回退全库口径，如分类大厅）。
-  // - 离开 categories 时清空其槽位（再进时落在全库大厅）；
-  // - 异步数据源视图（trends / launchpad / latest）保留上次已知分布，重访时零闪烁直出并在新数据就绪后刷新；
-  // - 首次进入尚未上报的异步视图时，沿用上一次稳定显示的计数（lastStablePlatformCountsRef），既不闪全库也不闪空。
+  // 视图级侧栏平台计数通道：各视图上报分布，null 表示回退全库；首次进入异步视图前保留上次稳定计数防闪烁
   const VIEW_SCOPED_PLATFORM_VIEWS: ReadonlySet<ViewType> = new Set<ViewType>([
     'trends',
     'launchpad',
@@ -1232,11 +1134,7 @@ export function useAppSelectors({
 
   const managedIds = installedIds;
 
-  // managed 加载三态（冷启闪烁守卫）：`installedApps` 初始 `[]`
-  // 与“已加载但为空”引用不同（订阅层 `.then(setInstalledApps)` 恒产生新引用，
-  // IPC 反序列化无复用），引用变化即 managed 已加载；其它重渲染引用不变即仍未知。
-  // 加载失败无写入时 installed 为空恒走 'none'（全 Get），故失败态自然降级；8s 超时兜底
-  // 防占位永久悬挂（此时已安装命中才占位）。
+  // `installedApps` 初始为空数组，列表加载完成后产生新引用；8s 超时防止中性占位永久悬挂
   const initialInstalledRef = useRef(installedApps);
   const [managedLoaded, setManagedLoaded] = useState(false);
   useEffect(() => {
@@ -1291,7 +1189,7 @@ export function useAppSelectors({
     handlePendingPlatformCounts,
     handleInstalledPlatformCounts,
     handleFavoritesPlatformCounts,
-    /** 收藏页 Star 同步签沿用的旧名，与 `handleFavoritesPlatformCounts` 同一槽位。 */
+    /** `handleFavoritesPlatformCounts` 的别名槽位。 */
     handleStarredPlatformCounts: handleFavoritesPlatformCounts,
     sidebarPlatformCounts,
     installedIds,

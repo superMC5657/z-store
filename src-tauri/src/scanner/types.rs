@@ -164,9 +164,7 @@ pub struct ScanConfig {
     pub search_subdirs: Vec<String>,
 }
 
-/// 标识符是否为发布页的安装包/压缩包资产名，而非安装后的主程序名
-/// （如 `npp.8.9.8.Installer.arm64.exe`、`GitHubDesktopSetup-x64.exe`、`rio-portable-aarch64.exe`）。
-/// 应用自身 repo/名称已含的词不算特征（`Bulk-Crap-Uninstaller.exe` 属合法主程序）。
+/// 判断标识符是否为安装包或压缩包资产名，而非安装后的主程序名（应用自身名称已含的词除外）。
 pub fn is_installer_asset_identifier(ident: &str, repo: &str, app_name: &str) -> bool {
     let lower = ident.trim().to_lowercase();
     if lower.is_empty() {
@@ -240,7 +238,7 @@ fn push_unique(out: &mut Vec<String>, extra: impl IntoIterator<Item = String>) {
     }
 }
 
-/// 可执行文件名候选（本地 helper，收敛两个 From impl）。
+/// 生成可执行文件名候选。
 fn exe_candidates(base: &str) -> Vec<String> {
     let lower = base.to_lowercase();
     let clean = lower.replace(['.', '-'], "");
@@ -268,7 +266,7 @@ fn needs_bare_candidates() -> bool {
     cfg!(target_os = "linux")
 }
 
-/// 默认搜索子目录（本地 helper，收敛两个 From impl）。
+/// 默认搜索子目录。
 fn default_search_subdirs() -> Vec<String> {
     vec![
         "bin".to_string(),
@@ -282,16 +280,14 @@ fn default_search_subdirs() -> Vec<String> {
     ]
 }
 
-/// 秒级时间戳（本地 helper，供 executable/tests 收敛 now_secs）。
+/// 当前 Unix 秒级时间戳。
 pub(crate) fn now_secs() -> i64 {
     crate::now_secs()
 }
 
 impl From<&CatalogItem> for ScanConfig {
     fn from(cat: &CatalogItem) -> Self {
-        // 精校主程序标识（已剔除安装包资产名）在前，repo/名称派生候选恒追加在后，
-        // 精校标识不全时仍能按 repo 找到主程序。
-        // ADR-0010：id 为 owner/repo 坐标，不能当文件名候选，仅以 repo 派生。
+        // 精校主程序标识在前，repo/名称派生候选追加在后（id 为 owner/repo 坐标，仅以 repo 派生）。
         let mut target_executables = clean_native_identifiers(cat);
         #[cfg(target_os = "windows")]
         {

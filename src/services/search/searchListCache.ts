@@ -5,13 +5,8 @@ import { normalizeId } from '../normalizeId';
 import { recordSharedRepoCards } from '../repoEnrichCache';
 
 /**
- * 分页列表缓存（瘦 id 索引）：
- * - L1 内存：按命名空间分桶（缺省 `search`，Star 列表用 `starred`），桶内 key=`namespace|norm|page|perPage`，
- *   各桶独立 50 条 FIFO；条目只存 `{ at, ids, hasMore, hasPrivate }`，卡片统一存放在模块级单一卡片表
- *   （按归一 id 一份），未收录卡片同时写入共享单仓富卡镜像 `repoEnrichCache`；
- *   写入后 5min 内为新鲜（零网络直出），5–30min 可用但需后台重验，30min 起过期；无 timer（提交/翻页时 sweep）。
- * - L2 SQLite：`search_list_cache` 存 `{ v: 2, ids, hasMore }`（7 天保留，`has_private=1` 随登出清除），
- *   冷启动经 `readDbSearchListCache` + `hydrateCardsByIds` 恢复。
+ * 分页列表缓存（L1 内存按命名空间分桶存 id 索引 + 共享卡片表；L2 SQLite 存 `search_list_cache` 快照）。
+ * 写入后 5min 内为新鲜，30min 起过期；含私有仓库条目随登出清除。
  */
 
 /** 新鲜窗口：5min 内命中可零网络直出。 */
@@ -156,10 +151,7 @@ export function findInSearchListCache(id: string, namespace?: string): AppSummar
   return undefined;
 }
 
-/**
- * 读列表缓存并给出新鲜度：时钟回拨（elapsed<0）或超 30min 即驱逐并返回 `undefined`；
- * 5min 内 `isFresh=true`。
- */
+/** 读列表缓存并附带新鲜度；时钟回拨或超时驱逐并返回 `undefined`。 */
 export function readSearchListCacheEntry(key: SearchListKey): SearchListCacheHit | undefined {
   const { norm } = sanitizeSearchListKey(key);
   if (!norm) return undefined;
@@ -191,10 +183,7 @@ interface WriteSearchListOptions {
   hasPrivate?: boolean;
 }
 
-/**
- * 写列表缓存：条目只记有序 id，卡片写入共享卡片表（未收录卡片同步进 `repoEnrichCache`）；
- * 同键刷新写序，超出本命名空间上限时淘汰本桶最旧条目。
- */
+/** 写列表缓存（卡片存入共享表并同步 `repoEnrichCache`），超限时淘汰同桶最旧条目。 */
 export function writeSearchListCache(
   key: SearchListKey,
   rows: AppSummary[],
@@ -255,10 +244,7 @@ export function clearSearchListCache(): void {
   cardStore.clear();
 }
 
-/**
- * 清空一个命名空间；给出 `queryPrefix` 时只删归一词以该前缀开头的条目
- * （如登出时清 `starred` 下的 `@me:` 私有列表）。
- */
+/** 清空指定命名空间（传入 `queryPrefix` 时仅删匹配前缀的条目）。 */
 export function clearSearchListCacheNamespace(namespace: string, queryPrefix?: string): void {
   const ns = namespaceOf(namespace);
   const bucket = buckets.get(ns);
@@ -285,10 +271,7 @@ export function clearPrivateSearchListCacheEntries(): void {
   gcCardStore();
 }
 
-/**
- * 图标就绪写透卡片表（翻页一致性）：同 id 卡片只有一份，各页回访/重搜命中即新图；
- * 条目 `at` 不续期（图标更新不代表数据新鲜）；L5 显式空（`icon:''`）亦写透；未命中 id 即无操作。
- */
+/** 将就绪图标写入共享卡片表（不续期条目 `at`）。 */
 export function patchSearchListCacheIcon(targetIdLower: string, icon: string): void {
   const norm = normalizeId(targetIdLower);
   if (!norm) return;
@@ -301,10 +284,7 @@ export function patchSearchListCacheIcon(targetIdLower: string, icon: string): v
 type SearchListPatchSubscriber = (patcher: (rows: AppSummary[]) => AppSummary[]) => void;
 const searchListPatchSubscribers = new Set<SearchListPatchSubscriber>();
 
-/**
- * 订阅详情/平台回填对分页缓存行的写透补丁：
- * 持有独立本地列表状态的分页视图（如 StarredFeed）据此同步刷新当前已挂载行。
- */
+/** 订阅分页缓存行的写透补丁通知。 */
 export function subscribeSearchListCachePatches(fn: SearchListPatchSubscriber): () => void {
   searchListPatchSubscribers.add(fn);
   return () => {
@@ -393,10 +373,7 @@ interface SearchListDbHit {
   withinTtl: boolean;
 }
 
-/**
- * 读 L2 快照：非 `v: 2` 或空 id 视为未命中；时钟回拨视为未命中；
- * `allowStale` 缺省时仅返回 30min 内的快照。
- */
+/** 读 L2 快照（拒绝非 `v: 2`、空 id 或时钟回拨；缺省仅返回 TTL 内快照）。 */
 export async function readDbSearchListCache(
   key: SearchListKey,
   opts?: { allowStale?: boolean; now?: number },

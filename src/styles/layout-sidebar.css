@@ -140,7 +140,7 @@
   color: var(--text-primary);
 }
 
-/* 展开态指示紫条：3px 宽、上下内缩 7px、2px 圆角、颜色 #5E6AD2，定位 left: 3px (内嵌于 pill 内部，绝不贴边溢出) */
+/* 展开态左侧激活指示条 */
 .nav-item.active::before {
   content: '';
   position: absolute;

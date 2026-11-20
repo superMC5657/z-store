@@ -1,9 +1,6 @@
 import React from 'react';
 
-/**
- * 按具名导出懒加载组件，并附带 `preload()`：空闲时预取分块，首次打开不必等待解析。
- * 加载失败（分块缺失）时清掉缓存的 Promise，下次渲染或预取会重新发起。
- */
+/** 按具名导出懒加载组件，并附带 `preload()`（加载失败时清除缓存 Promise 以便重试）。 */
 export function lazyNamed<M extends Record<K, React.ComponentType<any>>, K extends keyof M>(
   loader: () => Promise<M>,
   name: K,

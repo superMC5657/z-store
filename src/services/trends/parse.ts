@@ -60,15 +60,7 @@ function stripHtmlTags(html: string): string {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/**
- * 解析单个 `article.Box-row`：
- * - 仓库身份：首个恰为两段路径的 `a[href="/owner/repo"]`
- *   （`/owner/repo/stargazers` 等三段链接一律跳过）；
- * - 增量：`([\d,]+) stars (today|this week|this month)` 文本
- *   （含单数 "1 star today"），解析为 starsGained（真实数字）；
- * - 总量：stargazers/forks 链接文本（k/m 缩写展开）；缺失时 stars 回退 0
- *  （TrendRepo.stars 为必填 number）、forks 保持 undefined。
- */
+/** 解析单个 GitHub Trending `article.Box-row` 为 `TrendRepo`；缺少有效增星文本时 `starsGained` 为 `undefined`。 */
 function mapTrendingArticle(articleHtml: string): TrendRepo | null {
   const linkRe = /<a\b[^>]*\bhref="(\/[^"]+)"[^>]*>/gi;
   let owner = '';
@@ -152,12 +144,7 @@ function numOrUndefined(v: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-/**
- * 映射 doforce 数据项。`repo` 带有前导斜杠（"/owner/name"）需去除；
- * `desc` -> description（丢弃 `lang`：TrendRepo 无 language 字段且无下游消费）。
- * starsGained = change（真实新增 stars）；
- * 缺失或非数字的 change -> undefined，绝不从总量中伪造。
- */
+/** 映射 doforce 数据项为 `TrendRepo`（`change` 缺失或非数字时 `starsGained` 为 `undefined`）。 */
 export function mapDoforceItem(item: Record<string, unknown>): TrendRepo | null {
   const rawRepo = String(item.repo ?? item.full_name ?? item.fullName ?? '').trim().replace(/^\/+/, '');
   if (!rawRepo.includes('/')) return null;
@@ -254,12 +241,7 @@ export function parseRetryAfterMs(raw: string | undefined): number | undefined {
   return undefined;
 }
 
-/**
- * 从错误串提取 Retry-After 值并换算等待毫秒。
- * 优先消费 BE 429 分支透传的 `retry_after_ms={毫秒}`（或 `retry-after-ms`），
- * 其次解析 `retry-after` 秒数或 HTTP-date（上限 60s，超限返回 undefined 即直接返回错误）；
- * 缺少头信息时使用默认等待。
- */
+/** 从错误中提取 Retry-After 等待毫秒数（超上限返回 `undefined`，缺失返回默认值）。 */
 export function doforceRetryDelayMs(err: unknown): number | undefined {
   const msg = String((err as { message?: unknown })?.message ?? err ?? '');
   const msDirect = msg.match(/retry[_-]after[_-]ms\s*[:=]\s*(\d+)/i)?.[1];

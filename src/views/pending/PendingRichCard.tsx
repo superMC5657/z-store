@@ -1,7 +1,4 @@
-/**
- * 待收录页右侧富卡（collected/submitted/archived 后链路只读展示 + 操作页脚）。
- * 撤下入口是否渲染由调用方是否传入 `onWithdrawSubmitted` 决定。
- */
+/** 待收录页右侧只读富卡：展示已收录/已提交/已归档条目及对应状态操作。 */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Archive, Link2, PackageCheck, Send, Trash2, Undo2 } from 'lucide-react';

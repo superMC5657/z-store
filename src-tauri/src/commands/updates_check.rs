@@ -19,13 +19,8 @@ pub(crate) struct LightweightRelease {
     pub published_at: Option<i64>,
 }
 
-/// 轻量级获取应用最新版本号与更新说明（专为更新检查与关注动态设计）
-/// 坚决不拉取 README.md、不拉取仓库详情与 Stars、不拉取校验和文件
-/// - 默认 DB-only（`force_refresh != Some(true)`）：仅读 `get_cached_app_detail(None)` /
-///   收录库默认版本，零网络（启动/登录不触网）；
-/// - 显式手动刷新（`Some(true)`）：跳过详情 Cache TTL 短路，携带本地 `api_etag_cache` 中的
-///   ETag 发送 `If-None-Match` 条件请求；命中 `304 Not Modified` 时零配额消耗从 `cached_payload`
-///   恢复最新版本，离线/限流时降级返回本地已有缓存。
+/// 轻量获取应用最新 Release 版本与说明（不拉取 README、仓库详情或校验和文件）。
+/// `force_refresh != Some(true)` 仅读本地缓存；`Some(true)` 跳过详情 TTL 发起 ETag 条件请求。
 pub(crate) async fn fetch_app_latest_version_lightweight(
     state: &AppState,
     app_id: &str,
@@ -34,9 +29,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
     let is_force = force_refresh.unwrap_or(false);
     let clean_id = crate::commands::require_app_id(app_id)?;
 
-    // 启动/登录默认 DB-only：非显式手动刷新一律不触网（ETag 探针门控在 force 臂内）。
-    // 口径：更新判定行（update_results 上次刷新快照）优先，其次详情缓存行（忽略 TTL），
-    // 再次收录库默认版本；均无则报离线无缓存。
+    // 默认不触网：依次回退 update_results、详情缓存与目录默认版本。
     if !is_force {
         if let Ok(db) = state.db() {
             if let Ok(Some((latest, changelog))) = db.get_cached_update_version(&clean_id) {
@@ -64,10 +57,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         return Err("检查更新网络不可达且无本地缓存".to_string());
     }
 
-    // 显式手动刷新（force==true）：跳过详情 Cache TTL 短路，向 `releases/latest` 发起带 ETag 的条件请求。
-    // 失败时再降级读本地缓存（见下方 shallow adapter 回退）。
-
-    // 2. 多源支持 (Codeberg, Gitea, GitLab 等)
+    // 多源支持 (Codeberg, Gitea, GitLab 等)
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
             let host_token = if let Ok(db) = state.db() {
@@ -89,7 +79,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         }
     }
 
-    // 3. GitHub Releases 极速单请求拉取
+    // GitHub Releases 单请求拉取
     let coords = match state.catalog.get_repo_coordinates(&clean_id) {
         Ok(c) => c,
         Err(_) => {
@@ -108,8 +98,6 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
 
     let ep = crate::github::github_latest_release_endpoint(&coords.owner, &coords.repo);
 
-    // 手动刷新条件重验：跳过详情 Cache TTL 短路，但携带本地 ETag 发送 If-None-Match，
-    // 远端 304 Not Modified 时零配额消耗从 cached_payload 恢复最新版本。
     let (cached_etag, cached_payload) = if let Ok(db) = state.db() {
         (
             db.get_etag(&ep)
@@ -137,11 +125,7 @@ pub(crate) async fn fetch_app_latest_version_lightweight(
         crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
     }
 
-    // 收敛：轻量决议经 `github::release_fetch` shallow adapter（与 `get_platforms_lite`
-    // 同一 interface）。
-    // ADR-0007 豁免对照分支（consult_ttl = false 侧）：此处故意不读详情 Cache TTL
-    // （缓存生存时效），每次向远端发起条件请求；TTL 快径仅 `get_platforms_lite` 有。
-    // Fresh 无需回退源，避免无谓 DB 读。
+    // 仅在非 Fresh 时读取本地回退源，避免无谓 DB 读。
     let (stale_row, catalog_default) = match &outcome {
         crate::github::http::EtagGetOutcome::Fresh { .. } => (None, None),
         _ => {
@@ -261,16 +245,8 @@ pub(crate) fn resolve_update_shallow_with_fallback(
     }
 }
 
-/// 严格比较两个版本号，仅当 latest 严格高于 current 时返回 true（避免 4 段式 MSI 误报及降级风险）
-///
-/// SemVer 优先：两侧经归一化（去 `v` 前缀与首尾空白）后若都能解析为 SemVer
-///（含预发布，如 `1.0.0-beta.1`，满足 `1.0.0-beta.1 < 1.0.0`），则按 SemVer 全序比较。
-/// 4 段式 MSI（如 `3.0.21.0`）若 4 段全为纯数字且末段为 0，则截断为 3 段后再按
-/// SemVer 比较，使其与同值 3 段式 Release 不误报，同时 `3.0.21.0 -> 3.0.22` 仍能检出。
-/// 非 SemVer 回退策略（显式 string-inequality 策略）：任一侧不可解析（如 `tip`、
-/// `v26.02-v1.5.7-R2`）时不做数值推测——两侧都不可解析才退化为归一化字符串不等
-///（即 `norm(cur) != norm(lat)`）；仅一侧可解析则一律返回 false，避免 `tip` 相对
-/// 任何正式版本都误报、或 `R2` 这类后缀被当成数字段参与比较。
+/// 判断 `latest` 是否严格高于 `current`（SemVer 优先，4 段纯数字末段为 0 视为 3 段，2 段纯数字补 `.0`）。
+/// 仅两侧都不可解析为 SemVer 时退化为归一化字符串不等；单侧不可解析返回 `false` 以防误报。
 pub(crate) fn is_version_newer(current: &str, latest: &str) -> bool {
     /// 归一化：去 `v` 前缀与空白；4 段式纯数字 MSI 且末段为 0 时截断为 3 段；
     /// 无后缀的 2 段纯数字（`0.16`、`10.38`）补成 3 段，以便与 PE 版本资源的 `0.15.0` 比较。
@@ -306,9 +282,7 @@ pub(crate) fn is_version_newer(current: &str, latest: &str) -> bool {
     }
 }
 
-/// 判定是否应当提示此更新，综合考量版本策略表（锁定、跳过指定版本）。
-/// 隐藏不在此排除：隐藏应用的更新仍进入列表，供规则管理跳过版本；
-/// 前端各更新计数与「有更新」签自行排除隐藏应用。
+/// 判断是否应提示此更新（应用冻结与跳过版本规则；隐藏应用仍保留以便规则管理跳过版本）。
 pub(crate) fn should_include_update(
     current_version: &str,
     latest_version: &str,
@@ -345,9 +319,7 @@ pub async fn check_for_updates(
     state: State<'_, AppState>,
     force_refresh: Option<bool>,
 ) -> crate::AppResult<Vec<UpdateItem>> {
-    // 整轮耗时 + sid 关联，结束只记一行汇总。
-    // 持久化语义：仅显式手动刷新（force==true）写 `update_results`；
-    // 默认 DB-only 臂不写库（读经 `fetch_app_latest_version_lightweight` 判定行快径）。
+    // 仅显式手动刷新（force_refresh == Some(true)）回写 update_results，默认只读。
     let is_force = force_refresh.unwrap_or(false);
     let check_start = std::time::Instant::now();
     let installed = super::installer_query::load_installed_apps(&state).await?;
@@ -381,11 +353,7 @@ pub async fn check_for_updates(
         }),
     );
 
-    // 并发度 6，兼顾检查速度与 GitHub API 稳定性。
-    // 关键体验优化：只要某款应用检测出有新版本，立即通过事件单项推流，实现“检测出一项跳出一项”的流畅反馈。
-    // emit 顺序语义：zstore://update-item-found/progress 为无序发射，前端按 app_id 去重/累计，不依赖顺序；
-    // zstore://update-check-finished 在 collect 完成后统一发射，保持终态语义。
-    // 持久化行与推流项同源：Ok 即产行（has_update 经 `should_include_update` 判定），Err 不产行（保留旧行）。
+    // 并发检查并逐项流式推送新版本事件（无序发射），全部完成后发射结束事件。
     let check_stream = stream::iter(eligible_apps)
         .map(|app| {
             let app_handle = app_handle.clone();
@@ -431,7 +399,7 @@ pub async fn check_for_updates(
                                 icon,
                                 icon_bg,
                             };
-                            // 🚀 核心：发现更新立即触发单项流式推送，前端实现逐项弹入跳出动效
+                            // 发现更新立即单项流式推送
                             let _ = app_handle.emit("zstore://update-item-found", &update_item);
                             found_item = Some(update_item);
                         }
@@ -475,8 +443,7 @@ pub async fn check_for_updates(
         }
     }
 
-    // 手动刷新落库：同轮判定行批量 upsert + 已卸载剪枝；失败 `let _ =` 吞错下次重试。
-    // 非 force 臂零写（启动/登录只读，保持 DB 快照语义）。
+    // 手动刷新批量落库并清理已卸载项的旧判定行。
     if is_force {
         if let Ok(db) = state.db() {
             let _ = db.save_update_checks_batch(&write_rows);
@@ -503,10 +470,8 @@ pub async fn check_for_updates(
     Ok(updates)
 }
 
-/// 关注应用的新版本检查（收藏页「关注」签触发，与已安装应用的 `check_for_updates` 无关）：
-/// 遍历关注列表（不论是否安装），新提醒经 `zstore://watch-updated` 逐条推送；
-/// 返回检查后的全部待处理提醒（同 `get_watch_notifications`）。
-/// 缺省或 `forceRefresh=true` 走 ETag 条件请求联网（见 ADR-0019 §2.4）；`forceRefresh=false` 只读本地缓存。
+/// 检查关注应用的新版本并推送更新提醒（独立于已安装列表，返回待处理提醒）。
+/// 缺省或 `forceRefresh=true` 走 ETag 条件请求联网；`forceRefresh=false` 只读本地缓存。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn check_watched_updates(
     state: State<'_, AppState>,
@@ -529,14 +494,7 @@ pub async fn check_watched_updates(
     Ok(state.db()?.get_pending_watch_notifications()?)
 }
 
-/// 更新中心列表读（DB-only，无网络）：登录/UpdatesView 首屏直读快照。
-/// - 仅 `has_update=1` 行；逐行与当前已安装版本比对（`installed_version` 不一致视为过期跳过，
-///   覆盖安装/导入未及时失效的缺口）；
-/// - 规则过滤与 `check_for_updates` 同口径（frozen 跳过、skip 版本跳过，经
-///   `should_include_update` 重校验；hidden 不跳过，由前端各计数自行排除）；
-/// - 纯 DB 只读：已安装版本取 `installed_apps` 库内行，不触发注册表重扫与路径修复
-///   （路径自愈、导入版本更正与幽灵隐藏由 `get_installed_apps` 负责，更正版本时同步重算判定行）；
-/// - 已安装列表、规则与判定行在同一次 `db` 临界区内读取。
+/// 读取本地缓存的待更新列表（纯 DB 只读，校验当前已安装版本与冻结/跳过规则）。
 #[tauri::command]
 pub fn get_cached_updates(state: State<'_, AppState>) -> crate::AppResult<Vec<UpdateItem>> {
     let (installed, rules, rows) = {
@@ -637,10 +595,7 @@ fn cached_release_published_at(state: &AppState, app_id: &str, version: &str) ->
     release_published_at_from_payload(&payload, version)
 }
 
-/// 遍历被关注应用，若出现较 `last_notified_version` 更新的
-/// Release，按 `watch_notify_frequency`（`startup`|`daily`）决定是否经由
-/// `zstore://watch-updated` 事件应用内通知。
-/// 从未提醒过的应用（新关注或仅有静默基线）若最新 Release 发布不足 7 天，也提醒一次。
+/// 遍历关注应用并按通知频率推送新版本提醒；首次关注的近期发布（7 天内）提醒一次，否则记为基线。
 async fn notify_watched_updates(
     state: &AppState,
     rules_map: &HashMap<String, UpdateRule>,

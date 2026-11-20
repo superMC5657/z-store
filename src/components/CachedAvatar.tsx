@@ -17,11 +17,7 @@ interface CachedAvatarProps {
   dimmedOpacity?: number;
 }
 
-/**
- * GitHub 用户/开发者头像：真实 Tauri 下经后端系统代理下载并落盘缓存（30 天）后以 `data:` 渲染；
- * 等待解析、无头像或加载失败时显示首字母圆形徽章（离线/DNS 污染也不裂图）。
- * 非 Tauri（单测/官网 Demo）直接使用原链。
- */
+/** GitHub 头像组件：Tauri 下经本地缓存以 `data:` 渲染，失败或缺失时回退首字母圆形徽章。 */
 export const CachedAvatar: React.FC<CachedAvatarProps> = ({
   src,
   login,

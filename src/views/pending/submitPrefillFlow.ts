@@ -1,27 +1,16 @@
-/**
- * 待收录提交/预填流程：
- * 「取 URL → https 门 → 超长复制后端载荷 → 打开预填页」单一实现。
- */
+/** 待收录 Issue 预填流程：校验 https 链接、超长时复制后端载荷并打开预填页。 */
 import type { TFunction } from 'i18next';
 import { copyTextToClipboard } from '../../utils/appHelper';
 import { tauriApi } from '../../services/api';
 import type { ShowToast } from '../../types';
 
-/**
- * 预填 URL 长度门限（判定口径为编码后预填链接全长，含 percent-encoding 膨胀；
- * 与 Spec §5 对齐，阈值 8000）：
- * 超过即优先复制后端产出的提交载荷
- * （前端不拼装 JSON），再照常尝试打开预填页；载荷不可得则退化为复制链接。
- */
+/** 编码后预填链接全长上限；超过时优先复制后端载荷文本，失败再退化为复制链接。 */
 export const PREFILL_URL_LENGTH_LIMIT = 8000;
 
 /** 轻提示通道（与 `PendingViewProps.onNotify` 同形）。 */
 type Notify = ShowToast;
 
-/**
- * 后端载荷复制：取后端产出的载荷文本并原样写入剪贴板（不 trim、不重新格式化）。
- * provider 缺席或取载荷/复制失败一律返回 false，由调用方走链接复制退化路径。
- */
+/** 原样复制后端载荷文本至剪贴板，provider 缺席或复制失败返回 false。 */
 async function copyBackendPayload(load: () => Promise<string>): Promise<boolean> {
   try {
     const payload = await load();
@@ -32,10 +21,7 @@ async function copyBackendPayload(load: () => Promise<string>): Promise<boolean>
   }
 }
 
-/**
- * 预填页打开失败：真实 https 链接先复制到剪贴板再 toast（已复制链接，请手动打开）；
- * 复制失败或传入的非链接标识（invalid-URL 守卫传 id）只报 plain open_failed，不谎报已复制。
- */
+/** 打开预填页失败时对真实 https 链接尝试复制并提示，非链接标识仅提示失败。 */
 async function notifyPrefillOpenFailed(
   url: string,
   err: unknown,
@@ -74,13 +60,7 @@ interface SubmitPrefillFlowArgs {
   onOpened?: () => void;
 }
 
-/**
- * 提交预填流程（busy 置位后调用）：
- * 预览模式硬拦 → 取 URL（后端门禁错透出 toast 中止）→ https 门（fail-closed）→
- * 超长（> PREFILL_URL_LENGTH_LIMIT）优先复制后端载荷、否则复制链接并提示 →
- * 打开预填页（失败复制链接并 toast，不谎报成功）→ 成功后执行 onOpened 收尾。
- * 任何失败路径均不开成功 toast、不触发 onOpened。
- */
+/** 执行待收录预填提交流程：校验 https 链接、超长时复制后端载荷并打开浏览器预填页。 */
 export async function runSubmitPrefillFlow(
   deps: { t: TFunction; notify: Notify },
   args: SubmitPrefillFlowArgs,
@@ -109,7 +89,7 @@ export async function runSubmitPrefillFlow(
     return;
   }
   url = trimmedUrl;
-  // 预填链接长度判定（含 percent-encoding 膨胀，按编码后 URL 全长计，与 Spec §5 对齐）。
+  // 按编码后链接全长判断是否超过阈值
   if (url.length > PREFILL_URL_LENGTH_LIMIT) {
     const payloadCopied = args.loadPayload ? await copyBackendPayload(args.loadPayload) : false;
     if (payloadCopied) {

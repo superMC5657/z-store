@@ -11,13 +11,8 @@ const cancelFrame: (id: number) => void =
   typeof cancelAnimationFrame === 'function' ? (id) => cancelAnimationFrame(id) : (id) => window.clearTimeout(id);
 
 /**
- * 主内容区按视图记住滚动位置：视图切走时保留，切回时恢复；未访问过的视图从顶部开始。
- *
- * 视图是条件挂载的，切回时列表可能还在异步加载、高度不够，因此恢复会逐帧重试直到
- * 达到目标或超时；期间若滚动位置被别处改动（用户滚动、视图自身的 scrollIntoView 定位），
- * 立即放弃恢复，以对方为准。
- *
- * `key` 为 `null` 表示不记忆的临时状态（如首页搜索结果），进入时回到顶部。
+ * 按视图记住滚动位置并在切回时恢复（逐帧等待异步内容撑开高度，若期间被外部改动则放弃）。
+ * `key` 为 `null` 时表示不记忆的临时视图，进入时回到顶部。
  */
 export function useViewScrollMemory(scrollRef: RefObject<HTMLElement | null>, key: string | null): void {
   const positions = useRef(new Map<string, number>());

@@ -1,9 +1,4 @@
-/**
- * 徽标一致性锁定：
- * 同一 id（大小写变体）下卡片（AppCard）与弹窗（InstallActions）判态必须一致，
- * 均经共享选择器归一得出；未知态双方均占位；
- * 未纳管一律走获取安装，已纳管走绿色已安装。
- */
+/** 测试卡片与详情弹窗在相同应用 ID 下的已安装/纳管徽标一致性。 */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { AppCard } from './AppCard';

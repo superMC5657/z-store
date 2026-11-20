@@ -1,11 +1,4 @@
-/**
- * useWatchState 回归（关注订阅域深模块）：
- *
- * - 初始加载关注集 + 待处理/已读提醒；
- * - 实时 `onWatchUpdated` 提醒 toast + 同 app 去重 + 互斥剔除 `activeDismissedWatches`；
- * - `zstore:data-imported` 重新加载关注集；
- * - 卸载后才 resolve 的 `onWatchUpdated` 立即解绑不泄漏。
- */
+/** 测试 `useWatchState` 的关注订阅加载、实时提醒与卸载解绑。 */
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WatchDismissedEntry, WatchUpdatedPayload } from '../../types';

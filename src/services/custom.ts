@@ -1,10 +1,4 @@
-/**
- * 待收录 / 本地库领域模块（`custom_apps` 前端 SSOT）：
- * - 领域形状与线格式类型（`DraftItem` / `DraftEntry` / `DraftItemWire` / `DraftEntryWire`）
- * - 状态与图标真值判定（`isCollectedStatus` / `resolveRemoteIconUrl`）
- * - 线格式 ↔ 领域 ↔ 摘要投影唯一转换口（`entryFromWire` / `itemToWire` / `itemToSummary` / `entryToCollectedSummary`）
- * - 草稿 forge 门禁、摘要启发式预填与「移入收录」唯一入口（`draftForgeGateError` / `buildCustomDraftItemFromSummary` / `moveInToDraft`）
- */
+/** 待收录与本地库领域模型、线格式转换及「移入收录」操作入口。 */
 import type { AppSummary } from '../types';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
 import { tauriApi } from './api';
@@ -39,7 +33,7 @@ export interface DraftItem {
   /** 后端真值透传，表单不编辑。 */
   stars?: number;
   forks?: number;
-  /** 后端只读投影的入库日 `YYYY-MM-DD`；`itemToWire` 不写回（ADR-0021 §2.4）。 */
+  /** 后端只读投影的入库日 `YYYY-MM-DD`；`itemToWire` 不写回。 */
   added_at?: string;
 }
 
@@ -163,11 +157,7 @@ export function entryFromWire(wire: DraftEntryWire): DraftEntry {
   };
 }
 
-/**
- * 领域 item → 保存 payload：
- * 空串归 `null`（对齐后端 Option）、`is_verified` 恒 false、
- * `stars/forks` 沿用已有行真值（表单不编辑）。
- */
+/** 领域 item 转为保存 payload（空串归 `null`，`is_verified` 恒 false，`stars/forks` 保留已有行真值）。 */
 export function itemToWire(
   item: DraftItem,
   existing?: Pick<DraftItem, 'stars' | 'forks'>,
@@ -198,11 +188,7 @@ export function itemToWire(
   };
 }
 
-/**
- * 草稿 → 卡片摘要（唯一投影：待收录与本地收录行共用）。
- * 纯 `draft` 不带 `source`，移入草稿当刻不会误亮黄标；`status` 恒显式携带。
- * 已归档行即使 status 仍是 draft（转正退役）也保留来源——待收录页作为收录记录只读展示。
- */
+/** 草稿转为卡片摘要；纯 `draft` 且未归档时不带 `source` 以免误标为本地收录。 */
 export function itemToSummary(
   item: DraftItem,
   status: DraftStatus,
@@ -498,11 +484,7 @@ function resolveDraftCategory(
   return { category: key, category_name: DRAFT_CATEGORY_NAMES[key] ?? key };
 }
 
-/**
- * 草稿 forge 门（后端 `validate_custom_item` DraftLenient 同口径）：
- * 暂存档仅收 GitHub owner/repo——含 `:` 的 forge 形态 id 一律拒；未知前缀先经
- * canonical 解析拒绝；摘要 `forge` 明确非 github 也拒。
- */
+/** 暂存草稿的 forge 校验：仅允许 GitHub `owner/repo` 形式。 */
 export function draftForgeGateError(app: Pick<AppSummary, 'id' | 'forge'>): string | null {
   const forge = typeof app.forge === 'string' ? app.forge.trim().toLowerCase() : '';
   const id = typeof app.id === 'string' ? app.id.trim() : '';
@@ -585,10 +567,7 @@ export interface MoveInResult {
   error?: string;
 }
 
-/**
- * 移入收录（唯一入口）：forge 门检验 → 协议占位时拉取详情回填真实 SPDX 与平台
- * → 探测 remote 图标真值 → 合成草稿 payload → 落库草稿 → 广播 `zstore:custom-apps-changed`。
- */
+/** 移入收录：校验 forge、按需拉取详情补齐许可/平台、保存草稿并广播变更事件。 */
 export async function moveInToDraft(app: AppSummary): Promise<MoveInResult> {
   const gateError = draftForgeGateError(app);
   if (gateError) {

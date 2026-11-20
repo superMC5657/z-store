@@ -14,10 +14,7 @@ export interface AppSummary {
   category: string;
   category_name: string;
   is_verified: boolean;
-  /**
-   * 收录态（后端目录投影盖章）：`true` 表示远端精选或本地收录命中，`false` 明确未收录。
-   * 缺席时展示层按 `category !== 'external'` 兜底。
-   */
+  /** 收录态：`true` 表示远端精选或本地收录命中，`false` 未收录；缺席时按 `category !== 'external'` 兜底。 */
   is_cataloged?: boolean;
   /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录时缺席。 */
   source?: 'remote' | 'local' | 'custom';
@@ -67,10 +64,7 @@ export interface AppDetail {
   is_stale?: boolean;
   homepage: string | null;
   platforms: string[];
-  /**
-   * 显式收录标记（详情经目录 id 集标注，未命中即 false fail-closed）：
-   * 展示层（Header）以该标记为准。
-   */
+  /** 显式收录标记，未命中目录时为 `false`。 */
   is_cataloged?: boolean;
   /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录缺席。 */
   source?: 'remote' | 'local' | 'custom';
@@ -142,10 +136,7 @@ export interface DownloadAssetResult {
   verified: boolean;
 }
 
-/**
- * 全部合法视图，顺序即侧栏渲染顺序。
- * 与 `ViewType` / `isViewType` / `createNavigate` 同源收口于此，供 App/Sidebar/深链共享。
- */
+/** 全部合法视图，顺序即侧栏渲染顺序。 */
 export const VIEW_TYPES = [
   'home',
   'latest',
@@ -174,10 +165,7 @@ export interface ViewTarget {
   focus?: ViewFocus;
 }
 
-/**
- * 不在 `VIEW_TYPES` 里、但外部链接仍会用到的视图 id。仅供外部入口（深链载荷）解析：
- * `zstore://view/updates` 打开「我的应用」并落在「有更新」筛选签。
- */
+/** 外部链接视图别名（如 `zstore://view/updates` 指向已安装页的「有更新」筛选）。 */
 const VIEW_LINK_ALIASES: Readonly<Record<string, ViewTarget>> = {
   updates: { view: 'installed', focus: 'updates' },
 };
@@ -475,9 +463,7 @@ export interface WatchDismissedEntry {
   dismissed_at: number;
 }
 
-// 收藏/关注收录标记行（写入时按 catalog index 落 `is_cataloged`，启动与同步时回填校验）：
-// `get_favorite_entries` / `get_watched_apps` 逐行携带，展示层徽标以记录为准
-// （记录优先；`apps` 目录列表仅作结构去重/驱逐补充，永不覆盖记录标记）。
+// 收藏/关注条目：携带落盘时的 `is_cataloged` 标记，展示层以该标记为准。
 export interface FavoriteEntry {
   app_id: string;
   is_cataloged: boolean;
@@ -566,14 +552,7 @@ export interface TrendRepo {
   owner: string;
   repo: string;
   stars: number;
-  /**
-   * 本周期新增星数。仅当上游明确提供速度口径（trending 页增量文本、
-   * doforce change 等）时为 defined；缺失/不可解析时一律为 undefined，
-   * 绝不回退为总 stars。UI 契约：仅在 defined 时渲染 +N 徽标，
-   * undefined 一律不渲染。
-   * 排序契约：`compareStarsGainedDesc` 中 undefined 恒沉底，
-   * 双 defined 比大小，tie 按 id 升序（见 `services/trends/parse.ts`）。
-   */
+  /** 本周期新增星数；仅上游明确提供增量时有值，绝不回退为总 stars。 */
   starsGained?: number;
   forks?: number;
   description?: string;
@@ -585,9 +564,7 @@ export interface FetchTrendsOptions {
   language?: string;
   category?: string;
   forceRefresh?: boolean;
-  /**
-   * 代理前缀（保留字段，仅为契约稳定；趋势抓取忽略本字段）。
-   */
+  /** 保留字段（趋势抓取忽略）。 */
   proxyPrefix?: string;
 }
 
@@ -601,10 +578,7 @@ export interface TrendsResult {
   repos: TrendRepo[];
   status: TrendsStatus;
   errorKind?: TrendsErrorKind;
-  /**
-   * 新鲜度标记：`true` = 陈旧降级（stale 缓存兜底，调用方可据此区分真零与失败空）；
-   * `false`/`undefined` = 新鲜（网络/L1/L2 新鲜命中）。空态文案/设计不动，仅供调用方区分。
-   */
+  /** `true` 表示使用陈旧缓存降级兜底；`false`/`undefined` 为新鲜数据。 */
   stale?: boolean;
 }
 

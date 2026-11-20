@@ -1,19 +1,4 @@
-//! 出站系统代理：运行期动态快照 + per-client `no_proxy` 豁免 + 按签名热重建连接池。
-//!
-//! - [`ProxySnapshot`] 描述某一时刻生效的系统代理：启动期捕获的外部 env
-//!   （`INITIAL_ENV_PROXY`，只读一次、永不写回进程 env）优先，其次实时读取 OS 配置
-//!   （Windows 注册表 / Linux GNOME `gsettings` / macOS `scutil --proxy`）。
-//! - [`current_proxy_snapshot`] 带 5 秒采样冷却；传输层连接失败/超时时经
-//!   [`invalidate_proxy_snapshot`] / [`refresh_after_transport_error`] 立即重探，
-//!   使运行中开启、关闭或切换系统代理无需重启即可生效。
-//! - 所有 `reqwest::Client` 经 [`apply_proxy_snapshot`] 挂载代理：直连快照显式
-//!   `builder.no_proxy()`（禁止 reqwest 自行回落读取 OS 代理），有代理时逐 scheme
-//!   挂载并附加合并 `NoProxy`（env `NO_PROXY` + OS 绕过列表 + 默认豁免 + `extra_hosts`）。
-//! - 长生命周期连接池经 [`ClientSlot`] 以「代理签名 + 构建参数」为键缓存：签名不变
-//!   100% 复用连接池，签名变化时原子重建。
-//! - 默认豁免：`gh-proxy.com`（镜像直连）+ `localhost/127.0.0.1/::1`。调用方（下载器、
-//!   测速、趋势直连首跳）经 `extra_hosts` 追加需直连的 host。
-//! - 日志只记 host（脱敏），永不记 query/凭证；签名串可能含代理凭证，只作缓存键不落日志。
+//! 出站系统代理管理：运行期动态快照、per-client `no_proxy` 豁免与按签名重建连接池。
 
 #[cfg(target_os = "linux")]
 pub mod linux;
@@ -134,12 +119,7 @@ pub fn default_no_proxy_entries() -> Vec<String> {
     ]
 }
 
-/// 单地址代理归一（Windows 注册表 / Linux GNOME / macOS 共用落点）：
-/// 接受 `host:port`（含 `user:pass@host:port` 鉴权形态）或自带 scheme；
-/// 仅 `http://`、`https://`、`socks5://`、`socks5h://`、`socks4://`、`socks4a://`
-/// （大小写不敏感，必须带 `://`）保留原值，其余含 `:` 的补 `http://`；
-/// 无 scheme、无 `:` 的裸词（含 `socks4` 前缀但缺 `://` 的垃圾输入）一律拒绝，
-/// 返回 `None`（调用方视为未配置，保持直连）。
+/// 归一化单个代理地址，要求带有效 scheme 或 `host:port`（拒绝裸词返回 `None`）。
 pub fn normalize_single_proxy_addr(raw: &str) -> Option<String> {
     let addr = raw.trim();
     if addr.is_empty() {
@@ -441,12 +421,7 @@ pub fn merged_no_proxy_for(snap: &ProxySnapshot, extra_hosts: &[String]) -> Stri
     out.join(",")
 }
 
-/// 按快照挂载代理。
-///
-/// - 直连快照：显式 `builder.no_proxy()`，关闭 reqwest 内部系统代理自动读取，
-///   确保系统代理关闭后立即回到纯直连；
-/// - 有代理：逐 scheme 挂载 `Proxy::http` / `Proxy::https`（缺省回退 `all`），附加合并
-///   `NoProxy`；非法代理 URL 记 warn 后跳过该 scheme（该 scheme 直连）。
+/// 按快照挂载代理（直连快照显式禁用 reqwest 自动读取系统代理，有代理时逐 scheme 挂载并附加 `NoProxy`）。
 pub fn apply_proxy_snapshot(
     builder: ClientBuilder,
     snap: &ProxySnapshot,

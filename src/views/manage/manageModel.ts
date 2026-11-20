@@ -41,10 +41,7 @@ const INSTALL_METHOD_PLATFORMS: Readonly<Record<string, PlatformId>> = {
   appimage: 'linux',
 };
 
-/**
- * 无目录/卡片记录的已装应用平台兜底：按安装方式推导，无法判定的本地安装（便携包、扫描导入等）
- * 视为装在当前宿主平台上。
- */
+/** 按安装方式推断兜底平台，无法判定的本地安装视为当前宿主平台。 */
 export function inferInstalledFallbackPlatforms(
   installMethod?: string,
   hostPlatform: PlatformId = 'windows',
@@ -60,10 +57,7 @@ export interface InstalledRuleStats {
   frozenCount: number;
 }
 
-/**
- * 「有更新」口径：有已装行、未被隐藏或锁定、且在更新快照里的更新项（按已装列表顺序）。
- * 「有更新」签计数、侧栏角标、检查更新 Toast 与「全部更新」的目标都取这一份。
- */
+/** 选出有已装行、未隐藏且未锁定的可用更新项（保持已装列表顺序）。 */
 export function selectUpdatableInstalled(
   installedApps: InstalledApp[],
   rulesByAppId: ReadonlyMap<string, UpdateRule>,
@@ -80,10 +74,7 @@ export function selectUpdatableInstalled(
   return out;
 }
 
-/**
- * 汇总已安装应用的状态计数，供筛选标签展示；`updatesById` 键为小写规范 app_id。
- * 传入已按页内搜索词过滤的列表时，各计数即为切到对应签后的可见行数。
- */
+/** 汇总已安装应用的全部/可更新/已锁定计数（排除已隐藏应用）。 */
 export function computeInstalledStats(
   installedApps: InstalledApp[],
   rulesByAppId: ReadonlyMap<string, UpdateRule>,

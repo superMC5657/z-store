@@ -50,16 +50,7 @@ import {
 } from '../lib/platformFilter';
 import { useTrendEnrichment, type DisplayTrendItem } from './TrendsView/useTrendEnrichment';
 
-/**
- * 趋势榜单一榜一源：调 `fetchTrendsResult(board, { proxyPrefix })`，
- * 排序口径以后端 ranker 为准；
- * 代理前缀来自设置库 `active_mirror`（见下），service 内归一化（抓取忽略该字段）。
- * 远端为空一律走空状态，绝不回退本地加权假榜。
- *
- * 本 View 仅做 load/refresh + render/filter/count；
- * 抓取→L1→L2-hydrate→enrich-merge→落盘收口于 `services/trends` 会话控制器。
- */
-
+/** 趋势榜视图：展示榜单切换、平台筛选、目录匹配及未收录仓库富卡。 */
 interface TrendsViewProps extends ViewAppActions {
   /** 全量收录（身份匹配用；缺省回退 apps）。显示用 apps 仍为 App 预过滤后的集合。 */
   allApps?: AppSummary[];
@@ -69,17 +60,9 @@ interface TrendsViewProps extends ViewAppActions {
   platformResolvedOtherIds?: ReadonlySet<string>;
   /** 榜单平台分布上报（未过滤口径，供侧栏计数切到当前榜单；memo 稳定引用）。 */
   onDisplayPlatformCounts?: (counts: Record<PlatformId, number>) => void;
-  /**
-   * custom 草稿已存在 id 集（归一小写；App 侧以后端 customApps 全量 + 本地乐观移入合成，
-   * 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合）：
-   * 供未收录富卡内部移入入口抑制已存在项，缺席即不抑制。
-   * 草稿不是收录：本集合不参与黄标判定。
-   */
+  /** custom 草稿已存在 id 集（归一小写），用于隐藏已存在的移入入口；不参与黄标判定。 */
   customIds?: ReadonlySet<string>;
-  /**
-   * 本地收录全量（App 侧 collectedSummaries：仅 collected 系未归档）：
-   * 黄标唯一来源（草稿 `customIds` 不叠黄），缺席即回退目录自带 local 行。
-   */
+  /** 本地收录全量（仅未归档 collected/submitted）：黄标唯一来源，缺席时回退目录自带 local 行。 */
   localApps?: readonly AppSummary[];
 }
 
@@ -251,8 +234,6 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
     return t('trends.stars_gained_week', { count });
   };
 
-  // 首绘门（裸行先展不拦榜，仅升级受门控）：渲染本身不拦榜，升级路径见上门控。
-
   return (
     <ViewShell viewClass="trends-view">
       <div className="section-header trends-header">
@@ -345,11 +326,7 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
               );
             }
 
-            // 未收录行：enrich 命中即完整 AppCard（搜索式外观 + 涨星徽标），
-            // 右按钮直开 GitHub（不调安装链）；缺席（加载中/失败）即旧小行占位。
-            // enrich 空（fallback []）视为 loading：占位不闪 Other，Other 未勾选仍可见，
-            // 详情治愈/lite 回填/settle 确认为 other 后一次落定。
-            // 取标注后镜像（is_cataloged 显式=false，未命中 catalog），显式优先于 category 兜底。
+            // 未收录行：富卡就绪时渲染完整 AppCard（右按钮直开 GitHub），否则渲染轻量占位行
             const enriched = annotatedEnrichedApps[item.repo.id.toLowerCase()];
             if (enriched) {
               const hasPlatforms = !!enriched.platforms && enriched.platforms.length > 0;
@@ -389,8 +366,7 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
 
             const gainText = gainTextFor(item.gain);
             const owner = item.repo.owner?.trim();
-            // 裸行迷你入口（复用 handleTrendMoveIn，isCustomExisting 同富卡隐藏逻辑）。
-            // 裸行是唯一呈现（不走 AppCard），无它用户永远点不到；catalog 分支按设计不动。
+            // 裸行交互状态与本地收录黄标判定（蓝标优先）
             const bareKey = normalizeId(item.repo.id);
             const bareMoving = isTrendMovingIn(item.repo.id);
             const bareExisting = hasIdAliasMatch(item.repo, customIds);
@@ -399,8 +375,6 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
             const bareMoveLabel = bareMoving
               ? t('custom.moving_in')
               : t('custom.move_in');
-            // 裸行黄标：enrich 缺席占位小行命中本地也在标题旁黄标（复用 verified-badge-local，
-            // 判定唯一口径在 selectors，蓝优先；身份归一沿用 rowAliasKeys）。
             const bareLocalVariant = trendLocalLookup
               ? resolveBareRowLocalBadgeVariant(item.repo, trendLocalLookup)
               : null;

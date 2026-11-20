@@ -25,11 +25,7 @@ interface ManageFilterBarProps<T extends string = string> {
   rightExtra?: React.ReactNode;
 }
 
-/**
- * 管理工作台控制带：
- * 左侧为轻量下划线状态筛选标签（禁用 `.segmented-group` 以保持契约纯粹），
- * 右侧为可选扩展控件（如排序切换）与可选即时筛选输入框（传入 `search` 时渲染）。
- */
+/** 管理工作台控制带：左侧为下划线状态筛选标签，右侧为可选扩展控件与筛选输入框。 */
 export function ManageFilterBar<T extends string = string>({
   tabs,
   activeTab,

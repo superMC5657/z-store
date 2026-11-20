@@ -1,11 +1,4 @@
-/**
- * 收藏页「Star 同步」卡片流：
- * - 查询第 1 页后按 Star 时间顺序渲染；有下一页时按钮续拉第 2 页并追加；
- * - 输入框为登录名（或留空）时按登录账号查询（不传用户名，可带出私有 Star）；
- * - 只批量收藏已加载、已收录且未收藏的应用；
- * - 切页回来从分页缓存恢复，不重复请求；查自己的结果只对同一登录账号恢复；
- * - 是否还有下一页只看后端 `has_more`。
- */
+/** 测试 `StarredFeed` 的分页拉取、登录态归属隔离与缓存恢复。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../../i18n';

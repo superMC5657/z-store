@@ -4,22 +4,7 @@ import { broadcastPlatformReset } from '../lib/platformFilter';
 import type { AppContextProps } from '../app/AppContext';
 import type { AppSummary } from '../types';
 
-/**
- * 各 View 共享的壳与平台筛选空状态。
- *
- * 提供：
- * - 外层 `<div className="*-view view-entrance">` 壳
- * - 平台重置回调缺席时以 `broadcastPlatformReset`（自 `lib/platformFilter` 引入）兜底
- * - `.filter-empty-reset` 空状态按钮
- *
- * 约束：后端字段不动，只涉及前端展示层。`viewClass` 保持各 View
- * 的根 CSS 类名，已有测试的选择器（`.filter-empty-reset` 等）不受影响。
- */
-
-/**
- * 各内容 View 共用的应用网格 Props：`apps` 由 App 按视图裁剪后传入，
- * 成员集合与动作回调取自 App 上下文（显式传入优先，见 `useAppContextProps`）。
- */
+/** 各内容 View 共用的应用网格 Props（缺失字段从 AppContext 补齐，显式传入优先）。 */
 export interface ViewAppActions extends AppContextProps {
   apps: AppSummary[];
 }
@@ -64,10 +49,7 @@ interface FilterEmptyStateProps {
   className?: string;
 }
 
-/**
- * 平台筛选为空的统一空状态：EmptyState + `.filter-empty-reset` 重置按钮。
- * 文案由调用方传入（各 View 的 i18n 键保持不变）。
- */
+/** 平台筛选结果为空时的统一空状态（含 `.filter-empty-reset` 重置按钮）。 */
 export const FilterEmptyState: React.FC<FilterEmptyStateProps> = ({
   icon,
   title,

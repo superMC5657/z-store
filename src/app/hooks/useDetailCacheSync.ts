@@ -42,14 +42,7 @@ interface UseDetailCacheSyncParams {
   localApps?: readonly AppSummary[];
 }
 
-/**
- * 详情快照缓存与卡片列表同步。
- *
- * - 内存快照 0ms 秒开 + 后台 ETag 条件探查静默更新；
- * - 后端占位简介永不污染内存快照/列表（富卡非占位兜底，无富卡即存 ''/保留旧值）；
- * - stale 离线详情不碰平台（不确认、不治愈、不碰榜单缓存）；
- * - 图标回填唯一经店内 `admitIconHit`（`invalidate→queue→patch` 写透四列表，不走窗口总线；data: 永不进盘）。
- */
+/** 过滤占位/空白简介，仅返回实质文本。 */
 function pickRealDescription(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
   const t = v.trim();
@@ -67,10 +60,7 @@ function isConcreteLicense(v: unknown): v is string {
   return lower !== '' && lower !== '...' && lower !== 'unknown' && lower !== 'opensource';
 }
 
-/**
- * 收录库行选取（ADR-0017 §2.3 去重远端优先）：同 id 取远端目录行，本地收录仅在远端缺席时补位。
- * 远端目录按 `fullCatalogApps` → `apps` 逐级查找。
- */
+/** 选取收录库行：远端目录优先，本地收录在远端缺席时补位。 */
 function findCuratedEntry(
   idClean: string,
   fullCatalogApps: readonly AppSummary[] | undefined,
@@ -81,6 +71,7 @@ function findCuratedEntry(
   return fullCatalogApps?.find(matches) ?? apps.find(matches) ?? localApps?.find(matches);
 }
 
+/** 管理详情内存快照、后台 ETag 条件探查及卡片列表/趋势富卡同步。 */
 export function useDetailCacheSync({
   catalogLists,
   selectedApp,
@@ -105,7 +96,7 @@ export function useDetailCacheSync({
   const localAppsRef = useRef<readonly AppSummary[] | undefined>(localApps);
   localAppsRef.current = localApps;
 
-  // 收录库或本地自收录变更时清空详情内存快照，避免再次打开仍沿用旧收录字段。
+  // 收录库变更时清空详情内存快照，避免再次打开展示过期收录字段
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const clearCache = () => {
@@ -119,10 +110,7 @@ export function useDetailCacheSync({
     };
   }, []);
 
-  // 详情入口唯一标注口：按当前目录集显式标注 is_cataloged（fail-closed，未命中即 false）。
-  // 标注后经 patchSummary 内 shouldSyncCataloged 写透列表：false 恒写透，true 仅纠正已有显式位，
-  // 目录行保持无标记（防全量 churn）。
-  // 本地橘黄：叠加 localApps 同 id source='local'/status（蓝优先），供 Header 黄标判定。
+  // 按当前目录与本地收录集合标注 `is_cataloged` 与本地标记
   const annotateEntry = useCallback(
     <T extends AppSummary>(row: T): T => {
       const baseCatalog = selectCatalogBase(fullCatalogAppsRef?.current, appsRef.current);
@@ -134,11 +122,8 @@ export function useDetailCacheSync({
   const loadRecentViews = useCallback(async () => {
     try {
       const recents = await tauriApi.getRecentlyViewedApps();
-      // 最近浏览黄标：后端仅拼远端 catalog + 详情缓存（无 source/status），此处叠加遮罩与本地标记
-      //（蓝优先、远端优先语义不动，仅搬标记供 AppCard 黄标），再做富卡治愈。
+      // 叠加本地标记并使用趋势富卡非占位简介治愈最近浏览行
       const withLocal = prepareRecentViews(recents, fullCatalogAppsRef?.current, appsRef.current, localApps);
-      // 趋势富卡治愈：后端 history 对未收录行原样拷贝占位简介，此处用富卡非占位值一次治愈
-      // （对缺失简介行进行补齐；无富卡保持原值走默认空渲染）。
       try {
         const snap = snapshotTrendEnrichCache();
         if (Object.keys(snap).length === 0) {
@@ -184,14 +169,10 @@ export function useDetailCacheSync({
     }
   }, [setRecentlyViewedApps, appsRef, fullCatalogAppsRef, localApps]);
 
-  // 同步详情快照缓存与卡片列表数据（消除后台条件探查与主动刷新之间的重复逻辑）
-  // 列表 patch 仅在目标命中且字段确变时生成新对象并返回新数组，否则原引用返回，避免无谓全网格重渲染
+  // 同步详情快照缓存与各卡片列表（字段无变化时保留原引用，避免全网格重渲染）
   const patchDetailMemoryAndLists = useCallback((idClean: string, rawDetail: AppDetail, isBackgroundSilent = false) => {
-    // 详情显式收录标注经唯一入口（目录 id 集 canonical 比对，未命中即 false fail-closed），
-    // 后续缓存/选中态/治愈载荷均携带显式 is_cataloged，Header 据此判定收录位。
     const detail = annotateEntry(rawDetail);
-    // 后端占位简介不污染内存快照——先算富卡兜底，内存即存治愈值，
-    // 后续 handleOpenDetail 命中缓存直接展现实简介，不闪烁占位文案。
+    // 用趋势富卡非占位简介兜底，避免占位文案进入内存快照
     let enrichDesc: string | undefined;
     let enrichDescEn: string | undefined;
     try {
@@ -215,7 +196,7 @@ export function useDetailCacheSync({
         if (enrichDesc !== undefined && enrichDescEn !== undefined) break;
       }
     } catch {
-      // 快照读取失败即无富卡兜底，沿用 prev/空逻辑
+      // 快照读取失败时回退为无富卡兜底
     }
     const detailDescIsPlaceholder = isPlaceholderDescription(detail.description);
     const detailDescEnIsPlaceholder =
@@ -284,11 +265,10 @@ export function useDetailCacheSync({
     }
 
     const rawDetailIcon = typeof detail.icon === 'string' ? detail.icon.trim() : '';
-    // patchedIcon 先分流 data:：data: 仅即时看（Header 经 iconOverride 直显），永不进 patch/admitIconHit/盘；
-    // 列表回填只用转正 http，data:/空一律按缺席走 cycle 兜底（L5 显式空除外，经 cycle level 5 显式写）。
+    // data: URL 仅用于即时展示，不写回列表或持久化缓存
     const patchedIcon =
       rawDetailIcon !== '' && !rawDetailIcon.startsWith('data:') ? rawDetailIcon : undefined;
-    // stale 离线缓存不具权威：平台相关一律保持 loading（不确认、不治愈、不碰榜单缓存）
+    // stale 离线详情不具权威性，不触发平台确认或治愈
     const isStaleDetail = Boolean(detail.is_stale);
     const detailPlatforms = !isStaleDetail && detail.platforms && detail.platforms.length > 0 ? detail.platforms : undefined;
     const detailConfirmedEmpty = !isStaleDetail && !detailPlatforms;
@@ -299,14 +279,10 @@ export function useDetailCacheSync({
         (detail.id && app.id.toLowerCase() === detail.id.toLowerCase());
       if (!isTarget) return app;
       const nextIcon = patchedIcon ? patchedIcon : app.icon;
-      // stale 详情不碰平台：列表保持 loading，避免离线快照误治愈/误确认；
-      // 非 stale 且详情给出有效平台时，与富卡同步保持一致（同值保原引用）。
       const nextPlatforms = detailPlatforms
         ? (arePlatformsEqual(app.platforms, detailPlatforms) ? app.platforms : detailPlatforms)
         : app.platforms;
-      // 富卡全字段回填：同值即保持原引用（避免无谓全网格重渲染），异值即取详情新值；
-      // Rust 合成占位简介视为空（保留列表实值，不污染三列表）；
-      // 趋势富卡兜底：detail 占位且富卡有实值时优先用富卡，治愈已在 recents 的旧占位行；无富卡仍保留旧值（空/占位走现有空渲染）。
+      // 占位简介优先用富卡非占位值替换，否则保留列表现有值
       const nextDescription = isPlaceholderDescription(detail.description)
         ? (enrichDesc ?? app.description)
         : detail.description;
@@ -317,10 +293,7 @@ export function useDetailCacheSync({
           : nextDescriptionEnRaw;
       // 详情无主页时保留列表行已有主页，供下次内存命中治愈首帧
       const nextHomepage = nonBlankString(detail.homepage) ?? app.homepage;
-      // 详情显式收录位同步：未收录（false）恒写透（dev 猜分类行经此得显式 false，
-      // Header/卡片按显式位判定收录）；已收录（true）仅纠正已有显式位，
-      // 目录行保持无标记（category 兜底仍为已收录，避免全量 churn）。
-      // 本地橘黄同步：详情带 source=local 时同 id 行叠加 source/status（蓝优先：已验证不叠加）。
+      // 未收录(false) 恒写透，已收录(true) 仅纠正已有显式位以减少目录行重绘；本地行同步 source/status
       const nextCataloged = (detail as unknown as { is_cataloged?: unknown }).is_cataloged;
       const rowCataloged = (app as unknown as { is_cataloged?: unknown }).is_cataloged;
       const shouldSyncCataloged =
@@ -403,9 +376,7 @@ export function useDetailCacheSync({
         return changed ? next : prev;
       });
     }
-    // 详情带回真实平台（非 stale）：解除已确认 other、驱逐榜单 stale [] 缓存、
-    // 并向 TrendsView 推送治愈（列表 patch 覆盖不到未收录行，此处补齐）。
-    // 平台治愈路径：行内 Other → OS 图标，过滤/计数同步跟进。
+    // 详情带回真实平台：解除已确认 other、驱逐榜单空缓存并广播平台治愈事件
     if (detailPlatforms) {
       const healKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
       // detail.id 与 idClean 不一致时的双键兜底
@@ -439,8 +410,7 @@ export function useDetailCacheSync({
         // 事件派发失败不影响列表已落定的治愈
       }
     }
-    // 富卡全字段治愈（与平台治愈并行，不改平台语义）：非 stale 即用内存旧值 diff→upsert，
-    // dirty 非空或已确认 other 即派发富卡事件（含 platforms 仅非空才带）；旧事件与 icon 通道不动。
+    // 非 stale 时同步更新趋势富卡缓存并广播变更字段
     if (!isStaleDetail) {
       try {
         const healed = upsertTrendEnrichRichcard(detail, findById);
@@ -465,15 +435,9 @@ export function useDetailCacheSync({
     }
 
     if (patchedIcon) {
-      // 详情实图：经店内唯一写口（buffer + 文件预热 + 全列表写透）。
-      // patchedIcon 已剥 data:（上分流），此处恒为转正 http，直送安全。
       admitIconHit({ id: idClean, icon: patchedIcon, patch: patchIcons });
     } else {
-      // 卡有 http 实图 + M1 命中即跳过 restoreOrFetchIconCycle（省 IPC，所见即存）：
-      // 列表已有转正 http 直接画，缓冲已有实图首绘即对；仅双空才走 cycle 兜底。
-      // data: 不触发此处（已分流，Header 经 iconOverride 即时看）。
-      // 安全说明：每次进详情 Header 必挂载并无条件调 restoreOrFetchIconCycle（Header.tsx），
-      // 同一结果经店内唯一写口扇出到全列表，故此处跳过只是省掉重复 IPC，不丢加载。
+      // 已有缓冲图标或列表远端实图时跳过重复 IPC（详情 Header 会自行触发轮换加载）
       const bufferedHit = getBufferedIcon(idClean);
       if (typeof bufferedHit === 'string' && bufferedHit.trim() !== '') {
         return;
@@ -485,16 +449,13 @@ export function useDetailCacheSync({
       ) {
         return;
       }
-      // detail.icon 为空：详情弹窗靠 Header 轮换态照常显示，列表用 iconCycle.url 经店内写口回填落盘。
+      // 列表回填仅使用可持久化的远端 URL，忽略 data: 即时态
       void tauriApi.restoreOrFetchIconCycle(idClean).then((cycle) => {
-        // 双落盘口径：url=data: 即时态（IPC临时、永不进盘），remote_url=可持久化 URL；
-        // 落盘/回填一律用 persistUrl（remote优先，url非data:才兜底，否则空即 L5/空不发）。
         const remote = resolveRemoteIconUrl(cycle);
         const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
         const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
         if(!persistUrl){
-          // L5/空：显式徽章走唯一写口（`level:5` 显式才扇出列表/镜像；
-          // cycle 空但非 L5 时按下 `admitIconHit` 空守卫自然丢弃，保持占位）。
+          // L5 显式空态需经写口广播以定格徽章，普通空值丢弃保留占位
           const emptyLevel = typeof cycle?.level === 'number' && cycle.level === 5 ? 5 : undefined;
           if (emptyLevel === 5) {
             admitIconHit({ id: idClean, icon: '', level: 5, patch: patchIcons });
@@ -509,18 +470,15 @@ export function useDetailCacheSync({
     }
   }, [annotateEntry, findById, patchAllLists, patchIcons, setPlatformResolvedOtherIds, setSelectedApp]);
 
-  // 打开应用详情弹窗（优先内存/数据库 0ms 瞬间秒开，且一个仓库生命周期内只拉取一次）
-  // 经 useCallback + ref 稳定：搜索键入改 apps 时回调引用不变，memo 卡片不跟风重渲染
+  // 打开应用详情弹窗（命中内存快照时零延迟展示并后台条件探查）
   const handleOpenDetail = useCallback(async (id: string, forceRefresh = false) => {
     const idClean = id.trim().toLowerCase();
     activeDetailIdRef.current = id;
 
-    // 1. 若非主动强制刷新，优先检查前端内存级快照缓存，实现绝对零延迟 0ms 打开，无任何骨架屏闪烁
     if (!forceRefresh) {
       const cached = appDetailMemoryCache.current.get(idClean);
       if (cached) {
-        // F1：缓存快照若为后端占位（旧缓存或富卡后到），即用富卡非占位治愈后再展，避免弹窗闪占位；
-        // 富卡为空/占位则保持缓存原值（空走现有渲染逻辑，不引入新文案）。
+        // 若缓存简介仍为占位文案，用富卡缓存的非占位值先行替换
         let cachedForShow = cached;
         if (isPlaceholderDescription(cached.description) || (typeof cached.description_en === 'string' && isPlaceholderDescription(cached.description_en))) {
           try {
@@ -666,17 +624,14 @@ export function useDetailCacheSync({
       }
     }
 
-    // 2. 内存未命中或主动刷新：若弹窗已打开则保持现有视图无感刷新，否则展示基础卡片信息
+    // 内存未命中或强制刷新：先用现有卡片或富卡快照即时渲染初始态，再请求完整详情
     const existing =
       findCuratedEntry(idClean, fullCatalogAppsRef?.current, appsRef.current, localAppsRef.current) ||
       onlineAppsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       recentsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       findInSearchListCache(idClean);
 
-    // F1：富卡真简介并入——existing 只覆盖三列表，未收录趋势行在此缺席；
-    // 经 snapshotTrendEnrichCache() 取富卡非占位 description 作为初始值，
-    // 避免 loading 阶段（“正在获取应用元数据...”）与后端占位覆盖弹窗。
-    // 富卡为空/占位时保持现有逻辑（loading 文案或空简介渲染），不引入新占位文案。
+    // 取富卡缓存非占位简介作为 loading 阶段的初始值
     let enrichInitialDesc: string | undefined;
     let enrichInitialDescEn: string | undefined;
     let enrichInitialHomepage: string | undefined;
@@ -712,7 +667,7 @@ export function useDetailCacheSync({
         }
       }
     } catch {
-      // 快照失败即无富卡兜底，保持原有初始逻辑
+      // 快照失败时使用默认初始值
     }
 
     const selectedSnapshot = selectedAppRef.current;
@@ -773,13 +728,10 @@ export function useDetailCacheSync({
           isRefreshing: forceRefresh,
         };
 
-    // 0ms 同步打开弹窗或切换刷新态，主界面无任何阻塞感
-    // 初始详情同样按目录显式标注收录位（existing 派生行继承目录命中，未知占位 fail-closed false），
-    // Header 以显式位为准判定收录。
+    // 即时打开弹窗并落盘浏览记录；recents 列表刷新延后至详情拉取之后，避免被占位快照覆盖
     setSelectedApp(
       annotateEntry(initialDetail),
     );
-    // 浏览记录先落盘不阻塞详情；recents 刷新延后到详情同步之后，避免后到的后端占位快照覆盖富卡治愈值（load 内自带富卡治愈）。
     unmaskRecentViewApp(id);
     void tauriApi.recordAppView(id).catch(() => {});
 

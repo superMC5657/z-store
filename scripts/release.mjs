@@ -1,20 +1,9 @@
 #!/usr/bin/env node
 /**
- * 自动化发版闭环脚本：
- *   1. 校验当前 main 分支与提交状态（确保工作区干净且所有提交已推送到远端）
- *   2. 读取 package.json 当前版本号，校验目标 Tag 是否已发布
- *   3. 自动检测并等待当前 commit 在 main 上的 CI 门禁 100% 全绿（实时轮询进度）
- *   4. 门禁全绿后，自动创建 Git Tag 并推送到 GitHub，触发部署/打包流水线
+ * 校验 main 分支、工作区与 CI 门禁全绿后创建并推送版本 Tag（不修改版本号，升级请先运行 `pnpm bump`）。
  *
  * 用法:
- *   pnpm release                          # 针对当前版本，等待 CI 绿后打 Tag 推送
- *   pnpm release --dry-run                # 预检 CI 状态，不实际打 Tag 或推送
- *   pnpm release -h, --help               # 显示帮助信息
- *
- * 说明:
- *   本脚本专职负责“CI 门禁核验”与“打 Tag 触发发版”，不负责修改版本号。
- *   如需升级版本，请先运行 `pnpm bump`（如 pnpm bump --patch）修改版本号，
- *   随同代码一起 Commit 推送至 main，然后再执行 `pnpm release`。
+ *   pnpm release [--dry-run] [-h|--help]
  */
 
 import { execSync, spawnSync } from 'node:child_process'

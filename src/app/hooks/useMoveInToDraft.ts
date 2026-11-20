@@ -5,10 +5,7 @@ import { moveInToDraft } from '../../services/custom';
 import { normalizeId } from '../../services/normalizeId';
 import { notifyToast } from '../../useToasts';
 
-/**
- * 富卡/裸行「移入收录」共享动作 Hook（搜索在线段 / 趋势榜 / GitHub Star 共用）：
- * 按归一 id 防重入、维护进行中集合并统一提示成功/失败 Toast。
- */
+/** 富卡「移入收录」共享动作 Hook：按归一 id 防重入并统一弹出提示。 */
 export function useMoveInToDraft() {
   const { t } = useTranslation();
   const [movingIds, setMovingIds] = useState<Set<string>>(() => new Set<string>());

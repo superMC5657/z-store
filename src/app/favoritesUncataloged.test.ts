@@ -1,10 +1,4 @@
-/**
- * 收藏占位行图标热替口径测试（`favoriteIds ∖ apps` 合成行与搜索/最近同一套规则）。
- *
- * - `pickFavoritePersistIconUrl`：remote 优先 / url 非 data: 兜底 / data: 永不进盘 /
- *   非远端置空走首字母（`AppIcon` 同规则）。
- * - `needsFavoriteIconWarm`：空/非远端需查轮换，合法远端仅文件预热。
- */
+/** 测试收藏未收录行的占位合成、图标热替口径与 left-join 驱逐逻辑。 */
 import { renderHook, waitFor } from '@testing-library/react';
 import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -112,10 +106,6 @@ describe('needsFavoriteIconWarm', () => {
   });
 });
 
-/**
- * 未收录 join 语义锁定：行不消失（exact 合并去重 + heuristic 占位合成）与计数保留
- * （调用方全集计数，本模块不参与计数）。
- */
 function row(id: string, platforms: string[] = []): AppSummary {
   return { id, platforms } as AppSummary;
 }
@@ -390,7 +380,7 @@ describe('useUncatalogedJoin batch filtering & eviction short-circuit', () => {
     favEntriesSpy.mockClear();
     watchedSpy.mockClear();
 
-    // Another/Uncataloged 被取消收藏，同时 Unknown/Repo 进入 catalog：两项均被驱逐且当轮短路，不再发 IPC
+    // 取消收藏或进入 catalog 后，两项均被驱逐并短路 IPC
     rerender({
       favoriteIds: new Set(['Catalog/App', 'Unknown/Repo']),
       watchedIds: new Set(),

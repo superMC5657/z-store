@@ -1,11 +1,4 @@
-//! Canonical App Id 后端唯一源（ADR-0010）。
-//!
-//! - 全形态 canonical（小写 `owner/repo` / `forge[:host]:owner/repo`）解析 SSOT 为
-//!   `RepositoryUrlParser::parse`；`canonical_app_id` / `canonical_lookup_id` /
-//!   `canonical_app_id_from_parts` 皆经它收敛，不另立 normalizer（`icon_key`
-//!   事件 key 与 `resolve_icon_coord` DB 主键为其薄委托，三键同值）。
-//! - 前端归一单口为 `src/services/normalizeId.ts`（`normalizeId`）；前后端键全同，
-//!   大小写漂移行经 canonical 治愈。
+//! Canonical App Id 解析与归一化。
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,10 +66,7 @@ impl UniversalRepoCoord {
     }
 }
 
-/// ADR-0010：入站应用标识归一化为 canonical 形态
-/// （小写 `owner/repo`，或带 forge 前缀的 `forge[:host]:owner/repo`）。
-/// 支持完整仓库 URL、forge 前缀短语法（含 `gh/cb/gt/gl` 别名）与裸 owner/repo；
-/// 无法解析的未知标识返回 `None`，由调用方显式拒绝，不透传脏 id。
+/// 将入站应用标识归一化为 canonical 形态，无法解析返回 `None`。
 pub fn canonical_app_id(input: &str) -> Option<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
@@ -85,20 +75,13 @@ pub fn canonical_app_id(input: &str) -> Option<String> {
     RepositoryUrlParser::parse(trimmed).map(|coord| coord.to_app_id().to_lowercase())
 }
 
-/// `(owner, repo)` → canonical 唯一真相源。
-/// `canonical_app_id`（单串全形态解析）、`icon_key`（事件 id）、
-/// `resolve_icon_coord` canonical（DB 主键）三者同值——后两者为本函数的
-/// 薄委托；DB 主键/事件 id/前端归一键全同。
-/// total 函数永不失败：可解析直取 canonical，不可解析回退小写拼接
-///（调用方传入已 trim 干净坐标时恒走解析分支）。
+/// 由 `(owner, repo)` 生成 canonical 应用标识，不可解析时回退小写拼接。
 pub fn canonical_app_id_from_parts(owner: &str, repo: &str) -> String {
     let raw = format!("{}/{}", owner.trim(), repo.trim());
     canonical_app_id(&raw).unwrap_or_else(|| raw.to_lowercase())
 }
 
-/// 入站键归一（total）：`canonical_app_id` 可解析直取 canonical，
-/// 不可解析回退 `trim().to_lowercase()`（与 ADR-0010"原样小写兜底"同形）。
-/// 深链解析层与存量 id 比对层用；执行层拒绝语义仍在 `require_app_id`，分层不混淆。
+/// 容错归一化入站键，不可解析时回退 `trim().to_lowercase()`。
 pub fn canonical_lookup_id(raw: &str) -> String {
     let trimmed = raw.trim();
     canonical_app_id(trimmed).unwrap_or_else(|| trimmed.to_lowercase())
@@ -266,14 +249,7 @@ impl RepositoryUrlParser {
     }
 }
 
-/// 图标已确认记录的大小写容错查询 SSOT（db 查询侧）。
-/// 收拢散落在调用方的 `to_lowercase` 多段回退；解析器本身保持大小写保留、不被污染。
-/// 查询顺序：`app_id` 原值 → `canonical_app_id` → 小写 → `owner/repo`（解析器优先）原值 → 小写；
-/// `owner/repo` 优先经 `RepositoryUrlParser::parse(app_id)` 推导（SSOT），回退调用方传入值；命中即返。
-///
-/// 注：同模块不存在可复用的 `ForgeCoord` 类型（仅 `UniversalRepoCoord`，
-/// 其 `forge`/`host` 对图标查询是多余维度），故此处引入最小 `RepoRef` 承载
-/// `owner`/`repo` 对，大小写归一收敛于 [`RepoRef::lowercased`] 单点。
+/// 图标查询使用的最小仓库坐标对，大小写归一化经 [`RepoRef::lowercased`] 完成。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoRef {
     pub owner: String,

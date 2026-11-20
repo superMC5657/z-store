@@ -93,11 +93,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = (props) => {
   const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(initialCategory);
 
-  // 分类详情分页（BE `get_category_apps` page/per_page，首屏 20）：
-  // - `pagedIds` 为 BE 顺序去重 id 序列（小写归一），行数据一律从 `apps` 属性按序取出——
-  //   平台预过滤仍在 App 侧单次完成，此处只做 id 交集，不做二次平台/分类过滤；
-  // - 图标回填等 patch 经 `apps` 属性流入，可见行自动跟进；
-  // - 切分类即重置并取第 1 页；哨兵触底续页；失败页置 error 由重试按钮重发。
+  // 分类详情分页：按后端有序 id 序列从已过滤的 `apps` 中映射渲染
   const [pagedIds, setPagedIds] = useState<string[]>([]);
   const [catHasMore, setCatHasMore] = useState(false);
   const [catLoading, setCatLoading] = useState(false);

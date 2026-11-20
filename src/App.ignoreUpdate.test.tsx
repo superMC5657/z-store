@@ -1,10 +1,4 @@
-/**
- * 忽略更新持久化测试（真实 <App/> 链路）。
- *
- * 「我的应用」行内更多菜单的 `跳过此版本` 走 tauriApi.setAppSkipVersion + 规则刷新：
- * 被跳过的更新在重新检查后依然保持排除状态，
- * 且规则管理弹窗界面需准确反映该持久化的跳过规则。
- */
+/** 测试「跳过此版本」规则持久化及规则管理弹窗的同步展示。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { InstalledApp, UpdateItem, UpdateRule } from './types';

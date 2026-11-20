@@ -110,11 +110,7 @@ pub fn is_source_package(name_lower: &str) -> bool {
     false
 }
 
-/// 判断资产是否为有效可安装的二进制分发包（对齐 catalog 仓 checkBinary）：
-/// 1. 过滤 <= 1MB (1_048_576 字节) 占位包与小文件；
-/// 2. 排除 .sha256/.sig/.txt 及类似校验、签名、元数据文件；
-/// 3. 排除源码包（含有 source/src 标记或 .tar.gz 归档等）；
-/// 4. 认可 exe/msi/msix/dmg/pkg/AppImage/deb/rpm/apk 及非源码便携 zip。
+/// 判断资产是否为有效可安装的二进制分发包（> 1MB，非校验/签名/源码包）。
 pub fn is_valid_installer_asset(name: &str, size_bytes: u64) -> bool {
     if size_bytes <= ONE_MB_BYTES {
         return false;
@@ -214,10 +210,7 @@ pub fn refresh_release_assets_classification(releases: &mut [ReleaseAsset]) {
     }
 }
 
-/// 缓存详情统一自愈（DB 投影、`304` 复用、`ReuseStale` 与 `platforms-lite` 兜底共用）：
-/// - `releases` 非空时剔除无效包、重算 `kind`/`os`/`arch`、按宿主适配度重排，并以收录库优先重推 `platforms`；
-/// - `releases` 为空时保留历史 `platforms`，仅在收录库含非空有效平台时覆盖；
-/// - 最后用收录项精校元数据覆写 `core`（保留实时动态指标）。
+/// 清理并重排缓存详情中的安装包、平台与收录精校元数据。
 pub fn heal_cached_detail(
     detail: &mut crate::models::AppDetail,
     catalog_item: Option<&crate::github::models::CatalogItem>,

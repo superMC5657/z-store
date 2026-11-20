@@ -1,10 +1,4 @@
-/**
- * 收藏切换失败路径测试。
- *
- * 锁定契约：`tauriApi.toggleFavorite` reject 时，
- * - 错误经 Toast 呈现（收藏切换失败），不产生 unhandled rejection；
- * - 收藏集合不翻转（卡片不进入已收藏态，无成功提示）。
- */
+/** 测试收藏切换接口失败时的错误 Toast 提示与状态保持。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';

@@ -1,21 +1,4 @@
-/**
- * 视图/组件层直调 Tauri IPC 门禁测试（基于 AST/静态扫描执行约束）：
- *
- * - 递归扫描 `src/views` 与 `src/components` 下全部生产源码（`*.ts`/`*.tsx`，
- *   排除 `*.test.*`），子目录（TrendsView/SettingsView/HomeView 等）同样受检。
- * - 两层禁止直调 Tauri IPC：后端命令一律经 `src/services/api.ts` 的
- *   `tauriApi` 方法，命令名统一收敛于表驱动 `CMD`；窗口控制/进程控制等
- *   `@tauri-apps/api` 与插件命令直调收敛到 services 封装（services/desktop.ts，
- *   豁免理由见封装头注释）。
- * - 禁止导入 `@tauri-apps/api/*`（core/window 等 core API）与
- *   `services/api/client`（`tauriInvoke` 底层直调口）；官方插件 JS API
- *   （`@tauri-apps/plugin-*`，如 plugin-updater）视为合法高层封装不在此列。
- * - 全 `src/` 范围：裸 `invoke(` 调用与 `@tauri-apps/api/core` 导入只允许出现在
- *   `src/services/api/client.ts`（唯一出口，含插件命令透传）；其余文件一律走
- *   `tauriApi` 或 services 封装。
- * - 引用 `services/api` 的 View 必须使用 `tauriApi` 命名。
- * - `api.ts` 必须导出表驱动 `CMD`。
- */
+/** 静态扫描 `src/views`、`src/components` 与全 `src/` 生产源码，确保 Tauri IPC 调用统一经过 `services/api`。 */
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';

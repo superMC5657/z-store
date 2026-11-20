@@ -1,9 +1,4 @@
-/**
- * 类别页分页（mock `handleGetCategoryApps`，与 Rust `get_category_apps` 同形）：
- * - 默认第 1 页 20 条（与发现页/在线搜索对齐），`{ items, total, has_more }`；
- * - 第二页去重续接，尾页 `has_more=false`，越界页空；
- * - `perPage` 钳制 1-50，未知分类空页。
- */
+/** 测试演示站目录、类别分页及在线搜索 mock handler。 */
 import { describe, expect, it } from 'vitest';
 import { summaries } from '../fixtures';
 import {

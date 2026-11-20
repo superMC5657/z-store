@@ -1,9 +1,4 @@
-/**
- * InstalledView 初始加载错误态测试。
- *
- * 锁定契约：列表为空且 loadError 非空时呈现错误卡（与空态区分，带重试按钮）；
- * 无错误时维持空态；有数据时错误不抢占列表。
- */
+/** 测试 `InstalledView` 在空列表加载失败时呈现错误卡与重试入口。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import i18n from '../i18n';

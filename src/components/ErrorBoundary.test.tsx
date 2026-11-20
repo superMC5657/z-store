@@ -1,11 +1,4 @@
-/**
- * 顶层 ErrorBoundary 测试。
- *
- * 锁定契约：
- * - 正常子树原样渲染；
- * - 渲染期异常捕获后呈现单色错误卡（标题 + 错误详情 + 重载按钮），不整窗白屏；
- * - 点击重载调用 window.location.reload。
- */
+/** 测试顶层 `ErrorBoundary` 的正常渲染、错误卡降级及重载交互。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';

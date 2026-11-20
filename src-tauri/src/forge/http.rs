@@ -1,12 +1,11 @@
 use crate::proxy::{ClientSlot, ProxySnapshot};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
 
-/// forge 内复用的 UA / Accept 常量：避免 9 处 client+header 重复手写。
-/// SSOT：所有 UA / Accept 字面量只在此一处定义，其余模块经别名或 `api_headers`/`preset_headers` 复用。
+/// forge 内复用的 UA 与 Accept 常量。
 pub const USER_AGENT_VALUE: &str = concat!("ZStore-Client/", env!("CARGO_PKG_VERSION"));
 pub const GITHUB_ACCEPT_VALUE: &str = "application/vnd.github.v3+json";
 pub const JSON_ACCEPT_VALUE: &str = "application/json";
-/// 图标/CDN 专用：浏览器 UA + image/* Accept，与 API client 严格隔离（见 `new_icon_client`）。
+/// 图标/CDN 专用请求头（与 API 客户端物理隔离，不携带鉴权）。
 pub const BROWSER_UA_VALUE: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 pub const ICON_ACCEPT_VALUE: &str =
     "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
@@ -18,10 +17,7 @@ pub enum AuthScheme {
     Token,
 }
 
-/// 表驱动 API 预设：Accept + UA 成对收敛，调用方只选预设不手写字面量。
-/// - `GithubApi`：GitHub v3 Accept + ZStore UA（`token`/`Bearer` 经 `AuthScheme` 区分）；
-/// - `JsonApi`：通用 `application/json` + ZStore UA（`device_flow` / Gitea / GitLab）；
-/// - `IconCdn`：`image/*` Accept + 浏览器 UA（SimpleIcons/CDN/raw 图标，绝不携带 token，与 API client 隔离）。
+/// API 请求预设（Accept 与 UA 组合，其中 `IconCdn` 绝不携带 token）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiPreset {
     GithubApi,
@@ -46,7 +42,7 @@ impl ApiPreset {
     }
 }
 
-/// 连接池种类（D5 物理隔离）：决定重定向策略与缺省 UA，同池参数之外语义不混用。
+/// 连接池种类：隔离 API 与图标/CDN 的重定向策略与默认 UA。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PoolKind {
     /// GitHub/GitLab/Gitea API、OAuth、趋势：reqwest 缺省重定向 + ZStore 缺省 UA（请求级 header 覆盖）。
@@ -179,23 +175,16 @@ pub(crate) fn retry_after_delay_ms(headers: &HeaderMap) -> u64 {
         .unwrap_or(RETRY_AFTER_DEFAULT_MS)
 }
 
-/// D7 有限重试的 5xx / 传输错误退避阶梯：最多重试 2 次（200ms → 800ms）。
+/// 有限重试的 5xx / 传输错误退避阶梯。
 pub(crate) const D7_RETRY_BACKOFF_MS: [u64; 2] = [200, 800];
 
-/// D7 GET 结果：最终响应（或最后一次传输错误）与实际重试次数。
+/// 带重试统计的 GET 执行结果。
 pub(crate) struct D7Get {
     pub result: Result<reqwest::Response, reqwest::Error>,
     pub retries: u8,
 }
 
-/// D7 共享 GET 重试执行器（GitHub / GitLab / Gitea 共用）：
-/// - 仅重试传输错误（`is_timeout` / `is_connect`）、429 与 5xx，最多 [`D7_RETRY_BACKOFF_MS`] 次；
-/// - 429 按 `Retry-After` 退避（见 [`retry_after_delay_ms`]），5xx / 传输错误按 200ms → 800ms 退避；
-/// - 传输错误先重探系统代理，签名变化（用户刚开启/关闭代理）即改用重建后的 API 池重发；
-/// - 其余状态（含 401 / 404 / 304）原样返回，交由调用方判定。
-///
-/// `on_response` 对每一轮响应调用一次（含被重试的轮次），供调用方上报限流头。
-/// 调用方传入的均为 API 池 Client。
+/// 共享 GET 重试执行器：仅对超时/连接错误、429 与 5xx 做有限次退避重试，并在传输错误时探测代理变更。
 pub(crate) async fn get_with_d7_retry_observed<F>(
     client: &reqwest::Client,
     url: &str,
@@ -257,7 +246,7 @@ where
     }
 }
 
-/// D7 GET 便捷入口（不观察中间响应）：GitLab / Gitea Provider 使用。
+/// 无响应观察回调的 GET 重试便捷入口。
 pub(crate) async fn get_with_d7_retry(
     client: &reqwest::Client,
     url: &str,

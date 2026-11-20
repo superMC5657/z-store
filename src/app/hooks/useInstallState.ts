@@ -4,7 +4,7 @@ import type { AppSummary, InstalledApp, ViewType } from '../../types';
 import { tauriApi, UNVERIFIED_ASSET_MARKER } from '../../services/api';
 import { normalizeId } from '../../services/normalizeId';
 
-/** 无校验资产待确认状态：D3 门禁拒绝后挂起，待用户在警示弹窗显式确认后重试。 */
+/** 无校验资产待确认状态：后端拒绝后挂起，待用户在警示弹窗确认后重试。 */
 interface UnverifiedInstallPrompt {
   id: string;
   assetName?: string;
@@ -32,7 +32,7 @@ export function useInstallState({
   const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
   // 已装列表初始加载错误（null = 无错误/未加载）：与空列表区分呈现，供 InstalledView 出重试
   const [installLoadError, setInstallLoadError] = useState<string | null>(null);
-  // D3 门禁：无校验资产待用户确认（null = 无待确认安装）
+  // 无校验资产待用户确认状态（null = 无待确认安装）
   const [unverifiedInstallPrompt, setUnverifiedInstallPrompt] = useState<UnverifiedInstallPrompt | null>(null);
 
   // 安装集合经 ref 读取，回调引用在搜索、图标升级时保持稳定
@@ -51,8 +51,7 @@ export function useInstallState({
     } catch (err) {
       const errStr = String(err);
       if (errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
-        // D3 门禁：无校验清单资产默认拒绝。挂起待确认（UI 警示弹窗），非失败态：
-        // 不弹错误 toast、不 rethrow，用户确认后经 onConfirm 携 allowUnverified 重试。
+        // 无校验清单资产由弹窗确认放行，不按失败处理
         setUnverifiedInstallPrompt({ id, assetName, customInstallDir });
         return;
       }
@@ -105,8 +104,7 @@ export function useInstallState({
     showToast(t('toast.unmanage_success', { name: appName }), 'info');
   };
 
-  // 已装列表加载：进入「我的应用」视图自动触发，失败保存错误态（避免与空列表混同静默）；
-  // 同一函数兼作 InstalledView 错误卡的重试入口，以及「检查更新」时的已装状态重读。
+  // 加载已装列表（进入「我的应用」触发，亦作错误重试与检查更新重读入口）
   const loadInstalledApps = useCallback(async () => {
     try {
       const freshInstalled = await tauriApi.getInstalledApps();

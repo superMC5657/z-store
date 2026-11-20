@@ -1,12 +1,4 @@
-//! `repo_card_cache` 持久化 DAO：未收录应用的单仓轻量富卡（ADR-0027）。
-//!
-//! 与 `catalog_apps` / `custom_apps` 物理隔离，按规范应用标识 `id` 共享给在线搜索、
-//! 趋势榜与 GitHub Star 三条链路的批量水合。写入口统一执行：
-//! - 收录态标注（`is_cataloged`/`source`/`status`/`added_at`/`is_verified`）不入表；
-//! - `data:` 图标、README 正文大图与非 `http(s)` 地址剥空；
-//! - 空值与占位文案不覆盖库内实值；平台三态单调升级（具体平台 > 已确认 Other > 未知）；
-//! - 已收录（远端精选或未归档本地库）`id` 跳过写入；
-//! - `last_accessed_at` 有界 LRU；`is_private = 1` 行随登出清除。
+//! `repo_card_cache` 持久化 DAO：未收录应用的单仓轻量富卡缓存。
 
 use super::{clean, now_secs, Database, BATCH_CHUNK};
 use crate::github::models::{

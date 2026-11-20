@@ -5,14 +5,10 @@ import i18n, { getSystemLanguage } from './i18n';
 import { appZoomFactor, fontScaleFor } from './utils/density';
 import { notifyToast } from './useToasts';
 
-/** ADR-0007：TTL 有效挡位（分钟），与后端 `DETAIL_CACHE_TTL_VALID_MINUTES` 同口径；0=每次实时校验。 */
+/** 详情缓存 TTL 有效挡位（分钟，0 表示每次实时校验）。 */
 const DETAIL_CACHE_TTL_VALID_MINUTES = [0, 10, 60, 360, 1440];
 
-/**
- * 后端 `normalize_setting_value` 的前端同口径镜像：仅镜像 AppSettings 实际持有
- * 且后端写入侧会归一化的键（TTL 挡位 / 通知频率），其余键后端原样透传。
- * `save_setting` 只回 bool，持久化成功后以此回写 state，保证展示值与落库值一致。
- */
+/** 按后端持久化规则归一化设置值，确保前端 state 与落库值一致。 */
 function normalizeSettingLikeBackend<K extends keyof AppSettings>(
   key: K,
   value: AppSettings[K],
@@ -33,10 +29,7 @@ function normalizeSettingLikeBackend<K extends keyof AppSettings>(
   return value;
 }
 
-/**
- * 应用级外观表现与持久化设置 Hook：主题/设置状态、字号/缩放应用、
- * 持久化快照合并、系统主题跟随与通用设置更新器。
- */
+/** 应用级外观与持久化设置 Hook。 */
 export function useAppSettings() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof document !== 'undefined') {
@@ -70,13 +63,12 @@ export function useAppSettings() {
   };
 
   const applyUiZoom = (scaleStr: string) => {
-    // 仅设置 --app-zoom 变量；绝不修改根节点缩放或原生缩放。
     const factor = appZoomFactor(scaleStr);
     if (factor === null) return;
     document.documentElement.style.setProperty('--app-zoom', `${factor}`);
   };
 
-  /** 视觉键的 DOM 副作用（主题/字号/缩放）；乐观应用与回滚共用，保证 DOM 与 state 同值。 */
+  /** 同步视觉设置到 DOM，供乐观更新与失败回滚共用。 */
   const applyVisualSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     if (key === 'theme') {
       applyTheme(String(value));
@@ -179,8 +171,7 @@ export function useAppSettings() {
     void handleUpdateSetting('theme', t);
   };
 
-  // 通用单项设置更新器：乐观更新 → 持久化（失败回滚乐观值并提示）→
-  // 成功后按后端归一口径回写（save_setting 只回 bool，钳制镜像见 normalizeSettingLikeBackend）
+  // 仅更新单项，保留其余设置。
   const handleUpdateSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     const previous = settings[key];
     const seq = (latestWriteSeq.current[key] ?? 0) + 1;

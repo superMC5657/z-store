@@ -1,11 +1,4 @@
-/**
- * 趋势榜本地收录黄标（catalog / enriched / 裸行三分支）：
- * - catalog：matchCatalogApp 命中本地即 AppCard 黄标；
- * - enriched：enrich 命中经 annotate + localApps 显式补齐即黄标；
- * - 裸行：enrich 缺席占位小行命中本地即标题旁黄标；
- * - 黄标只认已收录（localApps）；草稿 customIds 仅抑制移入入口，不叠黄；
- * - 蓝优先不动，首刷 null→就绪补标，大小写归一。
- */
+/** 测试趋势榜目录/富卡/裸行三分支的本地收录黄标判定与蓝标优先。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';

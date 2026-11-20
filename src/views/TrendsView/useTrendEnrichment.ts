@@ -17,12 +17,7 @@ interface UseTrendEnrichmentParams {
   globalConfirmed?: ReadonlySet<string>;
 }
 
-/**
- * 趋势榜富卡 React 生命周期适配器：
- * 业务编排（SWR 直展、DB 图标回填、enrich 批处理、lite 补验、15s settle、
- * 详情治愈、流式图标与 L2 写透）由 `services/trends::createTrendBoardSession` 承担，
- * 本 hook 负责将会话生命周期绑定到 React 组件树并同步快照状态。
- */
+/** 趋势榜富卡会话的 React 生命周期适配器：将会话状态与副作用绑定到组件树。 */
 export function useTrendEnrichment({
   trendResult,
   rawItems,

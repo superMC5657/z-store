@@ -1,11 +1,4 @@
-/**
- * 待收录草稿域 hook（customApps 状态机 + 六个落盘 handler + 派生序列）：
- * - customApps：后端草稿列表（null = 未加载/非 Tauri 预览，
- *   此时 PendingView 缺 entries 走内部本地态；备份/转正语义不受影响）；
- * - 挂载即拉取 + `zstore:custom-apps-changed` 变更跟随；
- * - 六个 handler 均为「后端落盘 → 全量重拉 → 派发 `zstore:catalog-synced`」；revert 失败必须报错并向上传递
- *   （PendingView 侧同样 toast），禁止静默本地翻 draft。
- */
+/** 待收录草稿域 hook：管理后端草稿列表、本地库摘要派生与写盘同步。 */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
@@ -33,8 +26,7 @@ export function useCustomApps() {
     }
   }, []);
 
-  // 待收录变更跟随（移入收录/备份导入后刷新）+ 挂载即拉取：
-  // 本地收录需首页/分类同展，挂载拉取保证首刷补黄（缺席无标，就绪重标），跨视图变更全局跟随。
+  // 挂载拉取并监听跨视图草稿变更事件
   useEffect(() => {
     void reloadCustomApps();
     const onChanged = () => {
@@ -49,8 +41,7 @@ export function useCustomApps() {
   // 侧栏「待收录」角标按平台过滤口径由 `useAppSelectors().pendingFilteredCount` 派生。
   const customAppEntries = useMemo(() => customApps ?? undefined, [customApps]);
 
-  // 落盘后全量重拉：六个 handler 共用同一「写入 → 刷新 → 目录同步广播」序列。
-  // 本地库成员属于后端合并目录，广播让 fullCatalogApps 与 CatalogService 同代（退回/删除后不残留）。
+  // 写盘后重拉草稿列表并广播目录同步，保持合并目录同代
   const mutateAndReload = useCallback(
     async (mutate: () => Promise<unknown>) => {
       await mutate();

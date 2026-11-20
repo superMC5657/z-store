@@ -1,8 +1,4 @@
-/**
- * 数量显示规范守卫（docs/count-display.md）：
- * - i18n 文案不得用括号包裹单个插值，数字交给 CountBadge 或写成带量词的叙述
- * - 视图源码不得手写括号计数，也不得使用各视图私有的计数类
- */
+/** 检查 i18n 文案与源码是否符合数量角标显示规范（`docs/count-display.md`）。 */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -31,10 +27,7 @@ function walk(dir: string): string[] {
 /** 括号里只有一个插值：`({{count}})`、`（{{fav}}）`。非数量插值（如 CPU 架构）列入白名单。 */
 const PAREN_INTERPOLATION_IN_COPY = /[(（]\s*\{\{\s*(\w+)\s*\}\}\s*[)）]/g;
 const NON_COUNT_INTERPOLATIONS = new Set(['arch']);
-/**
- * JSX 中紧跟标签的 `({xs.length})` / `({n.size})` / `({counts[id]})` 等；
- * 以空格或 `{` 开头的 `({ a, count })` 是参数解构，不算。
- */
+/** 匹配紧跟标签的括号计数表达式，跳过带空格或解构的 `({ ... })`。 */
 const PAREN_COUNT_IN_JSX = /\(\{(?![\s{])[^{},]*?(\.length|\.size|[cC]ounts?\b[^{},]*)\}\)/;
 /** 各视图私有的计数样式；数量一律走 .count-badge */
 const BANNED_COUNT_CLASSES = [

@@ -82,7 +82,6 @@ async fn get_with_etag_diag_inner(
     let safe_url = crate::log_support::sanitize_url(&url);
     let host = crate::log_support::host_of(&url);
     let start = std::time::Instant::now();
-    // D7 有限重试经 `forge::http` 共享执行器；每轮响应照常上报限流。
     let mut rate_summary: Option<String> = None;
     let got = crate::forge::http::get_with_d7_retry_observed(client, &url, &headers, |r| {
         crate::notify_rate_limit("github.com", r.headers());
@@ -359,12 +358,7 @@ pub(crate) fn guess_category(
     }
 }
 
-/// 目录外仓库 `AppSummary` 兜底构造。
-/// 图标：若 probe 为 true，经统一同步适配器 `icons::probe_single_live`（L2→L3，
-/// 经 `resolve_probe_branches` 取默认分支，与流式核同源）；
-/// 图标探测不调 users API、不拼用户画像 avatar_url（见 OAuth/Sidebar，与图标无关）；
-/// 若 probe 为 false，图标置空（首屏快返，等后台 `fetch_icons_stream` emit）。
-/// 分类：移植 catalog guessCategory 关键词表，按 topics+description 判定。
+/// 构造未收录仓库的兜底 `AppSummary`；`probe` 为 false 时置空图标由后台异步补探。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn fallback_summary(
     client: &reqwest::Client,

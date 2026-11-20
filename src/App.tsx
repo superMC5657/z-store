@@ -139,8 +139,7 @@ export const App: React.FC = () => {
   // 详情弹窗几乎必开：首屏空闲时预取其分块，首次点卡片无需等待。
   useEffect(() => whenIdle(() => void AppDetailModal.preload().catch(() => undefined)), []);
 
-  // 待收录草稿域（customApps 列表 + 六个落盘 handler + 派生序列）：
-  // 状态机本体收容于 app/hooks/useCustomApps（对齐既有下沉模式）。
+  // 待收录草稿域
   const {
     customApps,
     customAppEntries,
@@ -190,7 +189,7 @@ export const App: React.FC = () => {
     installedAppRemovedRef.current(id);
   }, []);
 
-  // 1. 安装管理 Hook
+  // 安装管理
   const {
     installedApps,
     setInstalledApps,
@@ -220,7 +219,7 @@ export const App: React.FC = () => {
     [handleInstallApp],
   );
 
-  // 2. 平台回填与搜索解耦
+  // 平台回填与搜索解耦
   const lazyBackfillRef = useRef<(summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void>(() => {});
 
   const {
@@ -270,8 +269,7 @@ export const App: React.FC = () => {
     [catalogSourceApps, localLibrarySummaries],
   );
 
-  // 3. 收藏/关注未收录占位行 left-join（深 join 模块 `useUncatalogedJoin`；
-  // 仅收藏页消费，不进 apps/计数/其它视图）
+  // 收藏/关注未收录占位行 left-join（仅收藏页消费）
   const { loadUncatalogedDetail } = useUncatalogedJoin({
     favoriteIds,
     watchedIds,
@@ -283,7 +281,7 @@ export const App: React.FC = () => {
     },
   });
 
-  // 4. 详情快照缓存与卡片列表同步（内存 0ms 秒开 + ETag 后台探查 + 富卡/平台治愈）
+  // 详情快照缓存与卡片列表同步
   const {
     activeDetailIdRef,
     handleOpenDetail,
@@ -296,7 +294,7 @@ export const App: React.FC = () => {
     localApps: customApps === null ? undefined : localLibrarySummaries,
   });
 
-  // 深链调度分发器（功能 E）
+  // 深链调度分发器
   const {
     stagedDeepLinkInstall,
     setStagedDeepLinkInstall,
@@ -315,7 +313,7 @@ export const App: React.FC = () => {
     t,
   });
 
-  // 5. 应用级订阅总线（初始拉取/catalog-synced/icon-ready/subscribeIconWrites + OAuth/导入刷新）
+  // 应用级订阅总线
   const searchQueryRef = useRef(searchQuery);
   searchQueryRef.current = searchQuery;
   const resolvedLocalApps = customApps === null ? undefined : localLibrarySummaries;
@@ -337,7 +335,7 @@ export const App: React.FC = () => {
     notify: { showToast, t },
   });
 
-  // 6. 更新与规则域（自有 updates / updateRules / 进度状态与流式订阅）
+  // 更新与规则域
   const {
     updates,
     updateRules,
@@ -362,7 +360,7 @@ export const App: React.FC = () => {
   });
   installedAppRemovedRef.current = removeUpdatesForApp;
 
-  // 7. 派生选择器（平台过滤/计数/收藏 left-join 供给/已安装-更新过滤/深链确认解析）
+  // 派生选择器
   const {
     catalogPlatformFilteredApps,
     fullMergedCatalogApps,
@@ -501,7 +499,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // 跳转设置页 GitHub 账号区（侧栏登录胶囊入口）
   // 精选页「进入分类」：带着分类进入分类浏览；离开分类视图后清空，侧栏再进时停在大厅。
   const [categoryFocus, setCategoryFocus] = useState<string | null>(null);
   useEffect(() => {
@@ -817,7 +814,7 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* 无校验资产警示弹窗（D3 门禁：后端默认拒绝安装，仅显式确认后放行） */}
+      {/* 无校验资产警示弹窗（后端默认拒绝安装，仅显式确认后放行） */}
       {unverifiedInstallPrompt !== null && (
         <InstallConfirmDialog
           intro={t('install_confirm.unverified_intro')}
@@ -868,7 +865,7 @@ export const App: React.FC = () => {
         </React.Suspense>
       )}
 
-      {/* 开发者主页弹窗（功能 D） */}
+      {/* 开发者主页弹窗 */}
       {selectedDeveloper && (
         <React.Suspense fallback={null}>
           <DeveloperProfileModal

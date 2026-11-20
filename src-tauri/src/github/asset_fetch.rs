@@ -1,7 +1,4 @@
-//! 通用图片磁盘缓存下载网关。
-//!
-//! 可缓存图片的本地落盘查询与下载入口：命中或新下载落盘后返回 `data:<mime>;base64,...`
-//! （WebView 直接渲染，零文件系统协议暴露面）；非候选、超限或下载失败且无旧盘文件时回退原地址。
+//! 通用图片磁盘缓存下载网关，命中或落盘后返回 `data:` URI，失败时回退原地址。
 
 use crate::icons::is_valid_image;
 use std::sync::{Arc, LazyLock, Mutex};

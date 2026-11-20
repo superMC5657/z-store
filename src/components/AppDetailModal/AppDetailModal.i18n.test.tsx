@@ -1,8 +1,4 @@
-/**
- * AppDetailModal 组件 i18n 行为级验证（views.i18n.test.tsx 同机制扩展到 components）：
- * Header / AssetList / IconLevelBadge / InstallActions / ReadmeSection 在 zh-CN 与
- * en-US 间完整切换，aria-label/title 同属用户可见文案一并断言。
- */
+/** 测试 `AppDetailModal` 各子组件在中英文切换下的文案与无障碍属性渲染。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';

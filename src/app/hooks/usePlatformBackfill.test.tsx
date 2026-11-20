@@ -1,12 +1,4 @@
-/**
- * usePlatformBackfill 回归（生命周期接线层；深模块语义见 lib/platformFilter 自身测试）：
- *
- * - 目标选择接线：具平台行、已确认 other 行不进 lite 通道；
- * - lite 具平台：三列表只回填空平台行；lite 空且非 stale：确认 other；
- * - stale seq：整批丢弃；在途去重：同批二次调用不重复发请求；
- * - forceRefresh 透传；首绘 effect 自动回填；
- * - settle 超时：15s 仍 loading 的行降级为已确认 Other（杜绝永久 shimmer）。
- */
+/** 测试 `usePlatformBackfill` 的平台批量回填、防重与超时落定。 */
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../../types';

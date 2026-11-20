@@ -1,10 +1,4 @@
-/**
- * useCustomApps 回归：
- *
- * - 每个落盘 handler 走同一「写入 → 全量重拉」序列，成功后只重拉一次；
- * - 写入失败必须把错误抛给调用方，且不触发重拉（不静默刷新成旧列表）；
- * - revert 失败把错误抛给视图层（提示由视图统一出口渲染一次），hook 自身不 toast。
- */
+/** 测试 `useCustomApps` 的写盘重拉序列与错误传播语义。 */
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

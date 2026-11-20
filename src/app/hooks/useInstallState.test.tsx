@@ -1,14 +1,4 @@
-/**
- * useInstallState 回归：
- *
- * - 安装成功：列表按 app_id 大小写不敏感去重替换 + success toast；
- * - 重复安装守卫：在途集合去重（ref 读取，回调稳定）；
- * - D3 门禁：`unverified-asset-required:` 前缀错误 → 挂起待确认（非失败态：
- *   不弹错误 toast、不 rethrow），确认/取消共用清口 dismiss；
- * - 取消/中止/1602 → info 提示；其余失败 → error 提示并 rethrow；
- * - 卸载成功/取消双路；启动/取消管理/刷新（幽灵自愈）；
- * - 已装列表加载：进入 installed 视图自动触发，失败落 installLoadError（与空列表区分）。
- */
+/** 测试 `useInstallState` 的安装/卸载、无校验资产确认门禁与加载错误状态。 */
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledApp } from '../../types';

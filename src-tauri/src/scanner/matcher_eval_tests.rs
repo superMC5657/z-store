@@ -1,6 +1,4 @@
-//! 真实收录库（根目录 `catalog.json`）上的匹配质量基准：常见非收录软件零误报、
-//! 带噪声的真实安装形态全部召回、全量匹配有界耗时且结果稳定。
-//! 断言只看纯打分与指派（`CatalogMatchIndex::assign`），不受本机磁盘内容影响。
+//! 基于 `catalog.json` 的纯打分与指派质量基准测试。
 
 use super::matcher::CatalogMatchIndex;
 use super::{ConfidenceTier, ScannedRawApp};

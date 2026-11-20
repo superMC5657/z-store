@@ -13,10 +13,7 @@ import { formatStars, isPlaceholderDescription } from '../services/trends';
 interface AppCardProps {
   app: AppSummary;
   isInstalled: boolean;
-  /**
-   * 已纳管（绿色已安装）。三态：`true`/`false` = 已知，
-   * `null` = managed 列表尚未加载（未知）：已安装命中时渲染中性占位。
-   */
+  /** 已纳管状态：`null` 表示列表尚未加载（已安装命中时渲染中性占位）。 */
   isManaged: boolean | null;
   isInstalling?: boolean;
   isFavorite?: boolean;
@@ -36,21 +33,13 @@ interface AppCardProps {
   onQuickInstall: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
   onToggleWatch?: (id: string) => void;
-  /**
-   * 移入收录入口（富卡内部操作区，与安装/详情同排）：
-   * 仅当未收录 external 行（`!isAppCataloged(app)`，展示层唯一口径）且
-   * 非 custom 草稿行、且 `isCustomExisting` 为假时渲染；缺席即不渲染。
-   */
+  /** 移入收录回调：仅未收录非草稿行且 `isCustomExisting` 为假时渲染。 */
   onMoveInApp?: (app: AppSummary) => void;
-  /** 移入进行中（该卡入口禁用态，防重复提交）。 */
+  /** 移入进行中（禁用态，防重复提交）。 */
   isMovingIn?: boolean;
-  /** custom 草稿已存在（`selectMergedCatalogApps` 会命中 custom 行）——抑制入口防误点。 */
+  /** 草稿已存在（隐藏移入入口，避免重复添加）。 */
   isCustomExisting?: boolean;
-  /**
-   * 占位行手动加载入口（收藏页未收录空壳行）：
-   * 调用方以 `isFavoritePlaceholderRow` 判定后传入 `showLoadDetail`，
-   * 点击经 `onLoadDetail(app.id)` 拉取详情升级富卡；缺席即不渲染。
-   */
+  /** 占位行手动加载详情开关（点击触发 `onLoadDetail`）。 */
   showLoadDetail?: boolean;
   onLoadDetail?: (id: string) => void;
   /** 推荐理由（精选页传入，已格式化）：描述下方一行次要文字，缺席不渲染。 */

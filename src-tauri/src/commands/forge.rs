@@ -3,8 +3,7 @@ use crate::models::{DeveloperProfile, StarredFeedCacheEntry, StarredPageResult};
 use crate::AppState;
 use tauri::{AppHandle, State};
 
-/// 开发者主页：`/users/{dev}` 与 `/users/{dev}/repos` 经 `api_etag_cache` 条件请求
-/// （有缓存载荷才发 `If-None-Match`，未变 `304` 零配额复用），`200` 落库、`304` 刷新检查时间。
+/// 开发者主页：通过 ETag 条件请求拉取用户信息与仓库列表并更新缓存。
 #[tauri::command]
 pub async fn get_developer_profile(
     state: State<'_, AppState>,
@@ -48,10 +47,8 @@ pub async fn get_developer_profile(
     Ok(fetched.profile)
 }
 
-/// Star 列表单页查询（收藏页「Star 同步」）：任意用户名或当前登录账号，按 Star 时间倒序。
-/// 每页一次 GitHub 条件请求（`api_etag_cache`，未变 `304` 零配额），卡片由列表里的仓库 JSON 本地组装，
-/// 图标后台补齐；网络或限流失败时回退旧载荷并标 `is_stale`。
-/// `force_refresh` 为手动同步透传位：条件请求本就实时比对服务端，强刷同样携带 ETag。
+/// Star 列表单页查询（按 Star 时间倒序）：走 ETag 条件请求，失败时回退旧载荷并标 `is_stale`。
+/// 图标在后台流式补齐；`force_refresh` 仍携带 ETag 进行条件校验。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn list_github_starred(
     app_handle: AppHandle,

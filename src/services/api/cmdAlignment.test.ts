@@ -1,12 +1,4 @@
-/**
- * CMD 表 ⇆ 后端注册集对齐卡点（防再漂移）：
- * - 从 `src-tauri/src/lib.rs` 的 `invoke_handler(tauri::generate_handler![...])`
- *   解析后端实际注册的命令名全集；
- * - CMD 表（前端命令名唯一来源）值集必须与注册集完全相等：后端摘命令而前端漏改
- *   （或拼错命令名）在此卡死；后端已注册但前端未建 CMD 项（死命令）同样暴露，
- *   失败信息给出双向差集；
- * - 解析健壮性：注册集为空/过小视为解析失败而非对齐通过（防正则静默失配）。
- */
+/** 校验前端 `CMD` 表与后端 `lib.rs` 注册的命令全集完全对齐。 */
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';

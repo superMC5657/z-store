@@ -1,12 +1,4 @@
-/**
- * 深度链接静默安装 RCE 防护测试（真实 <App/> 链路）。
- *
- * `zstore://install/<owner>/<repo>` 绝对不允许自行触发安装：
- * 它必须打开应用详情视图并弹出显式确认弹窗，
- * 仅在用户显式点击确认后方可启动安装。其余四种
- * 深度链接分支（app_detail / search / developer_profile / open_view）
- * 各自打开对应视图，均不触发安装。
- */
+/** 测试深度链接路由分发与安装确认门禁（防止未经用户确认静默安装）。 */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';

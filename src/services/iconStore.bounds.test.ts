@@ -1,10 +1,4 @@
-/**
- * iconStore 容器有界回归：
- * `iconLevelById`/`iconById`/`iconDataCache` 与预热态
- * `iconPreloadQueue`/`iconPendingAliases`/`iconPendingPromises`/`iconPreloadBackoffUntil`
- * 均按 `ICON_STORE_MAX_ENTRIES`（200，与榜缓存 `TRENDS_CACHE_MAX_ENTRIES` 同口径）
- * 写时 FIFO 删最旧。已落盘条目被淘汰后经 `get_or_fetch_icon` 落盘缓存重读自愈。
- */
+/** `iconStore` 内存容器上限（FIFO 淘汰）与淘汰后落盘重读测试。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./api/catalog', () => ({

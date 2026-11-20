@@ -1,10 +1,4 @@
-/**
- * `services/custom.ts` 接口级测试：
- * - 线格式 ↔ 领域转换（`entryFromWire` / `itemToWire` / `itemToSummary` / `entryToCollectedSummary`）
- * - 本地收录态判定与 remote 图标真值提取（`isCollectedStatus` / `resolveRemoteIconUrl`）
- * - 摘要合成草稿 + forge 门禁（`draftForgeGateError` / `buildCustomDraftItemFromSummary`）
- * - 移入收录唯一入口（`moveInToDraft`，仅在 `tauriApi` IPC seam 打桩）
- */
+/** `services/custom.ts` 线格式转换、forge 校验与 `moveInToDraft` 接口测试。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../types';
 import { tauriApi } from './api';

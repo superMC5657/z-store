@@ -1,8 +1,4 @@
-/**
- * 裸行直展（paint-sync lane）：
- * - 未就绪不拦整榜，board repos 直接展裸行（仓库名+星）；
- * - enrich/SWR 到即原地升级富卡，全程无 trends-skeleton 空号。
- */
+/** 测试趋势榜首绘直接展示裸行并在富卡就绪后原地升级，不显示整榜骨架屏。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';

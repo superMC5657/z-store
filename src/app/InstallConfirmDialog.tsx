@@ -12,10 +12,7 @@ interface InstallConfirmDialogProps {
   onConfirm: () => void;
 }
 
-/**
- * 深链安装确认弹窗（显式用户授权门禁）：展示外部链接来源说明，
- * 应用名 / 仓库 / 来源 / SHA-256（若有）+ 取消 / 确认安装。
- */
+/** 安装确认弹窗：展示来源、仓库与校验信息并要求显式确认。 */
 export const InstallConfirmDialog: React.FC<InstallConfirmDialogProps> = ({
   intro,
   appName,

@@ -1,7 +1,4 @@
-/**
- * 待收录页左列：Master 列表。
- * 只渲染调用方已按 Tab 与全局设备平台筛选过滤后的条目。
- */
+/** 待收录左列列表：展示已按 Tab 与平台筛选过滤后的条目，并处理筛选空态。 */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Inbox, Link2 } from 'lucide-react';

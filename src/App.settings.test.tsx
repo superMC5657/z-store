@@ -1,10 +1,4 @@
-/**
- * 设置特征化测试。
- *
- * 锁定持久化设置应用契约：
- * 后端 `getSettings()` 快照与默认设置合并，并驱动 <html> 上的
- * `data-theme` / `data-font-size` / `--font-scale` 属性生效。
- */
+/** 测试持久化设置与主题/字号 DOM 属性的绑定同步。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, waitFor } from '@testing-library/react';
 

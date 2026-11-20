@@ -33,11 +33,7 @@ impl CatalogRepository {
         Self::apply_remote_manifest_with_etag(db, items, None)
     }
 
-    /// 同步收录清单权威覆盖（单事务原子提交）：
-    /// 1. 全量覆盖 `catalog_apps`；
-    /// 2. 退役已转正的 `custom_apps` 草稿/本地收录；
-    /// 3. 校准 `user_favorites` 与 `watched_apps` 的 `is_cataloged` 标记；
-    /// 4. 如提供 `(url, etag, timestamp)`，在同事务提交成功后落盘 ETag，杜绝 ETag 先写但目录写库失败造成的假 304 漂移。
+    /// 在单事务内权威覆盖收录清单、退役已转正草稿、校准收藏/关注标记并可选落盘 ETag（防目录失败导致假 304）。
     pub fn apply_remote_manifest_with_etag(
         db: &Database,
         items: &[CatalogItem],

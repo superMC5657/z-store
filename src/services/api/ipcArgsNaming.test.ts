@@ -1,9 +1,4 @@
-/**
- * IPC 请求参数命名收敛（camelCase）卡点：
- * - 全部 services/api 包装器经 `client.tauriInvoke` 透传，后端桥接后生效；
- * - 请求 key 一律 camelCase（`/^[a-z][a-zA-Z0-9]*$/`），读侧响应 snake 保持不动；
- * - iconStore 禁直调 invoke（经 `catalog.getOrFetchIcon`，见下）。
- */
+/** 校验 `services/api` 所有 IPC 请求参数键均为 camelCase。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as clientModule from './client';
 import * as catalog from './catalog';

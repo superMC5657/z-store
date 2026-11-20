@@ -1,10 +1,6 @@
 /**
- * Star 同步快照（L2，SQLite `starred_feed_cache`）与查询目标记忆（localStorage）。
- *
- * - 快照信封 `{ v: 2, pages: [{ page, ids }], hasMore }`：按页有序规范 id 索引，至多前 3 页 / 60 个 id，
- *   不含任何卡片字段（卡片经 `hydrateCardsByIds` 从目录与 `repo_card_cache` 水合）；32 KiB 前端预检；
- * - 新鲜度由本模块判定：12h 内为新鲜；更旧的快照（后端保留 7 天）只作离线兜底与 SWR 首绘；
- * - `localStorage['zstore.starred.opts']` 只记查询模式与公开用户名，永不存仓库数据。
+ * Star 同步快照（SQLite `starred_feed_cache`）与查询目标记忆。
+ * 快照仅保存前 3 页 / 60 个规范 id（12h 新鲜期），卡片经 `hydrateCardsByIds` 水合。
  */
 import { tauriApi } from '../api';
 import { normalizeId } from '../normalizeId';
@@ -54,10 +50,7 @@ export function persistStarredOpts(opts: StarredOpts): void {
   }
 }
 
-/**
- * 入盘信封整形：按页号升序去重归一 id，截前 3 页 / 60 个 id（截断时 `hasMore` 置真，续拉从下一页接上）；
- * 无任何 id 或超 32 KiB 时返回 `undefined`（放弃写盘）。
- */
+/** 按页去重并截断为合法快照 JSON；空结果或超上限返回 `undefined`。 */
 export function buildStarredEnvelopeJson(envelope: StarredCacheEnvelope): string | undefined {
   if (!envelope || !Array.isArray(envelope.pages)) return undefined;
   const sorted = envelope.pages
@@ -126,10 +119,7 @@ export interface StarredL2Hit {
   isFresh: boolean;
 }
 
-/**
- * 读快照：形态不符或时钟回拨返回 `undefined`；超 12h 时仅在 `allowStale` 下返回（`isFresh=false`）。
- * 后端不可用/出错一律按未命中。
- */
+/** 读 L2 快照（格式不符、时钟回拨或后端异常返回 `undefined`）。 */
 export async function readDbStarredCache(
   cacheKey: string,
   opts?: { allowStale?: boolean; now?: number },

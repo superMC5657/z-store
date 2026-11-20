@@ -1,9 +1,4 @@
-/**
- * 演示站有状态 handler 与后端同口径：
- * - 待收录：状态流转门禁、按 updated_at 倒序、Issue 预填链接 / payload 形态、许可名单；
- * - 更新规则：持久化、锁定清跳过版本、锁定后拒收跳过、全撤销即删除；
- * - 关注提醒：知道了 / 恢复往返，取消关注后不再返回。
- */
+/** 测试演示站待收录、更新规则与关注提醒有状态 handler 的门禁与持久化。 */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getWatchSet, hydrate } from '../demoState';
 import {

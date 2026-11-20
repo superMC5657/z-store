@@ -49,13 +49,7 @@ function isUncatalogedRow(s: AppSummary): boolean {
   return s.is_cataloged !== true;
 }
 
-/**
- * 列表平台轻量回填共享执行器（主列表/在线搜索/Star 列表共用）：
- * 共享富卡池里已确认 Other 的未收录行（非强刷）直接落定，不发 IPC；
- * 其余分批走 `getPlatformsLite`（经 `runLiteBatch`），成功将真实平台写透目标列表、`searchListCache`
- * 与共享富卡池，空且非 stale 的写入已确认 other（同步写回共享池）；
- * stale/失败保持 loading 交由 `scheduleSettleConfirm` 兜底。
- */
+/** 批量执行列表平台轻量回填，并同步结果至列表、列表缓存与共享富卡池。 */
 async function executeLiteBackfillBatch(opts: {
   summaries: readonly AppSummary[];
   seq: number;
@@ -147,7 +141,6 @@ export function usePlatformBackfill({
   // 平台加载中追踪：summary 为空但详情尚未落定的行保持 loading（不展示 Other、不计入 other 桶、不过滤），
   // 详情取回仍为空才记入已确认 other（展示徽标、计入统计、参与过滤）。后端一律 `[]`，other 纯前端虚拟。
   const [platformResolvedOtherIds, setPlatformResolvedOtherIds] = useState<Set<string>>(() => new Set<string>());
-  // 生命周期守卫归深模块所有：在途集合 + seq 守卫经统一工厂持有，逻辑见 `lib/platformFilter`。
   const inflightGuardRef = useRef<InflightGuard | null>(null);
   if (!inflightGuardRef.current) inflightGuardRef.current = createInflightGuard();
   const platformResolvedOtherRef = useRef<Set<string>>(new Set());
@@ -164,14 +157,7 @@ export function usePlatformBackfill({
     setPlatformResolvedOtherIds((prev) => mergeConfirmedIds(prev, ids));
   }, []);
 
-  // 平台懒回填（三态）：首绘 loading 行不展示 Other 徽标、不计入 other 桶、恒可见；
-  // 对可见行（前 20）经深模块 `runLiteBatch`（分批 5）走 getPlatformsLite 轻量通道
-  // 补 deduced platforms（单次 releases/latest 条件请求，无 README/图标探测/checksum 开销）；
-  // 轻量取回仍为空（且非 stale 离线缓存）才记为已确认 other（单次落定更新），
-  // 详情不可达或 stale 一律保持 loading 交由 settle 超时兜底，不报错。后端一律 `[]`，other 纯前端虚拟。
-  // seq 过期则整批丢弃，绝不阻塞列表首绘。
-  // forceRefresh：仅显式重试传 true（跳过详情 TTL 快径直探远端）；
-  // 常规搜索、翻页与首绘回填一律 false，复用 `app_details` TTL 与 `releases/latest` ETag。
+  // 平台懒回填：对未落定的行分批调用轻量接口补全平台信息；过期 seq 整批丢弃。
   const lazyBackfillPlatforms = useCallback((summaries: AppSummary[], seq: number, forceRefresh = false) => {
     const guard = seqGuardRef.current;
     const inflight = inflightGuardRef.current;
@@ -192,19 +178,13 @@ export function usePlatformBackfill({
     });
   }, [confirmPlatformOtherIds, patchPlatforms]);
 
-  // 首绘回填：本地收录（含初始全量/搜索/目录同步）的 loading 行同样走轻量确认，
-  // 首绘不闪 Other，落定后单次更新。重复调用经在途/已确认集合去重。
-  // 自动路径读 TTL 缓存/DB（默认 DB-only）；显式重试经 lazyBackfillPlatforms 第三个参数传 true。
+  // 主列表变化时自动触发首绘平台回填
   useEffect(() => {
     if (apps.length === 0) return;
     lazyBackfillPlatforms(apps, searchSeqRef.current);
   }, [apps, lazyBackfillPlatforms, searchSeqRef]);
 
-  // 主列表 loading settle 超时（Home/分类/收藏共用，与 Trends 榜单同口径）：
-  // lite 失败/stale 的 loading 行至多等待 15s 后降级为已确认 Other
-  // （徽标 + 计数 + 可过滤），而非无限 shimmer。超时前恒可见，落定后走正常 Other 过滤。
-  // 治愈（具真实平台）的行永不被确认；定时器随列表/回填变化重置，落稳后一次触发。
-  // 定时归深模块 `scheduleSettleConfirm` 所有。
+  // 长期处于 loading 的行超时后降级为已确认 Other，避免无限 shimmer
   useEffect(() => {
     if (apps.length === 0 && onlineApps.length === 0 && recentlyViewedApps.length === 0) return;
     const keys = collectListLoadingKeys(
@@ -259,11 +239,7 @@ interface UseListPlatformBackfillParams {
   forceRefresh?: boolean;
 }
 
-/**
- * 独立分页视图（如 StarredFeed）的平台回填与 15s 落定 Hook：
- * 与主列表/在线搜索共用 `executeLiteBackfillBatch` + `scheduleSettleConfirm`，
- * 同 seq 内对已尝试过但仍 stale/失败的行不重复请求，交由 15s settle 落定为 Other。
- */
+/** 独立分页列表的平台回填与超时落定 Hook。 */
 export function useListPlatformBackfill({
   rows,
   setRows,

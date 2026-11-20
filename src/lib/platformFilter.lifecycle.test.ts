@@ -1,9 +1,4 @@
-/**
- * loading 生命周期收归 `lib/platformFilter` 深模块的 locality 证明。
- *
- * - 行为经 lib 唯一入口覆盖（常量/键归一/并集/富卡行判定/守卫/目标选择/批量/settle）；
- * - `app/selectors` 重导出与 lib 同源（单 seam，无服务中转）。
- */
+/** `lib/platformFilter` loading 生命周期与 `app/selectors` 同源导出测试。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as lib from './platformFilter';
 import {

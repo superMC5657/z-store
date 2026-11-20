@@ -11,11 +11,7 @@ function idOf(entry: LaunchpadEntry): string {
   return entry.summary.id.toLowerCase();
 }
 
-/**
- * 推荐热度分：首发新锐度 × 社区互动（顶帖、讨论、近 7 日涨星、总星）的时间衰减。
- * score = (10 + 3ln(1+up) + 2.5ln(1+comments) + 2ln(1+max(0,Δ7d)) + 0.5ln(1+stars))
- *         / (1 + max(0, age_days) / 7)^1.2
- */
+/** 按首发时间衰减的推荐热度分（结合社区互动、7 日涨星与总星数）。 */
 export function launchpadHotScore(entry: LaunchpadEntry, nowMs: number): number {
   const ageDays = Math.max(0, (nowMs - launchedMs(entry)) / DAY_MS);
   const numerator =

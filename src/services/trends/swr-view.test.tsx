@@ -17,10 +17,7 @@ import {
 
 type FakeCard = { summary: ReturnType<typeof makeEnrichedApp>; confirmed_other: boolean; updated_at: number };
 
-/**
- * 模拟后端存储：`trend_board_cache`（榜单 v2 排行索引）与 `repo_card_cache`
- * （enrich / lite 结果由后端写入，此处在 mock 里同步落表）。
- */
+/** 模拟后端 `trend_board_cache` 与 `repo_card_cache` 存储。 */
 async function mockBackendStores() {
   const clientModule = await import('../api/client');
   vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);

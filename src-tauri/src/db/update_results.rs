@@ -2,10 +2,7 @@ use super::{clean, now_secs, Database};
 use crate::models::UpdateItem;
 use rusqlite::{params, Result};
 
-/// 更新中心持久化行：一次 `check_for_updates(force=true)` 对每个已安装应用的判定快照。
-/// - `installed_version` 为检查时刻的本地版本（下次读取时若与当前安装版本不一致视为过期）；
-/// - `has_update` 为当时 `should_include_update` 判定结果；
-/// - `changelog/icon/icon_bg` 为当时远端回包透存，供 `get_cached_updates` 零网络直显。
+/// 更新中心检查结果持久化行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateCheckRow {
     pub app_id: String,

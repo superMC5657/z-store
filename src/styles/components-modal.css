@@ -144,8 +144,7 @@
   cursor: not-allowed;
 }
 
-/* 图标档位切换小圆钮：与下方 modal-tag pill 同一套浅底 + 浅描边 + 深色图标，
- * 亮暗色均沿用 token 协调。尺寸位置与交互逻辑保持不变。 */
+/* 图标档位切换小圆钮 */
 .modal-icon-cycle-btn {
   width: 20px;
   height: 20px;
@@ -221,7 +220,7 @@
   user-select: none;
 }
 
-/* 详情顶栏单色外链入口（仓库 / 问题反馈统一 D4 去彩单色交互） */
+/* 详情顶栏单色外链入口（仓库 / 问题反馈） */
 .modal-meta-link {
   display: inline-flex;
   align-items: center;
@@ -359,11 +358,7 @@
   font-weight: 510;
 }
 
-/* 弹窗层级（ModalShell `layer`）：均高于标题栏 20 / 缩放手柄 30，低于 Toast 9999。
- * sub 90：可被应用详情 / 开发者主页压住的父级弹窗（广场讨论）；
- * base 100：`.modal-backdrop` 默认（应用详情、开发者主页）；
- * confirm 200：二次确认门禁（安装确认），压住详情等基础弹窗；
- * top 1000：全局工具弹窗（导入、更新规则）。 */
+/* 弹窗层级（ModalShell `layer`）：高于标题栏/缩放手柄，低于 Toast；sub < base < confirm < top */
 .modal-backdrop.modal-layer-sub {
   z-index: 90;
 }

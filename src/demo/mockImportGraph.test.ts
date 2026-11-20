@@ -1,8 +1,4 @@
-/**
- * mock 安装器必须先于 `services/api/client.ts` 求值：后者在模块顶层判定 `isTauri`，
- * 若 tauri-mock 的运行时 import 链提前拉到它，整个演示站都会报「Not in Tauri environment」。
- * 这里沿 tauri-mock.ts 的非 `import type` 依赖静态遍历，断言链上没有 client.ts。
- */
+/** 静态检查 `tauri-mock.ts` 的运行时导入链，确保不早于 mock 安装引用 `services/api/client.ts`。 */
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';

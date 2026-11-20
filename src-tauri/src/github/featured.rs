@@ -1,4 +1,4 @@
-//! 精选页货架组装（ADR-0023、ADR-0024）：纯函数，输入合并目录与本地画像，输出整页结构。
+//! 精选页货架组装纯函数：输入合并目录与本地画像，输出整页结构。
 
 use super::affinity::{Reason, SeedRelation, UserAffinityProfile, MAX_REASONS};
 use super::catalog_feed_score::{feed_jitter01, feed_stars_forks_base, FEED_JITTER_HALF};
@@ -55,7 +55,7 @@ pub enum ShelfKind {
 }
 
 impl ShelfKind {
-    /// 页面自上而下的展示位次（spec §2）；与组装去重顺序无关。
+    /// 页面自上而下的展示位次，与组装去重顺序无关。
     fn display_rank(self) -> u8 {
         match self {
             Self::BecauseYou => 0,

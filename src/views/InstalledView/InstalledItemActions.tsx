@@ -68,11 +68,7 @@ const CONFIRM_VARIANTS = {
   },
 } as const;
 
-/**
- * 已装行动作簇：宽度固定、不随状态换行。
- * 常态为 [更新日志图标]? + 主按钮（更新 / 启动）+ 更多菜单；卸载与取消管理收在更多菜单里，
- * 触发后整簇就地换成「确认 + 取消」，4 秒内不确认自动复原（计时在 InstalledView）。
- */
+/** 已装行固定宽度的动作簇，支持就地展开卸载/取消管理的二次确认。 */
 export const InstalledItemActions: React.FC<InstalledItemActionsProps> = ({
   app,
   isFrozen,

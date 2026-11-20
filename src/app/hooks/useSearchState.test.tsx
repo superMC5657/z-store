@@ -1,15 +1,4 @@
-/**
- * useSearchState 回归：
- *
- * - 本地搜索路由：结果落 setApps；非空搜索词在任意非 home 视图跳回 home；
- * - 换词草稿态：handleSearchDraft 立即同步新词、置本地搜索中并清空上一轮在线残留；
- * - stale 守卫：旧词迟到的本地/在线回包不覆盖新词（seq 串号丢弃）；
- * - 同词去重：本地已完成或在线结果集时 handleSearchChange 同词早退；冷启动在途连点不重复发包；
- * - 用户选择在线搜索（handleSearchSubmit）：本地未完成/失败时先补查本地再在线，第 1 页 20/页、结果落在线段；
- * - 在线空/失败保持本地结果并提示（info，不报错），显式重试允许重新发起；
- * - 触底翻页：守卫（loading 中 / 无下一页不拉）、按 id 去重追加、缓存翻页；
- * - 回声窗纯函数（echo）三语义锁定。
- */
+/** 测试 `useSearchState` 的本地/在线分段搜索、seq 竞态守卫、分页与回声窗协议。 */
 import { useRef, useState } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

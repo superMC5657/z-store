@@ -1,10 +1,7 @@
 import type { Window } from '@tauri-apps/api/window';
 import { isTauri, tauriInvokePlugin } from './api/client';
 
-/**
- * 桌面原生窗口与进程控制唯一出口（TitleBar / ResizeHandles / ClientUpdateRow 共用）：
- * `@tauri-apps/api/window` 与原生进程插件禁在视图/组件层直用（`noDirectInvoke` 卡点）。
- */
+/** 桌面原生窗口与进程控制出口（视图层禁止直接调用 `@tauri-apps/api/window`）。 */
 
 export type WindowResizeDirection = Parameters<Window['startResizeDragging']>[0];
 

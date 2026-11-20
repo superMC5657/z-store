@@ -3,10 +3,7 @@ use crate::AppState;
 use std::collections::HashSet;
 use tauri::State;
 
-/// 精选页整页货架（ADR-0023）。
-/// - `day_seed`：前端按本地日期给出的 `yyyymmdd` 整数，当天稳定、隔天轮换；
-/// - `allowed_ids`：App 层平台筛选后的可见应用 id；缺省表示不限制。平台筛选口径只在前端
-///   `selectPlatformFilteredApps` 一处维护，此处只按结果求交。
+/// 精选页整页货架：`day_seed`（`yyyymmdd`）控制当日轮换，可选 `allowed_ids` 按结果求交。
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_featured_page(
     state: State<'_, AppState>,

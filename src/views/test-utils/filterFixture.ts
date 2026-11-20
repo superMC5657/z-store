@@ -1,10 +1,7 @@
 import type { AppSummary } from '../../types';
 import { matchPlatformSet } from '../../lib/platformFilter';
 
-/**
- * 各 View 测试共用的应用夹具：`makeApp`、平台交集数据与常用构造器，
- * 测试文件只消费此处导出。
- */
+/** 各 View 测试共用的应用构造与平台过滤夹具。 */
 
 export function makeApp(overrides: Partial<AppSummary> & { id: string; name: string }): AppSummary {
   return {

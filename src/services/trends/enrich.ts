@@ -10,11 +10,7 @@ export const TREND_ENRICH_CACHE_MAX_ENTRIES = 600;
 /** 单次 enrich 最多 40 仓一次取回。 */
 export const TREND_ENRICH_MAX_TOTAL = 40;
 
-/**
- * 已确认 Other 标记 TTL：12h（与 enrich 同口径，到期重验）。
- * settle 兜底 / lite 空非 stale 确认的 Other 经此集合记忆，具平台到达即覆盖升级（put 具平台自动移除），
- * loading 空平台永不覆盖已具平台值（mark 前检查 enrich 已具平台则跳过）。
- */
+/** 已确认 Other 标记 TTL；到期后重验，具平台到达时自动覆盖。 */
 const TREND_CONFIRMED_OTHER_TTL_MS = TREND_ENRICH_CACHE_TTL_MS;
 /** 已确认 Other 标记内存有界：至多 600 条，FIFO 裁剪（与 enrich 同口径）。 */
 const TREND_CONFIRMED_OTHER_MAX_ENTRIES = 600;
@@ -27,24 +23,17 @@ function hasConcretePlatforms(platforms: unknown): boolean {
   return Array.isArray(platforms) && platforms.length > 0;
 }
 
-/**
- * wire 松散字段读取收口（本模块唯一 cast 点）：富卡 diff/merge 需按字段名循环
- * 访问 AppSummary 字段，且 wire 载荷可偏离声明（`is_stale` 未声明、stars 等可能
- * 为脏类型），统一 cast 成 unknown 后由调用方按值判定（richStr/Number/===）。
- */
+/** 读取动态对象字段。 */
 function readLoose(obj: object, key: string): unknown {
   return (obj as Record<string, unknown>)[key];
 }
 
-/** 松散字段写入收口（merge prev 回填专用）：值均取自同类摘要同名字段，循环键受限。 */
+/** 写入动态对象字段。 */
 function writeLoose(obj: object, key: string, value: unknown): void {
   (obj as Record<string, unknown>)[key] = value;
 }
 
-/**
- * 收录态标注剥离：`source` / `status` / `is_cataloged` 是后端按当前目录产物盖章的运行时标注，
- * 随本地收录变更即时变化，不写入共享富卡池与 L2 落盘，渲染侧按当前目录重新标注。
- */
+/** 剥离运行时目录标注（`source`/`status`/`is_cataloged`），避免写入共享富卡池。 */
 function stripCatalogAnnotations(summary: AppSummary): AppSummary {
   if (
     summary.source === undefined &&
@@ -191,20 +180,10 @@ function sweepExpiredTrendConfirmedOtherCache(): void {
   }
 }
 
-/**
- * M1 内存：trendEnrichCache（`repo_card_cache` 的前端镜像，12h/600 FIFO）。
- * 未收录单仓富卡三态均可入池：具体平台 > 已确认 Other（平台空 + 确认标记）> 平台未知（平台空、待推导）。
- */
+/** M1 内存富卡池（12h TTL / 600 条 FIFO）。 */
 const trendEnrichCache = new Map<string, { timestamp: number; data: AppSummary }>();
 
-/**
- * trendEnrichCache 唯一写入口（非破坏单调合并）：
- * - 三态富卡均入池；入站字段经 `fillMissingFromPrev` 合并，空/占位不覆盖已有实值，
- *   空平台不覆盖已具平台值（版本占位同样保留旧值）；
- * - 时间戳取新旧较大者（批量水合带回的旧 `updated_at` 不回退池内新鲜度）；
- * - 图标经 `resolveIconWithBuffer` 只升级不降级；`data:` 只驻 iconStore M1 缓冲，池内剥空；
- * - 具平台入池即撤销已确认 Other 标记。
- */
+/** 写入富卡池：非破坏字段合并、`data:` 图标剥空、具平台自动移除已确认 Other 标记。 */
 function putTrendEnrichCache(key: string, entry: { timestamp: number; data: AppSummary }): void {
   const k = normalizeId(key);
   if (!k) return;
@@ -253,14 +232,7 @@ export function clearTrendEnrichCache(): void {
   trendConfirmedOtherCache.clear();
 }
 
-/**
- * 向内存 `trendEnrichCache` 回填（三链路共享写口）：
- * - 准入：id/owner/repo 非空、`platforms` 为数组、非 stale、非已收录（`is_cataloged !== true`）；
- *   三态富卡均入池（平台未知的卡壳同样保留，平台由 lite 通道推导）；
- * - `data:` 图标先入 iconStore M1 缓冲（via=m2），池内剥空；
- * - `opts.timestamp` 为新鲜度基准（批量水合传数据库 `updated_at`），缺省为当前时刻；
- * - 键统一转为小写，同时写坐标键 `owner/repo` 别名。
- */
+/** 批量回填未收录富卡至 M1 内存池（`data:` 图标先注入 iconStore 缓冲并在池内剥空）。 */
 export function putTrendEnrichMemory(
   map?: Record<string, AppSummary> | Map<string, AppSummary> | null,
   opts?: { timestamp?: number },
@@ -294,10 +266,7 @@ export function putTrendEnrichMemory(
   }
 }
 
-/**
- * 读池内新鲜（12h 内）的单仓富卡，三态均返回（卡片存在性）；
- * 平台是否落定见 `peekFreshTrendEnrich`。
- */
+/** 读取池内 12h 内新鲜的单仓富卡（不限平台落定状态）。 */
 export function peekFreshRepoCard(key: string, now = Date.now()): AppSummary | undefined {
   const k = normalizeId(key);
   if (!k) return undefined;
@@ -319,14 +288,7 @@ export function evictTrendEnrichKeys(keys: Iterable<string>): void {
   }
 }
 
-/**
- * 内存快照（slice 内部读口）。
- * View 侧唯一出口为 board.snapshotBoardEnrich，不直调此函数。
- * - 可选传入 repos：若传入则仅提取属于这些 repos 的条目，否则提取全部；
- * - 仅提取未过期条目（elapsed<0 按过期；elapsed>=12h 按过期）；
- * - 具平台恒收录；loading 仅收录已确认新鲜键（Other 直展），未确认 loading 一律跳过（永不持久化）；
- * - 约束：跳过 dataURI。
- */
+/** 导出未过期的已落定富卡快照（具平台或已确认 Other，跳过 `data:` 图标）。 */
 export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, AppSummary> {
   const now = Date.now();
   const out: Record<string, AppSummary> = {};
@@ -366,10 +328,7 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
   return out;
 }
 
-/**
- * 榜单可展示卡片快照（三态均收，12h 内、非 stale、跳过 `data:` 图标条目）：
- * 键为榜单行坐标键（无坐标时取 id 键）。平台是否落定由调用方按 `platforms` / 确认集判断。
- */
+/** 导出榜单可展示的 12h 内非 stale 卡片快照（跳过 `data:` 图标）。 */
 export function snapshotTrendRepoCards(repos: readonly TrendRepo[]): Record<string, AppSummary> {
   const now = Date.now();
   const out: Record<string, AppSummary> = {};
@@ -388,10 +347,7 @@ export function snapshotTrendRepoCards(repos: readonly TrendRepo[]): Record<stri
   return out;
 }
 
-/**
- * 只读取用单条新鲜富卡（跨视图共享读口，零副作用）：12h 内且非 stale；
- * 空平台条目仅在已确认 Other 新鲜时返回。
- */
+/** 只读读取 12h 内且平台已落定的新鲜富卡（具平台，或空平台且已确认 Other）。 */
 export function peekFreshTrendEnrich(key: string, now = Date.now()): AppSummary | undefined {
   const k = normalizeId(key);
   if (!k) return undefined;
@@ -409,13 +365,7 @@ export function peekFreshTrendEnrich(key: string, now = Date.now()): AppSummary 
   return hit.data;
 }
 
-/**
- * Enrich 缓存新鲜条目取用单口（force→缺席→TTL）：
- * - force 直接不新鲜（重拉）；
- * - 无条目不新鲜；
- * - 卡片 12h 内即命中（三态一致：平台未知的卡片不重拉元数据，平台交由 lite 通道推导）；
- * - 空平台条目过期即驱逐；具平台条目过期保留旧值供图标合并后重拉；时钟倒退按过期驱逐。
- */
+/** 判断 enrich 缓存条目是否仍在 12h 新鲜期；空平台条目过期即驱逐，具平台条目保留供图标合并。 */
 export function takeFreshEnrichEntry(key: string, now = Date.now(), force = false): boolean {
   if (force) return false;
   const hit = trendEnrichCache.get(key);
@@ -437,10 +387,7 @@ export function takeFreshEnrichEntry(key: string, now = Date.now(), force = fals
   return false;
 }
 
-/**
- * 批量结果图标单口：data: 原样透出（调用方跳过入库，只活当次 out）；
- * 其余经 resolveIconWithBuffer 粘性合并（旧实 + 回填空 → 沿用旧 + 缓冲回读）。
- */
+/** 图标粘性合并：`data:` 原样透出，其余经 `resolveIconWithBuffer` 合并。 */
 export function mergeIconSticky(
   prev: AppSummary | undefined,
   next: AppSummary,
@@ -449,29 +396,7 @@ export function mergeIconSticky(
   return resolveIconWithBuffer(prev, next);
 }
 
-/**
- * Enrich 未收录 TrendRepo → AppSummary（Map 键为小写 `owner/repo`）。
- * 具平台缓存命中直接返回；已确认 loading 新鲜命中即直展（免验不重拉）；
- * 未确认 loading 永不命中（视为缺席，删后重拉，不直接返）；
- * 缺失批量走 Rust 命令；失败/空项缺席（调用方保留旧小行，榜单永不因此变空）。
- * 本函数永不抛错：传输层异常一律吞为“全部缺席”。
- *
- * 平台语义：`fallback_summary` 恒为 `[]`（后端不打标，other 纯前端虚拟），
- * 空 platforms 为 loading：未确认 loading 只活当次 out 渲染，永不进内存/落库（不进 trendEnrichCache）；
- * 已确认 loading 新鲜命中即直展（重挂免验，不重拉），stale 到期重拉；
- * 只有具平台才进 12h 内存（12h/600 FIFO）；后续靠应用详情刷新治愈（upsert from detail）。
- *
- * 单次批量：最多 40 仓一次取回（BE take(40)+buffered(5) 保序不变）；
- * 超 40 的仓留占位（out 缺席，调用方保留旧小行），榜单永不置空；失败整批缺席。
- *
- * forceRefresh（趋势刷新链显式传入）：跳过 12h 内存命中，整批直取并透传
- * 后端 `force_refresh`（网络 + 流式）；缺席即后端 DB-only（读 enrich 缓存）。
- *
- * per-field 新鲜度（本函数读路径）：
- * - icon 粘性 supersede-only：永不过期，只被非空新图标替换（resolveIconWithBuffer，put 与 out 同语义）；
- * - summary/desc 12h：到期重拉，但旧条目保留供图标合并（快照/sweep 仍视其过期）；
- * - platforms：loading 永不覆盖具平台值，具平台到达即覆盖治愈（详情治愈回填唯一写口）。
- */
+/** 批量补全未收录 `TrendRepo` 摘要（单次最多 40 条）；传输失败静默返回已命中部分。 */
 async function enrichTrendReposCore(
   repos: TrendRepo[],
   force: boolean,
@@ -541,11 +466,7 @@ export async function enrichTrendRepos(
   return enrichTrendReposCore(repos, opts?.forceRefresh === true);
 }
 
-/**
- * 详情治愈榜单行的跨组件通道（App → TrendsView）。
- * 详情成功带回真实平台时，App 派发此事件，TrendsView 即时补齐其 `enrichedApps`，
- * 行内从 loading 占位一次落定为 OS 图标（平台治愈路径）。
- */
+/** 详情带回真实平台时向榜单派发的治愈事件。 */
 export const DETAIL_PLATFORMS_HEAL_EVENT = 'zstore:detail-platforms-healed';
 
 export interface DetailPlatformsHealPayload {
@@ -579,8 +500,7 @@ export function detailHealKeysFor(id: string, owner: string, repo: string): stri
   return [...out].filter((k) => k.length > 0);
 }
 
-/** 由详情构造榜单可用的摘要（仅平台治愈场景，调用方保证 platforms 非空且非 stale）。
- * Rust 合成占位简介（未收录 external_synth 等）只剥占位→''，不动其它字段。 */
+/** 由详情构造榜单可用的摘要（剥离占位简介，保留真实字段）。 */
 export function appSummaryFromDetail(detail: AppDetail): AppSummary {
   const description = isPlaceholderDescription(detail.description) ? '' : detail.description;
   const descriptionEn =
@@ -610,14 +530,7 @@ export function appSummaryFromDetail(detail: AppDetail): AppSummary {
   };
 }
 
-/**
- * 详情治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一）：
- * loading 当次有效永不缓存，具平台 12h/600 FIFO；仅非空平台写入（空不写），
- * 后续同坐标 enrich 直接命中治愈值，不回退 `[]`。
- * 图标回填只做升级不做准入：详情弹窗特供的 data: 内联大图不进内存
- * （快照恒禁 data:，存了也落不了盘）；空图标不覆盖已有真实图标（put 入口合并）。
- * stale 详情一律不调用（调用方把关）。
- */
+/** 详情具平台时写入 enrich 长缓存（跳过 stale 详情，并剥离 `data:` 图标）。 */
 export function upsertTrendEnrichFromDetail(detail: AppDetail): void {
   if (!hasConcretePlatforms(detail.platforms)) return;
   if (detail.is_stale) return;
@@ -631,34 +544,9 @@ export function upsertTrendEnrichFromDetail(detail: AppDetail): void {
   }
 }
 
-/**
- * 富卡全字段更新检测：比较 prev（内存旧值）与 next（详情派生摘要），返回脏字段名。
- * - string 系 trim 比对，空 next 不覆盖实（不脏）；
- * - homepage '' 归一 null 后比对，next 为空不脏；
- * - latest_version 原样比对（不 trim），'latest'/'...' 占位不脏；
- * - stars/forks Number 比对（减少亦脏）；
- * - is_verified 布尔全量比对；
- * - platforms 排除在 dirty 外（平台通道另行治愈）；
- * - description/description_en 取 detail 非空优先（空不脏）；
- * - license 新值恰为 "OpenSource" 且 forge 非 github 时不脏（占位）；
- * - category 占位名单 external/dev/system/'' 不覆盖实（不脏）；
- * - name 过滤 '加载中...' 占位（不脏）；
- * - icon/icon_bg 剔除出 dirty（归 icon 通道）。
- */
 const RICH_CATEGORY_PLACEHOLDERS = new Set(['', 'external', 'dev', 'system']);
 const RICH_VERSION_PLACEHOLDERS = new Set(['latest', '...']);
-/**
- * 富卡简介占位名单：前端单源（diff/merge/patch 三处消费均经 `isPlaceholderDescription`，
- * 名单单源），以后端为准与之同形。
- * 后端真相源 `src-tauri/src/github/detail_fetch.rs::is_placeholder_description`：
- * 空白视为占位 + 已知占位子串 contains + 英文占位大小写不敏感兜底。
- * - 条目与后端对齐（未收录 external_synth / 在线搜索空描述 / 展示兜底），另保留
- *   en-US 展示兜底 'No description'（后端为其超集 'No description available' 的子串，
- *   显式保留，见 richcard.test.ts）；
- * - 唯一有意差异：空串前端返回 false（调用方 `b !== ''` 分支已先处理空；后端视空为占位）。
- *   空在三处消费点均先被过滤，行为同形（同上测试锁定）。
- * 展示侧：空或占位显示 trends.no_desc，中英任一有效即显示（见 AppCard）。
- */
+/** 富卡简介占位文案名单（与后端 `detail_fetch.rs` 对齐，保留 `'No description'` 供展示兜底）。 */
 const RICH_DESCRIPTION_PLACEHOLDERS: readonly string[] = [
   'GitHub 社区开源项目',
   '开源软件项目',
@@ -749,11 +637,7 @@ export function diffRichSummary(prev: AppSummary, next: AppSummary): string[] {
   return dirty;
 }
 
-/**
- * 富卡治愈跨组件通道（App → TrendsView，与平台治愈并行）。
- * 详情成功返回（非 stale）时，App 经 diff→upsert 落 enrich 后派发此事件，
- * TrendsView 字段级 merge 写透。
- */
+/** 详情更新后向榜单派发的富卡治愈事件。 */
 export const DETAIL_RICHCARD_HEAL_EVENT = 'zstore:detail-richcard-healed';
 
 export interface DetailRichcardHealPayload {
@@ -792,11 +676,7 @@ function emptyRichBaseline(): AppSummary {
   };
 }
 
-/**
- * 富卡 prev 回填单口（空/占位不覆盖实，就地改 merged 并返回）：
- * icon data:/空保留旧实；name '加载中...'、简介占位、license OpenSource 非 github、
- * latest_version/category 占位、homepage 空、平台空均保留旧。
- */
+/** 用已有富卡 `prev` 回填 `merged` 中的空值与占位字段（`data:` 图标剥为空串，空平台不覆盖具平台）。 */
 export function fillMissingFromPrev(
   prev: AppSummary | undefined,
   merged: AppSummary,
@@ -861,16 +741,7 @@ export function fillMissingFromPrev(
   return merged;
 }
 
-/**
- * 富卡治愈写入 enrich 长缓存（详情具平台治愈唯一写口之一，处理全字段）：
- * loading 当次有效永不缓存（put 入口守卫空平台直接丢弃），具平台 12h/600 FIFO；
- * - stale 详情整单丢弃，返回 null；
- * - icon data: 剥成 ''，空图标保留旧；
- * - 其余 string 空/占位不覆盖实（name '加载中...'、category 占位、license OpenSource 非 github、
- *   latest_version 占位、homepage 空均保留旧）；
- * - 平台空不覆盖已具平台值；
- * - put 后返回 { summary, dirtyFields }（无旧值时以空基线求 dirty；put 本体守卫不动）。
- */
+/** 将非 stale 详情合并写入富卡池并返回更新后的摘要与变更字段列表。 */
 export function upsertTrendEnrichRichcard(
   detail: AppDetail,
   prevLookup?: (key: string) => AppSummary | undefined,
@@ -912,10 +783,7 @@ export function upsertTrendEnrichRichcard(
   return { summary: merged, dirtyFields };
 }
 
-/**
- * 格式化星数显示（与 AppCard 规范对齐）。
- * SSOT：全仓唯一 `formatStars` 实现，其余文件禁止本地复刻，一律从此处导入。
- */
+/** 格式化星数显示（>=1000 显示为 `k`）。 */
 export function formatStars(count: number): string {
   if (count >= 1000) {
     return `${(count / 1000).toFixed(1)}k`;
@@ -923,14 +791,7 @@ export function formatStars(count: number): string {
   return count.toString();
 }
 
-/**
- * 跨源匹配 catalog.json 本地应用：仅 owner 佐证才命中，跨 owner 永不命中——
- * - aId === tId（canonical id 全等），或
- * - 归一 fullName 相等（`owner/repo` 小写全等，含 tId 本身即 fullName 的情形），或
- * - owner 与 repo 同时相等；
- * 无 repo 单字段 / name 模糊匹配，同名不同 owner（如 `acme/atlas` vs `evil/atlas`）
- * 绝不互命中，避免错绑卡片与平台误判。
- */
+/** 按 canonical id 或 `owner/repo` 匹配本地收录应用（需 owner 一致，避免同名仓库误匹配）。 */
 export function matchCatalogApp(trend: TrendRepo, catalogApps: AppSummary[]): AppSummary | undefined {
   const tId = normalizeId(trend.id);
   const tOwner = normalizeId(trend.owner);

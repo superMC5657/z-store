@@ -143,11 +143,7 @@ impl Database {
         Ok(out)
     }
 
-    /// 显式事务边界（Top1+2 写包事务化）：
-    /// `BEGIN IMMEDIATE` → 闭包内全部写 → `COMMIT`，失败 `ROLLBACK` 并返回 Err。
-    /// 用 `&self` + `execute_batch` 实现以保持 `&self` 写 API（调用方经 `state.db()` 互斥锁已独占，
-    /// 无嵌套事务），WAL/`busy_timeout` 沿用连接既有配置，不改 schema/API 形状。
-    /// 调用方保持 `let _ =`/`ok()` 吞错语义：事务失败返回 Err，上层忽略并由下次搜索/详情重试。
+    /// 以 `BEGIN IMMEDIATE` 包裹一组写操作，失败时回滚并返回错误。
     pub(crate) fn with_immediate_transaction<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         let res = f();

@@ -2,11 +2,11 @@ use super::{clean, now_secs, Database};
 use rusqlite::{params, Result};
 use std::collections::HashMap;
 
-/// ADR-0007：应用详情缓存保鲜期（TTL）默认推荐值（分钟，优先读取 config.toml）。
+/// 应用详情缓存保鲜期（TTL）默认值（分钟，读取 config.toml）。
 pub fn default_detail_cache_ttl_minutes() -> i64 {
     crate::config::get_project_config().cache.detail_ttl_minutes
 }
-/// ADR-0007：TTL 有效挡位（分钟）：0=每次实时校验，10/60/360/1440。
+/// 详情缓存 TTL 有效挡位（分钟）：0 表示每次实时校验。
 pub const DETAIL_CACHE_TTL_VALID_MINUTES: [i64; 5] = [0, 10, 60, 360, 1440];
 
 /// 通用图片磁盘缓存配额默认值（兆字节，优先读取 config.toml）。

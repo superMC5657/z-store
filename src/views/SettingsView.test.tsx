@@ -1,12 +1,4 @@
-/**
- * 信任阻尼 — 自定义应用收录源需经过二次破坏性确认。
- *
- * - 保存非默认（自定义）catalog_source_url 时，首先进入确认步骤（高危“确认切换” + 警告），
- *   此时尚未持久化；确认后方才持久化该自定义 URL。
- * - 保存为空值（= 官方默认源流）立即生效。
- * - 取消确认会直接丢弃改动而不予持久化。
- * - 重新保存当前已生效的相同自定义 URL 立即应用（无改动）。
- */
+/** 测试 `SettingsView` 保存自定义应用收录源时的二次确认与持久化交互。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';

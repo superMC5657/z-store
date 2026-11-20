@@ -106,10 +106,7 @@ export const buildUserDataBackup = (
   return backup;
 };
 
-/**
- * 备份 JSON 中的草稿提取（纯函数，可单测）：仅收合法条目
- * （id 非空 + item 为对象），非法行直接丢弃。
- */
+/** 从备份 JSON 中提取合法草稿条目（id 非空且 item 为对象）。 */
 function parseBackupCustomApps(json: string): BackupCustomAppItem[] {
   try {
     const raw = JSON.parse(json) as { custom_apps?: unknown };
@@ -225,11 +222,7 @@ interface DataBackupRowProps {
   installedCount?: number;
 }
 
-/**
- * 导出与备份操作行（设置 → 数据与备份）：
- * 统一承载应用列表导出、用户数据导出/导入、脱敏诊断日志导出与日志目录打开入口；
- * 三项导出均通过后端保存文件对话框默认定位至日志目录。
- */
+/** 导出与备份操作行：承载应用列表导出、用户数据导入导出及诊断日志入口。 */
 export const DataBackupRow: React.FC<DataBackupRowProps> = ({ installedCount = 0 }) => {
   const { t } = useTranslation();
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);

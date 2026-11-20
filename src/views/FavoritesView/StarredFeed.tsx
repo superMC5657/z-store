@@ -96,10 +96,7 @@ interface RestoredQuery {
   isFresh: boolean;
 }
 
-/**
- * 从分页缓存恢复某目标的第 1..pages 页；任一非空页缺失（过期/被挤出）即不恢复。
- * 没有查询记录但第 1 页仍在缓存时只恢复第 1 页（满页即视为还有下一页）。
- */
+/** 从 L1 分页缓存恢复某目标第 1..pages 页；任一非空页缺失即放弃恢复。 */
 function restoreQuery(target: StarredTarget): RestoredQuery | null {
   const known = getQueryMemory(target.key);
   const memory: StarredQueryMemory = known ?? { target, pages: 1, hasMore: false, emptyPages: [] };
@@ -167,14 +164,8 @@ interface StarredFeedProps
 }
 
 /**
- * 收藏页「Star 同步」：查询任意 GitHub 用户（或登录账号）的 Star 列表，按 Star 时间倒序逐页展示应用卡片。
- * 每页 20 个，到底后继续下拉或点按钮加载下一页（同搜索页）。
- * - 进入视图：先从分页缓存恢复最近一次查询；没有则读 SQLite 快照（`starred_feed_cache`）零网络直展，
- *   不自动联网（收藏页手动同步）；
- * - 切换目标：分页缓存 5min 内直出，5–30min 先展示再后台同步第 1 页；否则读快照（12h 内直出，更旧先展示再同步）；
- * - 对当前目标点「同步」：旧卡片保留在屏，第 1 页经后端 ETag 条件请求更新（未变 304 零配额）；
- * - 快照只存前 3 页有序 id：与 GitHub 同步第 1 页或续拉成功时直接写一次，卡片平台/图标变更不重写；
- *   快照恢复经 `hydrateCardsByIds` 一次水合（目录 + `repo_card_cache` + 确认图标）；登出即清 `@me:` 私有缓存。
+ * 收藏页「Star 同步」标签页：按 Star 时间倒序分页展示指定账号的 GitHub Star 列表，
+ * 支持 L1 分页缓存与 SQLite L2 快照恢复，以及 ETag 条件同步和上拉/点击续页。
  */
 export const StarredFeed: React.FC<StarredFeedProps> = ({
   oauthUser,
@@ -241,11 +232,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     rememberQuery({ ...memory, emptyPages: [...memory.emptyPages] });
   };
 
-  /**
-   * 快照首绘：按页 id 一次批量水合（目录 → 共享富卡池 → `repo_card_cache` + 确认图标），
-   * 已确认 Other 上报平台落定；新鲜快照同时铺进分页缓存。查询已切换或账号已变即丢弃。
-   * 返回是否已上屏。
-   */
+  /** 按页 id 批量水合快照首绘，命中新鲜快照时同步填充 L1 分页缓存；查询已变更则返回 false。 */
   const hydrateSnapshot = async (target: StarredTarget, hit: StarredL2Hit, gen: number): Promise<boolean> => {
     const env = hit.envelope;
     const allIds = env.pages.flatMap((p) => p.ids);
@@ -286,9 +273,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     pageIdsRef.current = [...rest, { page, ids }].sort((a, b) => a.page - b.page);
   };
 
-  // 登录名变化：登出/换账号即清内存里的 `@me:` 私有缓存；显示中的「自己的 Star」若不属于新账号即清空；
-  // 未查询时补默认用户名，并尝试恢复该账号上次的结果（挂载时登录信息可能尚未到达），
-  // 分页缓存没有就读 SQLite 快照零网络直展。
+  // 登录名切换时清理私密缓存与不属于新账号的结果，并尝试恢复新账号上次的缓存/快照
   useEffect(() => {
     // 只认本次挂载内观察到的变化：挂载时登录信息可能尚未到达，不算登出（App 级另有全局清理）。
     const prevLogin = prevLoginRef.current;
@@ -333,9 +318,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     // 只跟随登录名变化；用户已输入的内容不覆盖
   }, [login]);
 
-  // 与在线搜索走同一套后处理流水线：
-  // 1) 订阅后台流式图标写透 + 详情/缓存行写透；
-  // 2) 轻量平台回填（forceRefresh=false 优先命中 TTL 缓存，miss 再探 releases/latest）+ 15s settle 落定为 Other。
+  // 订阅后台图标/缓存补丁，并启用列表平台回填
   useEffect(() => {
     return subscribeIconWrites(({ targets, icon }) => {
       setRows((prev) => {
@@ -374,7 +357,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
       recordSharedConfirmedOthers(res.confirmed_other_ids);
       onConfirmPlatformOtherIds?.(res.confirmed_other_ids);
     }
-    // 同一目标沿用屏上旧行做图标粘性合并（同步第 1 页时不闪空图标）。
+    // 同一目标合并屏上旧行的已解析图标，避免同步第 1 页时图标闪烁
     const prev = targetRef.current?.key === target.key ? rowsRef.current : [];
     const assembled = assembleOnlineRowsWithIcons(prev, res.rows);
     if (assembled.length === 0) {
@@ -386,10 +369,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
     return { ...res, rows: assembled };
   };
 
-  /**
-   * 同步第 1 页并替换屏上结果；新第 1 页与屏上前缀一致时保留已加载的后续页。
-   * 失败抛给调用方（屏上旧卡片不动）。
-   */
+  /** 同步第 1 页并更新列表；前缀一致时保留已加载的后续页。 */
   const syncFirstPage = async (target: StarredTarget, gen: number, forceRefresh: boolean) => {
     const res = await fetchPage(target, 1, forceRefresh);
     if (gen !== queryGenRef.current) return;
@@ -511,8 +491,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
 
   const { isMovingIn, handleMoveIn } = useMoveInToDraft();
 
-  // 与在线搜索 / 趋势榜对齐：显式标注 is_cataloged（命中目录或本地收录即隐藏移入入口），
-  // 并对本地收录行叠加橘黄 local 角标（蓝标优先，独立单测未传目录时保留行自身标注）。
+  // 显式标注收录态与本地收录角标（未传入目录时保留行自身标注）
   const annotatedRows = useMemo(
     () =>
       catalogApps !== undefined

@@ -1,10 +1,4 @@
-/**
- * TitleBar 搜索触发时机与 IME 防误触回归测试：
- * - 输入新词：立即回调 onSearchDraft，250ms 防抖后触发本地搜索 onSearchChange；
- * - 清空搜索：立即触发 onSearchChange('')；
- * - 输入法合成态按 Enter（isComposing / keyCode=229 / compositionend 50ms 内）：不调用 preventDefault 且不提交；
- * - 正常按 Enter：调用 preventDefault，取消防抖并立即触发本地搜索（且不触发任何在线请求）。
- */
+/** 测试 `TitleBar` 的输入防抖搜索、立即清空及 IME 合成期 Enter 拦截。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';

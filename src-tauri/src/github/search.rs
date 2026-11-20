@@ -184,13 +184,7 @@ pub(crate) struct RepoEtagFetchOutcome {
 }
 
 impl CatalogService {
-    /// 关键词在线搜索（GitHub Search API，走 `api_etag_cache` 条件请求）。
-    /// 本函数零 DB：调用方短锁预读 `cached_etag` / `cached_payload` 传入，返回后再统一落库或 touch。
-    /// - `200`：解析新载荷，返回待落库 ETag；
-    /// - `304`：解析缓存载荷，零配额；
-    /// - 网络/限流失败：有可解析旧载荷则回退（`is_stale=true`），否则上浮错误（区分「空结果」与「失败」）。
-    ///
-    /// 卡片 `probe=false` 置空图标，确认图标与后台补探由调用方处理。
+    /// 关键词在线搜索（GitHub Search API，支持 ETag 条件请求；失败时若存在可用缓存则降级返回旧载荷）。
     #[allow(clippy::too_many_arguments)]
     pub async fn search_github_online(
         &self,
@@ -373,9 +367,7 @@ impl CatalogService {
         Ok(item)
     }
 
-    /// 带预读 ETag 与缓存载荷的单仓拉取（fetch 内零 DB 查询、零 DB 直连，遵 ADR-0015）：
-    /// 调用方在单次短锁内预读 `cached_etag` / `cached_payload` 传入，并在批量完成后统一落库返回的 `(endpoint_url, etag, payload_json)`。
-    /// `probe_icons=false` 时不内联探图（图标置空或沿用 `pre_confirmed`），供批量快返后交给后台流式补图。
+    /// 带预读 ETag 与缓存载荷的单仓拉取（零 DB 查询）；`probe_icons=false` 时不内联探图。
     #[allow(clippy::too_many_arguments)]
     pub async fn fetch_online_repo_with_etag(
         &self,

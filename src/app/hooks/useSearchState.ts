@@ -63,15 +63,7 @@ function persistOnlinePage(
   );
 }
 
-/**
- * 回声窗协议纯函数（可单测，`HomeView.search-icon.test.tsx` 三 CTS 锁定）：
- * 回声为唯一真源，永不回落请求串号。
- * - `settlePageEcho`：首刷落定；有效 `sid` 即立期望（回声真源）。
- * - `settleMoreEcho`：翻页落定；seq 失配（旧页/旧次迟到）直接丢不覆盖；
- *   seq 对上但无 sid 不覆盖（保持旧期望）；有 sid 落定后以最新为准。
- * - `adoptEchoInWindow`：窗内（期望空）首个搜索回声即立期望（与 `App.tsx` 同语义）；
- *   已立期望后异 sid 由店内门控判 stale，此处不覆盖（窗内只采首个）。
- */
+/** 回声窗协议纯函数：以服务端的真实 sid 回声作为期望真源，过滤迟到的旧轮事件。 */
 // Empty sid never settles the expectation — callers pass a valid sid (guarded at the call site).
 export function settlePageEcho(ref: { current: string }, sid: string): void {
   if (sid) ref.current = sid;
@@ -188,7 +180,7 @@ export function useSearchState({
     resetOnlineState(seq);
   };
 
-  // 第一阶段：本地搜索（输入防抖、回车、历史点击或深链触发，搜索本地目录并清空当前在线结果与在途状态）
+      // 本地搜索（输入防抖、回车、历史点击或深链触发，同时清空上一轮在线状态）
   const handleSearchChange = async (q: string) => {
     const trimmed = q.trim();
     const prevTrimmed = searchQueryRef.current.trim();
@@ -231,8 +223,7 @@ export function useSearchState({
     }
   };
 
-  // 第二阶段：在线搜索（由用户在搜索结果页显式选择触发）。
-  // `forceRefresh` 仅显式「重试在线搜索」传 true：跳过列表缓存与后端 ETag/TTL 快径直探远端。
+  // 在线搜索：`forceRefresh` 为 true 时跳过列表缓存直探远端。
   const handleSearchSubmit = async (queryToSubmit?: string, opts?: { forceRefresh?: boolean }) => {
     const forceRefresh = opts?.forceRefresh === true;
     const q = (queryToSubmit !== undefined ? queryToSubmit : searchQueryRef.current).trim();
@@ -287,9 +278,7 @@ export function useSearchState({
         }
       }
 
-      // 搜索列表缓存（非强刷）：命中第 1 页先直展；5min 内新鲜即零网络返回，
-      // 5–30min 先展示再后台 `searchAppsOnline(force=false)` 走后端 ETag 静默重验
-      // （沿用 searchSeqRef/guardFreshSearch 防串）。缺平台行照常懒回填（不强穿 TTL）。
+      // 命中列表缓存时先直展；过期但尚在宽限期内的条目同时在后台 ETag 重验
       let hadCacheHit = false;
       const paintCached = (rows: AppSummary[], cachedHasMore: boolean): boolean => {
         const assembledCached = assembleOnlineRowsWithIcons([], rows);
@@ -396,9 +385,7 @@ export function useSearchState({
     }
   };
 
-  // 在线结果触底翻页：后端满页/has_more 时自动要下一页（page+1），追加到在线段；
-  // 限流/失败 toast 与首屏保持原样（info 级，不抛错阻塞列表）。
-  // 搜索列表缓存翻页。
+  // 在线结果翻页：追加下一页到在线段
   const handleOnlineLoadMore = useCallback(async () => {
     if (isLoadingOnlineMoreRef.current || isSearchingOnlineRef.current || isSearchingOnline) return;
     if (!isOnlineResultSetRef.current || !onlineHasMoreRef.current) return;
@@ -468,9 +455,7 @@ export function useSearchState({
       const morePrivate = recordPageSignals(moreRes);
       const more = moreRes.rows;
       if (more && more.length > 0) {
-        // 按 id 去重后追加到在线段（跳过在线段已有项；本地段不动）。
-        // 图标回填与首屏同口径：经 `assembleOnlineRowsWithIcons` 粘性合并 + M1 缓冲回读，
-        // 空壳不覆盖缓冲实图；卡有 http 实图首绘即对（跳过双 IPC 取图链，按批直展）。
+        // 按 id 去重后与缓冲图标粘性合并追加到在线段
         const assembledMore = assembleOnlineRowsWithIcons(onlineAppsRef.current ?? [], more);
         setOnlineApps((prev) => {
           const seen = new Set(prev.map((a) => (a.id || '').toLowerCase()));

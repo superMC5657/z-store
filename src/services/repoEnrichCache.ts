@@ -1,12 +1,6 @@
 /**
- * 单仓富卡共享镜像（Repo Enrich Cache）：SQLite `repo_card_cache` 的前端 M1 镜像，
- * 趋势榜、在线搜索与 GitHub Star 三条链路按规范应用标识共享未收录仓库的轻量富卡。
- * 底层与趋势 `trendEnrichCache` / `trendConfirmedOtherCache` 为同一存储（12h TTL、600 条 FIFO）：
- * - 三态均可入池：具体平台 > 已确认 Other > 平台未知（卡片已知、平台待推导）；
- * - 写入非破坏合并：空/占位字段与未知空平台不覆盖实值、具体平台或已确认 Other；
- * - `data:` 图标只驻 iconStore M1 缓冲，收录态标注在池入口剥离（见 `trends/enrich`）；
- * - 列表只存有序 id 索引，卡片经 `hydrateCardsByIds` 按「目录 → M1 → `get_repo_cards_batch`」水合；
- * - 私有仓库 id 单独记录，登出即从池内清除。
+ * 单仓富卡共享缓存（SQLite `repo_card_cache` 的前端 M1 镜像，与趋势富卡池共用存储）。
+ * 写入按字段非破坏合并，`data:` 图标仅驻留 iconStore 缓冲，登出时清除私有仓库条目。
  */
 import type { AppSummary, HydratedRepoCard } from '../types';
 import { tauriApi } from './api';
@@ -81,10 +75,7 @@ function lookupPooledCard(row: AppSummary): AppSummary | undefined {
   return (idKey ? peekPooledCard(idKey) : undefined) ?? (ck ? peekPooledCard(ck) : undefined);
 }
 
-/**
- * 首绘回填：行缺平台而池内卡片具平台时补平台（真实版本同时替换占位版本）；
- * 行为裸壳时补齐池内非占位的简介、协议、主页与远端图标。无可改进时原样返回同一引用。
- */
+/** 从共享池回填首绘缺省字段（平台、简介、协议、主页、图标）；无可改进时返回原引用。 */
 export function hydrateRowFromSharedEnrich(row: AppSummary): AppSummary {
   if (!row) return row;
   const hit = lookupPooledCard(row);
@@ -126,10 +117,7 @@ export function recordSharedRepoCards(rows: readonly AppSummary[]): void {
   if (out.size > 0) putTrendEnrichMemory(out);
 }
 
-/**
- * 写回具平台：`patched`（归一 id → 平台）优先，否则取行自带的非空平台。
- * 写入具平台会同时撤销该仓的已确认 Other 标记；空平台行跳过。
- */
+/** 写回具平台信息（优先取 `patched`），并撤销对应仓库的已确认 Other 标记。 */
 export function recordSharedRepoPlatforms(
   rows: readonly AppSummary[],
   patched?: ReadonlyMap<string, string[]>,
@@ -217,15 +205,7 @@ function isFreshUpdatedAt(updatedAtSecs: number, now: number): boolean {
   return elapsed >= 0 && elapsed < TREND_ENRICH_CACHE_TTL_MS;
 }
 
-/**
- * 按有序 id 批量水合卡片：
- * 1. 去重归一并保持入参顺序；
- * 2. 命中当前合并目录（精选 + 本地库）直接投影；
- * 3. 命中 M1 共享池（12h 内）零 IPC 组装；
- * 4. 其余单次 `get_repo_cards_batch`（DB-only）：确认图标进 iconStore 缓冲，私有/已确认 Other 记账，
- *    未收录卡片按数据库 `updated_at` 写回 M1；
- * 5. 组装时经 `resolveIconWithBuffer` 叠加缓冲图标（`data:` 仅出现在返回对象上，池内永不存）。
- */
+/** 按有序 id 批量水合卡片（目录 → M1 共享池 → `get_repo_cards_batch`），并叠加缓冲图标。 */
 export async function hydrateCardsByIds(
   ids: readonly string[],
   opts?: HydrateCardsOptions,

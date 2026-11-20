@@ -1,34 +1,22 @@
-//! 图标探测原语 SSOT（与 z-store-catalog 同源逻辑）：
-//! 品牌库 Simple Icons → 翻全家 Git Trees 全库评分。
-//! 本模块只负责“找 URL 并验字节”，缓存读写与持久化统一由 `crate::icons` 负责。
-//!
-//! 探针原语层（`derive_slugs`/`score_candidate`/`verify_image`+`fetch_range_head`/
-//! `probe_simple_icons`/`probe_trees`/`resolve_probe_branches`，`buffered(3)`+首包验图+caps），
-//! 调度与 L2→L3 编排在 `icons::fetch`（`probe_single_live`/`fetch_icons_stream` +
-//! `scaled_total_timeout` 纯决策）。本模块永不触 DB/fs，持久化单一路径在 `icons::write_icon_file`。
-//! D5/D6/D8：双池复用（调用方给 client，CDN 恒丢 token）+ `buffered(3)` 有界 +
-//! 首包验图与跳过（HEAD→Range 首 32KB→magic→300B）。
-//! level 纯L（2=L2品牌库，3=L3仓库），via=live|m2 正交（本层只产 live URL，
-//! M2 回填由调用方经 via=m2 直发）；key 小写 owner/repo（ADR-0010）。
+//! 图标探测原语：SimpleIcons 品牌库与 Git Trees 全库评分，负责查找 URL 并校验字节。
 
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 
-/// 探测命中结果：权威 URL（统一用 `raw.githubusercontent.com`，除 Simple Icons 用其 CDN）。
+/// 探测命中结果（SimpleIcons CDN 或 `raw.githubusercontent.com` URL）。
 pub(crate) struct ProbedIcon {
     pub url: String,
     pub source: &'static str,
 }
 
 /// 由仓库名派生 Simple Icons slug 候选（小写去分隔符优先，保留原样其次）。
-/// 例：`SeriousSamClassic-VK` → `["serioussamclassicvk", "serioussamclassic-vk"]`
 pub(crate) fn derive_slugs(repo: &str) -> Vec<String> {
     let lower = repo.trim().to_lowercase();
     let stripped: String = lower
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
-    // 纯符号名派生不出可用 slug，直接返回空（调用方逐个试错无意义）。
+    // 纯符号名无法派生有效 slug。
     if stripped.is_empty() {
         return Vec::new();
     }
@@ -42,14 +30,7 @@ pub(crate) fn derive_slugs(repo: &str) -> Vec<String> {
     out
 }
 
-/// README 正文图判别 SSOT（ADR-0015 §3 单一探源，供 `score_candidate` 负分 +
-/// `icons::fetch::is_body_image_url` 共用）：
-/// - 关键词见 [`BODY_IMAGE_KEYWORDS`] + `shields.io` 域名（badge CDN，trees 路径永不出现但 URL 侧需判）；
-/// - 口径为 path-segment 精确匹配：取 URL/path 最后一段文件名，去扩展名 + 剥 query/fragment 后小写全等
-///   （或复数 `+s` 全等），非 substring。`preview-logo.png` / `demo-icon.svg` /
-///   `discover.png`（含 `cover` 子串）/ `badger.png`（含 `badge` 子串）等含关键词的合法 Logo 不判为正文；
-/// - 合法 Logo 优先：文件名含 `logo`/`icon` 直接放行（README L4 提取口径同源），避免误杀；
-/// - 仅 README-body 上下文调用（detail.icon 过滤 + trees 评分负分），L2/L3 权威直出不经此。
+/// README 正文插图关键词表（用于 `is_readme_body_image` 按文件名 stem 精确排除）。
 pub(crate) const BODY_IMAGE_KEYWORDS: &[&str] = &[
     "screenshot",
     "preview",
@@ -63,9 +44,7 @@ pub(crate) const BODY_IMAGE_KEYWORDS: &[&str] = &[
     "license",
 ];
 
-/// README 正文图判别唯一实现（见 [`BODY_IMAGE_KEYWORDS`] 文档）：
-/// `shields.io` 域名直接判真；其余取最后 path segment 文件名 stem 精确匹配（+复数），
-/// 含 `logo`/`icon` 的合法 Logo 一律放行。
+/// 判断路径或 URL 是否为 README 正文插图（屏蔽 `shields.io` 及精确匹配的插图文件名，含 `logo`/`icon` 放行）。
 pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
     let lower_full = path_or_url.to_ascii_lowercase();
     if lower_full.contains("shields.io") {
@@ -75,9 +54,7 @@ pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
     if trimmed.is_empty() {
         return false;
     }
-    // 剥 query/fragment。
     let no_frag = trimmed.split(['#', '?']).next().unwrap_or(trimmed);
-    // 去 scheme://host，保留 path（无 scheme 时整串即 path）。
     let path = if let Some(idx) = no_frag.find("://") {
         let after = &no_frag[idx + 3..];
         after.find('/').map(|i| &after[i + 1..]).unwrap_or("")
@@ -88,7 +65,6 @@ pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
     if filename.is_empty() {
         return false;
     }
-    // 去扩展名（最后一个 '.' 后缀），小写。
     let stem = filename
         .rsplit_once('.')
         .map(|(s, _)| s)
@@ -98,7 +74,6 @@ pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
     if stem.is_empty() {
         return false;
     }
-    // 合法 Logo 优先放行（与 README L4 提取的 logo/icon 口径同源）。
     if stem.contains("logo") || stem.contains("icon") {
         return false;
     }
@@ -107,10 +82,7 @@ pub(crate) fn is_readme_body_image(path_or_url: &str) -> bool {
         .any(|k| *k == stem || (stem.len() == k.len() + 1 && stem.strip_suffix('s') == Some(*k)))
 }
 
-/// 启发式评分（与 catalog-shared `scoreIconCandidate` 同规则）。
-/// 非 png/svg/ico 直接 -100；命中正分才会被采用。
-/// 正文图负分经 [`is_readme_body_image`] 单一探源（README-body 上下文 path-segment 精确匹配，
-/// 合法 Logo 含关键词不罚分），substring 表仅此一套。
+/// 启发式评分仓库文件是否为应用主图标（非 png/svg/ico 返回 -100，正分才采用）。
 pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) -> i32 {
     let lower = file_path.to_lowercase();
     let ext = lower.rsplit('.').next().unwrap_or("");
@@ -171,8 +143,7 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
         score += 50;
     }
 
-    // 降级 UI 字形惩罚（duckstation vidicon-line 回归项：monochrome/symbolic 线框套装
-    // 并非应用主图标；JS 端同规则会给出 70 分，此处显式压低）。
+    // 压低单色/线框 UI 字形分数，避免误选为应用主图标。
     if lower.contains("monochrome") || lower.contains("symbolic") {
         score -= 40;
     }
@@ -180,7 +151,6 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
         score -= 30;
     }
 
-    // 2. 分辨率加权。
     if lower.contains("512")
         || lower.contains("large")
         || lower.contains("hi-res")
@@ -200,7 +170,6 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
         score -= 20;
     }
 
-    // 3. 语义目录加权。
     if lower.starts_with("res/")
         || lower.starts_with("assets/")
         || lower.starts_with("resources/")
@@ -228,8 +197,7 @@ pub(crate) fn score_candidate(file_path: &str, size: Option<u64>, repo: &str) ->
 }
 
 fn raw_url(owner: &str, repo: &str, branch: &str, file_path: &str) -> String {
-    // owner/repo/branch 整段编码（含 `/` 的分支名编码为 `%2F`，确保路径不截断）；
-    // file_path 保留 `/` 分隔逐段编码（对齐 markdown.rs 相对路径编码写法）。
+    // branch 整体编码以保留含 `/` 的分支名，file_path 按段编码以保留路径分隔符。
     let encoded_path = file_path
         .trim_start_matches('/')
         .split('/')
@@ -292,9 +260,7 @@ fn magic_is_image(chunk: &[u8], ctype: &str) -> bool {
     !ctype.contains("octet-stream")
 }
 
-/// 确定性 HTTP 不存在状态码（`404 Not Found` / `410 Gone`）：
-/// 收到此状态码时 `verify_image` 与 `fetch_range_head` 立即短路返回未命中，
-/// 避免对同一 404 URL 继续发起 Range GET 与全量 GET 造成 3 倍串行请求放大。
+/// 确定性 HTTP 不存在状态码（404/410），收到后立即短路避免后续 Range/全量请求放大。
 pub(crate) fn is_terminal_http_miss(status: reqwest::StatusCode) -> bool {
     matches!(
         status,
@@ -303,22 +269,16 @@ pub(crate) fn is_terminal_http_miss(status: reqwest::StatusCode) -> bool {
 }
 
 enum RangeProbeOutcome {
-    /// 已得出确定性结论：`Some((len, ctype))` 为有效图片，`None` 为确定性失败（如 404/410、非图片头或魔数不符）。
     Verified(Option<(usize, String)>),
-    /// Range 请求本身不被支持或网络超时/失败，需回退全量 GET（或信任已完成预检的 HEAD）。
     NeedFallback,
 }
 
-/// 实测图片字节：200 + image/* + ≥300B（与 `verifyImageBytes` 同阈值）。
-/// 返回 `(字节数, content-type)`。
-/// 减 payload 策略：HEAD 探 content-type/content-length（404/410 立即短路）→ Range 首 32KB 验
-/// content-type + magic；Range/HEAD 不支持时才回退全量 GET。
+/// 校验远程 URL 是否为有效图片（≥300B），依次尝试 HEAD、Range 首 32KB、全量 GET。
 async fn verify_image(
     client: &reqwest::Client,
     url: &str,
     timeout: std::time::Duration,
 ) -> Option<(usize, String)> {
-    // 1. HEAD 轻探：404/410 或 ctype 不对 / 太小直接剪枝，避免后续 Range GET 与全量 GET。
     if let Ok(Ok(head_res)) = tokio::time::timeout(
         timeout,
         client
@@ -347,32 +307,26 @@ async fn verify_image(
                 return None;
             }
             if let Some(len) = len {
-                // HEAD 已确认类型+长度，紧接 Range 取首包验 magic 即可定案。
                 match fetch_range_head(client, url, timeout).await {
                     RangeProbeOutcome::Verified(hit) => return hit,
                     RangeProbeOutcome::NeedFallback => {
-                        // Range 不支持或网络失败则信任 HEAD（已知 CDN 行为稳定），直接返回头信息。
                         return Some((len, ctype));
                     }
                 }
             }
-            // 无 content-length：继续走 Range 首包验证；NeedFallback 时落入第 3 步全量 GET。
             if let RangeProbeOutcome::Verified(hit) = fetch_range_head(client, url, timeout).await {
                 return hit;
             }
         } else {
-            // HEAD 返回非 2xx 且非 404/410（如 405 Method Not Allowed / 403）：尝试 Range 首包验证。
             if let RangeProbeOutcome::Verified(hit) = fetch_range_head(client, url, timeout).await {
                 return hit;
             }
         }
     } else {
-        // 2. HEAD 请求本身超时或网络错误：尝试 Range 首包验证。
         if let RangeProbeOutcome::Verified(hit) = fetch_range_head(client, url, timeout).await {
             return hit;
         }
     }
-    // 3. 回退：全量 GET（不支持 HEAD/Range 的服务器走此路）。
     let req = client
         .get(url)
         .header("User-Agent", crate::forge::http::BROWSER_UA_VALUE)
@@ -394,17 +348,13 @@ async fn verify_image(
     if bytes.len() < MIN_IMAGE_BYTES {
         return None;
     }
-    // 全量回退路径同样验 magic，防止 content-type 伪装。
-    // `magic_is_image` 内已含 octet-stream 严格分支，显式 image/* 无已知 magic 时放行。
     if !magic_is_image(&bytes[..bytes.len().min(1024)], &ctype) {
         return None;
     }
     Some((bytes.len(), ctype))
 }
 
-/// Range 首 32KB 验图：200/206 + content-type + magic + ≥300B 才算命中；
-/// 404/410 或魔数/头不合法直接定案 `Verified(None)`，仅在 Range 不被支持或超时时返回 `NeedFallback`。
-/// 服务器忽略 Range 返回全量时只取流首块并截断，不全量等待。
+/// Range 请求拉取首 32KB 验证 content-type 与魔数；服务端忽略 Range 返回全量时仅取首块截断。
 async fn fetch_range_head(
     client: &reqwest::Client,
     url: &str,
@@ -487,20 +437,16 @@ struct GitTreeNode {
     size: Option<u64>,
 }
 
-/// 快路径 SimpleIcons 每 slug 超时：取统一配置中枢 `api_timeout_seconds`，
-/// 0 视为未设置，用缺省 1500ms（免鉴权）。
-/// ADR-0008：网络超时统一经 `config::api_timeout_or` 单一来源（统一配置中枢同一键）。
+/// 快路径 SimpleIcons 单 slug 超时（未配置回退 1500ms）。
 pub(crate) fn simple_icon_timeout() -> std::time::Duration {
     crate::config::api_timeout_or(std::time::Duration::from_millis(1500))
 }
-/// 慢路径 Trees 超时：同一配置中枢同一键，0 视为未设置，用缺省 12s（需鉴权）。
+/// 慢路径 Git Trees 超时（未配置回退 12s）。
 fn trees_timeout() -> std::time::Duration {
     crate::config::api_timeout_or(std::time::Duration::from_secs(12))
 }
 
-/// 已从 GitHub API（`/repos/{owner}/{repo}` 或 `/search/repositories`）获取到的默认分支有界内存缓存：
-/// 避免 `fetch_online_repo` / `search_github_online` 刚拿到 `default_branch` 后，
-/// 后台 `probe_l3_trees -> resolve_probe_branches` 又对同一仓库重复发起一次 `/repos/{owner}/{repo}` 请求。
+/// 近期从 GitHub API 获取到的仓库默认分支缓存，避免后台 L3 探测重复请求。
 static KNOWN_DEFAULT_BRANCHES: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<String, String>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
@@ -534,10 +480,7 @@ pub(crate) fn known_repo_default_branch(owner: &str, repo: &str) -> Option<Strin
         .and_then(|map| map.get(&key).cloned())
 }
 
-/// 分支列表归一化（纯函数，可单测）：
-/// 远端返回非空 `default_branch` 时采用该分支；当请求失败、超时或字段缺失/为空时，
-/// 回退 `vec!["HEAD"]`（GitHub Git Trees API 与 `raw.githubusercontent.com` 均原生解析 `HEAD` 为默认分支，
-/// 与详情页 `detail_fetch.rs` 兜底语义对齐，避免单次元数据抖动直接跳过整仓 L3 探测）。
+/// 归一化探测分支列表，缺失或为空时回退 `["HEAD"]`。
 pub(crate) fn normalize_probe_branches(default_branch: Option<&str>) -> Vec<String> {
     if let Some(b) = default_branch.map(str::trim).filter(|s| !s.is_empty()) {
         vec![b.to_string()]
@@ -546,10 +489,7 @@ pub(crate) fn normalize_probe_branches(default_branch: Option<&str>) -> Vec<Stri
     }
 }
 
-/// 动态分支解析共用（搜索/趋势 `icons::fetch` + 详情 cycle L3）：
-/// 优先复用近期 API 响应已记录的 `default_branch`（零额外请求）；
-/// 未命中时 GET `repos/{owner}/{repo}` 取 `default_branch`（5s 超时），
-/// 成功返回 `vec![default_branch]`，失败/超时/空值回退 `vec!["HEAD"]`。
+/// 解析仓库默认分支供 L3 探测使用，优先复用内存缓存，未命中时查询仓库 API。
 pub(crate) async fn resolve_probe_branches(
     client: &reqwest::Client,
     headers: &HeaderMap,
@@ -590,24 +530,17 @@ pub(crate) fn dedup_slugs(owner: &str, repo: &str) -> Vec<String> {
     out
 }
 
-/// Trees 目录响应有界上限（超大单体仓库熔断）：
-/// - `MAX_TREE_BYTES` 2MB：正常仓库 tree JSON 远小于此值；超限多为 monorepo/大仓，直接放弃；
-/// - `MAX_TREE_NODES` 2 万节点：评分 O(n) 本身便宜，主要防超大 JSON 解析阻塞。
-///
-/// 超限直接 `None` 不阻塞主流程（该行保持徽章/裸行，同批其他行不受影响）。
+/// Trees 目录响应体字节上限（熔断超大 monorepo）。
 pub(crate) const MAX_TREE_BYTES: usize = 2 * 1024 * 1024;
-/// 2 万节点上限（见 [`MAX_TREE_BYTES`] 文档）。
+/// Trees 目录节点数上限。
 pub(crate) const MAX_TREE_NODES: usize = 20_000;
 
-/// 有界累积纯决策（可单测，无网络）：已累积 `accumulated` + 下一块 `next_chunk`
-/// 未超 `cap` 即 true，超限即 false（调用方中断降级，不全量缓冲）。
+/// 判断累加下一分块后是否仍在 `cap` 上限内。
 pub(crate) fn tree_body_within_cap(accumulated: usize, next_chunk: usize, cap: usize) -> bool {
     accumulated.saturating_add(next_chunk) <= cap
 }
 
-/// 有界目录体流式读取：逐块累积，超 `cap` 即中断返 `None`
-/// （无长度声明的 chunked 响应同样有界，不全量缓冲；中断后调用方降级为徽章/裸行）。
-/// 网络分块失败同样返 `None`（调用方同语义降级）。
+/// 流式读取 Trees 响应体，超过 `cap` 即中断返回 `None`。
 async fn read_bounded_tree_bytes(resp: reqwest::Response, cap: usize) -> Option<Vec<u8>> {
     use futures_util::StreamExt;
     let mut buf = Vec::new();
@@ -659,10 +592,7 @@ pub(crate) async fn probe_simple_icons(
     None
 }
 
-/// 慢路径：Git Trees 全库评分（需鉴权头），超时经配置（未设置回退 12s）。
-/// 截断保护：Git Trees 无分页（`per_page` 不适用），此处以
-/// content-length 预检 + 有界流式体 + 节点数上限三层熔断；超限直接 `None`
-/// 不阻塞主流程（该行保持徽章/裸行，同批其他行不受影响，见统一图标补探 `IconFetch`）。
+/// 慢路径：Git Trees 全库评分（需鉴权头），通过响应体大小与节点数上限熔断超大仓库。
 pub(crate) async fn probe_trees(
     client: &reqwest::Client,
     headers: &HeaderMap,
@@ -679,7 +609,6 @@ pub(crate) async fn probe_trees(
     let req = client.get(&tree_url).headers(headers.clone()).send();
     if let Ok(Ok(resp)) = tokio::time::timeout(trees_timeout(), req).await {
         if resp.status().is_success() {
-            // 层1：content-length 预检（chunked 缺头时跳过，由层2兜底）。
             if let Some(len) = resp
                 .headers()
                 .get(reqwest::header::CONTENT_LENGTH)
@@ -690,11 +619,8 @@ pub(crate) async fn probe_trees(
                     return None;
                 }
             }
-            // 层2：有界流式体。无长度声明的 chunked 响应逐块累积、超限即中断，
-            // 不全量缓冲；中断返 `None` 降级为徽章/裸行（内存有界）。
             let bytes = read_bounded_tree_bytes(resp, MAX_TREE_BYTES).await?;
             let tree: GitTree = serde_json::from_slice(&bytes).ok()?;
-            // 层3：节点数上限。
             if tree.tree.len() > MAX_TREE_NODES {
                 return None;
             }
@@ -781,7 +707,6 @@ mod tests {
             -50
         );
         assert_eq!(score_candidate("x/icon.png", Some(100), "demo"), -100);
-        // 单色/行图标类小 glyph 应为低分（duckstation vidicon-line 回归项）。
         assert!(
             score_candidate(
                 "src/icons/monochrome/svg/vidicon-line.svg",
@@ -871,14 +796,12 @@ mod tests {
 
     #[test]
     fn test_tree_body_caps_are_bounded() {
-        // 超大单体仓库熔断阈值锁定：目录体 2MB + 节点 2 万（内存有界）。
         assert_eq!(MAX_TREE_BYTES, 2 * 1024 * 1024);
         assert_eq!(MAX_TREE_NODES, 20_000);
     }
 
     #[test]
     fn test_tree_body_within_cap_stops_at_limit() {
-        // 有界累积纯决策：未超限 true，超限即 false（调用方中断降级为徽章/裸行）。
         assert!(tree_body_within_cap(0, 100, MAX_TREE_BYTES));
         assert!(tree_body_within_cap(MAX_TREE_BYTES - 1, 1, MAX_TREE_BYTES));
         assert!(!tree_body_within_cap(MAX_TREE_BYTES, 1, MAX_TREE_BYTES));

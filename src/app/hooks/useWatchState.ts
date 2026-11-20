@@ -11,10 +11,7 @@ interface UseWatchStateParams {
   t: TFunction;
 }
 
-/**
- * 关注订阅（Watch）深模块：收口 `watchedIds`、待处理/已读提醒列表、
- * 实时事件订阅 `zstore://watch-updated`、`zstore:data-imported` 同步与交互动作。
- */
+/** 关注订阅状态管理：维护关注集合、待处理/已读提醒列表及事件订阅。 */
 export function useWatchState({ isRulesModalOpen, showToast, t }: UseWatchStateParams) {
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
   const [watchNotifications, setWatchNotifications] = useState<WatchUpdatedPayload[]>([]);

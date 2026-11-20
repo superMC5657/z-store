@@ -1,7 +1,4 @@
-/**
- * 导入确认弹窗：只默认勾选高置信度、展示本机原名与匹配依据、低置信度提示核对，
- * 勾选结果按 ImportAppRequest 提交。
- */
+/** 测试系统应用导入确认弹窗的置信度默认勾选与提交载荷构造。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AppMatchResult, ImportAppRequest } from '../types';

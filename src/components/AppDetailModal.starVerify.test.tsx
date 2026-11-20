@@ -1,9 +1,4 @@
-/**
- * 标星特征化测试：锁定详情弹窗的 GitHub Star 切换契约。
- *
- * 通过真实组件路径锁定详情弹窗的 GitHub Star 切换契约。
- * 已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge），不在此覆盖。
- */
+/** 测试详情弹窗的 GitHub Star 切换交互与状态反馈。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';

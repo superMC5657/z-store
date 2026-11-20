@@ -1,25 +1,6 @@
 /**
- * 桌面原生化锁闭：
- * 关闭右键、缩放、查找、浏览器历史导航、另存为、打印、源码、调试器等浏览器默认行为。
- *
- * 拦截范围：
- * - contextmenu：禁用右键菜单
- * - keydown（capture 阶段）：
- *     - F5、F12
- *     - Alt + ArrowLeft / ArrowRight（前进后退）
- *     - Ctrl/Cmd + +/-/=/0（缩放）
- *     - Ctrl/Cmd + F/G（页面查找）
- *     - Ctrl/Cmd + H/J/D/O/N/T/W（历史/下载/书签/打开/新建/标签/关窗）
- *     - Ctrl/Cmd + R/S/P/U（刷新/保存/打印/源码）
- *     - Ctrl/Cmd + Shift + I/J/C（开发者工具）
- * - wheel：Ctrl/Cmd + 滚轮缩放拦截（passive: false），普通滚动放行
- * - dragover / drop：全局阻止文件拖拽替换页面（防 file:// 顶替）
- * - mouse auxclick / mouseup：侧键（button 3/4 前进后退）阻止
- * - window.print：重写为空函数
- * - window.open：劫持转走注入的外链打开器（默认 `tauriApi.openUrl`）并返回 null
- * - click 事件委托：a[target="_blank"] 及 http/https 外链拦截转走注入的外链打开器
- *
- * 显式放行：Ctrl+K（搜索聚焦）、Escape（关闭菜单）、Ctrl+C/V/X/A/Z/Y（标准编辑）、Tab/Enter/Space
+ * 桌面端浏览器行为锁闭：禁用右键菜单、缩放、查找、历史导航、打印与文件拖入，
+ * 并将 `window.open` 及外链点击转发至外部打开器（保留 Ctrl+K、Escape 与常用编辑快捷键）。
  */
 
 let isInitialized = false;
@@ -190,7 +171,7 @@ export function initBrowserLockdown(openExternal?: (url: string) => unknown): vo
     window.print = () => {};
   }
 
-  // 8. window.open 劫持转走 tauriApi.openUrl；覆写前将原生 opener 存入 `__ZSTORE_NATIVE_OPEN__` 供兜底绕过劫持直达浏览器。
+  // 保留原生 opener 供未注入 handler 时的兜底调用
   try {
     const w = window as unknown as Record<string, unknown>;
     if (typeof w.__ZSTORE_NATIVE_OPEN__ !== 'function' && typeof window.open === 'function') {

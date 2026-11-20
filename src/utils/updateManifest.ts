@@ -1,20 +1,6 @@
 /**
- * 双区更新清单解析器（官网独立仓库与应用端共用模块）
- *
- * 定位：
- * - 纯 TypeScript 模块，零第三方依赖，零 @tauri-apps 依赖，支持浏览器/Node/Tauri 等全环境。
- * - 官网独立仓库（z-store-landing 等）可直接复制/vendor 本文件使用。
- *
- * 清单结构与 CI 产物对应关系：
- * - latest.json: platforms 条目为 { url, signature }。
- * - latest-cn.json: platforms 条目扩展 { url, signature, name, size, sha256 }，
- *   安装包 URL 拼接镜像前缀（仅安装包通道）。
- *
- * 回落链顺序（永不 reject，静默回退）：
- * 1. 本区清单
- * 2. 对方清单
- * 3. GitHub Releases API（解析并过滤非安装包资产；cn 区产物 URL 拼镜像前缀）
- * 4. 兜底终点：GitHub Releases 网页地址（不发请求）
+ * 双区更新清单解析器（零外部依赖，供应用端与官网共用）。
+ * 按「本区清单 → 对方清单 → Releases API → Releases 页面」顺序回落，永不 reject。
  */
 
 type UpdateRegion = 'cn' | 'global';
@@ -49,10 +35,7 @@ const CN_TIMEZONES = new Set([
   'Asia/Kashgar',
 ]);
 
-/**
- * 根据时区与语言信号推断目标区域。
- * 时区属于中国大陆集合或主语言为 zh-CN / zh-Hans* 时判定为 'cn'，其余判定为 'global'。
- */
+/** 根据时区与语言信号推断更新区域（中国大陆时区或 zh-CN/zh-Hans 归为 `cn`）。 */
 export function detectRegionFromSignals(signals: {
   timeZone?: string | null;
   languages?: readonly string[] | null;
@@ -286,10 +269,7 @@ async function tryFetchReleasesApi(
   }
 }
 
-/**
- * 按区域回落链解析最新安装包信息。
- * 永不 reject，最终兜底为 releases 页面地址。
- */
+/** 按区域回落链解析最新安装包信息，失败时最终返回 Releases 网页地址。 */
 export async function resolveUpdateFeed(options: ResolveUpdateFeedOptions): Promise<UpdateFeedResult> {
   const cleanRepo = options.repo.replace(/^\/+|\/+$/g, '');
   const region = options.region ?? detectRegion();

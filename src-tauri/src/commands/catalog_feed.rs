@@ -5,7 +5,7 @@ use tauri::State;
 /// 发现页卡片摘要（复用 `AppSummary` 形状，前端按 `AppSummary` 解析）。
 pub type CatalogItemSummary = AppSummary;
 
-/// 发现页分页载荷（serde 默认 snake_case，前端按 `{ limit, offset, seed }` invoke('get_home_feed')）。
+/// 发现页分页载荷。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct FeedPage {
@@ -235,14 +235,8 @@ pub async fn sync_affinity_signals(state: State<'_, AppState>) -> crate::AppResu
     Ok(count)
 }
 
-/// 发现页 Feed（分页 + 混排，含本地收录合并视图）：
-/// - 输入为远端目录 + 本地收录（collected 系/`submitted` 且未归档）合并，可搜可装与远端同行为；
-/// - `total`=过滤后总量，`has_more`=(offset+limit)<total（saturating，边界守好）；
-/// - `seed`=None 时纯 stars 降序（确定性），Some(seed)+balanced 时轻扰动打散头部垄断；
-/// - `strategy`=None/非法时回退 balanced（大小写不敏感，前端原样透传、后端归一小写）；
-/// - hero 置顶留给前端，后端不 hardcode 具体 id；
-/// - 前端按 `invoke('get_home_feed', { limit, offset, seed, strategy })` 调用
-///   （`seed`/`strategy` 可省略/传 null）。
+/// 发现页 Feed（分页 + 混排，合并远端目录与本地收录并应用隐藏规则）。
+/// `seed` 控制头部轻扰动，`strategy` 缺省回退 `balanced`。
 #[tauri::command]
 pub fn get_home_feed(
     state: State<'_, AppState>,
@@ -287,11 +281,7 @@ pub fn get_home_feed(
     })
 }
 
-/// 类别页分页（与发现页 `FeedPage` 同形 `{items,total,has_more}`，含本地收录合并视图）：
-/// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页 `HOME_FEED_PAGE`、在线搜索对齐）；
-/// - `per_page` 复用搜索钳制 1-50（`clamp_online_search_per_page`），`page` 下限 1；
-/// - 过滤语义不变（`category`/`category_name` 大小写不敏感 + 隐藏规则）；
-/// - `allowed_ids` 见 `paginate_with_allowed_ids`。
+/// 类别页分页（合并远端目录与本地收录，支持按 `allowed_ids` 预过滤）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_category_apps(
     state: State<'_, AppState>,
@@ -319,13 +309,7 @@ pub fn get_category_apps(
     ))
 }
 
-/// 最新入库应用分页（与发现页/类别页 `FeedPage` 同形 `{items,total,has_more}`，含本地收录合并视图）：
-/// - `since_days`: 相对天数窗口别名（等价于 `max_days` 且 `min_days=0`）；
-/// - `min_days` / `max_days`: 相对天数区间（如 0~7, 7~30, 30~90），支持分段排他防头部霸榜；
-/// - 排序规则：`added_at DESC`（无日期垫底）→ `stars DESC`（并列保质）→ `id ASC`（确定性破平）；
-/// - `page`/`per_page` 均为 None=默认（第 1 页 20 条，与发现页、分类页对齐）；
-/// - `allowed_ids` 见 `paginate_with_allowed_ids`；
-/// - 纯内存执行，零网络秒开。
+/// 最新入库应用分页（按 `added_at DESC → stars DESC → id ASC` 排序，支持天数窗口与 `allowed_ids` 预过滤）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_latest_catalog_apps(
     state: State<'_, AppState>,
@@ -354,11 +338,7 @@ pub fn get_latest_catalog_apps(
     ))
 }
 
-/// 按平台允许集预过滤后分页（分类页/最新入库页共用）：
-/// - `matched` 为分类/时间窗内全部非隐藏项（已排好序），其 ID 原样作为 `matched_ids` 回传，
-///   供前端计算全平台分布并区分「本身为空」与「平台筛选为空」；
-/// - `allowed_ids=None` 不过滤；`Some(ids)` 仅保留 ID（小写 trim 比较）在集合内的项，
-///   空集合表示平台全不选，结果为空页；`total`/`has_more` 按过滤后计算。
+/// 按 `allowed_ids` 预过滤后分页；`matched_ids` 保留过滤前全部匹配 ID 供前端统计分布。
 pub fn paginate_with_allowed_ids(
     matched: Vec<AppSummary>,
     allowed_ids: Option<&[String]>,
@@ -396,11 +376,7 @@ fn filter_by_allowed_ids(
         .collect()
 }
 
-/// 纯函数：最新入库应用的筛选与倒排逻辑（便于单元测试与确定性回归）：
-/// 1. 若指定 `min_days` 或 `max_days`，过滤掉不在当前天数区间内的项；
-/// 2. 主序 `added_at DESC`，缺省者排在末尾；
-/// 3. 次序 `stars DESC`；
-/// 4. 破平 `id ASC`。
+/// 筛选指定天数区间内的应用并按最新入库顺序排列。
 pub fn rank_and_filter_latest_apps(
     mut apps: Vec<AppSummary>,
     min_days: Option<u32>,
@@ -425,7 +401,6 @@ fn in_latest_window(added_at: Option<&str>, min_days: Option<u32>, max_days: Opt
 /// 最新入库排序：`added_at DESC`（无日期垫底）→ `stars DESC` → `id ASC`。
 fn sort_latest_apps(mut apps: Vec<AppSummary>) -> Vec<AppSummary> {
     apps.sort_by(|a, b| {
-        // 1. added_at DESC (Some before None)
         match (&a.core.added_at, &b.core.added_at) {
             (Some(ad), Some(bd)) => {
                 let ord = bd.cmp(ad);
@@ -437,12 +412,10 @@ fn sort_latest_apps(mut apps: Vec<AppSummary>) -> Vec<AppSummary> {
             (None, Some(_)) => return std::cmp::Ordering::Greater,
             (None, None) => {}
         }
-        // 2. stars DESC
         let ord = b.core.stars.cmp(&a.core.stars);
         if ord != std::cmp::Ordering::Equal {
             return ord;
         }
-        // 3. id ASC
         a.core.id.cmp(&b.core.id)
     });
     apps

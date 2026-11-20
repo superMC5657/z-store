@@ -34,7 +34,7 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 export function handleOpenExternal(e: React.MouseEvent, url: string): void {
   e.preventDefault();
   e.stopPropagation();
-  // 失败不冒泡为 unhandledrejection（会被全局处理器重复落盘），改为单行 [ui] 告警
+  // 失败不冒泡为 unhandledrejection，仅记录单行告警
   void tauriApi.openUrl(url).catch((err: unknown) => {
     zlogWarn(`open external url failed: ${err instanceof Error ? err.message : String(err)}`);
   });
@@ -102,10 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
       .then((data) => {
         if (!isMounted || !data) return;
         setIconCycle(data);
-        // 初次展示跟随+双落盘：iconCycle.url 是 data: 即时展示（IPC临时），
-        // 落盘一律用 remote_url（后端 snake_case 规范字段）；
-        // data: 永不进盘，内存态短暂用 data: 由 AppIcon iconOverride 直显，榜单跟随用 persistUrl。
-        // isCataloged 不阻止；L5/fallback 空（persistUrl ''）不 dispatch，避免把实图标清掉。
+        // data: URL 仅用于弹窗即时展示，写透全列表与缓存仅使用可持久化的远端 URL
         const remote = resolveRemoteIconUrl(data);
         const fallbackUrl = typeof data.url === 'string' ? data.url.trim() : '';
         const persistUrl =

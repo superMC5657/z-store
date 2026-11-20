@@ -5,10 +5,7 @@ import { tauriApi } from '../../services/api';
 /** 平台筛选结果抖动（平台补探陆续落定）时合并请求的等待时间。 */
 const ALLOWED_IDS_DEBOUNCE_MS = 250;
 
-/**
- * 精选页整页货架：进入页面、平台筛选结果变化或显式 `reload` 时拉取。
- * 画像更新事件不触发重拉：当天页面保持稳定，收藏/安装等变化在下次进入页面时体现。
- */
+/** 精选页整页货架数据与负反馈状态：随平台筛选或显式 reload 拉取，不响应实时画像变化。 */
 export function useFeaturedPage(allowedIds: readonly string[], daySeed: number) {
   const [page, setPage] = useState<FeaturedPage | null>(null);
   const [loading, setLoading] = useState(true);

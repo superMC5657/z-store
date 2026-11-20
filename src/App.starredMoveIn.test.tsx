@@ -1,8 +1,4 @@
-/**
- * 真实 <App/> 回归：
- * 顶栏存在搜索词过滤了 apps 时，切到收藏页「Star 同步」仍能识别全部远端已收录（蓝标）
- * 与本地收录（黄标）及待收录草稿（含 owner/repo 别名），不误显示「移入收录」按钮。
- */
+/** 测试存在搜索过滤时，收藏页 Star 同步仍能基于全量目录识别收录与草稿状态。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AppSummary } from './types';

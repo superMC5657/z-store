@@ -21,7 +21,7 @@ pub const AFFINITY_SYNC_MAX_PAGES: u32 = 50;
 /// 设置项键：最近一次完成 GitHub 画像信号同步的 Unix 秒级时间戳。
 pub const SETTING_AFFINITY_GITHUB_SYNCED_AT: &str = "affinity_github_synced_at";
 
-/// 设置项键：Star 列表已以 `star+json` 完整同步过一次（之后不再因旧格式缓存跳过 ETag）。
+/// 设置项键：Star 列表已完成 `star+json` 格式同步（后续可正常使用 ETag 条件请求）。
 pub const SETTING_AFFINITY_STARRED_FORMAT_UPGRADED: &str = "affinity_starred_format_upgraded";
 
 /// 设置项键：推荐画像是否使用本地应用信息（收藏、版本关注、已安装、浏览、搜索；默认 `"true"`）。
@@ -133,15 +133,7 @@ impl CatalogService {
         });
     }
 
-    /// ETag 感知的 GitHub 画像信号静默增量同步（全量分页，受 `AFFINITY_SYNC_MAX_PAGES` 上限保护）：
-    /// - 端点 1：`/user/starred?per_page=100&page=N` → 写入 `relation = "starred"`
-    /// - 端点 2：`/user/repos?type=owner&sort=updated&per_page=100&page=N` → 按 `fork` 字段区分 `"forked"` 与 `"owned"`
-    /// - 逐页复用 `api_etag_cache` 发送 `If-None-Match`，`304 Not Modified` 零配额恢复；
-    /// - 遵循 `Link: rel="next"` 续拉下一页，任一页失败时中止写入以保留既有完整信号；
-    /// - 两个端点均成功（200 或 304）时更新 `user_settings.affinity_github_synced_at`。
-    ///
-    /// GitHub 用户信息开关关闭时不发请求直接返回错误；启动、登录与手动同步都经此入口，
-    /// 开关只在这里判断。
+    /// ETag 感知的 GitHub 画像信号分页同步，仅在两个端点均成功时更新同步时间戳。
     pub async fn sync_github_affinity_signals_bg(
         db_mutex: &Mutex<Database>,
         token: &str,
@@ -294,8 +286,7 @@ fn parse_rfc3339_secs(raw: Option<&str>) -> Option<i64> {
         .map(|dt| dt.unix_timestamp())
 }
 
-/// 解析一页仓库信号。缺少可用时间时按分页全局序号回退 `now - idx * 3600`，
-/// 保持列表原有先后（GitHub 按最近标星 / 最近更新降序返回）。
+/// 解析一页仓库信号；缺少可用时间时按分页全局序号回退，保持列表降序顺序。
 fn parse_repo_signals_page<F>(
     json_text: &str,
     now: i64,
@@ -944,11 +935,7 @@ impl UserAffinityProfile {
         Self::from_signals_with_sources(raw, catalog, now_secs, AffinitySources::ALL)
     }
 
-    /// 只聚合 `sources` 开启的信号源：本地应用信息（收藏、关注、已安装、浏览、搜索）
-    /// 与 GitHub 用户信息（仓库信号、应用内 Star）。两个通道各自软饱和归一化后再融合，
-    /// 海量 GitHub 仓库不会稀释应用内的显式行为。不受开关影响的有：
-    /// - 已安装 / 显式关系集合与负反馈：精选页始终靠它们排除已知与已屏蔽应用；
-    /// - 兴趣方向：用户在冷启动选择卡里显式填写，任一信号源开启时都要能让画像脱离冷启动。
+    /// 按 `sources` 开关聚合用户亲和度画像；已安装/显式关系与负反馈始终加载以排除已知与屏蔽项。
     pub fn from_signals_with_sources(
         raw: &RawAffinitySignals,
         catalog: &[CatalogItem],
@@ -1978,7 +1965,7 @@ mod tests {
         )
         .await
         .unwrap();
-        // repos 成功（1 owned），starred 因第 2 页失败而保留原有 keep/existing（不被截断覆盖）
+        // repos 成功（1 owned），starred 因第 2 页失败而保留既有 keep/existing
         assert_eq!(total, 2);
         let db = db_mutex.lock().unwrap();
         let signals = db.get_user_repo_signals().unwrap();

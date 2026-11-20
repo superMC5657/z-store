@@ -1,10 +1,4 @@
-/**
- * 导航收口回归：
- *
- * - `VIEW_TYPES` 是合法视图唯一清单，运行时覆盖 `ViewType` 联合的每个成员；
- * - 未知视图（外部字符串 / 非字符串）由 `createNavigate` 运行时守卫拒绝，
- *   不回落 home；合法视图才写入 `setCurrentView`。
- */
+/** 测试合法视图清单 `VIEW_TYPES` 与 `createNavigate` 导航守卫。 */
 import { describe, expect, it, vi } from 'vitest';
 import { createNavigate, isViewType, resolveViewTarget, VIEW_TYPES, type ViewType } from '../types';
 

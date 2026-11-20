@@ -1,11 +1,4 @@
-/**
- * 侧边栏设备平台多选分组测试。
- *
- * 第一部分：锁定 src/components/Sidebar.tsx 渲染的分组标题与顺序
- * （发现与探索 → 应用资产 → 偏好与系统，并在「偏好与系统」上方支持「设备平台」分组）。
- *
- * 第二部分：验证「设备平台」分组包含 6 个具备复选框语义的子项。
- */
+/** 测试侧边栏导航分组顺序及设备平台多选筛选交互。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import React from 'react';

@@ -1,7 +1,4 @@
-//! `app_details` 持久化 DAO：应用深度详情表。
-//!
-//! 承载 Release 资产列表、README Markdown、多语言 README 变体、Changelog、
-//! TTL `cached_at` 及未收录应用富卡兜底所需的概要字段。
+//! `app_details` 持久化 DAO：应用深度详情缓存表。
 
 use super::{clean, dedup_clean_refs, now_secs, Database};
 use crate::models::{AppCore, AppDetail, ReadmeVariant, ReleaseAsset};

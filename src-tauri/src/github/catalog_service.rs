@@ -656,11 +656,7 @@ impl CatalogService {
             .count()
     }
 
-    /// 收录态决议（盖章唯一口径）：
-    /// - 远端已验证 → `remote`（蓝标优先，本地同 id 不降级）；
-    /// - 本地收录（含远端未验证同仓补位）→ `local` + `status=collected`；
-    /// - 远端未验证且无本地收录 → `remote`；
-    /// - 均未命中 → `is_cataloged=false`（来源缺席）。
+    /// 解析并设置应用摘要的收录来源与验证标记。
     fn resolve_catalog_stamp(&self, core: &mut crate::models::AppCore) {
         let Some(key) = crate::forge::canonical_app_id(&core.id) else {
             Self::apply_stamp_flags(core, None, false);
@@ -883,12 +879,7 @@ impl CatalogService {
         .await
     }
 
-    /// 本地目录搜索（合并目录，读锁内遍历零整库克隆）：
-    /// - 空查询：全量按 stars 降序；
-    /// - 查询词等于某分类 key / 分类名（大小写不敏感）：返回该分类全部条目，按 stars 降序；
-    /// - 否则按关键词匹配分降序、同分按 stars 降序。
-    ///
-    /// 各分支均为稳定排序，同分保持合并目录顺序；只为最终返回的条目构造 `AppSummary`。
+    /// 本地合并目录搜索（空查询按 stars 降序，命中分类名返回全分类，否则按关键词匹配分排序）。
     pub fn search_local_catalog(&self, query: &str) -> Vec<AppSummary> {
         let q = query.trim().to_lowercase();
         let store = self.read_store();
@@ -1041,7 +1032,6 @@ mod tests {
         CatalogService::with_items(items)
     }
 
-    /// ADR-0010：入站标识归一化（canonical = 小写 owner/repo / forge 前缀坐标；未知标识拒绝）
     #[test]
     fn test_canonical_app_id() {
         // canonical id 原样保留（统一小写）
@@ -1076,7 +1066,6 @@ mod tests {
         assert!(crate::forge::canonical_app_id("   ").is_none());
     }
 
-    /// ADR-0010：目录检索入口统一归一化后按 id 唯一精确匹配
     #[test]
     fn test_get_catalog_item_matches_id_only() {
         let svc = test_service(vec![item("rustdesk/rustdesk", "rustdesk", "rustdesk")]);

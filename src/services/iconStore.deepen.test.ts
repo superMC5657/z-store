@@ -1,13 +1,4 @@
-/**
- * 图标深 module 单 interface 回归。
- *
- * module/interface/depth/seam/adapter/leverage/locality 口径：
- * - module：`services/iconStore` 为唯一深 module；`AppIcon`/`enrich`/`board` 无图标 locality。
- * - interface：写唯一经 `admitIconHit`，读侧经 `subscribeIconWrites` 扇出；`resolveIconWithBuffer`/
- *   `patchIconMirror` 为内部 seam 的收敛实现。
- * - 领域词：`IconFetch` → `icon-ready` → `admitIconHit`；`Search List Cache` 组装经缓冲回读。
- * - 合规：`normalizeId` 归一遵 ADR-0010；level 纯L + `via` 正交遵 ADR-0015；展示分层遵 ADR-0005。
- */
+/** `iconStore` 写入、缓冲回读、世代门控与订阅扇出测试。 */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSEMBLED_ROW_ICON_QUEUE_CAP,

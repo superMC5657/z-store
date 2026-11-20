@@ -1,13 +1,4 @@
-/**
- * L5 首字母徽章回归。
- *
- * 详情把图标级别切到 L5（空图标 + level 5）→ 富卡（trend enrich
- * 镜像）与列表行必须同步变为空徽章：唯一写口 `admitIconHit` 的 L5 显式分支
- * 扇出通知（清缓冲 + patch + 读侧事件），防永久 stale。
- *
- * 本文件只用已存在 API：`admitIconHit`（显式 patch）+ 纯函数
- * `patchAppIconList` / `patchIconMirror`（生产订阅者同逻辑）。
- */
+/** L5 首字母徽章写入扇出与列表/镜像同步清空测试。 */
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
   __resetIconStoreForTests,

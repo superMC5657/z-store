@@ -1,13 +1,4 @@
-/**
- * useUpdatesState 回归（更新与规则状态深模块）：
- *
- * - 初始快照加载（getUpdateRules + getCachedUpdates）+ 切入 installed 视图重读 DB 快照；
- * - 流式更新事件：onUpdateItemFound 逐条 upsert（大小写不敏感）+ 进度 + 完成复位；
- * - 单项更新：installed 列表替换 + updates 剔除 + success/失败 error toast；
- * - 跳过/清除跳过/锁定/隐藏：runRuleMutation 写后重读规则（网络刷新仅 clear/toggle 系），隐藏同步全量目录；
- * - 批量升级：逐条安装、失败者保留在 updates、部分失败 warning、仅升给定 targets；
- * - 手动检查：force 写库后优先读 DB 快照；空快照回退网络回包；空列表 all_latest；finally 复位进度。
- */
+/** 测试 `useUpdatesState` 的快照加载、流式更新、规则变更与批量更新。 */
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledApp, UpdateItem, UpdateRule, ViewType } from '../../types';

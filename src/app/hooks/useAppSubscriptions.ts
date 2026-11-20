@@ -43,15 +43,7 @@ interface UseAppSubscriptionsParams {
   };
 }
 
-/**
- * 应用级订阅总线：
- *
- * - 初始目录拉取 + `zstore:catalog-synced` + 最近浏览黄标重标；
- * - 全站唯一 `onIconReady` 订阅（经 `iconStore.admitIconHit` 按 `search`/`trend`/`starred` 三路门控后，
- *   由 `subscribeIconWrites` 经 `catalogLists.patchIcons` 写透全部列表）；
- * - 初始已装/收藏/设置加载、进「我的应用」重读已装快照；
- * - OAuth 登录态、`onOAuthExpired`、`zstore:data-imported` 刷新。
- */
+/** 应用级订阅总线：负责目录同步、图标写入分发、库初始快照加载及 OAuth/导入刷新。 */
 export function useAppSubscriptions({
   catalogLists,
   searchContext,

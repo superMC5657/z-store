@@ -1,8 +1,4 @@
-//! macOS 系统代理实时读取（`scutil --proxy`）。
-//!
-//! 解析 `HTTPEnable/HTTPProxy/HTTPPort`、`HTTPSEnable/HTTPSProxy/HTTPSPort`、
-//! `SOCKSEnable/SOCKSProxy/SOCKSPort`（`socks5h://`，远端解析防 DNS 泄漏）与
-//! `ExceptionsList`（`*.local` → `.local`）。解析器为跨平台纯函数，`scutil` 调用仅 macOS 编译。
+//! macOS 系统代理实时读取（解析 `scutil --proxy` 输出，仅 macOS 触发系统调用）。
 
 use super::ProxySnapshot;
 use std::collections::HashMap;

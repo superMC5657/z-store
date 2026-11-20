@@ -71,7 +71,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
   const [activeTab, setActiveTab] = useState<FavoritesTab>(() =>
     watchNotifications.length > 0 ? 'watched' : 'local',
   );
-  // 有待处理提醒时落在「关注」签：页面打开后才到的提醒也切过去，但用户手动选过签就不再打扰
+  // 有待处理提醒时自动切到「关注」签，除非用户已手动选择过标签页
   const userPickedTabRef = useRef(false);
   const handleTabChange = (tab: FavoritesTab) => {
     userPickedTabRef.current = true;
@@ -93,10 +93,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
   // 收藏 / 关注搜索过滤（按名称 / 别名 / 仓库坐标匹配，见 app/selectors.matchesAppText）
   const matchesSearch = (a: AppSummary) => matchesAppText(a, searchText);
 
-  // 收藏 left-join 消费侧：`apps` 已由 App 补齐未收录行（缓存命中为富卡行、
-  // 未命中为占位行，同形 `AppSummary`）并按平台过滤，此处仅做归一大小写 inner 过滤
-  // （键构造经前端唯一口 `normalizeId`）。三层：未过平台全集 → 已过平台 → 已过平台 + 页内搜索；
-  // Tab 角标取最后一层，恒等于网格卡片数。
+  // `apps` 已含未收录补位行并经过平台过滤，此处按小写 id 过滤并计算各签数量
   const favoriteIdsLower = useMemo(() => normalizeIdLowerSet(favoriteIds), [favoriteIds]);
   const watchedIdsLower = useMemo(() => normalizeIdLowerSet(watchedIds || new Set<string>()), [watchedIds]);
   const poolApps = allApps ?? apps;

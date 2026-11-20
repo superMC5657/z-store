@@ -1,11 +1,4 @@
-/**
- * i18n 静态扫描门禁（views.i18n.test.tsx 的 components 扩展面）。
- *
- * 对 MIGRATED_FILES 中的已迁移组件源码断言零 CJK 硬编码：基于 TypeScript AST
- * 检查字符串字面量 / 模板片段 / JSX 文本（注释天然不在 AST 字符串位，不受限）；
- * `t(key, { defaultValue })` 的兜底值豁免——键缺失回退允许中文，与 views 既有口径一致。
- * 新迁移 components 文件后把路径追加进 MIGRATED_FILES 即可纳入防回流扫描。
- */
+/** AST 静态扫描已迁移组件，防止硬编码 CJK 文案回流。 */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -59,8 +59,7 @@ export function handleUnwatchApp(a: InvokeArgs): boolean {
   return true;
 }
 
-// -- 关注提醒（对齐 `db/watch.rs`）：读写 `LS.watchNotifications`（种子见 seed.ts）---
-// 提醒挂在关注行上，取消关注后不再返回。
+// 关注提醒挂载在关注项上，取消关注后过滤不返回。
 
 let watchNotes: SeedWatchNotifications | null = null;
 

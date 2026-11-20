@@ -13,11 +13,7 @@ interface VerifiedBadgeProps {
   style?: React.CSSProperties;
 }
 
-/**
- * 徽标变体判定（展示层唯一口径）：
- * 已认证优先 verified（蓝色不动），本地收录走 local（橘黄，D4 去彩例外），其余无标。
- * 蓝优先保证榜单公信力：已验证远端不叠黄。
- */
+/** 徽标变体判定：已认证远端优先返回 `verified`，本地收录返回 `local`，其余为 `null`。 */
 export function resolveVerifiedBadgeVariant(app: {
   is_verified?: unknown;
   source?: unknown;

@@ -41,21 +41,7 @@ import { PendingPreviewLane } from './pending/PendingPreviewLane';
 import { PendingDraftForm } from './pending/PendingDraftForm';
 import { scrollBehavior } from '../lib/motion';
 
-/** 待收录页（UI 层，自维护草稿 overlay 前端）。
- *
- * - 本组件只管编排（状态 + 处理器 + 布局骨架），表单段/列表/富卡/预览各为
- *   `pending/` 子组件；不直调任何 Tauri 命令（许可名单经
- *   `services/api/catalog.getLicenseAllowlist` 封装调用，无字面量命令名直调，
- *   见 noDirectInvoke.test.ts；命令表驱动收敛于 CMD）。
- * - 许可名单唯一源头为后端只读命令：本文件不保留任何硬编码名单；
- *   暂存走 draft 档（不查名单），提交/预填 Issue 前拉取后端名单做 submit 档校验；
- *   加载失败放行暂存、提交提示重试。
- * - 受控/非受控双模：传入 `entries` 即为受控（直接透传后端列表），
- *   缺席时走内部本地态（浏览器预览/单测可独立渲染编辑）。
- * - 设计走 Linear 去彩单色：仅用文本层级 + 边框 + 单色图标，不引入彩色语义。
- * - 领域纯函数（校验/归一/分组）收容于 `pending/draftModel`，
- *   提交尾段收容于 `pending/submitPrefillFlow`。
- */
+/** 待收录页：协调草稿编辑、本地收录、Issue 提交与各分组 Tab 的受控/非受控状态。 */
 
 interface PendingViewProps extends AppContextProps {
   /** 受控草稿列表（缺席时走内部本地态）。 */
@@ -72,26 +58,13 @@ interface PendingViewProps extends AppContextProps {
   onCollectLocal?: (id: string) => void | Promise<void>;
   /** 退回草稿回调（collected 退回 draft；App 透传 tauriApi.revertCollectedApp 落盘，失败抛错由本组件 toast）。 */
   onRevertToDraft?: (id: string) => void | Promise<void>;
-  /**
-   * 标记为未提交回调（submitted → collected，pr_url 清空；App 透传 tauriApi.withdrawSubmitted）。
-   * 缺席时不渲染该动作（浏览器预览/单测无后端写入即不展示）。
-   */
+  /** 撤回已提交状态回调（submitted → collected）；缺席时不渲染该动作。 */
   onWithdrawSubmitted?: (id: string) => void | Promise<void>;
-  /**
-   * 单条预填 URL 提供方（App 透传 tauriApi.getCustomAppPrUrl；
-   * 缺席时用本地同形兜底，浏览器预览/单测可用）。
-   */
+  /** 单条预填 URL 提供方；缺席时触发预览模式只读提示。 */
   onGetPrUrl?: (id: string) => Promise<string>;
-  /**
-   * 单条提交载荷（后端 `get_custom_app_pr_payload` 产出的 JSON 对象文本；
-   * 前端只原样复制，不自行拼装/格式化）。预填链接超长时优先复制它。
-   */
+  /** 单条提交载荷提供方（后端产出的 JSON 文本，预填链接超长时原样复制）。 */
   onGetPrPayload?: (id: string) => Promise<string>;
-  /**
-   * 许可名单提供方（后端只读命令的前端封装；
-   * 缺席时默认走 `getLicenseAllowlist`，单测可注入桩）。
-   * 启动/提交前拉取，失败不回退写死名单（暂存放行、提交提示重试）。
-   */
+  /** 许可名单提供方（默认走 `getLicenseAllowlist`）；加载失败不回退写死名单。 */
   onGetLicenseAllowlist?: () => Promise<LicenseAllowlistResult>;
   /** 轻提示通道（缺席时静默）。 */
   onNotify?: ShowToast;
@@ -200,11 +173,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [previewExpanded, setPreviewExpanded] = useState(true);
 
-  /**
-   * 顶层四 Tab 切换（草稿 / 待提交 / 已提交 / 已归档）：
-   * 右侧详情 + 操作按钮随 activeGroup 联动，
-   * 切 Tab 即重置跨分组选中（含新建态与二次确认态），无选中走空态提示。
-   */
+  // 切换顶层 Tab 时清空跨分组选中与二次确认状态
   const handleGroupChange = (group: PendingGroupId) => {
     if (group === activeGroup) return;
     setActiveGroup(group);
@@ -217,8 +186,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     setFormErrors({});
   };
 
-  // 表单 B/C 分节的展开/收起偏好（localStorage 持久化，A 核心必填不许折叠隐藏；
-  // B 键名为 supplemental，旧 `optional` 形态由共享模块解析兼容）
+  // 表单 B/C 分节的展开/收起偏好（localStorage 持久化）
   const [openSections, setOpenSections] = useState(() => getPendingSectionPrefs());
 
   const toggleSection = (key: 'supplemental' | 'runtime') => {
@@ -229,11 +197,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     });
   };
 
-  // 许可名单（唯一源头为后端只读命令）：启动预取 + 提交前兜底拉取。
-  // 加载失败不回退任何本地名单：暂存（draft 档）本就不查名单直接放行；
-  // 提交/预填前拿不到名单则提示重试并中止。
-  // 逐框内联校验用快照（不每键 IPC）：licenseGateSnapshot 为已预取快照，
-  // 未就绪时按 disabled 口径暂不标 osi/gate_unavailable（仍保留 required）。
+  // 后端许可名单快照（用于提交前严格校验与内联提示；加载失败不回退写死名单）
   const [licenseGateSnapshot, setLicenseGateSnapshot] = useState<LicenseAllowlistResult | null>(null);
   const licenseGateRequestRef = useRef<Promise<LicenseAllowlistResult | null> | null>(null);
   const loadLicenseGate = useCallback((): Promise<LicenseAllowlistResult | null> => {
@@ -620,11 +584,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     setConfirmRevertId((prev) => (prev === id ? null : prev));
   };
 
-  /**
-   * 待提交退回草稿：二次确认复用删除确认形态（首点置确认态 4s，次点执行）；
-   * 有回调走后端落盘（App 透传 revert，失败抛错 toast 不静默），缺席仅本地预览翻 draft 态；toast 复用现有风格。
-   * 退回后停留待提交 Tab：选中清空或落到下一条同组行，由调用方切 Tab 回草稿查看。
-   */
+  // 待提交退回草稿：二次确认后执行，退回后仍留在待提交 Tab 并聚焦下一条
   const handleRevertToDraft = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || revertingId === id) return;
@@ -679,11 +639,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     }
   };
 
-  /**
-   * 标记为未提交（submitted → collected，pr_url 清空）：二次确认复用删除/退回形态；
-   * 成功后行离开已提交、回到待提交（父级刷新后），Issue 需用户在 GitHub 自行关闭。
-   * 已归档/非 submitted 行拒绝；无回调不渲染该动作（预览模式无后端写入）。
-   */
+  // 标记为未提交（submitted → collected）：二次确认后清空选中并等待父级刷新
   const handleWithdrawSubmitted = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || withdrawingId === id) return;
@@ -713,12 +669,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     }
   };
 
-  /**
-   * 收录进本地：收录档校验通过后 status=collected（首页/分类同展，可搜可装）；
-   * 已提交行前端硬拦（直接 toast，不调后端，避免重复收录）；
-   * 已收录行仅提示已收录，不重复调后端；
-   * 缺项可点击：置内联 + 定位首错，不 toast；后端失败 toast 原文。
-   */
+  // 收录进本地：确保许可名单就绪并校验通过后保存草稿并翻转为 collected
   const handleCollectLocal = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || collectingId === id) return;
@@ -767,14 +718,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     }
   };
 
-  /**
-   * 单卡“提交 Issue”：仅收录态可提交（draft 先收录进本地）→ 先确保后端许可名单就绪
-   * （失败提示重试并中止，不回退本地名单）→ 提交档本地预检（与后端 SubmitStrict 同口径；
-   * 缺项可点击：置内联 + 定位首错，不 toast）→ 共享提交尾段（取 URL→https 判→超长复制
-   * 载荷→开页，见 pending/submitPrefillFlow）即止：不自动 mark submitted，
-   * 用户在预填页提交 Issue 后回待提交手动贴链接确认（复用 mark_submitted 行），
-   * 取消则停留 collected，可重新提交。
-   */
+  // 提交 Issue：校验许可名单后打开预填页；不自动标记 submitted，需用户回填链接确认
   const handleSubmitPr = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || submittingId === id) return;
@@ -831,7 +775,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
 
   return (
     <ViewShell viewClass="pending-view">
-      {/* 1. 页头：仅标题与描述（计数由各 Tab 自带，空态提示提供新建入口） */}
+      {/* 页头 */}
       <div className="pending-header">
         <div className="pending-header-info">
           <h3 className="pending-header-title">
@@ -846,7 +790,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
         </div>
       </div>
 
-      {/* 2. 四个互斥顶层 Tab（草稿 / 待提交 / 已提交 / 已归档），角标按全局平台筛选计数 */}
+      {/* 分组 Tab */}
       <div className="segmented-group" role="tablist" aria-label={t('pending.title')} style={{ marginBottom: '12px' }}>
         {PENDING_GROUP_ORDER.map((id) => {
           const Icon = GROUP_ICON[id];
@@ -871,7 +815,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
         })}
       </div>
 
-      {/* 3. 主区：草稿全空时展示全局引导；有草稿时展示 master-detail 左右分栏 */}
+      {/* 主区：全空时展示引导，有草稿时展示左右分栏 */}
       {entries.length === 0 && !isCreating ? (
         <FilterEmptyState
           icon={<Inbox size={28} strokeWidth={1.25} aria-hidden="true" />}

@@ -1,9 +1,4 @@
-/**
- * 真实 Tauri 运行时下 `<AppIcon>` 后端单飞契约：
- * 未命中 data: 时不挂远端 <img>（无 WebView 双发），仅一次 `get_or_fetch_icon`；
- * 成功切入 data: 实图；失败经唤醒回退直连 <img>，再失败定格首字母徽章且不重试循环。
- * Demo mock（`__ZSTORE_DEMO_MOCK__`）保持原同步直出。
- */
+/** 测试真实 Tauri 运行时下 `<AppIcon>` 的后端单飞请求、失败直连回退与徽章定格。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 

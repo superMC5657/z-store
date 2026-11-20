@@ -1,8 +1,4 @@
 //! `catalog_apps` 持久化 DAO：远端精选目录主表。
-//!
-//! - `catalog.json` 仅作为首次启动且 `catalog_apps` 为空时的初始种子；
-//! - 清单同步（`sync_catalog`）走 `replace_catalog_apps` 事务全量权威覆盖；
-//! - 应用详情刷新拿到新数据时，通过 `update_catalog_app_from_detail` 回写保鲜字段。
 
 use super::{clean, now_secs, Database};
 use crate::github::models::CatalogItem;

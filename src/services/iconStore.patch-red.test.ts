@@ -1,7 +1,4 @@
-/**
- * 回归：`patchAppIconList` 归一与 `resolveIconTargets`/`getBufferedIcon` 同口径（trim+小写）。
- * 首搜直写（patch）与二搜缓冲回读（getBufferedIcon）一致，避免首搜无图标、二搜经缓冲才有。
- */
+/** `patchAppIconList` 与 `getBufferedIcon` 的 id 归一一致性测试。 */
 import { describe, expect, it, beforeEach } from 'vitest';
 import { __resetIconStoreForTests, admitIconHit, patchAppIconList, getBufferedIcon } from './iconStore';
 import type { AppSummary } from '../types';

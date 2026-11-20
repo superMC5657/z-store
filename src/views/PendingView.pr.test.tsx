@@ -55,7 +55,7 @@ function draftEntry(partial: Partial<CustomDraftEntry> & { id: string }): Custom
 
 const BATCH_URL = 'https://github.com/superMC5657/z-store-catalog/issues/new?title=batch';
 
-// ADR-0018：许可名单唯一源头为后端；组件测试经 onGetLicenseAllowlist 注入快照桩。
+// 许可名单唯一源头为后端；组件测试经 onGetLicenseAllowlist 注入快照桩。
 const TEST_GATE: LicenseAllowlistResult = {
   enabled: true,
   allowed: ['MIT', 'ISC', 'Apache-2.0', 'GPL-3.0', 'MPL-2.0', 'Unlicense'],
@@ -772,7 +772,7 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     fireEvent.click(screen.getByText('提交 Issue'));
 
     await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(longUrl));
-    // 保留原有超长告警，另加“已复制链接”提示
+    // 保留超长告警，另加“已复制链接”提示
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('建议分批提交'), 'warning'),
     );

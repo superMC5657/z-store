@@ -88,9 +88,7 @@ pub fn expand_env_path(path_str: &str) -> PathBuf {
     PathBuf::from(expanded)
 }
 
-/// ADR-0010：canonical id 形如 owner/repo，目录名中将 '/' 折叠为 '-'
-/// （rustdesk/rustdesk → rustdesk-rustdesk），并消毒其余字符防御路径逃逸。
-/// 仅用于新安装目录命名；存量目录以 installed_apps.install_path 记录为准，不受影响。
+/// 将 canonical id 中的 `/` 折叠为 `-` 并过滤危险字符，生成安全的安装目录名。
 fn sanitize_dir_name(app_id: &str) -> String {
     let safe_id: String = app_id
         .chars()

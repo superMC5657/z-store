@@ -62,9 +62,7 @@ impl AppScanner {
         {
             return Some(path);
         }
-        // Linux / macOS：接受无扩展名的绝对路径可执行文件（如 /usr/bin/motrix、
-        // /Applications/Foo.app/Contents/MacOS/Foo）及 `.app` bundle 路径。
-        // 仅接受 Unix 绝对路径，避免把 `C:\App\*.dll` 误判。
+        // Linux/macOS 接受无扩展名的绝对路径或 .app bundle，避免把 Windows DLL 等资源误判为主程序。
         let is_mac_bundle_path = path
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
@@ -267,7 +265,7 @@ impl AppScanner {
         None
     }
 
-    /// `find_exe_in_directory` 第 4 步：根目录 `.exe` 回退选择。
+    /// 根目录 `.exe` 回退选择（唯一文件直接采纳，多文件时仅匹配配置词元）。
     fn pick_root_exe(dir: &Path, config: &ScanConfig) -> Option<String> {
         let mut exes: Vec<PathBuf> = std::fs::read_dir(dir)
             .ok()?
@@ -324,9 +322,7 @@ impl AppScanner {
         }
     }
 
-    /// Linux 目录内裸名可执行文件扫描：仅按配置名（含去 `.exe` 后的裸名）精准命中，
-    /// 且须有执行位；无命中即返回 None（禁首个文件兜底，防误启动无关二进制）。
-    /// 供 `find_exe_in_directory` linux 回退调用。
+    /// Linux 目录内裸名可执行文件扫描：仅按配置名（含去 `.exe` 裸名）精准匹配且须有执行位。
     #[cfg(target_os = "linux")]
     pub fn find_linux_executable_in_directory(dir: &Path, config: &ScanConfig) -> Option<String> {
         // 5a. 配置名（含裸名形式）精准命中（大小写不敏感，且须有执行位）

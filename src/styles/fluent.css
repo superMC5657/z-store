@@ -1,7 +1,4 @@
-/* fluent.css · 样式总入口（barrel）：仅按层叠顺序重导出各组件模块，不含实质规则。
- * 顺序：tokens → base → ambient/layout → 叶子(toast/readme/flyout/feedback) → buttons/hero/modal/settings → app-card → list-row → a11y。
- * 高风险约束：[data-theme=dark] 随模块走；.app-icon-frame/.app-tag 不跨文件合并；btn-install 归 components-buttons。
- */
+/* fluent.css · 样式总入口，按层叠顺序导入各模块（tokens → base → layout → 叶子组件 → 复合组件 → a11y）。 */
 @import "./tokens.css";
 @import "./base.css";
 @import "./layout-titlebar.css";

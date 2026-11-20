@@ -11,34 +11,8 @@ import { annotateLocalSource, buildCatalogIdSet } from './selectors';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
 
 /**
- * 收藏未收录行 left-join 合成（数据层唯一口径，展示层只读标记）。
- *
- * 背景：`apps` 来自 `searchApps('')` 仅收录库；`FavoritesView` 按
- * `favoriteIds` 内连接过滤会丢未收录行（计数用全集 `favoriteIds.size`）。
- * 此处对 `favoriteIds ∖ apps` 合成占位 `AppSummary`，再进
- * `matchPlatformSetWithLoading`（平台三态逻辑不动：占位 `platforms: []`
- * 即 loading 恒可见，落定后走正常 Other 过滤）。
- *
- * - 归一大小写：join/去重一律经前端唯一口 `normalizeId`（`trim().toLowerCase()`），
- *   原始 id 保留原值供 `FavoritesView` 精确 `has` 命中（双键：原值 + 小写在调用方分别建索引）。
- * - 富卡优先（cache-first）：`getCachedAppDetailsBatch`（DB-only 未收录批量回填）→
- *   记录 `is_cataloged` 打标（`get_favorite_entries` + `get_watched_apps` 联合记录，
- *   任一显式 `false` 即未收录，缺字段/缺席即未收录 fail-closed）；`None`/失败才用最小占位，
- *   保证行必展示。
- * - 标记：记录优先——记录已收录行 `is_cataloged: true`（已收录徽标 + 真实分类），
- *   记录未收录/缺席行 `is_cataloged: false` + 空分类兜底 external，供展示层
- *   `isAppCataloged` 打标用，不参与 join/过滤/计数；目录 `apps` 列表仅作结构
- *   去重/驱逐补充，永不覆盖记录标记。
- *
- * 深 join 模块：未收录 join（`(favorite∪watched)∖精选收录库`）唯一深模块，
- * 两种行为——exact（规范键精确查：归一精确差集 + 收录段合并去重）vs heuristic
- * （外部启发式：`parseFavoriteOwnerRepo` 末两段推导 + 占位合成行展示兜底）；
- * effect 侧 `useUncatalogedJoin` 收归于此，
- * 合并器收归 `app/selectors`（调用方经 `selectFavoritesViewApps` 消费）。
- * 行消失（收录到达驱逐/取消收藏）与计数保留（全集计数）语义不变，见删除测试。
- *
- * 键归一律经 `normalizeId` 单口（含 Set 口径 `normalizeIdLowerSet`）；`parseFavoriteOwnerRepo`
- * 为展示用启发式（保留原大小写，仅 trim），非 canonical，不经归一。
+ * 收藏/关注未收录行的 left-join 合成：为不在收录库中的条目生成占位或缓存富卡，
+ * 并依据记录表的 `is_cataloged` 打标，供收藏页展示。
  */
 
 const FAVORITE_EXTERNAL_CATEGORY = 'external';
@@ -93,20 +67,12 @@ export function makeFavoritePlaceholderSummary(favId: string, isCataloged = fals
   );
 }
 
-/**
- * 详情派生合成行：`detail_to_summary` 前端同构（`appSummaryFromDetail`），
- * 仅补收录标记（空分类兜底 external，`is_cataloged: false` 显式携带）。
- * 有实分类（如被隐藏规则滤掉的收录项）保留实值，不强制覆盖。
- */
+/** 从详情构造带未收录标记的摘要，空分类回落至 external。 */
 export function favoriteSummaryFromDetail(detail: AppDetail): AppSummary {
   return markFavoriteUncatalogedRow(appSummaryFromDetail(detail));
 }
 
-/**
- * 未收录行标记（`favoriteSummaryFromDetail` 与缓存批量回填共用）：
- * 空分类兜底 external，`is_cataloged: false` 显式携带供展示层打标；
- * 有实分类保留实值，不参与 join/过滤/计数。
- */
+/** 标记为未收录行，空分类回落至 external。 */
 export function markFavoriteUncatalogedRow(summary: AppSummary): AppSummary {
   const category = summary.category && summary.category.trim() !== ''
     ? summary.category
@@ -122,22 +88,13 @@ export function markFavoriteUncatalogedRow(summary: AppSummary): AppSummary {
   };
 }
 
-/**
- * 按记录打标：
- * - `isCataloged=true` → 显式 `is_cataloged: true`（已收录徽标 + 真实分类保留）；
- * - `isCataloged=false` → 未收录标记（空分类兜底 external）。
- * 记录缺席时调用方按未收录计（`?? false`），目录 `apps` 列表仅作结构去重/驱逐补充，永不覆盖记录标记。
- */
+/** 按记录表 `isCataloged` 为行打标，记录优先于目录列表。 */
 export function markFavoriteRowByRecord(summary: AppSummary, isCataloged: boolean): AppSummary {
   if (isCataloged) return { ...summary, is_cataloged: true };
   return markFavoriteUncatalogedRow(summary);
 }
 
-/**
- * 记录收录标记表（归一小写键 → `is_cataloged`）：
- * 收藏记录 + 关注记录 union，任一显式 `false` 即未收录（false 优先于 stale 的
- * true）；读值语义见 `isCatalogedFailClosed`；非数组/脏行直接忽略（调用方 mock 缺席即空表）。
- */
+/** 合并收藏与关注记录中的 `is_cataloged` 标记（任一显式为 `false` 即未收录）。 */
 export function buildRecordCatalogedMap(
   favEntries: ReadonlyArray<{ app_id?: unknown; is_cataloged?: unknown }> | unknown,
   watchEntries: ReadonlyArray<{ app_id?: unknown; is_cataloged?: unknown }> | unknown,
@@ -164,11 +121,7 @@ function isRecordCataloged(record: ReadonlyMap<string, boolean>, key: string): b
   return record.get(key) ?? false;
 }
 
-/**
- * 占位行判定（视图手动加载按钮唯一依据，不参与 join/过滤/计数）：
- * 无描述/版本/图标且零星零叉的空壳行即占位（含记录已收录但缓存缺失的空壳）；
- * 富卡行（任一实质字段非空）返回 false。
- */
+/** 判定是否为无实质元数据与星叉数的空壳占位行。 */
 export function isFavoritePlaceholderRow(app: AppSummary): boolean {
   if (!app) return false;
   const emptyText = (v: unknown): boolean => typeof v !== 'string' || v.trim() === '';
@@ -182,14 +135,7 @@ export function isFavoritePlaceholderRow(app: AppSummary): boolean {
   );
 }
 
-/**
- * 收藏占位行图标热替口径（与搜索/最近同一套：店内 `admitIconHit` 唯一写口读 `app_icon_cycles`
- * 即前端侧 `resolve_confirmed_icon_from_db` 同源 + 后端 ensure/download 回填）。
- *
- * `pickFavoritePersistIconUrl`：轮换结果取可落盘持久化 URL——`remote_url` 优先，
- * `url` 非 `data:` 才兜底（`data:` 即时态永不进盘）；非远端置空走首字母
- *（`isRemoteIcon` 同规则）。
- */
+/** 从图标轮换结果提取可持久化的远端 URL（忽略即时 `data:` URL）。 */
 export function pickFavoritePersistIconUrl(
   cycle: AppIconCycleResult | null | undefined,
 ): string {
@@ -201,10 +147,7 @@ export function pickFavoritePersistIconUrl(
   return persist;
 }
 
-/**
- * 摘要图标是否缺图标预热：空/非远端（首字母占位态）即需经店内写口查轮换回填；
- * 已有合法远端仅需店内写口做 M1 缓冲 + 文件预热（与搜索首屏预热同通道）。
- */
+/** 图标为空或非远端 URL 时需要触发轮换回填。 */
 export function needsFavoriteIconWarm(icon: unknown): boolean {
   if (typeof icon !== 'string') return true;
   const value = icon.trim();
@@ -212,11 +155,7 @@ export function needsFavoriteIconWarm(icon: unknown): boolean {
   return false;
 }
 
-/**
- * 求 `favoriteIds ∖ (catalog ∪ extra)`（大小写归一，按小写去重保序）。
- * 返回原始 favId（保留原大小写供展示层精确命中），调用方按小写建双键索引。
- * 键口径一律 `normalizeId` 单口。
- */
+/** 求 `favoriteIds ∖ (catalogLower ∪ extraLower)`，大小写归一去重并保留原始 id。 */
 function findMissingIds(
   favoriteIds: Iterable<string>,
   catalogLower: ReadonlySet<string>,
@@ -250,25 +189,8 @@ interface UseUncatalogedJoinParams {
   extraSlot: ExtraListSlot;
 }
 
-/**
- * 收藏/关注 left-join 富卡行（cache-first，记录优先打标）。
- *
- * 顺序：(a) `missing` 同步占位行（行必展示）；(b) `get_cached_app_details_batch`
- * 对未收录 fav/watch id 批量回填富卡数据（DB-only 本地读）；(c) 逐行按记录
- * `is_cataloged` 打标——记录优先，目录 `apps` 列表仅作结构去重/驱逐补充，
- * 永不覆盖记录标记。
- * 记录已收录行得已收录徽标 + 真实分类；记录未收录/缺席行得未收录徽标；
- * `None` 行保持占位，经行内加载按钮（`loadUncatalogedDetail`）或详情打开
- * 手动拉取。归一大小写 + 双键；占位行 `platforms: []` 即 loading，
- * 平台三态/徽标逻辑一律不动。失败即最小占位，行必展示；收录到达即驱逐。
- * 资产区默认 DB-only：占位 + 缓存富卡自动呈现，`getAppDetails`/
- * `restoreOrFetchIconCycle` 仅手动触发。
- */
+/** 收藏/关注未收录行的 cache-first left-join：先同步占位，再从本地详情缓存回填并按记录打标。 */
 export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }: UseUncatalogedJoinParams) {
-  // 收藏/关注未收录富卡行 left-join：`(favoriteIds∪watchedIds)` 先占位，
-  // 再经 `getCachedAppDetailsBatch`（DB-only）回填富卡 + 记录表打标，仅收藏页消费，
-  // 不进 `apps`/计数/其它视图；`platforms: []` 即 loading 恒可见，平台三态不动）。
-  // 占位行经缓存批量升级；`None` 行留待行内加载按钮或详情打开手动拉取。
   const { items: uncatalogedExtraApps, setItems: setUncatalogedExtraApps, ref: uncatalogedExtraAppsRef } = extraSlot;
   const favoriteExtraInflightRef = useRef<Set<string>>(new Set());
   // 记录收录标记表（归一小写键 → is_cataloged，行打标唯一依据；目录 apps 仅补充去重）。
@@ -377,7 +299,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
     );
     if (missing.length === 0 && remainingExtras.length === 0) return;
     let cancelled = false;
-    // (a) 占位行同步（行必展示；打标用上轮记录表，重合后由 (c) 按最新记录纠正）。
+    // 同步追加占位行，确保缺失条目立即可见
     if (missing.length > 0) {
       const knownRecords = recordCatalogedRef.current;
       setUncatalogedExtraApps((prev) => {
@@ -394,9 +316,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
         return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
       });
     }
-    // (b) 富卡数据批量回填（仅未收录 fav/watch id，DB-only 本地读，不经网络门控）与
-    // (c) 记录表并行拉取；单次合并中先按最新记录重打标既有行，再合入富卡行。
-    // 目录 apps 列表仅作结构去重/驱逐（catalogLower），永不覆盖记录标记。
+    // 并行拉取本地详情缓存与收藏/关注记录，先重标既有行再合入富卡行
     const uncatalogedIds = findMissingIds(unionIds, catalogLower);
     void Promise.all([
       (uncatalogedIds.length > 0 ? tauriApi.getCachedAppDetailsBatch(uncatalogedIds) : Promise.resolve([])).catch(() => null),
@@ -423,7 +343,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
           if (k && !indexByKey.has(k)) indexByKey.set(k, i);
         });
         let changed = false;
-        // (c1) 既有行按最新记录重打标（徽标跟记录走；记录缺席的行保持原样；本地行叠加黄标）。
+        // 按最新记录重标既有行，本地同 id 叠加黄标
         next.forEach((e, i) => {
           const k = normalizeId(e.id);
           const flag = k ? record.get(k) : undefined;
@@ -440,7 +360,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
             changed = true;
           }
         });
-        // (c2) 富卡行合入：目录已收录键跳过（由目录行渲染，避免双显）。
+        // 合入富卡行，跳过目录已收录项避免双显
         for (const r of rich) {
           const k = normalizeId(r.id);
           if (!k || catalogLower.has(k)) continue;
@@ -457,7 +377,6 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
         return changed ? next : prev;
       });
     }).catch(() => {});
-    // 资产区默认 DB-only：占位 + 缓存富卡自动呈现，详情/图标轮换仅行内按钮或详情打开手动触发（见 loadUncatalogedDetail）。
     return () => {
       cancelled = true;
     };

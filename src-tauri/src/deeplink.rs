@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-// ADR-0010 契约：深链入站强制经 `canonical_app_id()` 归一化——
-// `app`/`install`/裸 id 三路由统一走 `forge::canonical_lookup_id`
-//（可解析直取 canonical，不可解析回退小写不断路由；执行层 `require_app_id`
-// 仍拒绝未知标识，分层不混淆）。详见 ADR-0010。
+// 深链入站统一经 `forge::canonical_lookup_id` 归一化（执行层仍校验并拒绝未知标识）。
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", content = "payload", rename_all = "snake_case")]
@@ -89,7 +86,6 @@ impl DeepLinkParser {
         }
 
         // 2. 应用详情路由：zstore://app/{app_id}
-        // ADR-0010 契约：入站强制归一化（canonical 或小写回退，见模块注）。
         if let Some(app_id) = path_part.strip_prefix("app/") {
             let id = decode_payload(app_id)?;
             if !id.trim().is_empty() {
@@ -100,7 +96,6 @@ impl DeepLinkParser {
         }
 
         // 3. 安装应用路由：zstore://install/{app_id}
-        // ADR-0010 契约：入站强制归一化（canonical 或小写回退，见模块注）。
         if let Some(app_id) = path_part.strip_prefix("install/") {
             let id = decode_payload(app_id)?;
             if !id.trim().is_empty() {
@@ -159,7 +154,6 @@ impl DeepLinkParser {
             }
             let clean = decode_payload(path_part)?.trim().to_string();
             if !clean.is_empty() {
-                // ADR-0010 契约：裸 id 路由同样强制归一化。
                 return Some(DeepLinkAction::AppDetail {
                     app_id: crate::forge::canonical_lookup_id(&clean),
                 });
@@ -242,7 +236,6 @@ mod tests {
 
     #[test]
     fn test_parse_app_detail() {
-        // ADR-0010：应用 id 为 canonical owner/repo
         let res = DeepLinkParser::parse("zstore://app/rustdesk/rustdesk").unwrap();
         assert_eq!(
             res,
@@ -328,8 +321,6 @@ mod tests {
 
     #[test]
     fn test_parse_app_id_normalizes_canonical() {
-        // ADR-0010 契约：深链入站强制归一化（大小写/URL 形态归一为 canonical；
-        // 不可解析回退小写，解析层不断路由）。
         let mixed = DeepLinkParser::parse("zstore://app/RustDesk/RustDesk").unwrap();
         assert_eq!(
             mixed,

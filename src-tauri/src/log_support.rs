@@ -1,10 +1,4 @@
-//! 业务日志公共辅助：host 脱敏 / 首行截断 / basename（chars 边界安全）。
-//!
-//! - `host_of`：只取 host（小写），未知返回 `unknown`；永不返回完整 URL/query。
-//! - `short_reason`：取首行并按 chars 截断 160，避免多行 body 与宽字符切半。
-//! - `file_base`：只取 basename（支持 `/` 与 `\`），永不返回全路径。
-//! - `http_err_reason`：reqwest 0.12 `Display` 会回显完整 URL（含 release
-//!   资产签名 query），必须先剥离 URL 再取首行；不跨仓，自写。
+//! 业务日志脱敏与格式化辅助（host 脱敏、首行截断、basename 提取与 HTTP 错误脱敏）。
 
 /// 取 URL 的 host（小写）；解析失败返回 `unknown`。
 pub fn host_of(url: &str) -> String {
@@ -37,19 +31,7 @@ pub fn host_of(url: &str) -> String {
     }
 }
 
-/// URL 脱敏与安全日志格式化：
-/// 1. 保留完整协议、Host、端口与 Path 路径（例如 `https://api.github.com/repos/7zip/7zip/releases/latest`
-///    或带镜像前缀的 `https://gh-proxy.net/https://github.com/...`）；路径段永不动
-///    （`vscode` 内的 `code` 子串永不触发）；
-/// 2. Query 键值脱敏（query-key-only）：只看 `=` 前的键名，值含敏感词永不触发；
-///    键边界与 `redact_kv_values` 一致：起始或前一字节为 `? & ;` 才视为键，
-///    此处按 `&` / `;` 切分并原样保留分隔形态；
-/// 3. `code` 系精确匹配（`code` / `device_code` / `user_code` / `api_key` 系），避免
-///    `vscode` 子串误杀；其余短键（`sig` / `key` / `auth` / `pass`）按分隔符分词匹配，
-///    长键（`token` / `secret` / `credential` / `signature` / `password`）子串匹配；
-/// 4. 保留非敏感查询参数（如 `q=...`, `per_page=...`, `sort=...`），便于排查搜索与过滤请求。
-///
-/// 全分支 ASCII 字节判定，字符边界安全，永不 panic；签名稳定（调用方 20+ 处不动）。
+/// 脱敏 URL 中的敏感 query 参数键（仅匹配键名，保留路径与非敏感查询参数）。
 pub fn sanitize_url(url: &str) -> String {
     let trimmed = url.trim();
     if trimmed.is_empty() {

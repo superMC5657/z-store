@@ -1,8 +1,4 @@
-/**
- * 已确认 Other 回归 + loading 永不持久化：
- * loading 空平台不进已落定快照，只活当次 out 渲染；
- * 只有具平台或已确认 Other 才进落定快照（12h / 600 FIFO）。
- */
+/** 趋势富卡已确认 Other 状态、loading 不持久化及 TTL 行为测试。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearTrendConfirmedOtherCache,

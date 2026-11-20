@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Default)]
 struct LnkListing(Vec<(PathBuf, String)>);
 
-/// 桌面与开始菜单四个快捷方式根的一次性枚举缓存：同一次路径解析内
-/// 「开始菜单优先」与「桌面优先」两轮匹配复用同一份目录遍历结果。
+/// 桌面与开始菜单快捷方式目录的一次性枚举缓存。
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 #[derive(Debug, Default)]
 struct ShortcutRoots {
@@ -59,9 +58,7 @@ impl ShortcutRoots {
     }
 }
 
-/// 候选名通用停用词（`resolve_installed_app_path` token 过滤与 `linux_candidate_names`
-/// 切分过滤同源共用；防 `app` / `tool` / `test` 等通用词误命中 `/usr/bin/test`、
-/// `apport-gtk.desktop` 同类误配）。
+/// 候选名通用停用词，避免 `app` / `tool` / `test` 等通用词误命中系统命令。
 pub(crate) const CANDIDATE_STOP_WORDS: &[&str] = &[
     "microsoft",
     "google",
@@ -101,18 +98,14 @@ pub(crate) const CANDIDATE_STOP_WORDS: &[&str] = &[
 ];
 
 impl AppScanner {
-    /// token 形状判定：len>=3、非纯数字、非停用词（`build_tokens` 5 处条件收敛共用；
-    /// 输入须已小写，与 `linux_candidate_names` 切分过滤同规则）。
+    /// 判定搜索 token 是否有效（长度 >= 3、非纯数字且非停用词）。
     fn is_search_token(lower: &str) -> bool {
         lower.len() >= 3
             && !lower.chars().all(|c| c.is_ascii_digit())
             && !CANDIDATE_STOP_WORDS.contains(&lower)
     }
 
-    /// token 构建 + 配置扩展：按 app_name / app_id / repo 全名、空白切分、
-    /// `-`/`/` 切分、首段回退顺序收集，经 `is_search_token` 过滤后按序并入
-    /// `install_dirs` / `target_executables`（含 `-gui.exe` 变体；Linux 另并入裸名）。
-    /// 纯构造（除 env 外无文件系统副作用），跨平台可单测。
+    /// 从名称/id/repo 构建搜索词元并扩展 `ScanConfig` 的目录与可执行名候选。
     fn build_tokens(
         app_name: &str,
         app_id: &str,
@@ -413,8 +406,7 @@ impl AppScanner {
         #[cfg(not(target_os = "windows"))]
         let _ = shortcuts;
 
-        // 1. 优先尝试从 DisplayIcon 提取，必须经过物理存在校验且排除安装缓存/辅助二进制；
-        //    指向 `.lnk` 时先解出目标主程序（以便读取 PE 版本），解不出才退回快捷方式本身。
+        // 优先从 DisplayIcon 提取；指向 `.lnk` 时先解析目标主程序。
         if let Some(raw_icon) = display_icon {
             if let Some(icon_path) = Self::clean_display_icon(raw_icon) {
                 let is_lnk = icon_path
@@ -465,8 +457,7 @@ impl AppScanner {
             }
         }
 
-        // 2c. Linux 系统级嗅探：PATH/which、/usr/bin/<token>、/opt/<Name>/*、
-        // /usr/share/applications/*.desktop Exec 解析（Windows 包裹在 cfg 内，不受影响）。
+        // Linux 系统级嗅探（PATH、/usr/bin、/opt、desktop Exec）。
         #[cfg(target_os = "linux")]
         {
             if let Some(found) = Self::resolve_linux_system_binary(&config) {
@@ -538,7 +529,7 @@ impl AppScanner {
         repo: Option<&str>,
     ) -> Option<String> {
         let repo_str = repo.unwrap_or(app_id);
-        // ADR-0010：canonical id 形如 owner/repo，取 repo 段作为扫描候选基础
+        // canonical id 形如 owner/repo，取 repo 段作为扫描候选基础
         let repo_base = repo_str.rsplit('/').next().unwrap_or(repo_str);
         let mut config = ScanConfig::from(repo_base);
 
@@ -586,9 +577,7 @@ impl AppScanner {
             }
         }
 
-        // 4b. Linux 系统级嗅探：PATH/which、/usr/bin/<token>、/opt/<Name>/*、
-        // /usr/share/applications/*.desktop Exec 解析 + dpkg -L 回退。
-        // Windows 编译时整块消除，行为不变。
+        // Linux 系统级嗅探与 dpkg -L 回退。
         #[cfg(target_os = "linux")]
         {
             if let Some(found) = Self::resolve_linux_system_binary(&config) {
@@ -603,15 +592,9 @@ impl AppScanner {
         Self::resolve_executable_path_with(None, None, config, Some(&shortcuts))
     }
 
-    // ========================================================================
-    // Linux 桌面文件 / PATH / dpkg 解析（纯函数跨平台可测，文件系统嗅探仅 linux 生效）
-    // ========================================================================
+    // Linux 桌面文件 / PATH / dpkg 解析
 
-    /// 是否为 Flatpak shell 包装器（`flatpak run <appid>` 无本地二进制）：
-    /// 首个空白分隔 token 的 basename（大小写不敏感）是否为 `flatpak`
-    ///（含 `/usr/bin/flatpak` 路径形态；`env VAR=..` 剥离后的残留 token 同样适用）。
-    /// Exec 行首与 env 前缀剥离后两处调用点共用，防 which 到 `/usr/bin/flatpak` 全量误报。
-    /// 纯函数，跨平台可单测。
+    /// 判断是否为 Flatpak shell 包装器（`flatpak run ...` 无本地二进制）。
     #[cfg(any(target_os = "linux", test))]
     pub fn is_flatpak_shell_wrapper(exec: &str) -> bool {
         let trimmed = exec.trim();
@@ -722,10 +705,7 @@ impl AppScanner {
         None
     }
 
-    /// 将二进制（绝对路径或裸命令）解析为磁盘真实路径：
-    /// 绝对路径要求 `is_file` 且（Unix 上）有执行位；裸命令按 `PATH` 逐目录查找（含可执行位校验）。
-    /// 无执行位一律返回 None（禁无条件放行，防误命中数据文件；赋权/提权由调用方显式处理）。
-    /// 纯文件系统函数，Linux/Windows 均可调用（Windows 上退化为 is_file 检查）。
+    /// 将绝对路径或裸命令解析为磁盘上存在且可执行（Unix 校验执行位）的路径。
     #[cfg(any(target_os = "linux", test))]
     pub fn resolve_binary_via_path(bin: &str) -> Option<String> {
         let b = bin.trim().trim_matches('"').trim_matches('\'');
@@ -757,12 +737,7 @@ impl AppScanner {
         None
     }
 
-    /// 在 `PATH` 中查找裸命令。
-    /// PATH 在 GUI/服务进程中可能稀疏，显式补齐标准绑定目录（FHS/XDG）：
-    /// `/usr/local/bin`（本地编译）、`/usr/bin`、`/bin`（与 `/usr/bin` 符号链接等价）、
-    /// `/snap/bin`（snap 应用，如 vlc snap 落盘处）、`~/.local/bin`（XDG 用户级）。
-    /// 注：`/opt/bin` 非标准 FHS 路径，不在此补齐（`/opt/<Name>` 由 `resolve_linux_system_binary` 专管）。
-    /// Unix 上必须有执行位才放行（无执行位返回 None；符号链接经 metadata 跟随目标判定）。
+    /// 在 `PATH` 及常见 FHS/XDG 二进制目录中查找具有执行位的裸命令。
     #[cfg(any(target_os = "linux", test))]
     pub fn which_binary(name: &str) -> Option<String> {
         let n = name.trim();
@@ -817,11 +792,7 @@ impl AppScanner {
         None
     }
 
-    /// 从包文件列表输出中挑选可执行文件（纯函数，可单测；`dpkg -L` / `rpm -ql` 共用）：
-    /// 仅按候选裸名精准匹配（`/usr/bin/<cand>` 或以 `/<cand>` 结尾，大小写不敏感，`.exe` 退化裸名），
-    /// 匹配不上返回 None（禁首个文件盲 fallback，防误命中无关二进制）。
-    /// 目录项（如 `/opt/Motrix`，其后必有以 `该行 + "/"` 开头的内容行）一律跳过，
-    /// 避免 basename 恰好等于候选名（如 Motrix 目录 vs motrix 二进制）时误命中目录。
+    /// 从包文件列表输出中按候选裸名精确挑选可执行文件，跳过目录项与资源文件。
     #[cfg(any(target_os = "linux", test))]
     pub fn pick_executable_from_package_list(
         dpkg_output: &str,
@@ -871,14 +842,7 @@ impl AppScanner {
         None
     }
 
-    /// Linux 候选名派生共享 helper（installer_install 包名/二进制回填、installer_query 4b 兜底、
-    /// scanner `resolve_linux_via_dpkg` / `resolve_linux_system_binary` 四处复用，收敛重复派生）。
-    /// 输入原生标识（catalog linux 标识或 `target_executables`）与名称部件（repo/id/name 或 tokens），
-    /// 返回 `(pkg_names, bin_names)`：pkg 全小写去重（`dpkg -L` / `rpm -ql` 包名用，
-    /// 含空格/路径分隔符的长名不入 pkg，防占位挤掉有效包名），
-    /// bin 保留原大小写 + 小写（which/desktop 精准匹配用）。
-    /// `.exe` 后缀自动退化出裸名（Linux 落盘多为无扩展名）。
-    /// 纯函数，跨平台可单测。
+    /// 从原生标识与名称部件派生 Linux 候选包名（小写去重）与二进制名列表。
     #[cfg(any(target_os = "linux", test))]
     pub fn linux_candidate_names(
         native_ids: &[String],
@@ -916,10 +880,7 @@ impl AppScanner {
             if p.is_empty() {
                 continue;
             }
-            // 全名小写：bin 照收（含空格长名，调用方 which 时跳过含空格项）；
-            // pkg 仅收无空格/无路径分隔符项（`dpkg -L` 包名语义）。
-            // 全名同样过停用词（防单字通用名如 `App` 直驱 `apport-gtk.desktop` 误配；
-            // catalog 原生标识不受此限，真实应用仍可经标识命中）。
+            // 全名过停用词后加入 bin；仅无空格与路径分隔符的条目加入 pkg。
             let full = p.to_lowercase();
             if full.len() >= 2 && !CANDIDATE_STOP_WORDS.contains(&full.as_str()) {
                 if !bin.contains(&full) {
@@ -929,9 +890,7 @@ impl AppScanner {
                     pkg.push(full);
                 }
             }
-            // 切分 token（按 `/ - _` 空格，`owner/repo` 末段天然覆盖，无需单列）：
-            // 与 `resolve_installed_app_path` 同规则：len>=3、非纯数字、非停用词
-            // （防切分复活通用词，如 `non-existent-app-999` → `app` 误命中 `apport-gtk.desktop`）。
+            // 按分隔符切分并过滤短词/纯数字/停用词。
             for tok in p.split(['/', '-', ' ', '_']) {
                 let t = tok.trim().to_lowercase();
                 if t.len() >= 3
@@ -950,9 +909,7 @@ impl AppScanner {
         (pkg, bin)
     }
 
-    /// 包文件列表输出 → 精准挑选 → 落盘规范化（deb/rpm 回填与 scanner dpkg 嗅探三处复用，
-    /// 收敛 `pick → is_file → canonicalize` 重复）。
-    /// 挑选失败或落盘不存在返回 None（调用方继续走 which/desktop 嗅探）。
+    /// 从包文件列表挑选可执行文件并经 `canonicalize` 确认落盘存在。
     #[cfg(any(target_os = "linux", test))]
     pub fn pick_and_canonicalize_package_path(
         pkg_output: &str,
@@ -980,16 +937,7 @@ impl AppScanner {
             .collect()
     }
 
-    /// Linux desktop 搜索目录（7 类去重）：
-    /// `/usr/share/applications`、`/usr/local/share/applications`、
-    /// `~/.local/share/applications`、` /var/lib/snapd/desktop/applications`、
-    /// `/var/lib/flatpak/exports/share/applications`、
-    /// `~/.local/share/flatpak/exports/share/applications`、
-    /// `$XDG_DATA_DIRS` 展开（`:` 分隔 + `/applications` 后缀，缺省为
-    /// `/usr/local/share:/usr/share`）。
-    /// 不存在/非目录项已过滤（CI/容器缺 snap/flatpak 路径时避免无效遍历）；
-    /// 调用方在单次扫描内复用同一列表（桌面文件常变，不做跨调用缓存）。
-    /// 纯环境函数，跨平台可调用（Windows 上调用方不使用）。
+    /// 返回现存的 Linux `.desktop` 搜索目录（XDG 标准路径、Snap/Flatpak 与 `$XDG_DATA_DIRS`）。
     #[cfg(any(target_os = "linux", test))]
     pub fn linux_desktop_dirs() -> Vec<PathBuf> {
         let mut dirs: Vec<PathBuf> = vec![
@@ -1089,11 +1037,7 @@ impl AppScanner {
         false
     }
 
-    /// `/opt` 子目录是否与 token 匹配：归一化后比对；`len<5` 短 token 要求精确相等。
-    /// 长 token 允许目录名包含 token（支持带后缀的长目录名）；反向（token 包含目录名）
-    /// 仅当目录名等于 token 的完整分段（按 `/ - _` 空格 `.` 切分）时成立——
-    /// 禁纯子串反向 `contains`，防 `/opt/go` 误命中长 token（如 `golang`）。
-    /// 仅 Linux 嗅探调用（与调用方同 cfg，防 Windows 侧 dead_code 告警）。
+    /// 检查 `/opt` 子目录名是否与 token 匹配（短 token 精确相等，长 token 允许目录包含或完整分段匹配）。
     #[cfg(target_os = "linux")]
     fn opt_dir_matches(norm_dir: &str, token: &str) -> bool {
         if norm_dir.is_empty() {
@@ -1343,11 +1287,7 @@ impl AppScanner {
         None
     }
 
-    /// Linux desktop 文件嗅探：仅认 filename stem 归一化 == token 或 Exec 二进制
-    /// basename == token（禁用 desktop Name `contains` 匹配与 stem `contains`
-    /// 匹配，防 `app` 误命中 `apport-gtk.desktop`）。
-    /// 全仓唯一的 desktop walker（installer 回填与系统嗅探共用，收敛 executor 侧重复实现）。
-    /// 桌面目录见 [`Self::linux_desktop_dirs`]（7 类）。
+    /// 扫描 Linux `.desktop` 文件（仅精确匹配文件 stem 或 `Exec` 二进制名）并解析落盘路径。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_desktop(bare_tokens: &[String]) -> Option<String> {
         let desktop_dirs = Self::linux_desktop_dirs();
@@ -1433,10 +1373,7 @@ impl AppScanner {
         None
     }
 
-    /// Linux dpkg 回退：对候选包名执行 `dpkg -L` 并精准挑选可执行文件。
-    /// 包名/候选名共享派生（`linux_candidate_names`），挑选 + 规范化共用
-    /// `pick_and_canonicalize_package_path`（与 executor deb/rpm 回填同一函数）。
-    /// 候选包名试全 `identifiers.linux + repo_base`（经 `linux_candidate_names` 全量派生）。
+    /// 通过 `dpkg -L` 查询候选包名并挑选落盘可执行文件。
     #[cfg(target_os = "linux")]
     pub fn resolve_linux_via_dpkg(tokens: &[String], config: &ScanConfig) -> Option<String> {
         Self::resolve_linux_via_dpkg_with_source(tokens, config).map(|(p, _)| p)
@@ -1504,11 +1441,7 @@ impl AppScanner {
         None
     }
 
-    /// 解析应用的真实系统安装时间戳
-    /// 优先级：
-    /// 1. 注册表匹配项的 InstallDate
-    /// 2. 注册表匹配项对应键的 LastWriteTime
-    /// 3. 本地安装路径 / 可执行文件 / 安装目录创建时间
+    /// 解析应用的安装时间戳（依次尝试注册表 `InstallDate`、`LastWriteTime` 与文件系统时间）。
     pub fn resolve_app_installed_at(
         app_name: &str,
         app_id: &str,

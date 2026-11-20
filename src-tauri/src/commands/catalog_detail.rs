@@ -5,20 +5,12 @@ use crate::AppState;
 use std::collections::HashMap;
 use tauri::State;
 
-/// 落库门（真空语义）：仅 stale 穿透/合成空失败（`is_stale==Some(true)`）跳过持久化；
-/// fresh（含 200 真空双空）一律落盘——真空以 fresh 空行落盘（`is_stale=None`，
-/// `cached_at=now`），下次 TTL 内命中直接复用，前端灭黄标。
-/// 401/离线仍黄（skip 保持旧行），200 真空不黄（persist fresh 空行）。
+/// 仅 stale 结果（`is_stale == Some(true)`）跳过持久化；fresh 结果（含双空）一律落盘。
 pub(crate) fn should_skip_persist(is_stale: Option<bool>) -> bool {
     is_stale == Some(true)
 }
 
-/// FINAL 详情 TTL（分钟→秒）：分钟数经 `get_detail_cache_ttl_minutes`
-///（内用 `get_or_config`，DB 设置优先、挡位归一、缺省回退 config 基线）已归一，
-/// 此处仅做单位换算。
-/// - `0`（每次实时校验）原样透传 0；
-/// - 其余一律 `m * 60`（挡位合法性由 DB 层保证，不做二次钳制）。
-///   图标 TTL 另见 `icons::ICON_TTL_SECS`（7 天，图标通道禁用 ETag）。
+/// 详情缓存 TTL（秒）；`0` 表示每次实时校验。
 pub(crate) fn detail_ttl_secs(db: &crate::db::Database) -> i64 {
     let m = db.get_detail_cache_ttl_minutes();
     if m <= 0 {
@@ -38,42 +30,20 @@ pub async fn get_app_details(
     get_app_details_impl(&state, id, force_refresh).await
 }
 
-/// 平台轻量回填（`get_platforms_lite`）：列表平台懒回填专用通道。
-///
-/// `lazyBackfillPlatforms` 仅需 deduced platforms，
-/// 此处仅做单次 `releases/latest` ETag 条件请求 + `platforms_from_assets` 推导。
-///
-/// 语义与 `get_app_details_impl` 对齐（仅做减法）：
-/// - TTL 内详情缓存命中（`get_detail_cache_ttl_minutes()*60`）直接复用已 deduce 的
-///   platforms，`from_cache=true`；
-/// - miss 时仅 GET `releases/latest`（`get_with_etag` 复用 304/200/ETag 与限流上报），
-///   无 repo、无 README、无图标探测、无 checksum；`detail_json` 仅 TTL 命中时复用，
-///   网络路径只解析 release assets；
-/// - 304-touch/save/回退决议收归 `github::release_fetch` shallow adapter
-///   （与 Streaming Update Check〈流式更新检查〉同一 interface）：
-///   304 命中经 payload 恢复 deduce 并 `touch_cached_app_detail` 延长保鲜期
-///   （`from_cache=true`，与详情 304 短路同形）；
-/// - stale 穿透（401/离线复用旧行）标 `is_stale=true` 且不 touch（与详情一致，
-///   避免把过期 stale 洗成 fresh）；
-/// - 空 platforms 明确返回空向量，不 stamp `["other"]`/`["windows"]`；
-///   `other` 仍为纯前端虚拟概念，永不过 IPC。
-/// 本命令永不写入 `app_details`（不构造全量 `AppDetail`，避免污染详情表），
-/// 仅读写 `api_etag_cache`（条件请求键）与详情 `cached_at` touch。
-/// - 网络默认允许：TTL 命中直返缓存，否则走 forge 直拉 / ETag 条件请求；
-///   `force_refresh` 为手动刷新按钮透传位，`Some(true)` 时跳过 TTL 快径直探远端。
+/// 平台轻量回填：优先命中收录目录与 TTL 内缓存，未命中时仅拉取 `releases/latest` 推导平台列表（不写 `app_details`）。
+/// `force_refresh = Some(true)` 时跳过缓存快径直探远端。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_platforms_lite(
     state: State<'_, AppState>,
     id: String,
     force_refresh: Option<bool>,
 ) -> crate::AppResult<PlatformsLiteResult> {
-    // ADR-0010：入站 id 统一归一化为 canonical；未知标识直接拒绝，不触碰网络。
+    // 归一化入站 id；未知标识直接拒绝，避免触碰网络。
     let clean_id = crate::commands::require_app_id(&id)?;
     let start = std::time::Instant::now();
     let is_force = force_refresh.unwrap_or(false);
 
-    // 0. 收录库（含自收录）已有非空平台时直接以收录库为准，零网络返回；
-    //    收录库平台是精校真值，`forceRefresh` 也不绕过此段。
+    // 收录库已有非空平台时直接作为真值返回（force_refresh 不绕过）。
     if let Some(clean_plats) = state
         .catalog
         .get_catalog_item(&clean_id)
@@ -87,28 +57,25 @@ pub async fn get_platforms_lite(
         });
     }
 
-    // 1. TTL 内详情缓存命中段：零网络开销复用已 deduce 的 platforms。
-    // 显式强制刷新时跳过此快径，直探远端。
+    // TTL 内缓存命中直返（显式强制刷新时跳过）。
     if !is_force {
         if let Some(lite) = platforms_lite_from_cache(&state, &clean_id) {
             return Ok(lite);
         }
     }
 
-    // 2. 多源（Codeberg/Gitea 等）穿透段：仅拉 latest release，deduce 即返。
+    // 多源 forge 通道
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
             return platforms_lite_from_forge(&state, clean_id, coord, start).await;
         }
     }
 
-    // 3. GitHub ETag 段：release_endpoint + 条件请求（仅 releases/latest 单次 RTT）。
+    // GitHub ETag 条件请求通道
     platforms_lite_from_github(&state, clean_id, start).await
 }
 
-/// TTL 内详情缓存命中段：复用已 deduce 的 platforms（TTL 口径与 get_app_details_impl
-/// 缓存链一致，见 `detail_ttl_secs`）；stale 标记原样透传（持久化行正常为 None，
-/// 透传仅为防御性一致）。详情未命中时再查 `repo_card_cache`：12h 内已具平台或已确认 Other 即零网络直返。
+/// 从 TTL 内详情缓存或新鲜的 `repo_card_cache` 读取已推导平台列表。
 fn platforms_lite_from_cache(state: &AppState, clean_id: &str) -> Option<PlatformsLiteResult> {
     let db = state.db().ok()?;
     let ttl_seconds = detail_ttl_secs(&db);
@@ -252,9 +219,7 @@ fn warn_platforms_lite_failed(
     ev.warn();
 }
 
-/// `platforms_lite_from_github` 平台解析：
-/// - `StaleRow` 兜底行不直接信任旧 `row.core.platforms`，先过 `heal_cached_detail`（重分类资产 + 收录库优先）；
-/// - 其余情况直接沿用 `row_platforms` 或 `deduce_lite_platforms`。
+/// 从浅层发布结果解析平台列表；`StaleRow` 兜底先重分类资产并保持收录库优先。
 fn resolve_lite_platforms_from_shallow(
     catalog: &crate::github::CatalogService,
     clean_id: &str,
@@ -492,15 +457,7 @@ fn repo_known_to_exist(state: &AppState, clean_id: &str) -> bool {
         || db.get_app_detail(clean_id, None).ok().flatten().is_some()
 }
 
-/// DB-only 批量详情回填（Favorites/Watching 富卡专用）：零网络。
-/// - 入参逐个经 `canonical_app_id` 归一；不可解析的未知标识直接落 `None`；
-/// - 命中行读 `app_details`（无 TTL 门控，过期行同样复用；无行回退 `repo_card_cache`，永不穿透网络/ETag/forge）；
-/// - 确认图标覆盖（`Some` 才覆盖，`None` 保持 `detail.icon`）；收录项官方图标非空时以目录精校为准；
-/// - platforms 随详情行自带，无需二次 join（空即未知，前端视为待 backfill，不 stamp `["other"]`/`["windows"]`）；
-/// - 无缓存行的收录项（精选或本地库，含被隐藏规则隐藏者）回退目录元数据，见 `cached_or_catalog_summaries_deferred`；
-/// - 只读：不 `touch` 保鲜期、不 spawn 后台任务；返回与入参一一对齐（含 `None` 占位）。
-/// 短锁内批量读表并规划图标，释放锁后在阻塞线程池读图标文件并编码，仅自愈认领时再取短锁回写。
-/// `get_app_details` 的 force 语义不受影响（本命令永不走其网络分支）。
+/// 批量读取本地缓存的应用详情摘要（无网络、只读）：优先读详情与富卡缓存，缺失时回退收录目录。
 #[tauri::command]
 pub async fn get_cached_app_details_batch(
     state: State<'_, AppState>,
@@ -593,12 +550,7 @@ fn cached_detail_summary(db: &crate::db::Database, raw_id: &str) -> Option<AppSu
     crate::repositories::DetailRepository::cached_detail_summary(db, raw_id)
 }
 
-/// DB-only 确认图标批量回填（趋势榜重挂图标自愈专用）：零网络、零 ETag、不 spawn 后台任务。
-/// - 入参与返回一一对齐：每个 id 经 `canonical_app_id` 归一（不可解析即 `None`）；
-/// - `app_icon_cycles` 确认图标优先（`M2` dataURI 直显或 L1..L3 远端回退；L4/`None` 即 `None`），
-///   其次收录项官方图标（本地缓存命中出 `data:`）；
-/// - 短锁批量读 `app_icon_cycles`，释放锁后在阻塞线程池读图标文件并编码；
-/// - 不 `touch` 保鲜期、不触发 `fetch_icons_stream`；前端经店内唯一写口 `admitIconHit`（`via=m2`，不占 `level`）合流进镜像。
+/// 批量读取已确认的本地图标（无网络、不触发后台补图）：优先 `app_icon_cycles`，其次收录项官方图标。
 #[tauri::command]
 pub async fn get_confirmed_icons_batch(
     state: State<'_, AppState>,
@@ -619,12 +571,8 @@ pub async fn get_confirmed_icons_batch(
     Ok(icons)
 }
 
-/// DB-only 按 id 批量水合单仓富卡（在线搜索 / 趋势榜 / GitHub Star 列表恢复共用）：零网络。
-/// - 返回与入参一一对齐（不可解析或无本地数据即 `None`）；
-/// - 收录项（精选或本地库）投影目录元数据并叠加确认图标，优先于 `repo_card_cache`；
-/// - 未收录项读 `repo_card_cache` 完整卡片（刷新 `last_accessed_at`），缺失时回退 `app_details`
-///   （`updated_at = 0`，前端视为不新鲜）；叠加 `app_icon_cycles` 确认图标并盖收录章。
-/// - 短锁内每表一次分片查询，图标文件读取与编码在释放锁后的阻塞线程池执行。
+/// 批量水合单仓富卡（无网络）：收录项投影目录元数据，未收录项读 `repo_card_cache`（缺失回退 `app_details`），
+/// 并叠加确认图标与收录标记。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_repo_cards_batch(
     state: State<'_, AppState>,
@@ -750,21 +698,18 @@ pub(crate) fn hydrate_repo_cards_deferred(
     (out, crate::icons::plan_pending_icons(db, &pendings))
 }
 
-/// stale 契约：瞬时失败（401/限流/离线）永不污染 SQLite。
-/// - 合成空（无缓存失败）以 `is_stale=true` 返回，调用方跳过落库，无旧行则不建行；
-/// - stale 穿透（复用旧行）保持旧行不动（含 `cached_at` 不刷新），`Ok(stale)` 为 IPC 形状约定；
-/// - 前端必须将 `stale + releases/platforms 双空` 视为 loading/待 backfill-loading，永不确认 Other。
+/// 获取应用详情；瞬时失败仅返回带 `is_stale = true` 的缓存回退或空壳，不污染 SQLite。
 pub async fn get_app_details_impl(
     state: &AppState,
     id: String,
     force_refresh: Option<bool>,
 ) -> crate::AppResult<AppDetail> {
-    // ADR-0010：入站 id 统一归一化为 canonical（小写 owner/repo / forge 前缀坐标）；未知标识直接拒绝
+    // 归一化入站 id；未知标识直接拒绝，避免触碰网络。
     let clean_id = crate::commands::require_app_id(&id)?;
     let is_force = force_refresh.unwrap_or(false);
     let start = std::time::Instant::now();
 
-    // 1. 缓存命中段：非主动强制刷新时优先走 TTL 内快径（0ms 秒开）
+    // 非强制刷新时优先走 TTL 内缓存快径
     if !is_force {
         if let Some(hit) = project_from_cache(state, &clean_id, true) {
             let mut ev = crate::z_log::WideEvent::new("detail", "fetch ok").with_started(start);
@@ -776,14 +721,14 @@ pub async fn get_app_details_impl(
         }
     }
 
-    // 2. 多源 forge lite 段（Codeberg/Gitea 等）：repo + latest release 合成。
+    // 多源 forge 通道
     if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
         if coord.forge != crate::forge::ForgeType::GitHub {
             return Ok(fetch_detail_from_forge(state, clean_id, coord, is_force, start).await?);
         }
     }
 
-    // 3. GitHub full 段：ETag 条件请求 + repo/README/平台/Checksum 全量组装落库。
+    // GitHub ETag 条件请求通道
     Ok(fetch_detail_from_github(state, &clean_id, is_force, start).await?)
 }
 
@@ -1251,8 +1196,7 @@ fn persist_github_detail(
     (persisted, start_db.elapsed().as_millis())
 }
 
-/// 通用图片磁盘缓存查询：已缓存或新下载落盘后返回 `data:` URI，非候选/失败回退原地址。
-/// 缓存记录读写复用共享 `AppState.db`（短锁），不另开数据库连接。
+/// 通用图片磁盘缓存查询：命中或下载后返回 `data:` URI，失败回退原地址。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn fetch_or_cache_asset_url(
     state: State<'_, AppState>,
@@ -1268,8 +1212,7 @@ pub async fn get_readme_variants(
     state: State<'_, AppState>,
     app_id: String,
 ) -> crate::AppResult<ReadmeVariantsResponse> {
-    // ADR-0010：入站 id 统一归一化为 canonical；未知标识直接拒绝，不触碰网络。
-    // token 经服务端鉴权头透传（token_headers），永不回传前端。
+    // 归一化入站 id；未知标识直接拒绝，避免触碰网络。
     let clean_id = crate::commands::require_app_id(&app_id)?;
     if let Ok(db) = state.db() {
         let ttl_secs = detail_ttl_secs(&db);

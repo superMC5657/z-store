@@ -8,13 +8,7 @@ function rowKey(row: Pick<AppSummary, 'id'> | undefined): string {
   return normalizeId(row?.id);
 }
 
-/**
- * 在线分页行首绘组装（搜索结果 / GitHub Star 列表共用）：
- * 1. 按归一 id 去重；
- * 2. 经 `resolveIconWithBuffer` 粘性合并旧图标 + M1 缓冲回读（保留 L5 显式空徽章保护）；
- * 3. 缺平台的行从三链路共享的单仓富卡池回填平台与真实版本（首帧即出平台徽标）；
- * 4. `queueAssembledRowIcons` 触发 http 远端图标落盘预热（前 30 上限）。
- */
+/** 组装在线分页行：按归一 id 去重、合并缓冲图标与共享富卡平台，并触发远端图标预热。 */
 export function assembleOnlineRowsWithIcons(
   prev: readonly AppSummary[],
   incoming: readonly AppSummary[],
@@ -36,10 +30,7 @@ export function assembleOnlineRowsWithIcons(
   return deduped;
 }
 
-/**
- * 在线分页追加去重（先组装缓冲图标，再跳过 `prev` 已有 id）。
- * 翻页期间若上游列表位移出现重复项，以已有项为准去重并保留原数组引用（无新增时）。
- */
+/** 在线分页追加去重（保留 `prev` 已有项及数组引用）。 */
 export function appendUniqueOnlineRows(
   prev: readonly AppSummary[],
   incoming: readonly AppSummary[],

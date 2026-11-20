@@ -1,9 +1,4 @@
-/**
- * OAuth 设备码轮询泄漏回归：
- * - in-flight poll 返回 pending 后 `schedulePoll` 会重排下一轮 timer；
- *   unmount/手动取消后不得再发起新的 `oauth_device_poll`——只清当前 timer 不够，
- *   in-flight 返回后仍会在卸载组件里重排，轮询泄漏持续到 deadline。
- */
+/** 测试 OAuth 设备码轮询在组件卸载或取消后停止调度。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import i18n from '../i18n';

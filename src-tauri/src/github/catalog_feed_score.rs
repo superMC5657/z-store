@@ -7,27 +7,21 @@ pub const SEARCH_SCORE_NAME_CONTAINS: i32 = 40;
 pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
 pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
 
-/// 发现页 Feed 推荐策略（可插拔，hero 置顶留给前端，后端不 hardcode 具体 id）。
-/// 打分口径以前端 `src/services/feed.ts` 为 canonical（同形同量级，跨层可比）：
-/// - Balanced: `ln(stars+1) + (jitter01-0.5)*0.3`（jitter 半幅 0.15）；
-/// - FreshFirst: `jitter01*10 + ln(stars+1)*0.05`（jitter 主导；目录暂无 updated_at 字段，此为近似，换 seed 即换一批）。
+/// 发现页 Feed 推荐策略。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FeedStrategy {
-    /// 纯 stars 降序（确定性默认，供分类/趋势/搜索空态沿用）。
+    /// 纯 stars 降序。
     StarsOnly,
-    /// 默认：`ln(stars+1)` 主序 + 轻扰动（±0.15）打散头部垄断。
+    /// `ln(stars+1)` 主序叠加轻扰动打散头部垄断。
     #[default]
     Balanced,
-    /// 新鲜优先近似：目录暂无 updated_at 字段，用 seed 抖动主导近似“常看常新”
-    ///（`jitter01*10 + ln(stars+1)*0.05`，与前端 fresh 同形）；None seed 时回退 stars 降序。
+    /// 抖动主导近似新鲜度，无 seed 时回退 stars 降序。
     FreshFirst,
 }
 
-/// Feed 轻扰动参数（与前端 `FEED_JITTER_HALF = 0.15` 同形同量级）：
-/// Balanced 总摆动 `2 * HALF = 0.3`，只有头部相近星数才会被打散；
-/// Fresh 用下方 `FEED_FRESH_*` 权重，jitter 主导。
+/// Balanced 策略抖动半幅。
 pub const FEED_JITTER_HALF: f64 = 0.15;
-/// Fresh 策略权重（与前端 `fresh` 同形）：jitter 主导 + 星数只给 5% 权重。
+/// FreshFirst 策略权重。
 pub const FEED_FRESH_JITTER_SCALE: f64 = 10.0;
 pub const FEED_FRESH_STARS_WEIGHT: f64 = 0.05;
 
@@ -68,10 +62,7 @@ pub fn feed_stars_forks_base(stars: u64, forks: u64) -> f64 {
     feed_stars_base(stars) + 0.25 * ((forks as f64) + 1.0).ln()
 }
 
-/// 纯函数：三策略统一 scorer 表（与前端 `feedScorers` 同形同量级，调用方按策略取一行）：
-/// - StarsOnly: 纯 `ln(stars+1)`，忽略 jitter/seed；
-/// - Balanced: `ln(stars+1) + (jitter01-0.5)*0.3`；
-/// - FreshFirst: `jitter01*10 + ln(stars+1)*0.05`（无 updated_at 字段时的 jitter 近似）。
+/// 按三策略之一计算 Feed 分数。
 pub fn feed_score(strategy: FeedStrategy, stars: u64, jitter01: f64) -> f64 {
     let base = feed_stars_base(stars);
     match strategy {
@@ -83,12 +74,7 @@ pub fn feed_score(strategy: FeedStrategy, stars: u64, jitter01: f64) -> f64 {
     }
 }
 
-/// 纯函数：Feed 排序（可插拔策略）。输入为已过滤的 summaries，不做 hidden 过滤。
-/// 口径与前端 `rankFeed` 对齐（canonical 见 `src/services/feed.ts`）：
-/// - StarsOnly → 纯 `ln(stars+1)` 降序，忽略 seed；
-/// - Balanced + Some(seed) → `ln(stars+1)+(jitter01-0.5)*0.3` 降序；None seed → 纯星数基线降序（无 seed 基线）；
-/// - FreshFirst + Some(seed) → `jitter01*10+ln(stars+1)*0.05` 降序（无 updated_at 字段的近似）；None → 星数基线降序。
-///   tie 按 id 升序（后端确定性；前端按入参稳定排序，两端分数同形同量级即可跨层可比）。
+/// 按策略对 Feed 列表排序，同分按 id 升序；`seed` 为 `None` 时回退 stars 降序。
 pub fn rank_feed_with_strategy(
     items: Vec<AppSummary>,
     seed: Option<u64>,
@@ -97,10 +83,7 @@ pub fn rank_feed_with_strategy(
     rank_feed_with_profile(items, seed, strategy, None)
 }
 
-/// 纯函数：带本地用户亲和度画像的动态推荐排序。
-/// - 当 `strategy == FeedStrategy::Balanced` 时，以 `feed_stars_forks_base(stars, forks)` 为基线，
-///   叠加 `profile.affinity_boost(&app)` 与确定性轻扰动 `(jitter01 - 0.5) * 0.3`；
-/// - 当 `profile` 为 `None` 或 `has_signals == false` 时，不施加画像增益。
+/// 结合本地用户亲和度画像对 Feed 列表排序。
 pub fn rank_feed_with_profile(
     items: Vec<AppSummary>,
     seed: Option<u64>,

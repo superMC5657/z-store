@@ -1,12 +1,4 @@
-/**
- * 富卡简介占位回归：真实简介 + 详情回占位 → enriched 简介保持不变。
- *
- * 占位生产点（Rust，只读）：未收录 external_synth
- * `github/catalog_service.rs` → "GitHub 社区开源项目"、
- * 在线搜索空描述 `github/search.rs` → "开源软件项目"、
- * 单仓直查 `commands/catalog_search.rs` → "跨平台开源项目"。
- * 三处设防（diff 不脏 / merge 不覆盖 / patch 不写）由本文件锁定。
- */
+/** 富卡占位简介判定与防覆盖测试。 */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   appSummaryFromDetail,

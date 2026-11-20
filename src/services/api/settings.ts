@@ -67,22 +67,15 @@ export async function exportLogBundle(): Promise<string | null> {
 }
 
 export async function openUrl(url: string): Promise<void> {
-  // 空值/非法 scheme 全 repo 调用方扫描结论：均为合法 https 外链透传（`void openUrl`
-  // fire-and-forget 或 try/catch 自处理，无调用方依赖静默吞错），故保留 fail-closed 抛错，
-  // 避免空串/非 http(s) 被误打开或谎报成功。
+  // 拒绝空串与非 http(s) 协议，避免误打开或谎报成功。
   const trimmed = (url ?? '').trim();
   if (!trimmed) throw new Error('empty url');
   if (!/^https?:\/\//i.test(trimmed)) throw new Error(`unsupported url scheme: ${trimmed}`);
   try {
-    // 先直调后端 open_url（rundll32 拉起默认浏览器），成功即返。
     await tauriInvoke(CMD.openUrl, { url: trimmed });
     return;
   } catch (directErr) {
-    // 直调失败（非 Tauri 的 Not in Tauri / 后端 rundll32 spawn 失败等）才走原生兜底：
-    // 经劫持前捕获的原生 opener 绕过 `window.open` 劫持（劫持版直接调必返回 null），
-    // 原生返回 null（弹窗拦截/无原生可用）则抛 `popup_blocked` 语义错保留失败感知，
-    // 调用方按自身失败文案 toast，不谎报成功；此处不复用 directErr，
-    // 避免把后端失败当拦截原因误导排查。
+    // 非 Tauri 或后端打开失败时，经原生 opener 绕过 `window.open` 劫持兜底。
     const opener = resolveFallbackOpener();
     if (!opener) throw directErr;
     let ret: WindowProxy | Window | null = null;

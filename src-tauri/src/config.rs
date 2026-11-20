@@ -287,9 +287,7 @@ impl Default for LaunchpadConfig {
     }
 }
 
-/// 默认许可名单（ADR-0018）：编译期兜底；运行时源为编译进发行的 config.toml
-/// `[license_gate] allowed`（serde 缺段时回落本常量），两者由
-/// `license_allowed_matches_constant_item_by_item` 测试锁定同序同值。
+/// 编译期默认开源协议许可名单（运行时源为嵌入的 `config.toml`）。
 pub const DEFAULT_LICENSE_ALLOWLIST: &[&str] = &[
     "MIT",
     "ISC",
@@ -330,10 +328,7 @@ pub const DEFAULT_LICENSE_ALLOWLIST: &[&str] = &[
     "AFL-3.0",
 ];
 
-/// 嵌入配置门禁段的编译期扫描（`[license_gate]`）：`enabled=true`（缺键默认开）
-/// 且 `allowed=[...]` 存在但括号内无有效条目时返回 false，由下方 `const assert`
-/// 直接编译失败。有效条目指引号内含非空白字符，与运行时归一“空白串归一为空”口径等价；
-/// 缺段 / 缺 `allowed` 键视为 serde 默认全量名单，不判错。
+/// 编译期校验嵌入配置 `[license_gate]` 段：开启且显式配置 `allowed` 时不可为空。
 const fn embedded_gate_section_valid(config: &str) -> bool {
     let bytes = config.as_bytes();
     let len = bytes.len();
@@ -518,9 +513,7 @@ fn apply_compiled_license_gate(
     external
 }
 
-/// 开源协议门禁（`[license_gate]`，ADR-0018）：默认开 + OSI 全量名单（D1 严格不变）；
-/// 关闭仅放行本地草稿提交（可审计 WARN），不改变官方生态仓口径。
-/// 门禁唯一源为编译时 config（行为由 `config.toml` 在编译发行时确定，无运行时覆盖）。
+/// 开源协议门禁配置（编译时由 `config.toml [license_gate]` 确定，无运行时覆盖）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LicenseGateConfig {
     #[serde(default = "default_license_gate_enabled")]
@@ -779,10 +772,7 @@ mod tests {
         assert_eq!(conf.limits.search_history_limit, 20);
     }
 
-    /// 种子 catalog.json schema 校验（构建期，与外部目录仓校验同口径的可执行子集）：
-    /// - 先过运行时 serde 模型 `CatalogItem`（字段漂移在此暴露，运行时解析失败前移到测试期）；
-    /// - 再锁结构不变量：id 唯一且等于小写 `owner/repo`、展示字段非空、
-    ///   platforms/identifiers 键恒在五平台集合内、别名条内唯一且不与 id 重合。
+    /// 校验嵌入种子 `catalog.json` 符合运行时 `CatalogItem` schema 与基本结构不变量。
     #[test]
     fn embedded_seed_catalog_matches_runtime_schema() {
         let seed = include_str!("../../catalog.json");
@@ -987,10 +977,7 @@ mod tests {
 
     #[test]
     fn serde_field_defaults_match_embedded_baseline() {
-        // 单一事实源锁：serde 逐字段默认函数与嵌入 config.toml 字面量
-        // 逐项相等——外部文件缺字段时落的是与嵌入兜底同源的值，不存在第二套默认值。
-        // `strict_errors` 例外：按构建类型回退（cfg!(debug_assertions)）是文档化语义，
-        // 与文件字面量刻意不同源。
+        // `strict_errors` 按构建类型回退（cfg!(debug_assertions)），与嵌入配置刻意不同。
         let embedded = ProjectConfig::default();
         let baseline = ProjectConfig {
             runtime: RuntimeConfig::default(),

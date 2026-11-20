@@ -3,26 +3,19 @@ use crate::models::InstalledApp;
 use crate::{AppResult, AppState};
 use tauri::State;
 
-/// ADR-0010 入口门禁（与 `launch_app` 保持同一模式）：将入站 id 归一化为规范形式；
-/// 拒绝无法解析的非法 id，严禁透传原始未校验的 id。
+/// 归一化并校验入站 `app_id`。
 pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
     super::require_app_id(raw)
 }
 
-/// 无 schema 变更契约：`InstalledApp` 无 missing 标记（models.rs 保持刻意未动），
-/// 因此幽灵应用在返回视图中被隐藏，但数据库记录予以保留。
-/// 纯过滤函数 —— 执行 0 次数据库/缓存删除操作；幽灵计数在 `get_installed_apps` 中通过日志体现。
-/// 仅当用户显式调用卸载/取消管理时才执行实际删除。
+/// 从返回视图中过滤幽灵应用，同时保留数据库记录。
 pub(crate) fn hide_ghost_apps(apps: Vec<InstalledApp>, ghost_ids: &[String]) -> Vec<InstalledApp> {
     apps.into_iter()
         .filter(|a| !ghost_ids.iter().any(|g| g == &a.app_id))
         .collect()
 }
 
-/// 便携版卸载安全门禁：仅允许在 ZStore 自身创建的专用隔离目录内执行 `remove_dir_all`
-/// （即 `dirs_or_fallback(app_id)`）。
-/// 两个路径均首先进行规范化（消除符号链接、大小写和路径前缀差异）；
-/// 逐级路径组件 `starts_with` 比较可防止同级前缀混淆（例如 `app` 与 `app2`）。
+/// 校验候选目录是否位于 ZStore 自建的隔离便携目录内（规范化后逐级路径比较）。
 pub(crate) fn is_owned_portable_dir(
     candidate: &std::path::Path,
     owned_dir: &std::path::Path,
@@ -50,9 +43,7 @@ pub(crate) fn is_owned_portable_dir(
     }
 }
 
-/// 安全清理：属于自有专属目录 -> 执行 `remove_dir_all`；共享目录（如“下载”或 D:\Tools）
-/// -> 仅删除清单记录的单一文件，或拒绝整目录删除。
-/// 删除失败以 Err 上浮：保留 DB 记录以便用户重试卸载，避免吞错虚报成功。
+/// 清理便携应用路径：自有隔离目录整目录删除，共享目录仅删除对应文件；失败返回 Err 以保留记录。
 pub(crate) fn cleanup_portable_path(
     install_path: &std::path::Path,
     owned_dir: &std::path::Path,
@@ -79,10 +70,7 @@ pub(crate) fn cleanup_portable_path(
     Ok(())
 }
 
-/// 解析可安全删除的 Desktop 快捷方式路径：文件名复用创建侧同一消毒函数
-/// （`sanitize_shortcut_name`，无 `\`/`/` 等分隔符即无逐级穿越），
-/// 拼接后再做 canonicalize + Desktop 前缀断言双保险；任一环节不满足则返回 None，
-/// 宁可残留死快捷方式也绝不删除 Desktop 之外的文件。
+/// 解析并校验位于 Desktop 目录内的快捷方式路径，防止路径穿越误删外部文件。
 #[cfg(target_os = "windows")]
 fn deletable_desktop_lnk(desktop: &std::path::Path, app_name: &str) -> Option<std::path::PathBuf> {
     let name = crate::installer::sanitize_shortcut_name(app_name);
@@ -156,8 +144,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
         }
     };
 
-    // 1. 便携版清理：remove_dir_all 仅允许在 ZStore 自建隔离目录内；
-    // 清理失败以 Err 上浮（文件仍在 → 不删 DB 记录，卸载不虚报成功）。
+    // 便携版清理：仅在自有隔离目录内整目录删除，失败则中止以保留记录。
     if app.install_method == "portable_zip" {
         let (path, owned) = (
             std::path::PathBuf::from(&app.install_path),
@@ -166,7 +153,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
         super::installer_query::run_blocking(move || cleanup_portable_path(&path, &owned))
             .await??;
     } else {
-        // 2. 安装版 / 系统导入版：动态定位并调起官方卸载向导 EXE，挂起等待用户操作完成并核验
+        // 安装版与系统导入版：定位并执行官方卸载程序
         let resolved_uninst = {
             let (name, id, path, cmd) = (
                 app.app_name.clone(),
@@ -195,7 +182,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
         }
     }
 
-    // 3. 默认便携缓存目录清理（失败同样上浮，不虚报成功）
+    // 清理默认便携缓存目录（失败上浮以保留记录）
     let app_dir = crate::installer::dirs_or_fallback(&app.app_id);
     super::installer_query::run_blocking(move || -> Result<(), String> {
         if app_dir.exists() {
@@ -206,11 +193,11 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
     })
     .await??;
 
-    // 4. 快捷方式清理（消毒 + 前缀断言，绝不越出 Desktop）
+    // 清理桌面快捷方式
     #[cfg(target_os = "windows")]
     cleanup_desktop_shortcut(&app.app_name);
 
-    // 5. 卸载向导操作或目录清理核验通过后，才正式从 SQLite 数据库移除条例
+    // 卸载核验通过后再移除数据库记录
     let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
     // 卸载失效：已卸载应用的更新判定行同步清理，best-effort 不影响卸载结果。
@@ -242,7 +229,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
 
 #[tauri::command(rename_all = "camelCase")]
 pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> AppResult<bool> {
-    // ADR-0010：与 `launch_app` 相同的入口门禁 —— 归一化后全程使用规范化 canonical id。
+    // 归一化入站 app_id
     let app_id = resolve_managed_app_id(&app_id)?;
     let db = state.db()?;
     let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
@@ -342,7 +329,7 @@ mod ghost_and_id_guard_tests {
 
     #[test]
     fn unmanage_normalizes_to_canonical_id() {
-        // 与 launch_app 相同的 ADR-0010 模式：入口校验门禁归一化，下游统一使用规范化 id。
+        // 入口校验归一化，下游统一使用规范化 id。
         assert_eq!(
             super::resolve_managed_app_id("Owner/Repo").unwrap(),
             "owner/repo"
@@ -355,9 +342,7 @@ mod ghost_and_id_guard_tests {
 
     #[test]
     fn scan_hides_ghost_from_view_but_signals_retention() {
-        // 可执行文件丢失 -> 从返回视图中隐藏；
-        // 数据库行保留属于架构设计（纯过滤执行零数据库删除；
-        // get_installed_apps 严禁对幽灵应用调用 remove_installed_app）。
+        // 幽灵应用仅从返回视图中隐藏，不在此删除数据库记录。
         let apps = vec![
             sample_app("owner/healthy", "C:\\exists\\a.exe"),
             sample_app("owner/ghost", "C:\\vanished\\g.exe"),

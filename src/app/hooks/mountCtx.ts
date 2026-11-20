@@ -41,10 +41,7 @@ export function listenWindowEvent(
   });
 }
 
-/**
- * 挂载订阅守卫：`tauriApi.onX` 一律经此登记——挂载期收集 unlisten
- * 入清理表，卸载后才 resolve 的订阅立即解绑，订阅失败静默忽略。
- */
+/** 登记订阅并在卸载后自动解绑迟到的异步结果。 */
 export function trackSubscription(ctx: MountCtx, promise: Promise<() => void>): void {
   promise
     .then((unlisten) => {

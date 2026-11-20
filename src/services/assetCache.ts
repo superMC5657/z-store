@@ -1,12 +1,6 @@
 /**
- * 前端远端图片收敛：经后端 `fetch_or_cache_asset_url`（系统代理 + 30 天分片磁盘缓存）
- * 把远端 http(s) 图片换成可直接渲染的 `data:` URI，同一静态图只由后端获取一次。
- *
- * - 仅真实 Tauri 运行时生效（见 `tauriRuntime.isRealTauriRuntime`）；
- *   jsdom 单测与 Demo 预览保持原链同步直出。
- * - 有界内存缓存（条数 + 字符总量双上限，FIFO 淘汰）+ 同 URL 单飞。
- * - Markdown HTML：命中缓存同步直填；未命中先置透明占位（原址暂存 `data-zstore-src`，
- *   不挂远端 `src`），再以有界并发逐个解析回填。动态徽章（shields/camo/badge/workflow）原样直连。
+ * 远端图片收敛与内存缓存（仅真实 Tauri 运行时生效；jsdom 与 Demo 预览直出原链）。
+ * Markdown HTML 未命中的图片先置透明占位，再由后端代理获取并渐进回填 `data:` URI。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { tauriApi } from './api';
@@ -73,10 +67,7 @@ export function getSyncCachedAssetUri(url: string | null | undefined): string | 
   return resolvedAssetMemCache.get(url.trim());
 }
 
-/**
- * 解析远端图片为可渲染地址：`data:` URI（已缓存/新下载落盘）或回退原链。
- * 非真实 Tauri 运行时与非候选 URL 原样返回；同 URL 并发单飞，仅 `data:` 结果进内存缓存。
- */
+/** 解析远端图片为 `data:` URI（同 URL 并发去重），非真实运行时或非候选 URL 原样返回。 */
 export function resolveCachedAssetUri(url: string, appId?: string): Promise<string> {
   const key = url.trim();
   if (!key || !isRealTauriRuntime() || !isCacheableAssetUrl(key)) {
@@ -132,10 +123,7 @@ export interface PreparedMarkdownHtml {
   pending: string[];
 }
 
-/**
- * 首屏同步处理：命中内存缓存直填；未命中的可缓存图片置透明占位并暂存原址，
- * 保证 WebView 首屏不抢跑直连。无图或全部命中时原样（或已替换）返回。
- */
+/** 首屏同步处理 Markdown HTML：命中缓存直接替换，未命中置透明占位以防 WebView 直连。 */
 export function prepareInitialHtml(baseHtml: string): PreparedMarkdownHtml {
   if (!baseHtml || !baseHtml.includes('<img')) return { html: baseHtml, pending: [] };
   const doc = new DOMParser().parseFromString(baseHtml, 'text/html');
@@ -218,10 +206,7 @@ async function resolveWithPool(
   await Promise.all(Array.from({ length: n }, () => worker()));
 }
 
-/**
- * Markdown HTML 图片收敛 Hook：真实 Tauri 运行时首屏不挂远端图片，
- * 后端解析完成后渐进回填 `data:`（或回退原链）；其余运行时原样返回。
- */
+/** 解析 Markdown HTML 中的远端图片并渐进回填；非真实 Tauri 运行时原样返回。 */
 export function useResolvedMarkdownImages(baseHtml: string, appId?: string): string {
   const real = isRealTauriRuntime();
   const prepared = useMemo(

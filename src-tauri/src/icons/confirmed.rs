@@ -1,6 +1,4 @@
-//! 确认图标两阶段解析：DB 阶段只读 `app_icon_cycles` 得出解析计划，磁盘阶段读图标文件并编码
-//! `data:` URI（不持 `AppState.db` 锁，批量入口经 `spawn_blocking` 执行），自愈认领的
-//! `cache_file` 回填再取一次短锁写回。
+//! 确认图标两阶段解析：DB 阶段读 `app_icon_cycles` 生成计划，磁盘阶段读文件并编码为 `data:` URI（不持 DB 锁）。
 
 use crate::db::{AppIconCycle, Database};
 use crate::forge::coord::{app_id_lookup_keys, repo_lookup_keys, RepoRef};

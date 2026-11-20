@@ -1,8 +1,4 @@
-/**
- * 设备平台全局过滤器测试。
- *
- * 第一部分：锁定单选 matchPlatform 语义，并在无外部依赖下完成断言。
- */
+/** 设备平台全局过滤器测试。 */
 import { describe, expect, it } from 'vitest';
 
 interface BaselineApp {

@@ -1,9 +1,4 @@
-/**
- * Pending 草稿表单折叠分节偏好模块（PendingView 从此读写 `supplemental` / `runtime` 展开状态）。
- *
- * - 存储键为点分形态：`zstore:pending.sectionPrefs`；
- * - 读取时兼容下划线别名键（`zstore:pending_section_prefs`）及字段别名 `optional`，命中即迁移写标准键。
- */
+/** Pending 草稿表单折叠分节偏好读写（兼容旧存储键与 `optional` 字段别名迁移）。 */
 
 export const PENDING_SECTION_PREFS_STORAGE_KEY = 'zstore:pending.sectionPrefs';
 /** 兼容读取用的存储键别名。 */

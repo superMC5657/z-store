@@ -1,6 +1,4 @@
-//! 存量应用匹配引擎：收录库条目预归一化后建四路倒排索引（名称词元、主程序词干、
-//! 安装目录段、发布者词元），对每个系统应用只给召回到的候选打分；名称按词元边界、
-//! 路径按路径段边界比对，杜绝裸子串误配。打分完成后全局按分数一对一指派。
+//! 存量应用匹配引擎：构建倒排索引对系统应用召回候选并打分，按分数一对一指派。
 
 use super::types::{
     is_installer_asset_identifier, ConfidenceTier, MatchReason, MIN_QUALIFIED_SCORE,
@@ -770,9 +768,7 @@ impl<'a> IndexedEntry<'a> {
     }
 
     fn score(&self, view: &ScannedView, scanned: &ScannedRawApp) -> PairScore {
-        // 名称首词是本条目的所有者或登记发布者时，额外比较去掉厂商前缀的名称
-        //（`Microsoft Visual Studio Code` → `visual studio code`；`Docker Desktop` 的
-        // `Docker` 不是 desktop/desktop 的厂商，不剥）
+        // 名称首词为条目所有者或发布者时，额外比较剥离厂商前缀后的名称。
         let vendor = view.title_tokens.first();
         let stripped = (view.title_tokens.len() > 1
             && vendor.is_some_and(|v| {
@@ -1123,8 +1119,7 @@ impl AppScanner {
         }
     }
 
-    /// 剔除已纳管应用与不支持当前平台的收录项后再匹配（先过滤，再做磁盘与 PE 探测）。
-    /// 已纳管判定经 `forge::canonical_lookup_id` 归一，治愈大小写/前缀漂移（ADR-0010）。
+    /// 剔除已纳管应用（id 经规范化比较）与不支持当前平台的收录项后再匹配。
     pub fn match_unmanaged(
         scanned_apps: &[ScannedRawApp],
         catalog: &[CatalogItem],

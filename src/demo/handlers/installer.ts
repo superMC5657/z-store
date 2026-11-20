@@ -145,7 +145,7 @@ export function handleGetUpdateRules(): UpdateRule[] {
     .map((r) => ({ ...r }));
 }
 
-/** 已锁定的应用不接受跳过版本（锁定后不再检测更新）。 */
+/** 已锁定的应用不接受跳过版本设置。 */
 export function handleSetAppSkipVersion(a: InvokeArgs): boolean {
   warnUnknownArgs(['appId', 'version'], a, 'handleSetAppSkipVersion');
   const appId = argStr(a, 'appId');

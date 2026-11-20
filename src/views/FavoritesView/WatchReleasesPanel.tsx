@@ -19,10 +19,7 @@ interface WatchReleasesPanelProps {
   onDismiss?: (appId: string) => void;
 }
 
-/**
- * 关注应用的新版本提醒：收藏页「关注」签顶部的待处理列表，无提醒时不渲染。
- * 关注的应用不一定已安装，所以提醒放在关注列表旁，而不是「我的应用」。
- */
+/** 关注应用的新版本提醒面板（无待处理提醒时不渲染）。 */
 export const WatchReleasesPanel: React.FC<WatchReleasesPanelProps> = ({
   notifications,
   apps,

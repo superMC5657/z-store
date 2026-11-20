@@ -1,11 +1,4 @@
-/**
- * CategoriesView 集成至全局设备平台过滤器测试。
- *
- * 第一部分：单维度分类浏览行为（分类卡片大厅、点击进入应用列表、返回大厅）。
- *
- * 第二部分：全局平台过滤契约（分类计数由预过滤 `apps` 驱动，
- * 空筛选渲染引导状态及 `.filter-empty-reset` 重置入口）。
- */
+/** 测试 `CategoriesView` 的分类大厅浏览与全局设备平台筛选集成。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';

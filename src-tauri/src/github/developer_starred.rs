@@ -210,16 +210,7 @@ fn starred_error_message(
 }
 
 impl CatalogService {
-    /// 拉取一页 Star 列表（`api_etag_cache` 条件请求；是否有下一页取自 `Link` 头）。
-    /// 本函数零 DB：调用方短锁预读 `cached_etag` / `cached_payload`，返回后统一落库或 touch。
-    /// - 有可用旧载荷即发 `If-None-Match`：GitHub 实时比对，未变 `304` 零配额、有变 `200` 新载荷；
-    ///   手动同步同样走条件请求，`force_refresh` 不跳过 ETag；
-    /// - `304` 但旧载荷不可用时去掉 ETag 重拉一次；
-    /// - 传输错误、限流（403/429）或 5xx 且有旧载荷时回退旧载荷并标 `is_stale`；
-    ///   401 经 `check_auth_expired` 通知并上浮错误，404 永不回退。
-    ///
-    /// 错误附带 `recoverable` 标记（网络错误/403/429/5xx 为 `true`，401/404 为 `false`），
-    /// 供调用方决定是否回退本地 `affinity` 切片缓存。
+    /// 拉取一页 Star 列表（支持 ETag 条件请求与 `Link` 分页），错误附带可恢复标记以决定是否回退本地缓存。
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn fetch_starred_page_diag(
         &self,

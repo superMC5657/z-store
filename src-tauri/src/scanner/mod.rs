@@ -43,9 +43,7 @@ impl AppScanner {
         }
     }
 
-    /// 扫描系统已安装应用并过滤已纳管条目，返回扫描总数与待纳管匹配结果。
-    /// 导入路径须在磁盘上存在；不存在时按「我的应用」同一套路径修复（`resolve_installed_app_path`，
-    /// 参数与 `get_installed_apps` 一致）补找，仍找不到的条目被剔除——导入后它也不会显示。
+    /// 扫描系统已安装应用并过滤已纳管条目，剔除导入路径在磁盘上不存在的匹配。
     pub fn scan_unmanaged(
         catalog: &[crate::github::CatalogItem],
         installed_ids: impl IntoIterator<Item = String>,
@@ -62,9 +60,7 @@ impl AppScanner {
         }
     }
 
-    /// 确保匹配结果带有磁盘上存在的导入路径：已解析主程序存在则原样返回；本机条目自带的
-    /// 安装目录仍存在时也原样保留（不拿全盘探测结果覆盖成无关路径）；两者都不在时才经路径修复
-    /// 补上主程序路径（版本未知时顺带读该主程序的版本）；仍找不到返回 None。
+    /// 确保匹配结果带有磁盘上存在的导入路径（保留已有或通过路径修复补齐，缺失返回 `None`）。
     fn ensure_import_path(mut m: AppMatchResult) -> Option<AppMatchResult> {
         let exists = |p: &str| {
             let p = version::unquote_path(p);

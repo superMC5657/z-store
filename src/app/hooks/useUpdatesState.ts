@@ -21,10 +21,7 @@ interface UseUpdatesStateParams {
   t: TFunction;
 }
 
-/**
- * 更新与规则状态深模块：收口 `updates`、`updateRules`、`isCheckingUpdates`、`updateCheckProgress`，
- * 订阅流式更新事件与快照加载，并合并重复的规则变更 RPC + 重读流。
- */
+/** 更新与规则状态管理：收口更新列表、规则、检查进度与相关事件订阅。 */
 export function useUpdatesState({
   catalogLists,
   setInstalledApps,

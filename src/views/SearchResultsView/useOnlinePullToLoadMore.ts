@@ -1,21 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 
-/**
- * 在线搜索段「亮边界 + 越界续拉」触发器。
- *
- * 在线搜索列表到底时不自动拉下一页：`armed` 边界条（`online-armed`）先亮出，
- * 用户在列表底部继续下拉（桌面滚轮下滚 / 触摸手指上滑越界）才真正调一次
- * `onLoadMore`（续 1 页 20 个）。按钮点击走同一回调（键盘/拖滚动条用户兜底）。
- *
- * 门控（缺一即不触发；失败/加载中不重复触发，冷静过后可再拉重试）：
- * - `enabled`：在线段还有下一页（`onlineActive`）；
- * - `loading`：首屏搜索中或翻页中；
- * - armed 条可见（用户已真实到达底部；短列表首绘即见仍需一次下拉手势）；
- * - 滚动容器已在底部（`scrollHeight - scrollTop - clientHeight <= 8`）；
- * - 触发后 1000ms 冷静窗：一次手势只续一页。
- *
- * 发现页/类别/趋势的哨兵自动续刷一律不动（见 `useHomeFeed` 注释）。
- */
+/** 到达列表底部后通过继续下拉或上滑越界手势触发 `onLoadMore`（带冷却防连发）。 */
 interface OnlinePullToLoadMoreOptions {
   enabled: boolean;
   loading: boolean;

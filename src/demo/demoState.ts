@@ -53,10 +53,7 @@ function lsHas(key: string): boolean {
   }
 }
 
-/**
- * 首次访问（键不存在）时写入演示初始数据（见 seed.ts）；用户清空后保持为空。
- * 演示站全部种子只在这里落盘，各 handler 只读写持久化值。
- */
+/** 首次访问（localStorage 键不存在）时写入演示种子数据；用户清空后保持为空。 */
 function seedFirstVisit(): void {
   const now = nowSecs();
   const seedIfMissing = (key: string, build: () => unknown): void => {

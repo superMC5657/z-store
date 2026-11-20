@@ -1,15 +1,6 @@
 /**
- * 趋势榜单深模块（trend-board vertical slice）。
- *
- * 合并抓榜数据源（trending HTML / doforce / GitHub Search）、L1/L2 排行索引读写、
- * SWR-fill、`repo_card_cache` 批量水合、enrich 批处理、lite 补验、15s settle 兜底、
- * 详情治愈总线（detail-platforms / detail-richcard）与 `subscribeIconWrites` 图标镜像更新于单一
- * `TrendBoardSession` 控制器。
- *
- * 约束（ADR-0011 / ADR-0014 / ADR-0027）：
- * - doforce 仅 rising/healthy，经 fetch_trends_text 单飞 12h 共享；429 至多单次重试。
- * - L1 daily 1h / weekly-monthly-new 12h / 其余 5min；L2 daily 1h / 其余 12h + 0-30s 抖动扣减。
- * - L2 只存 `{ v: 2, items }` 排行索引，仅在上游抓榜成功时写一次；单仓卡片变更只更新富卡镜像。
+ * 趋势榜单控制器与抓榜入口：整合数据源抓取、L1/L2 索引缓存、卡片批量水合、
+ * 元数据 enrich、lite 平台补验、settle 超时兜底与详情/图标同步。
  */
 
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo, TrendsResult } from '../../types';
@@ -1063,7 +1054,7 @@ function recordRichcardHeal(
 }
 
 /* ------------------------------------------------------------------ */
-/* C. TrendBoardSession 控制器（深模块唯一状态编排出口）              */
+/* C. TrendBoardSession 控制器                                        */
 /* ------------------------------------------------------------------ */
 
 export interface TrendMirrorState {
@@ -1108,11 +1099,7 @@ export interface TrendBoardSession {
   }): () => void;
 }
 
-/**
- * 创建趋势榜会话控制器：收口 SWR 直展、`repo_card_cache` 批量水合、DB 确认图标回填、
- * enrich 批处理、lite 补验、settle 超时、详情治愈总线与 `iconStore` 镜像同步。
- * 单仓卡片变更只写富卡镜像（`repoEnrichCache`），不重写榜单 L2 快照。
- */
+/** 创建趋势榜会话控制器，管理抓榜、水合、enrich/lite 补验、settle 兜底与事件同步。 */
 export function createTrendBoardSession(
   options: TrendBoardSessionOptions = {},
 ): TrendBoardSession {
@@ -1295,11 +1282,7 @@ export function createTrendBoardSession(
     });
   }
 
-  /**
-   * 榜单未在池内命中的仓库经 `hydrateCardsByIds` 批量水合（同一 trendResult 只发一次）：
-   * 命中卡片并入镜像与确认集；超 12h 的卡片照常展示，但记入 `staleHydratedKeys` 交由 enrich 刷新。
-   * 完成后对仍缺图标的键回填 DB 确认图标。
-   */
+  /** 批量水合未命中缓冲的榜单仓库，并按新鲜度标记交由后续 enrich 刷新。 */
   function ensureHydration(trendResult: TrendsResult): Promise<void> {
     if (hydration && hydration.trendResult === trendResult) return hydration.promise;
     const myEpoch = sessionEpoch;

@@ -1,10 +1,4 @@
-//! Linux GNOME 系统代理读取（仅 `manual` 静态代理）。
-//!
-//! - 读 `gsettings org.gnome.system.proxy`（`mode` + `http/https/socks`
-//!   的 `host/port` + `ignore-hosts`），每次探测实时读取，不写进程 env；
-//! - 单地址归一委托 `proxy::normalize_single_proxy_addr`：补 `http://`、
-//!   保留 `socks5(h)://`、鉴权保留；
-//! - 只做 `manual` 静态代理，`auto/pac` 记 warn 后视为直连。
+//! Linux GNOME 系统代理实时读取（仅支持 `manual` 静态代理，`auto`/`pac` 视为直连）。
 
 use super::ProxySnapshot;
 

@@ -1,7 +1,4 @@
-//! 下载加速代理：经用户配置镜像加速（仅安装包通道）。
-//!
-//! - 安装资产下载经 [`MirrorManager::rewrite_installer_asset_url_resolved`] 改写 URL 并给出
-//!   需直连豁免的镜像 host，失败时经 [`wrap_gh_proxy_resolved`] 公共兜底重试。
+//! 下载加速代理：仅对安装包下载通道改写 URL，并提供公共镜像兜底。
 
 use std::time::Instant;
 
@@ -38,9 +35,7 @@ pub fn is_github_domain(raw_url: &str) -> bool {
         .any(|d| host_is_or_subdomain_of(&host, d))
 }
 
-/// 自定义镜像准入校验（D3 供应链防线）：仅接受 `https://` 且 host 为合法域名。
-/// 明文 http 镜像可被中间人整体替换下载载荷；裸 IP、userinfo、畸形 host 同拒。
-/// `direct` / `ghproxy` / 空串为内置档位，直通。
+/// 自定义镜像准入校验：仅接受 `https://` 且 host 为合法域名（禁止明文 http、裸 IP 与内嵌凭据）。
 pub fn validate_custom_proxy(id_or_url: &str) -> Result<(), String> {
     let trimmed = id_or_url.trim();
     if trimmed.is_empty() || trimmed == "direct" || trimmed == "ghproxy" {

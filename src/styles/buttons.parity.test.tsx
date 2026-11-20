@@ -1,13 +1,4 @@
-/**
- * 按钮尺寸阶梯、语义变体与反色图标光学平衡回归门禁测试。
- *
- * 守卫范围：
- * 1. `components-buttons.css` 三档高度契约（30 / 28 / 26px）、`.btn-danger`/`.btn-warning` 存在性、
- *    `.btn-primary` 不覆写尺寸且启用 `padding-box`；
- * 2. `PlatformIcons` 实心品牌图标启用 `.icon-solid-optical` 缩比；
- * 3. 代表性组件（`AppCard`、`InlineConfirmButton`、`InstalledView`、`WatchReleasesPanel`、`RulesManagerModal`）
- *    同排相邻按钮均挂载同档位尺寸类且不带破坏盒模型的内联 `padding`/`height`。
- */
+/** 按钮尺寸阶梯、语义变体与实心品牌图标缩比对齐测试。 */
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import fs from 'node:fs';

@@ -1,15 +1,6 @@
 /**
- * Canonical App Id 前端唯一归一口（ADR-0010）。
- *
- * - 后端全形态 canonical（`owner/repo` / `forge[:host]:owner/repo` 解析）唯一源在
- *   `src-tauri/src/forge/coord.rs`（`RepositoryUrlParser` / `canonical_app_id` /
- *   `canonical_lookup_id`）；前端经本模块解析镜像对齐，前后端键同值（ADR-0010）。
- *   语义同后端 `canonical_lookup_id`（total）：可解析直取 canonical，不可解析
- *   回退 `trim().toLowerCase()`（不断路由；门禁类拒绝语义另见 `canonicalAppId`）。
- *   前端同步键路径无法逐键 await Rust，镜像与后端解析分支一一对应，对齐锁值在
- *   `normalizeId.test.ts`（与 coord.rs 单测同案例）。
- * - 前端散装 `trim().toLowerCase()` / `(x || '').toLowerCase()` 一律经此，不另立
- *   normalizer（`platformFilter` loading 键语义归 `lib/platformFilter`，键归一与其同值）。
+ * Canonical App Id 前端归一入口（与后端 `forge/coord.rs` 解析分支对齐）。
+ * 可解析坐标转为 canonical id，不可解析回退 `trim().toLowerCase()`。
  */
 
 /** forge 前缀短语法别名表（后端 `RepositoryUrlParser` 分支 2 同表）。 */
@@ -142,11 +133,7 @@ function parseCanonical(input: string): string | null {
   return null;
 }
 
-/**
- * canonical 解析 Option 形态（后端 `canonical_app_id` 镜像）：可解析返回 canonical
- * id，不可解析返回 `null`。供门禁类调用方区分「不可解析需拒绝」与 `normalizeId`
- * 的「原样小写兜底」（草稿 forge 门见 `custom.ts#draftForgeGateError`）。
- */
+/** 解析 canonical id；不可解析时返回 `null`（供校验场景区分非法输入）。 */
 export function canonicalAppId(id: unknown): string | null {
   if (typeof id !== 'string') return null;
   return parseCanonical(id.trim());
@@ -173,10 +160,7 @@ export function normalizeIdSet(ids: Iterable<unknown>): string[] {
   return out;
 }
 
-/**
- * 归一 id 集（Set 口径，`normalizeIdSet` 的 Set 形态）。
- * 去空 + 小写去重；调用方一律经此建索引。
- */
+/** 归一并去重的 id 集合。 */
 export function normalizeIdLowerSet(ids: Iterable<unknown>): Set<string> {
   const out = new Set<string>();
   for (const raw of ids) {

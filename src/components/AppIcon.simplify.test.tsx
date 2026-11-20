@@ -1,9 +1,4 @@
-/**
- * AppIcon 渲染契约：
- * `resolveActiveIcon`（override > store > 缓冲 > prop，空亦覆盖）；
- * `resolveDisplaySrc`（空徽章 / `data:` 与 override 直显 / 双键缓存回读）；
- * `isRemoteIcon` 仅认前缀 + 扩展名收尾，不做子串匹配。
- */
+/** 测试 `AppIcon` 的图标解析优先级、本地缓存回读及远端地址判定逻辑。 */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import {

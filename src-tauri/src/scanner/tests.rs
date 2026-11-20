@@ -4,7 +4,7 @@ use crate::github::CatalogItem;
 const TEST_ICON_BG_VLC: &str = "#ff8800";
 const TEST_ICON_BG_OBS: &str = "#302e31";
 
-/// 测试本地临时目录 helper（收敛 current_dir + tempdir_in 样板，仅测试代码）。
+/// 在当前目录创建临时测试目录。
 fn temp_test_dir(prefix: &str) -> tempfile::TempDir {
     let parent = std::env::current_dir().expect("current_dir for temp_test_dir");
     tempfile::Builder::new()
@@ -226,7 +226,6 @@ fn test_match_expanded_apps_from_catalog() {
 
     let results = AppScanner::match_apps(&scanned, &catalog);
     assert_eq!(results.len(), 4);
-    // ADR-0010：真实清单 id 为 canonical owner/repo
     assert!(results
         .iter()
         .any(|r| r.catalog_id == "qbittorrent/qbittorrent"));
@@ -849,7 +848,7 @@ fn test_detect_installed_version_matches_registry_entry_by_path() {
         Some("3.1.0")
     );
 
-    // 找到条目但注册表与主程序都没有版本：版本未知（空串），用于清掉早先填充的收录库版本
+    // 找到条目但注册表与主程序都没有版本：返回空串（版本未知）
     assert_eq!(
         AppScanner::detect_installed_version(
             &entries,

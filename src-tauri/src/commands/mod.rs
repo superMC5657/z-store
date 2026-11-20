@@ -51,8 +51,7 @@ pub use crate::installer::{resolve_uninstaller_command, select_best_asset};
 
 use crate::AppState;
 
-/// 入站 `app_id` 统一归一化守卫（ADR-0010）。
-/// 成功返回 canonical id；未知标识直接拒绝，调用方永不触碰 SQLite。
+/// 入站 `app_id` 统一归一化守卫；未知标识直接拒绝，避免触碰 SQLite。
 pub(crate) fn require_app_id(raw: &str) -> Result<String, String> {
     crate::forge::canonical_app_id(raw).ok_or_else(|| format!("无法识别的应用标识: {}", raw))
 }

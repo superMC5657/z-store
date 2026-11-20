@@ -1,8 +1,4 @@
-/**
- * 退回草稿回归：命令名对齐、落盘可见且 draft 退出本地收录。
- * 后端规范命令为 `revert_collected_to_draft`，
- * 前端 CMD 指向规范命令名，确保状态变更持久化。
- */
+/** 验证 `revertCollectedApp` 命令名对齐与草稿状态落盘。 */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { CMD } from '../api';
 import { isCollectedStatus } from '../../app/selectors';

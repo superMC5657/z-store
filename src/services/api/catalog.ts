@@ -188,12 +188,7 @@ export async function enrichTrendRepos(
   }
 }
 
-/**
- * 只听统一事件 `zstore://icon-ready{id,icon,level,via,context}`：
- * 前端只订阅此事件（`via`透传，M2首屏直填不走emit）。
- * 世代门控走 `services/iconStore.admitIconHit`（读 `context.search_id` vs `currentSearchId`），
- * `level`纯L单调，调用方只做载荷适配 + React 列表 `patch` 注入。
- */
+/** 订阅 `zstore://icon-ready` 图标就绪事件（非 Tauri 环境返回空取消函数）。 */
 type SearchIconUpgradePayload = IconReadyPayload;
 
 export async function onIconReady(
@@ -345,10 +340,7 @@ function toFilteredFeedResult(raw: HomeFeedRaw): HomeFeedResult {
   return result;
 }
 
-/**
- * 类别页分页。`allowedIds` 为当前平台筛选允许的 ID：给出时（含空数组=平台全不选）后端先过滤再分页，
- * 省略时不过滤；回包 `matched_ids` 为过滤前该分类全部 ID。
- */
+/** 类别页分页；提供 `allowedIds`（含空数组）时由后端按平台过滤后再分页。 */
 export async function getCategoryApps(
   category: string,
   page?: number,
@@ -458,12 +450,7 @@ export async function restoreOrFetchIconCycle(appId: string): Promise<AppIconCyc
   }
 }
 
-// 自维护草稿 overlay：仅做 IPC 封装（CMD 表驱动），视图层禁直调 invoke（见 noDirectInvoke.test.ts）。
-
-/**
- * 草稿线格式别名（唯一定义见 `services/custom.ts`）：
- * `CustomCatalogItem` = payload，`CustomAppEntry` = 后端行。
- */
+// 自维护草稿 overlay IPC 封装
 type CustomCatalogItem = DraftItemWire;
 type CustomAppEntry = DraftEntryWire;
 
@@ -474,10 +461,7 @@ export async function listCustomApps(includeArchived = false): Promise<CustomApp
   });
 }
 
-/**
- * 草稿暂存（新建行 status=draft；已存在行仅刷新 payload）。
- * 调用方须保证 id 为 canonical 小写且与 owner/repo 对齐（见 `services/custom.ts#buildCustomDraftItemFromSummary`）。
- */
+/** 草稿暂存（新建为 draft，已存在则更新 payload）。 */
 export async function saveCustomApp(item: CustomCatalogItem): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.saveCustomApp, { item });
 }
@@ -492,26 +476,17 @@ export async function markCustomSubmitted(id: string, prUrl: string): Promise<Cu
   return tauriInvoke<CustomAppEntry>(CMD.markCustomSubmitted, { id, prUrl });
 }
 
-/**
- * 本地收录（唯一命令面 `collect_local_app`：收录档校验后 status=collected，
- * 已收录仍 is_verified=false）：仅发 {id}（camelCase 单键，snake 后端桥接）。
- */
+/** 本地收录（校验后转为 `collected`）。 */
 export async function collectLocalApp(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.collectLocalApp, { id });
 }
 
-/**
- * 本地收录退回草稿（后端 `revert_collected_to_draft` 落盘：status=draft + pr_url 清空）：
- * 仅发 {id}（camelCase 单键，snake 后端桥接）。失败由调用方 toast 报错，禁止静默本地翻态。
- */
+/** 本地收录退回草稿（清空 `pr_url` 并重置为 `draft`）。 */
 export async function revertCollectedApp(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.revertCollectedApp, { id });
 }
 
-/**
- * 标记为未提交（后端 `withdraw_submitted` 落盘：submitted → collected、pr_url 清空，payload 不变）：
- * 仅发 {id}（camelCase 单键，snake 后端桥接）。Issue 需用户在 GitHub 自行关闭；失败由调用方 toast。
- */
+/** 撤回已提交状态（`submitted` → `collected` 并清空 `pr_url`；GitHub Issue 需用户自行关闭）。 */
 export async function withdrawSubmitted(id: string): Promise<CustomAppEntry> {
   return tauriInvoke<CustomAppEntry>(CMD.withdrawSubmitted, { id });
 }
@@ -521,19 +496,12 @@ export async function getCustomAppPrUrl(id: string): Promise<string> {
   return tauriInvoke<string>(CMD.getCustomAppPrUrl, { id });
 }
 
-/**
- * 单条提交载荷（后端序列化的 JSON 对象文本）：预填链接超长时直接复制给用户。
- * 前端只原样透传字符串，不自行拼装/格式化 JSON。
- */
+/** 获取后端序列化的单条提交 JSON 载荷文本（供超长链接时直接复制）。 */
 export async function getCustomAppPrPayload(id: string): Promise<string> {
   return tauriInvoke<string>(CMD.getCustomAppPrPayload, { id });
 }
 
-/**
- * 许可名单只读查询（ADR-0018）：名单唯一源头为后端编译时配置。
- * 前端 SubmitStrict 校验（提交 Issue/预填前）经此拉取；调用失败由调用方视为
- * 加载失败（放行暂存、提交提示重试），绝不在前端回退一份写死名单。
- */
+/** 许可证白名单只读查询（源头为后端配置；失败时由调用方提示重试，不回退硬编码名单）。 */
 export interface LicenseAllowlistResult {
   enabled: boolean;
   allowed: string[];

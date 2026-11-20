@@ -1,9 +1,4 @@
-/**
- * 首页/搜索本地段首刷补黄（customApps null→就绪）：
- * - 首刷 localApps 缺席即无标（不误判终态）；
- * - 就绪后同 props 重渲染即补黄（含远端已存在同仓的 openchamber 类，大小写/owner-repo 归一）；
- * - 蓝优先不动，复用 verified-badge-local，无新色文案，不改排序。
- */
+/** 测试搜索结果本地段在 `localApps` 就绪后的本地收录黄标补标与蓝标优先逻辑。 */
 import { describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { SearchResultsView } from './SearchResultsView';

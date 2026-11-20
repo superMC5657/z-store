@@ -1,13 +1,4 @@
-/**
- * 平台筛选允许空集合回归测试（真实 <App/> 链路）。
- *
- * 空平台选择为有效状态，代表空列表：三个发现页面均针对空选择渲染各自的筛选为空引导界面
- * （matchPlatformSet 对空集合不匹配任何应用）。绝不会弹出拒绝操作的 Toast——
- * 取消勾选最后一个平台会正常提交空集合并持久化 `[]`。
- *
- * 同一 tick 内的多次切换仍顺序执行：切换逻辑位于 `setSelectedPlatforms` 函数式 updater 内部，
- * 每次派发均能看到最新的提交状态。侧栏保持无状态（仅回调通知）。
- */
+/** 测试空平台筛选集合、引导空态渲染与连续切换的顺序持久化。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { act } from 'react';

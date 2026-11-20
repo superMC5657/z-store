@@ -4,11 +4,7 @@ import type React from 'react';
 const INTERACTIVE_SELECTOR =
   'button, a, input, select, textarea, label, [role="button"], [role="menu"], [role="menuitem"], [contenteditable="true"], [data-row-click-ignore]';
 
-/**
- * 管理列表行的整行点击：点在行内空白或文字上即调用 `open`；点在按钮、链接、菜单等
- * 交互元素上（以及其所在的 `[data-row-click-ignore]` 区域）交给它们自己处理；
- * 用户正在拖选文字时不触发。键盘入口由行内的图标按钮提供。
- */
+/** 管理列表整行点击处理器：忽略行内交互控件点击与文字拖选，其余区域点击触发 `open`。 */
 export function rowClickHandler(open: (() => void) | undefined) {
   if (!open) return undefined;
   return (e: React.MouseEvent<HTMLElement>) => {

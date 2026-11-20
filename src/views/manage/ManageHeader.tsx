@@ -9,10 +9,7 @@ interface ManageHeaderProps {
   actions?: React.ReactNode;
 }
 
-/**
- * 管理工作台统一顶栏：
- * 左侧呈现统一尺寸线性图标 + 标题 + 数量角标 + 摘要副标题，右侧呈现主次分离的动作按钮簇。
- */
+/** 管理工作台统一顶栏：左侧呈现图标、标题、数量角标与副标题，右侧呈现动作按钮簇。 */
 export const ManageHeader: React.FC<ManageHeaderProps> = ({
   icon,
   title,

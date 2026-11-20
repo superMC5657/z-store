@@ -1,9 +1,4 @@
-//! 图片嗅探唯一来源：魔数嗅探 + 扩展名白名单 + 落盘推断合一。
-//!
-//! 口径（单测锁定）：
-//! - bmp 纳入嗅探 + 白名单 + 落盘；
-//! - apng 归一为 png（与 `image/apng → png` 别名一致）；
-//! - 未知回退为 `image/png`。
+//! 图片魔数嗅探、扩展名白名单与落盘扩展名推断。
 
 /// URL 扩展名白名单：无后缀放行到下载时验字节，有后缀仅此表通过。
 /// `apng` 允许但推断时归一为 `png`（见 [`infer_ext_from_url`]）。
@@ -21,11 +16,7 @@ const MAGIC_PREFIXES: &[(&[u8], &str)] = &[
     (b"BM", "image/bmp"),
 ];
 
-/// 由 [`MAGIC_PREFIXES`] 及容器/文本分支嗅探 MIME；未知返回 `None`（调用方决定回退）。
-/// - WEBP：`RIFF....WEBP`（偏移 8 处 4 字节，需 len > 12）；
-/// - AVIF：`....ftypavif/avis`（偏移 4/8，需 len >= 12）；
-/// - SVG：去 UTF-8 BOM + 跳过前导 ASCII 空白后，以 `<svg` 开头；或以 `<?xml` 开头且
-///   前 [`SVG_XML_SCAN_BYTES`] 字节内出现 `<svg` 标签（排除 RSS/Atom 等普通 XML）。
+/// 根据魔数嗅探图片 MIME，未知返回 `None`。
 pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     for &(magic, mime) in MAGIC_PREFIXES {
         if bytes.starts_with(magic) {

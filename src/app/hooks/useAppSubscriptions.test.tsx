@@ -1,15 +1,4 @@
-/**
- * useAppSubscriptions 回归（应用级订阅总线）：
- *
- * - 初始拉取扇出：目录/已装/收藏/规则/更新快照/最近浏览（平台过滤 + 黄标叠加）/
- *   设置回放/深链注册；`update_frequency='startup'` 才自动检查更新；
- * - `zstore:catalog-synced`：目录后到重拉目录 + 最近浏览黄标重标；
- * - `onIconReady`：载荷适配 + `admitIconHit` 四列表写透 + 回声窗立期望；
- * - watch 订阅：关注集加载 + 更新提醒 toast + 同 app 通知去重；
- * - 更新流：逐条 upsert（大小写不敏感）+ 进度 + 完成复位；
- * - OAuth：登录态加载、过期警示 + `zstore:oauth-changed` 派发、数据导入全量回放；
- * - 迟到订阅：卸载后才 resolve 的 unlisten 立即解绑（不泄漏）。
- */
+/** 测试 `useAppSubscriptions` 的初始快照加载、事件订阅及卸载解绑。 */
 import { StrictMode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

@@ -229,12 +229,8 @@ async fn send_direct_first(
     }
 }
 
-/// 趋势榜单 HTTP 直取（绕过 WebView CORS；Rust 侧无 CORS 概念）。
-/// github.com / api.github.com 单跳 10s；doforce 直连 5s + 系统代理回退 6s。成功返回 body 文本。错误串内含可机读标记供前端映射：
-/// `upstream status {code}`（HTTP 状态）、`request timeout`（超时）、
-/// `network error`（连接/DNS 等）。完整 URL 永不回显（query 可能含参）。
-/// `api.github.com`（`new` 榜 Search API）附带当前活跃 GitHub Token 并上报限流，
-/// 已登录用户计入自身的认证 Search 配额而非匿名配额；`github.com` HTML 与 doforce 永不携带凭据。
+/// 趋势榜单 HTTP 直取（仅允许白名单主机，完整 URL 永不回显）；错误串含机读标记供前端映射。
+/// 仅 `api.github.com` 附带活跃 GitHub Token 并上报限流；其它主机不携带凭据。
 #[tauri::command]
 pub async fn fetch_trends_text(
     state: State<'_, AppState>,
@@ -354,8 +350,7 @@ pub async fn fetch_trends_text(
             status.as_u16()
         )));
     }
-    // 流式读取并截断至 2MB（D9 截断语义）：避免全量缓冲超大响应体，
-    // 超限即停止读取并返回前 2MB（前端对截断 body 具备解析兜底）。
+    // 流式读取并按上限截断，避免全量缓冲超大响应体。
     use futures_util::StreamExt;
     const MAX_TRENDS_BYTES: usize = 2 * 1024 * 1024;
     let mut buf: Vec<u8> = Vec::with_capacity(64 * 1024);

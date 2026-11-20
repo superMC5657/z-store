@@ -36,8 +36,7 @@ impl ForgeProvider for GiteaProvider {
             let client = new_api_client(timeout_sec)?;
             let headers = api_headers(JSON_ACCEPT_VALUE, token, AuthScheme::Token);
 
-            // Gitea / Forgejo 接口 v1；owner/repo 段统一 percent-encoding（对齐 gitlab.rs），
-            // 解析出口已校验，此处兜底非 coord 来源的脏段（`/`→`%2F`、空格→`%20`）。
+            // owner/repo 统一 percent-encoding，防止非 coord 来源的特殊字符污染路径。
             let url = format!(
                 "https://{}/api/v1/repos/{}/{}",
                 host,

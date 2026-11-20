@@ -1,94 +1,46 @@
-//! Release 拉取深模块：`releases/latest` ETag GET 缝合处唯一真相源。
-//!
-//! 领域术语：ETag Cache（条件请求缓存）、Cache TTL（缓存生存时效）、
-//! Streaming Update Check（流式更新检查）、Checksum Manifest（校验清单）。
-//!
-//! 本模块收敛 shallow/deep 两个 adapter，对外仅暴露：
-//! - shallow（轻量）：tag + body 投影（附 assets 最小投影，仅供平台推导），
-//!   供 Streaming Update Check（流式更新检查）与 `get_platforms_lite` 共用；
-//!   无 repo、无 README、无 Checksum Manifest（校验清单）开销——
-//!   仅单次 `releases/latest` 条件请求。
-//! - deep（详情）：完整 release 决议（含落库元组与 stale 复用），供 `fetch_app_detail`；
-//!   调用方继续 repo + README + Checksum Manifest（校验清单）抓取与平台推导。
-//!
-//! ADR-0007 豁免（不重开，原语义以注释 + 分支形状编码于此，勿"修复"）：
-//! Streaming Update Check（流式更新检查）永不查 Cache TTL（缓存生存时效）——
-//! 每次直探 `releases/latest`，"有更新"提示不受详情浏览 TTL 拖累。
-//! 编码方式：本模块故意不设任何 TTL 参数（ETag 决议与 TTL 正交）；
-//! - consult_ttl = true 侧：`get_platforms_lite` 入口保留 `if TTL-hit → return` 快径分支，
-//!   进本模块前已先查 Cache TTL；
-//! - consult_ttl = false 侧：`fetch_app_latest_version_lightweight` 无此分支，每次直探。
-//!
-//!   两侧经同一 shallow adapter 决议（单测同 interface），豁免由分支形状保证。
-//!
-//! effect 归属：本模块为纯决议（无网络、无 DB），只返回 touch/save 意图；
-//! 调用方经 `apply_release_cache_effects` 单口执行——304 命中恢复一律 touch 延保，
-//! stale 穿透传 touch=false 永不 touch（避免把过期 stale 洗成 fresh），Fresh 带 ETag 则 `save_etag`。
-//! 失败路径是否恢复 ETag payload 由调用方传入决定：更新检查传入 None（不恢复，
-//! 现行语义），平台 lite 传入预读 payload；差异见各调用方注释。
+//! Release 拉取纯决议：封装 `releases/latest` ETag GET 的 shallow（流式更新检查 / platforms-lite）
+//! 与 deep（详情页）决议逻辑及统一的缓存副作用落库口。
 
 use super::models::{GitHubAssetResponse, GitHubReleaseResponse};
 use crate::github::http::EtagGetOutcome;
 use crate::models::AppDetail;
 
-/// release payload 解析（deep/shallow 共用唯一解析口；错误串由调用方按上下文包装）。
 fn parse_release_payload(text: &str) -> Result<GitHubReleaseResponse, serde_json::Error> {
     serde_json::from_str::<GitHubReleaseResponse>(text)
 }
 
-// ---------------------------------------------------------------------------
-// shallow adapter：Streaming Update Check（流式更新检查）+ `get_platforms_lite` 共用
-// ---------------------------------------------------------------------------
-
-/// shallow adapter 投影来源（调用方据此做平台推导与 stale 标记）。
+/// shallow 决议投影来源。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShallowSource {
-    /// 远端 200 新 payload。
     Fresh,
-    /// 304 或离线时 ETag payload 恢复。
     Payload,
-    /// 旧详情行穿透。
     StaleRow,
-    /// 收录库默认版本。
     Catalog,
 }
 
-/// shallow adapter 决议：轻量 tag + body（附 assets 最小投影，仅供平台推导）。
+/// shallow 决议输出：轻量 tag、body 与 assets 投影。
 #[derive(Debug)]
 pub(crate) struct ShallowRelease {
     pub tag: String,
     pub body: String,
     pub assets: Vec<GitHubAssetResponse>,
     pub source: ShallowSource,
-    /// 304 命中恢复：调用方应 touch 详情 `cached_at` 延保；Fresh/失败穿透为 false。
+    /// 304 命中恢复时为 true，调用方刷新详情 `cached_at`；stale 穿透为 false。
     pub touch: bool,
-    /// 远端 200 且带 ETag：调用方负责 `save_etag`；其余为 None。
     pub cache_to_save: Option<(String, String)>,
-    /// 旧行复用时回显其已 deduce platforms（调用方直接采用，不重推导）；其余为 None。
     pub row_platforms: Option<Vec<String>>,
-    /// stale 语义（`get_platforms_lite` 直用，更新检查忽略）：
-    /// Fresh/Payload/Catalog 为 None；Row 在 304 时回显旧行值，失败穿透时为 Some(true)。
     pub stale: Option<bool>,
 }
 
-/// shallow adapter 未命中：调用方按自身语义映射
-/// （更新检查全 Err；lite 在离线时给空-stale，304 缺缓存时 Err）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShallowMiss {
-    /// 304 但 payload 缺/坏且无行无收录。
     NotModifiedWithoutCache,
-    /// 失败且 payload/行/收录全空。
     OfflineWithoutCache,
 }
 
-/// shallow adapter 错误：解析串已在模块内包装为现行文案。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ShallowError {
-    /// 远端 200 payload 解析失败（"解析 GitHub Release 失败: ..."）。
     Parse(String),
-    /// 304 时 ETag payload 腐坏（"解析本地 ETag 缓存失败: ..."）。
-    /// 仅 304 抛出（lite-304 硬错现行语义）；失败路径 tolerant 跳过（lite-离线现行语义）；
-    /// 更新检查恒传 payload=None，不会命中该臂。
     PayloadCorrupt(String),
     Miss(ShallowMiss),
 }
@@ -106,14 +58,7 @@ fn row_release(row: &AppDetail, touch: bool, stale: Option<bool>) -> ShallowRele
     }
 }
 
-/// shallow adapter 入口（纯函数，无网络无 DB；更新检查 + platforms-lite 同一 interface）。
-///
-/// - `outcome`：单次 `releases/latest` ETag GET 结果（调用方保留 log_tag：
-///   "updates" / "platforms-lite"，诊断可 grep）。
-/// - `cached_payload`：ETag Cache（条件请求缓存）预读 payload；更新检查恒传 None
-///   （直探无 ETag，不会 304）；平台 lite 在 304/失败时传入预读 payload。
-/// - `stale_row`：旧详情行回退源（无行时 None）。
-/// - `catalog_default_version`：收录库默认版本（lite 通道无此回退，传 None）。
+/// 轻量 release 决议（供流式更新检查与 `get_platforms_lite` 共用）。
 pub(crate) fn decide_shallow_release(
     outcome: &EtagGetOutcome,
     cached_payload: Option<&str>,
@@ -175,7 +120,6 @@ pub(crate) fn decide_shallow_release(
             Err(ShallowError::Miss(ShallowMiss::NotModifiedWithoutCache))
         }
         EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed => {
-            // 失败路径 tolerant：payload 腐坏直接跳过（lite-离线 `if let Ok` 现行语义）。
             if let Some(payload) = cached_payload {
                 if let Ok(parsed) = parse_release_payload(payload) {
                     return Ok(ShallowRelease {
@@ -329,13 +273,7 @@ pub(crate) fn decide_detail_release(
 // release touch/save/stale 效应收敛（shallow + deep 调用点同一 interface）
 // ---------------------------------------------------------------------------
 
-/// release ETag 副作用唯一执行口（纯决议 `decide_*` 与 effect 正交，本函数只做 DB 写）：
-/// - `touch` 为 true 时刷新详情 `cached_at` 延保（304 命中恢复；stale 穿透调用方传 false，
-///   守卫表达式与调用点同行，永不把过期 stale 洗成 fresh）；
-/// - `cache_to_save` 为 Some 时落库 `api_etag_cache` 条件请求键（Fresh 带 ETag）；
-/// - `let _ =` 吞错 + 下次重试语义；`now_secs` 由调用方传入（单测可定死）。
-///
-/// 调用点（`commands::catalog_detail` lite + detail 双径、`commands::updates_check`）一律经此。
+/// 执行 release 请求后的缓存副作用：`touch` 时刷新详情 `cached_at`，有 ETag 时落库条件请求缓存。
 pub(crate) fn apply_release_cache_effects(
     db: &crate::db::Database,
     release_endpoint: &str,

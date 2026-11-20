@@ -4,12 +4,8 @@ import { findSummary } from './fixtures';
 import { DAY_SECS } from './handlers/common';
 
 /**
- * 演示站的初始数据：让「我的应用 / 星标 / 关注 / 最近浏览 / 搜索历史 / 更新规则 /
- * 关注提醒 / 待收录」首次打开就有内容，且覆盖各种安装方式与更新状态。
- * 由 `demoState.seedFirstVisit` 在对应 localStorage 键不存在（首次访问）时写入一次；
- * 之后读写都走持久化值，用户清空后保持为空。
- * 引用的应用 id 都必须在 catalog.json 里（`seed.test.ts` 校验），
- * 版本号也从目录派生，目录升级后种子仍自洽。
+ * 演示站初始种子数据：首次访问时由 `demoState.seedFirstVisit` 写入 localStorage，
+ * 版本号由目录数据动态派生以保持自洽。
  */
 
 // ---------------------------------------------------------------------------
@@ -133,10 +129,7 @@ export const SEED_SEARCH_HISTORY: readonly string[] = [
   'obs', '下载器', 'password manager', 'markdown', '远程桌面', 'screen recorder', 'git', 'emulator',
 ];
 
-// ---------------------------------------------------------------------------
-// 更新规则：锁定 / 隐藏 / 跳过版本各来几条，均落在已装且落后的应用上，
-// 让每条规则在「我的应用」里都看得到效果
-// ---------------------------------------------------------------------------
+// 更新规则：覆盖锁定 / 隐藏 / 跳过版本样例
 
 export function buildSeedUpdateRules(now: number): UpdateRule[] {
   const at = now - 3 * DAY_SECS;
@@ -177,10 +170,7 @@ export function buildSeedWatchNotifications(now: number): SeedWatchNotifications
   return { pending, dismissed };
 }
 
-// ---------------------------------------------------------------------------
-// 待收录（`custom_apps`）：覆盖「草稿 / 已收录 / 已提交 / 已归档」四组。
-// 已收录及之后的行都满足后端提交档校验（主页、OSI 协议、官方分类）。
-// ---------------------------------------------------------------------------
+// 待收录（`custom_apps`）：覆盖草稿 / 已收录 / 已提交 / 已归档四组
 
 /** 清单仓库收录 Issue 列表（与后端 `CATALOG_REPO_ISSUES_URL` 同仓）。 */
 const CATALOG_REPO_ISSUES = 'https://github.com/superMC5657/z-store-catalog/issues';

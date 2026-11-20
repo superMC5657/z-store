@@ -35,10 +35,7 @@ fn parse_repo_payload(payload: Option<&String>) -> Option<GitHubRepoResponse> {
     payload.and_then(|pl| serde_json::from_str::<GitHubRepoResponse>(pl).ok())
 }
 
-/// 最近浏览简介占位后端根治共用：从 SQLite ETag 缓存读 repo 真简介（同步读，不触网）。
-/// - key 为 `https://api.github.com/repos/{owner}/{repo}`（原值 + 小写各试一次）；
-/// - payload 按 `GitHubRepoResponse.description` 解析，trim 后空或仍占位视为无真值；
-/// - 调用方需以 `catalog_item.is_none()` 门控（已收录仓人工精校优先，不覆盖）。
+/// 从 SQLite ETag 缓存同步读取 repo 描述（不触网）；已收录仓库应由调用方优先保留人工精校描述。
 pub(crate) fn repo_real_description_from_etag(
     db: &crate::db::Database,
     owner: &str,
@@ -77,14 +74,7 @@ pub(crate) fn repo_real_description_from_etag(
     None
 }
 
-// ---------------------------------------------------------------------------
-// detail 内部 seams：对外 `fetch_app_detail` 单一入口；
-// repo/readme/probe/checksum/platform/desc 各为内部函数。
-// ADR-0004〈streaming + SHA256 vs checksums.txt fail=destroy〉/
-// ADR-0002〈mirror 只改下载 URL〉/ ADR-0006〈ForgeProvider vs doforce 例外〉语义于此编码。
-// ---------------------------------------------------------------------------
-
-/// detail 身份：endpoints + 收录项（各 seam 共享输入，一次取出）。
+/// 详情页内部解析的仓库基础信息与收录项。
 struct DetailIdentity {
     owner: String,
     repo: String,
@@ -424,11 +414,7 @@ fn is_network_host(host: &str) -> bool {
         && (h.contains('.') || h.eq_ignore_ascii_case("localhost") || h.starts_with('['))
 }
 
-/// 主页清洗：仅产出无内嵌凭据、主机合法的 `http(s)` 网址。
-/// - 大写协议头归一为小写（`HTTPS://x` → `https://x`），其余原文保留；
-/// - 无协议的裸域名（`zed.dev`、`www.7-zip.org/download.html`）补 `https://`；
-/// - 占位词（`None`/`N/A`/`TBD`）、非网页协议（`javascript:`/`mailto:`/`ftp://`/`data:`）、
-///   内部空白与 `user:pass@` 形态一律 `None`，让调用方回退收录库主页。
+/// 清洗并规范化主页 URL，拒绝占位词、非 `http(s)` 协议与内嵌凭据。
 pub(crate) fn normalize_http_homepage(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.chars().any(char::is_whitespace) {
@@ -490,10 +476,7 @@ fn comparable_repo_segments<'a>(segments: impl Iterator<Item = &'a str>) -> Vec<
     out
 }
 
-/// 主页是否就是当前代码仓库自身页面（判重规则同前端 `resolveExternalHomepageUrl`，
-/// 区别仅在路径逐段解码，前端整段解码）：
-/// 主机与路径归一后相等即命中，协议、`www.`、大小写、尾斜杠、`.git`、`#readme`
-/// 与 `?tab=readme-ov-file` 均不影响。同主机不同路径（`github.com/apps/desktop`）不命中。
+/// 判断主页 URL 是否指向当前仓库自身页面。
 pub(crate) fn is_same_repo_homepage(
     homepage_url: &str,
     forge_host: &str,
@@ -591,9 +574,7 @@ fn resolve_detail_stats(
     let license = curated_license
         .or(remote_license)
         .or_else(|| catalog_item.map(|i| i.license.trim().to_string()))
-        // 空串不视作真值（与下方 homepage 同过滤模式），未知一律显式 `unknown`
-        //（诚实未知，不伪装已验证开源）；D1 门禁按名单外拒绝
-        //（`UNKNOWN` 不在 DEFAULT_LICENSE_ALLOWLIST），ADR-0018 默认开。
+        // 未知协议显式记为 "unknown"，不伪装为已验证开源协议。
         .filter(|l| !l.trim().is_empty())
         .unwrap_or_else(|| "unknown".to_string());
     let homepage = resolve_homepage(
@@ -667,8 +648,7 @@ impl CatalogService {
             catalog_item,
         } = resolve_detail_identity(self, id)?;
 
-        // 详情为带 Token 的 GitHub API 请求：走 API 池（清单池恒不携带 Token，见 D5），
-        // 传输重试换池时也留在同一 API 池。
+        // 详情请求可能携带 Token，固定使用 API 连接池。
         let client = &crate::forge::http::api_client(crate::github::http::api_timeout().as_secs());
 
         // header/client/log 经 github 内本地 helper。

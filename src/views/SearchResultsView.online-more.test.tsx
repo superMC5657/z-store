@@ -1,11 +1,4 @@
-/**
- * 在线搜索段「亮边界 + 越界续拉」回归测试。
- *
- * 锁定手感：
- * - 到底先亮 `online-armed-boundary`（「已到底 · 继续下拉加载更多」），哨兵进入视口也不自动拉；
- * - 在底部继续下拉（滚轮）/点按钮才续下一页（每次 1 页 20 个由 `handleOnlineLoadMore` 保证，此处只锁触发）；
- * - 加载中不重复触发；无下一页时回到真·到底态。
- */
+/** 测试在线搜索结果底部边界条展示、越界续拉触发条件与防重入保护。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import React from 'react';

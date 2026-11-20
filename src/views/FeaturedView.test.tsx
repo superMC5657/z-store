@@ -1,7 +1,4 @@
-/**
- * 精选页（ADR-0023）：货架按画像状态渲染、推荐理由、负反馈、兴趣选择卡、最近浏览富卡区块与筛选空态。
- * 后端整页结构经 `tauriApi.getFeaturedPage` 注入。
- */
+/** 测试 `FeaturedView` 货架渲染、负反馈、兴趣选择卡、最近浏览与筛选空态。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';

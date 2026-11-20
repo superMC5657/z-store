@@ -40,8 +40,7 @@ pub fn get_cli_deep_link() -> Option<String> {
     slot.lock().ok().and_then(|mut guard| guard.take())
 }
 
-/// 外链安全校验：协议头大小写不敏感（与前端 `openUrl` 的 `/^https?:\/\//i` 对齐），
-/// 归一为小写 `http://` / `https://`；拒绝空串、内部空白、非网页协议、内嵌凭据与空主机。
+/// 外链安全校验：仅放行无空白、无内嵌凭据且带主机的 `http`/`https` URL（协议头归一小写）。
 pub(crate) fn validate_external_http_url(url: &str) -> Result<String, String> {
     const REJECT: &str = "仅支持打开 http/https 协议的安全链接";
     let trimmed = url.trim();
@@ -101,10 +100,8 @@ pub fn open_external_url(url: &str) -> Result<bool, String> {
     }
 }
 
-/// Windows 网络路径判定（纯函数，`/` 与 `\` 等价）：`\\server\share`、`//server/share`、
-/// `\\?\UNC\...` 及 `\\.\` 设备命名空间均视为网络/非本地盘路径；
-/// 仅放行 `\\?\C:\...` 形态的本地盘 verbatim 路径（`canonicalize` 产物）。
-/// 访问 UNC 路径会触发 SMB 连接并可能外泄 NTLM 凭据。
+/// 判定 Windows UNC 或设备命名空间网络路径（仅放行 `\\?\<盘符>:\...` 本地路径），
+/// 避免触发 SMB 连接导致 NTLM 凭据外泄。
 pub(crate) fn is_windows_network_path(raw: &str) -> bool {
     let s = raw.trim().replace('/', "\\");
     if !s.starts_with(r"\\") {

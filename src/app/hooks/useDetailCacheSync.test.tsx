@@ -1,15 +1,4 @@
-/**
- * useDetailCacheSync 回归：锁定详情首 patch / 图标写透 / 缓存治愈的竞态安全语义。
- *
- * - 0ms 内存快照命中：先展快照 + recordAppView + 后台 ETag 条件探查；
- * - 后台静默探查同值返回 prev（不触发全网格重渲染）、变值平滑覆盖；
- * - 竞态守卫：A 慢 B 快时 A 的迟到回包不得覆盖已切换的选中态；
- * - 后端占位简介永不污染内存快照（富卡非占位治愈，无富卡存 ''）；
- * - stale 离线详情不碰平台（不确认 other、不派治愈事件）；
- * - 非 stale 空平台确认 other + 富卡治愈事件；真实平台治愈 + 事件扇出；
- * - 图标三态：http 直写四列表、data: 只即时看不进盘（cycle 落 remote_url）、
- *   cycle data: 无 remote_url 且非 L5 不落盘。
- */
+/** 测试 `useDetailCacheSync` 的内存快照、并发竞态守卫、缓存治愈与图标写透。 */
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';

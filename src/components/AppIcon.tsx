@@ -23,10 +23,7 @@ interface AppIconProps {
   iconOverride?: string;
   /** 图标缩放策略：默认 `'cover'` 保持卡片铺满；管理列表可传 `'contain'` 防异形图切边。 */
   fit?: 'cover' | 'contain';
-  /**
-   * 光学安全区内边距：设置后图片、首字母徽章与 emoji 一律内缩为同尺寸的小圆角内块，
-   * 容器自身不铺底色（由外层框提供）；不设置则内容满框填充。
-   */
+  /** 光学安全区内边距：设置后图片与回退徽章统一内缩为小圆角内块，容器底色透明。 */
   insetPadding?: number | string;
   /** 首屏以上 eager，其余一律 lazy（默认 lazy，避免全网格同时抢带宽）。 */
   loading?: 'eager' | 'lazy';
@@ -51,11 +48,7 @@ export function isRemoteIcon(icon: string | undefined | null): boolean {
   return IMAGE_EXTENSIONS.some((ext) => path.endsWith(ext));
 }
 
-/**
- * 有效图标优先级：`iconOverride`（详情轮转即时态）优先于一切，其次读侧扇出
- * `storeIcon`，再次 M1 缓冲首绘，最后回落父 prop。空（`''`）亦为有效值，
- * 恒覆盖旧值（防复活旧图），故一律按 `undefined` 判空。
- */
+/** 按优先级解析有效图标：`iconOverride` > `storeIcon` > `bufferedFirstPaint` > `icon`（空串有效）。 */
 export function resolveActiveIcon(
   iconOverride: string | undefined,
   storeIcon: string | undefined,
@@ -68,10 +61,7 @@ export function resolveActiveIcon(
   return icon;
 }
 
-/**
- * 可渲染地址：空恒空（徽章）；`data:` 与 `iconOverride` 直显；
- * 否则按 URL 键、归一 id 键双查落盘 `data:` 缓存，皆无则回落原值。
- */
+/** 解析最终可渲染地址：`data:` 或覆写值直显，其余优先读取本地落盘缓存后回落原值。 */
 export function resolveDisplaySrc(
   activeIcon: string,
   hasIconOverride: boolean,
@@ -173,8 +163,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
   // （避免 WebView 与后端双发）；后端失败进入退避后才回退 WebView 直连。
   const realTauri = isRealTauriRuntime();
   const inBackoff = realTauri && isIconInPreloadBackoff(activeIcon);
-  // 后端失败对当前 activeIcon 粘滞记忆：退避过期（或被有界淘汰）后不再退回空底板，
-  // 否则已直连成功的 <img> 会被重新隐藏，且无新请求可唤醒。
+  // 粘滞记录当前 activeIcon 的后端失败态，避免退避过期后已直连成功的 <img> 被隐藏
   const [backendFailedIcon, setBackendFailedIcon] = useState('');
   useEffect(() => {
     if (inBackoff && backendFailedIcon !== activeIcon) setBackendFailedIcon(activeIcon);
@@ -190,7 +179,7 @@ export const AppIcon: React.FC<AppIconProps> = ({
   const handleError = () => {
     // 若图片加载失败（网络波动或链接失效），暂降级为首字母徽章，并触发本地磁盘缓存/后端自愈读取
     setHasError(true);
-    // 真实 Tauri 下退避期内的直连回退本就源于后端失败：不再立刻重试后端，直接定格徽章。
+    // 处于后端退避期的直连回退失败时直接定格徽章，避免重复触发后端重试
     if (
       !(realTauri && backendFailed) &&
       !displaySrc.startsWith('data:') &&

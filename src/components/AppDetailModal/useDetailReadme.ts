@@ -70,12 +70,8 @@ function normalizeReadmeVariants(input: unknown): ReadmeVariant[] {
 }
 
 /**
- * AppDetailModal README 关注点 Hook：警示框预处理、HTML 净化清洗、
- * 链接点击分流与图片回退兜底处理；弹窗组件对外属性不变。
- *
- * README 双语：经 get_readme_variants 拉取 zh-CN / en-US 变体，
- * 默认跟随界面语言（zh 开头选中中文，否则 EN），局部 state 切换，
- * 绝不调用 i18n.changeLanguage；缺变体时回退主 readme_markdown。
+ * AppDetailModal README Hook：处理警示框预处理、HTML 净化、链接/图片回退，
+ * 并以局部 state 管理双语 README 变体切换。
  */
 export function useDetailReadme(opts: {
   readmeMarkdown: string;

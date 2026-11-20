@@ -1,5 +1,5 @@
 /* components-manage.css · 管理工作台（我的应用 / 收藏页关注提醒） */
-/* 仅作用于 .manage-view 内部，确保 TrendsView / Modal 消费的 .fluent-list-row 零回归 */
+/* 仅作用于 .manage-view 内部 */
 
 .manage-view {
   display: flex;

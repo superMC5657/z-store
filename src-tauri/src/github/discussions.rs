@@ -1,7 +1,4 @@
-//! GitHub Discussions 混合通道（开源广场讨论区）：
-//! - 已登录：GraphQL 参数化查询/变更（`variables` 绑定，绝不拼接查询体），
-//!   复用现行 `public_repo user` 授权，无需重新授权；
-//! - 未登录：匿名 REST + `api_etag_cache` 只读降级，限流/离线回退旧载荷或结构化空壳。
+//! GitHub Discussions 读写网关：已登录走 GraphQL 参数化查询/变更，未登录走匿名 REST 只读降级。
 
 use crate::db::Database;
 use crate::launchpad::{
@@ -994,7 +991,7 @@ pub const PULSE_GRAPHQL_BATCH: usize = 25;
 pub const ANON_PULSE_FRESH_SECS: i64 = 300;
 /// 未登录单轮最多条件请求的讨论数。
 pub const ANON_PULSE_MAX_ITEMS: usize = 20;
-/// 未登录脉冲并发上限（D6 有限并发）。
+/// 未登录脉冲并发上限。
 const ANON_PULSE_CONCURRENCY: usize = 4;
 
 /// 广场卡片实时脉冲查询目标。

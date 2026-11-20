@@ -1,7 +1,4 @@
-/**
- * `<CachedAvatar>` 契约：真实 Tauri 经 assetCache 解析为 data:；非 Tauri 原链直出；
- * 无头像 / 加载失败回退首字母圆形徽章。
- */
+/** 测试 `<CachedAvatar>` 在 Tauri 缓存、普通链接与加载失败回退下的渲染行为。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 

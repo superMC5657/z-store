@@ -78,10 +78,7 @@ pub fn classify_readme_lang(file_name: &str) -> Option<&'static str> {
     }
 }
 
-/// 根目录路径列表过滤 → 去重（每语言最多 1 个）→ 固定 `zh-CN` 在前、`en-US` 在后，
-/// 最多 2 项。含 `/` 的非根路径直接丢弃。
-/// 若无显式中文文件，但同时存在裸 `README.md` 与显式英文文件（如 `README-en.md`），
-/// 则认为主文档为中文、显式英文文件为英文（`zh-CN` = `README.md`, `en-US` = `README-en.md`）。
+/// 从根目录路径列表筛选并排序 README 候选（最多 2 项：`zh-CN` 在前、`en-US` 在后）。
 pub fn select_readme_candidates(paths: &[String]) -> Vec<(String, String)> {
     let mut zh_cands: Vec<String> = Vec::new();
     let mut bare_cands: Vec<String> = Vec::new();

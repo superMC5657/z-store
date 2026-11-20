@@ -1,22 +1,4 @@
-/**
- * 趋势数据层测试（严格一榜一源）。
- *
- * 每榜单一主源，无任何榜单内降级链，失败按 TrendsResult 错误契约返回
- * （UI lane 依赖，保持 STABLE）：
- * daily/weekly/monthly → github.com/trending HTML（?since=daily|weekly|monthly），
- *   增量取页面真实文本 `N stars today|this week|this month`；
- * rising/healthy → doforce 公开 API（单飞共享一次抓取 + 12h 共享缓存；
- *   rising 按 change，healthy 按 forks + change 各自排序）；
- * new → GitHub search（created 6mo 窗口，starsGained 恒为 undefined）。
- *
- * 核心断言：
- * - rising/healthy 单飞共享：并发与随后调用只产生一次远端抓取；
- *   时间榜永不触碰 api.github.com；ossinsight/hn 永不出现）；
- * - 429 恰好重试一次（Retry-After 秒数/HTTP-date，上限 60s），仍败则 error；
- * - 解析规则：单数/逗号/缺 span/三段链接跳过/k 缩写；
- * - errorKind 映射（403/429→rate-limited，Abort→timeout，TypeError→network）；
- * - 成功（非空）才写按榜 TTL 缓存（daily 1h，weekly/monthly/new 12h，未知榜回落 5 分钟）。
- */
+/** 测试趋势榜一榜一源拉取、重试与按榜 TTL 缓存策略及视图交互。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -122,11 +104,7 @@ afterEach(() => {
   trendSpy.mockRestore();
 });
 
-/**
- * 进 tab（挂载）即自动抓取默认榜；Refresh 走 forceRefresh 直抓，Retry 走 effect 重抓。
- * 下述 helper 仅用于“显式刷新”动作测试；extra tick 让 getSettings/proxyReady 落定
- * （过早点击在 !proxyReady 时丢弃）。
- */
+/** 等待 proxyReady 落定后点击刷新按钮触发手动强制刷新。 */
 async function clickTrendsRefresh(): Promise<void> {
   const btn = (await screen.findByTestId('trends-refresh')) as HTMLButtonElement;
   await waitFor(() => expect(btn.disabled).toBe(false));

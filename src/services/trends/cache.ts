@@ -6,10 +6,7 @@ import { zlogWarn } from '../../lib/z-log';
 import { clearTrendEnrichCache } from './enrich';
 
 export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存回落（未知榜；daily/weekly/monthly/new 均为显式分档见 trendsBoardTtlMs；仅成功结果写入；rising/healthy 除外，见下）
-/**
- * doforce 源数据共享缓存 TTL：12h。
- * 日榜粒度数据日内几乎不变，长缓存 + 两榜共享把远端命中压到最低。
- */
+/** doforce 源数据共享缓存 TTL。 */
 export const DOFORCE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 榜缓存二级落盘默认 TTL：12h。 */
 export const TREND_DB_TTL_MS = 12 * 60 * 60 * 1000;
@@ -222,12 +219,7 @@ function repoFromIndexItem(raw: unknown): TrendRepo | undefined {
   return out;
 }
 
-/**
- * 榜缓存二级落盘读：只接受 `{ v: 2, items }` 且至少一项有效，重建 `TrendRepo[]`（零副作用，不碰富卡镜像）；
- * 其余载荷（含旧 `v: 1` 富信封）视为 miss 走网络。
- * - 新鲜度：`daily` 1h、其余 12h，扣减 0–30s 错峰抖动（只扣不延）；`allowStale` 跳过新鲜度判定；
- * - 时钟钳制 elapsed<0 按过期；命令未就绪 / 反序列化失败一律降级返回 undefined。
- */
+/** 榜缓存 L2 读：仅接受 `{ v: 2, items }` 索引（其余视为 miss），默认扣减 0–30s 错峰抖动校验 TTL。 */
 export async function getDbTrendCache(
   key: string,
   board?: string,
@@ -275,11 +267,7 @@ export async function getDbTrendCache(
 /** 按榜单 key 串行的写盘链（同 key 后写覆盖先写，跨 key 互不阻塞）。 */
 const boardSaveChains = new Map<string, Promise<void>>();
 
-/**
- * 榜缓存二级落盘写：仅在上游排行抓取成功时调用一次，写 `{ v: 2, items }` 排行索引；
- * 单仓图标 / 平台 / 详情变更只更新富卡镜像与 `repo_card_cache`，不重写榜单快照。
- * 空榜不写；UTF-8 预检超 32 KiB 放弃写盘；失败静默（下次抓榜重写）。
- */
+/** 榜缓存 L2 写：仅在抓榜成功时写入 `{ v: 2, items }` 排行索引，超 32 KiB 跳过。 */
 export function saveDbTrendCache(key: string, board: string, repos: readonly TrendRepo[]): Promise<void> {
   if (!isTauri || !Array.isArray(repos) || repos.length === 0) return Promise.resolve();
   const items = buildTrendRankIndex(repos);
@@ -308,13 +296,7 @@ export function saveDbTrendCache(key: string, board: string, repos: readonly Tre
   return task;
 }
 
-/**
- * 图标展示态判定 SSOT（趋势榜共用）：
- * - `isDataIcon`：`data:` 前缀即内联展示态（前后空格容忍）；
- * - `isMissingIconForDisplay`：空串或内联展示态一律视为缺失；
- * - `isPersistableIcon`：非缺失即实图（内联态永不进富卡池）。
- * 本模块唯一前缀判定实现处，其余一律复用三函数，不自立规则。
- */
+/** 判断图标是否为 `data:` 内联 URI（仅用于展示，不写入持久富卡池）。 */
 export function isDataIcon(icon: unknown): boolean {
   return typeof icon === 'string' && icon.trim().startsWith('data:');
 }

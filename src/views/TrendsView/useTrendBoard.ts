@@ -15,10 +15,7 @@ import type {
   TrendsResult,
 } from '../../types';
 
-/**
- * 趋势榜选项卡记忆键：localStorage 单一来源（同步读写，首绘即恢复，无闪切）。
- * 信封 `{ board }` 预留 language/category 扩展位。
- */
+/** 趋势榜选项卡记忆键（localStorage 同步读写，首绘即恢复）。 */
 export const TREND_BOARD_STORAGE_KEY = 'zstore.trends.opts';
 
 /** 同步读上次选中的榜单：信封 `{ board: string }` 解析；缺失/损坏/非法一律 undefined（经 SSOT resolve）。 */
@@ -73,9 +70,7 @@ export function persistTrendBoard(board: TrendBoardId): void {
 }
 
 export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
-  // 选项卡记忆：localStorage 同步读（首绘即正确榜，无闪切）。
-  // 未选用 Rust 设置表通道：getSettings 为异步，首屏前无法同步注水，
-  // 会先闪 weekly 再跳榜；localStorage 即单一来源。
+  // 从 localStorage 同步恢复上次选中的榜单，确保首绘不闪切
   const [board, setBoardState] = useState<TrendBoardId>(() => {
     const persisted = loadPersistedTrendBoard();
     if (persisted !== undefined) return persisted;
@@ -95,9 +90,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 刷新链 enrich 强制标记：手动 Refresh 成功落定后，跟随的 enrich effect 消费一次
   // （读后即清零），透传后端 force_refresh 做网络重拉；其余 effect 抓取均为缓存允许路径。
   const refreshEnrichForceRef = useRef(false);
-  // 首屏门：裸行直展不拦榜，仅富卡升级参考此门。
-  // board 为唯一 deep module，单 emit 源单订阅（L1/L2/网络三路径统一 emit）；
-  // 抓取 await 后的直接置位保留作幂等兜底（防事件竞态漏置，非第二通道）。
+  // 首屏就绪标记：由榜单水合订阅与抓取落定共同置位
   const [boardReady, setBoardReady] = useState(false);
 
   // 经 trends SSOT 归一（非法输入边界回落 weekly，仅此一处回落语义）。
@@ -109,9 +102,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const errorKind: TrendsErrorKind | undefined =
     trendResult?.status === 'error' ? (trendResult.errorKind ?? 'unavailable') : undefined;
 
-  // 读写同源：抓取所用的 opts 即缓存键所用的 opts（与 boards 读路径同源）。
-  // 当前仅含 proxyPrefix（builders 忽略该字段，仅 language/category 参与键）；后续若接入
-  // language/category 筛选，此处一并透传即可保证 L1/L2 读写同 key。
+  // 与缓存键同源的抓取参数
   const trendFetchOpts: FetchTrendsOptions = useMemo(
     () => (proxyPrefix ? { proxyPrefix } : {}),
     [proxyPrefix],
@@ -146,10 +137,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     });
   }, []);
 
-  // Enter-intent fetch：TrendsView 仅在进入趋势 tab 时挂载（App 条件渲染），
-  // 故 mount 即 enter，属 MANUAL 显式意图，直接抓取；子榜切换（activeBoard 变化）与
-  // Retry（retryCount 递增）同样重抓。不存在“未进入 tab 的后台预取”路径，无需门控。
-  // 本 effect 走缓存允许路径（SWR/hydrate 优先）；Refresh 按钮另走 forceRefresh 直抓。
+  // 挂载、切换子榜或重试时拉取榜单（SWR/缓存优先）
   useEffect(() => {
     if (!proxyReady) return;
     let isMounted = true;
@@ -178,9 +166,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
 
   const handleRetry = () => setRetryCount((c) => c + 1);
 
-  // 手动刷新：沿用 trendFetchOpts 同源 key 仅叠加 forceRefresh，直抓链路跳过 L1/L2，
-  // 成功经 boards 内 SWR 写透落盘；失败沿错误契约进现有 error lane（不弹框）。
-  // 不经过 retryCount effect（避免双抓），旧榜在刷新期间保留展示；切榜/并发以 seq 守卫丢弃过期落定。
+  // 手动刷新：直抓远端覆盖当前榜单（刷新期间保留旧榜，seq 守卫丢弃过期落定）
   const activeBoardRef = useRef(activeBoard);
   activeBoardRef.current = activeBoard;
   const trendFetchOptsRef = useRef(trendFetchOpts);

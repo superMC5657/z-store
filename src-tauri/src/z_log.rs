@@ -1,9 +1,4 @@
-//! 统一日志能力（z-store）：只落盘到 LogDir，release 仅 LogDir，dev 附加 Stdout + Webview。
-//!
-//! - 格式：`[YYYY-MM-DD HH:MM:SS][LVL][tag] <event> <k=v...>`（`INF`/`WRN`/`ERR`/`DBG`）。
-//! - 宽事件原则：一个业务操作只记一条结论行；Dev 模式不拆分多行，在同一行追加诊断维度。
-//! - 保留策略：14 天 / 总量 25MB，单文件 5MB 滚动（KeepSome(5)）。
-//! - 自动上报网络：当前默认关闭，仅落盘 + 导出。
+//! 统一日志模块：按 14 天 / 25MB / 单文件 5MB 滚动写入 LogDir（dev 模式附加 Stdout 与 Webview）。
 
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -116,11 +111,7 @@ pub fn is_dev_mode() -> bool {
     log::log_enabled!(log::Level::Debug)
 }
 
-/// 初始化 tauri-plugin-log v2。
-///
-/// - Release 生产模式：只写 `LogDir`（Level::Info）
-/// - Dev 开发模式：同时输出到 `Stdout` + `LogDir` + `Webview`（Level::Debug）
-/// - 统一使用 `[YYYY-MM-DD HH:MM:SS][LVL][tag] ...` 紧凑格式，写盘前过 `redact`。
+/// 初始化日志插件（写盘前统一经 `redact` 脱敏，Release 仅写 LogDir，Dev 附加 Stdout 与 Webview）。
 pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_log::{Builder, RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
@@ -436,11 +427,7 @@ fn find_ci(hay: &str, needle: &str, from: usize) -> Option<usize> {
     None
 }
 
-/// 键值脱敏：`code` / `device_code` / `user_code` / `api_key` 系（大小写不敏感）。
-/// 支持 `=` / `:` / 空格 / 引号分隔的 JSON 与 query 形态；值遇空白/引号/`,;})` 截断。
-/// 键边界：命中仅当“前一字节为起始或 `? & ; 空白 \" ' { ,`”且“后一字节为
-/// `= : 空白 \" '`”时才视为键值；路径段内子串（如 `vscode`）永不触发。
-/// 全分支 ASCII 字节判定，字符边界安全，无正则，永不 panic。
+/// 敏感键值脱敏（按键边界匹配，避免误伤路径段内子串如 `vscode`）。
 fn redact_kv_values(s: &str) -> String {
     // 长键优先，避免 `code` 先吞掉 `device_code` 的尾部。
     const KEYS: [&str; 6] = [
@@ -806,7 +793,6 @@ mod tests {
 
     #[test]
     fn test_redact_vscode_url_preserved() {
-        // 回归：`vscode` 路径段内的 `code` 子串不得触发键值脱敏。
         let u1 = "https://api.github.com/repos/microsoft/vscode/releases/latest";
         let out1 = redact(u1);
         assert_eq!(out1, u1, "vscode path must stay verbatim");

@@ -1,10 +1,4 @@
-/**
- * 弹窗层级、旋转动画降级与深色遮罩通透度的样式契约：
- * - `ModalShell` 的 `layer` 修饰类层级 sub 90 < base 100 < confirm 200 < top 1000，
- *   均高于标题栏 / 缩放手柄、低于 Toast；
- * - `.icon-spin` 在 reduced-motion 下停转，视图不再自带私有旋转类；
- * - 深色遮罩保持半透，弹窗背后的界面在模糊后仍隐约可见。
- */
+/** 弹窗层级顺序、reduced-motion 旋转降级与深色遮罩透明度的样式契约测试。 */
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';

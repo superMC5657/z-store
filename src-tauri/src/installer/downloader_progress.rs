@@ -62,13 +62,7 @@ pub fn should_skip_download(local_len: u64, local_hash: &str, expected_sha256: &
         && crate::verify_sha256_str(local_hash, expected_sha256)
 }
 
-/// fetch→verify 契约终态判定（唯一真相源；服务 ADR-0004，不重开）：
-/// manifest 拉取为 adapter（`extract_checksums_map`，缺失时给空表→期望哈希缺席），
-/// 流式校验为 implementation（`persist_stream_to_file`，不符以 Tampered 中断并删文件，
-/// 销毁语义保留）；能执行到终态说明已通过官方校验或上游未提供期望值。
-/// 期望哈希非空 → `verified`；缺失/空白 → `completed_unverified`
-///（`extract_checksums_map` 缺失时同语义，禁止虚假声明"已通过官方校验"）。
-/// `SkipDone::finish` 与下载终态分支共用同一文案。
+/// 根据期望 SHA-256 是否存在生成下载终态（`verified` 或 `completed_unverified`）及说明文案。
 pub fn verify_terminal_state(expected_sha256: Option<&str>, actual_hash: &str) -> (String, String) {
     match expected_sha256 {
         Some(expected) if !expected.trim().is_empty() => (

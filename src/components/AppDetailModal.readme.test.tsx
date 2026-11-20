@@ -1,9 +1,4 @@
-/**
- * README 特征化测试：锁定详情弹窗的 README 渲染与解析契约。
- *
- * 通过真实组件路径锁定 README 渲染契约：
- * Markdown 被解析为 HTML，GitHub 风格警示块被转换为 alert 提示容器。
- */
+/** 测试详情弹窗的 README Markdown 渲染与 GitHub 风格警示块转换。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { AppDetailViewModel } from '../types';

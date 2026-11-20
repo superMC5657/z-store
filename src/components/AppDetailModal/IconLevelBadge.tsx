@@ -22,10 +22,7 @@ interface IconLevelBadgeProps {
   isCyclingIcon: boolean;
   nextLevelTitle: string;
   onCycleIcon: (e: React.MouseEvent) => void;
-  /**
-   * 轮换口径就绪：首轮 restoreOrFetchIconCycle 落定（成功/失败均置 true）前不渲染，
-   * 避免 loading 期按 category 兜底闪出按钮；必须显式为 true 才渲染。
-   */
+  /** 图标轮换口径是否就绪，就绪前不渲染以避免加载期闪出按钮。 */
   isCycleReady: boolean;
 }
 

@@ -71,10 +71,7 @@ fn bytes_contain_ascii_insensitive(haystack: &[u8], needle_lower: &[u8]) -> bool
     })
 }
 
-/// 纯嗅探：扫描二进制中的安装器签名标记（不启动任何进程，可单元测试）。
-/// - NSIS ⇒ 含 `NullsoftInst`（与卸载侧 `is_nsis_uninstaller` 同一标记）；
-/// - Inno Setup ⇒ 含 `Inno Setup` / `InnoSetup` / `JR.Inno`（版本信息与节签名）；
-/// - 其余 ⇒ `Unknown`（调用方走现有交互式行为 + 日志，绝不猜测静默参数）。
+/// 扫描安装程序头部字节嗅探安装器类型（NSIS / Inno / Unknown）。
 pub fn sniff_setup_kind(bytes: &[u8]) -> SetupKind {
     if bytes_contain(bytes, b"NullsoftInst") {
         return SetupKind::Nsis;
@@ -104,10 +101,7 @@ pub fn sniff_setup_kind_from_file(path: &Path) -> SetupKind {
     }
 }
 
-/// 安装器类型 ⇒ 静默参数映射（纯函数，可单元测试）。
-/// 与 MSI 行为对齐：setup_exe 无 NSIS/Inno 引擎可调用，exe 本体即安装器，
-/// 一律返回空（不带静默参数直接拉起），由其自带向导控制流程（可见进度、可取消），
-/// 调用方 `.wait()` 等待完成。嗅探/分类逻辑不动，仅参数变化。
+/// 返回安装器启动参数：由安装器自带交互式向导控制流程与取消。
 pub fn silent_args_for_setup_kind(kind: &SetupKind) -> Vec<String> {
     match kind {
         SetupKind::Nsis => Vec::new(),

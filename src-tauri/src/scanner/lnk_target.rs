@@ -1,6 +1,5 @@
-//! Windows 快捷方式（MS-SHLLINK）目标解析：结构化读取 LinkInfo（Unicode 优先、ANSI 按系统
-//! 代码页解码）与 StringData 相对路径，失败时按字节启发式扫描 `X:\...\*.exe`。
-//! 解析本身是纯字节处理，跨平台可测；只有 ANSI 代码页解码依赖 Win32。
+//! Windows 快捷方式（MS-SHLLINK）目标解析：依次读取 LinkInfo、StringData 相对路径，
+//! 失败时按字节启发式扫描目标可执行路径。
 
 use super::AppScanner;
 use std::path::{Path, PathBuf};
@@ -332,10 +331,7 @@ mod resolver_lnk_tests {
         out
     }
 
-    /// 构造 MS-SHLLINK 合成夹具：flags = 0x01|0x02（IDList + LinkInfo 共存），
-    /// LinkInfo 起始于 76 + 2 + id_list_size。IDList 填充 0xFF，使固定偏移 76 处读出的
-    /// 字段非法；目标路径使用正斜杠，启发式分支（仅匹配 `X:\`）必然扫不到，
-    /// 从而把"结构化路径"与"启发式兜底"区分开。
+    /// 构造 IDList + LinkInfo 共存的合成夹具（正斜杠路径仅能由结构化分支解出）。
     fn build_lnk_with_idlist_and_linkinfo(target: &str, id_list_size: usize) -> Vec<u8> {
         let mut data = header(0x03);
         data.extend_from_slice(&(id_list_size as u16).to_le_bytes());

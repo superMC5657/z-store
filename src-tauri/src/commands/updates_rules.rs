@@ -14,7 +14,7 @@ pub fn set_app_skip_version(
     app_id: String,
     version: Option<String>,
 ) -> crate::AppResult<bool> {
-    // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
+    // 归一化 app_id；未知标识直接拒绝，避免写入无效行。
     let app_id = crate::commands::require_app_id(&app_id)?;
     let db = state.db()?;
     db.set_skip_version(&app_id, version.as_deref())?;
@@ -27,7 +27,7 @@ pub fn set_app_frozen(
     app_id: String,
     is_frozen: bool,
 ) -> crate::AppResult<bool> {
-    // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
+    // 归一化 app_id；未知标识直接拒绝，避免写入无效行。
     let app_id = crate::commands::require_app_id(&app_id)?;
     let db = state.db()?;
     db.set_frozen_status(&app_id, is_frozen)?;
@@ -40,18 +40,14 @@ pub fn set_app_hidden(
     app_id: String,
     is_hidden: bool,
 ) -> crate::AppResult<bool> {
-    // ADR-0010：入站归一化后全程使用 canonical id；未知标识直接拒绝，永不写入
+    // 归一化 app_id；未知标识直接拒绝，避免写入无效行。
     let app_id = crate::commands::require_app_id(&app_id)?;
     let db = state.db()?;
     db.set_hidden_status(&app_id, is_hidden)?;
     Ok(true)
 }
 
-/// ADR-0010 入站归一化契约（finding 2.1-1, part A）：
-/// 3 个 update-rule 写命令必须先经 `crate::forge::canonical_app_id` 归一化——
-/// 混合大小写 / URL 形态落 canonical 键，无法解析者直接拒绝、永不写入 SQLite。
-/// Tauri `State` 命令体无法在单测中直调，故此处按“每命令存储路径”锁定契约：
-/// 用与命令相同的归一化 + DB 调用序列断言 canonical 命中、raw 键无行、垃圾 id 无写入。
+/// 3 个 update-rule 写命令的入站归一化契约测试。
 #[cfg(test)]
 mod update_rule_inbound_normalization_tests {
     use crate::db::Database;

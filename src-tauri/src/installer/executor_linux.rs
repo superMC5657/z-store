@@ -34,10 +34,7 @@ pub fn rpm_list_argv(pkg: &str) -> Vec<String> {
     vec!["rpm".to_string(), "-ql".to_string(), pkg.trim().to_string()]
 }
 
-/// 包文件列表查询通用体（`dpkg -L` / `rpm -ql` 共用，列表 argv 构造器注入；
-/// 挑选 + 规范化收敛于 `scanner::AppScanner::pick_and_canonicalize_package_path`）。
-/// 对候选包名逐个执行列表命令并精准挑选；失败返回 None（调用方继续走 which/desktop 嗅探）。
-/// 仅 Linux 执行进程；非 Linux 返回 None 且不执行任何进程。
+/// 在 Linux 上调用包管理器文件列表命令查找已安装主程序路径（非 Linux 返回 `None`）。
 fn resolve_via_pkg_manager(
     package_names: &[String],
     candidates: &[String],

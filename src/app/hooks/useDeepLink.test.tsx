@@ -1,13 +1,4 @@
-/**
- * useDeepLink 深链分发回归：
- *
- * - 五类深链动作各自路由到正确的 handler；
- * - RCE 守卫：`install_app` 深链绝不直接安装——只打开详情 +
- *   暂存待确认态 + 弹显式确认警示，安装必须经用户显式点击；
- * - open_view 合法性校验收口集中导航（非法视图静默忽略）；
- * - 分发失败 error toast；成功恒有 responded info toast；
- * - window 挂载点挂载/卸载对称；CLI 深链参数拉起即分发。
- */
+/** 测试 `useDeepLink` 深链路由分发、安装确认门禁与生命周期清理。 */
 import { StrictMode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

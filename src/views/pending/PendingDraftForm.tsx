@@ -1,8 +1,4 @@
-/**
- * 待收录页草稿表单卡（新建/编辑）：顶部标题栏 + 四个表单段子组件（D 坐标 / A 核心 /
- * B 补充 / C 运行时）+ 固定页脚。各段只接收自身用到的 props 并各自声明类型，
- * 字段缺失在编译期暴露。
- */
+/** 待收录草稿表单卡：包含坐标、核心、补充、运行时四个分段与固定页脚操作栏。 */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {

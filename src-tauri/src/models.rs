@@ -71,10 +71,7 @@ pub struct AppDetail {
     pub releases: Vec<ReleaseAsset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_at: Option<i64>,
-    /// stale 契约：`Some(true)` = 瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空）。
-    /// 前端 backfill 必须将 `stale + releases/platforms 双空` 视为 loading/失败待重试，
-    /// 永不确认 Other；`Ok(stale)` 为 IPC 形状约定。成功 deduce 空（真实零发布）
-    /// 保持 `None`，与失败空可区分。
+    /// `Some(true)` 表示瞬时失败降级返回；真实零发布时保持 `None` 以与失败态区分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_stale: Option<bool>,
 }
@@ -90,8 +87,6 @@ pub struct ReadmeVariant {
 mod app_core_tests {
     use super::*;
 
-    /// 平面 JSON 契约回归：`AppCore` 经 `#[serde(flatten)]` 内嵌后，
-    /// 序列化不得出现 `core` 包装键，旧平面载荷必须原样可反序列化（IPC/缓存两用）。
     #[test]
     fn app_summary_detail_serialize_flat_and_deserialize_legacy_payload() {
         let detail = AppDetail {
@@ -177,12 +172,7 @@ pub struct SyncCatalogResult {
     pub message: String,
 }
 
-/// 平台轻量回填结果（`get_platforms_lite`）：仅 `releases/latest` 单次条件请求推导，
-/// 无 README/图标探测/checksum 开销。
-/// - `platforms` 为空表示未知（unknown），永不 stamp `["other"]`/`["windows"]`，
-///   `other` 仍为纯前端虚拟概念，永不过 IPC；
-/// - `is_stale == Some(true)` 为瞬时失败降级（401/限流/离线复用旧行，或无缓存合成空），
-///   前端必须视为 loading/待 backfill-loading，永不确认 Other；成功空（真实零发布）保持 `None`。
+/// 平台轻量回填结果（仅查 `releases/latest`；`platforms` 为空表示未知，`is_stale == Some(true)` 表示降级待重试）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformsLiteResult {
     pub id: String,

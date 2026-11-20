@@ -56,10 +56,7 @@ function saveRecentViewsMask(state: RecentViewsMaskState): void {
   }
 }
 
-/**
- * 清空最近浏览展示：仅在前端记录遮罩水位，不删除后端 `view_history` 表数据，
- * 以便本地亲和度画像继续使用完整历史浏览信号。
- */
+/** 清空最近浏览展示：仅记录前端遮罩水位，保留后端 `view_history` 供画像使用。 */
 export function maskRecentViews(items: readonly AppSummary[] = [], nowSec = Math.floor(Date.now() / 1000)): void {
   let maxViewedAt = 0;
   for (const item of items) {
@@ -85,10 +82,7 @@ export function unmaskRecentViewApp(appId: string, nowMs = Date.now()): void {
   });
 }
 
-/**
- * 过滤掉被前端「清空浏览记录」遮罩的历史条目；
- * 若存在遮罩期内重开记录（命中 30s DB 防抖未更新库时间戳），按重开时间同步置顶。
- */
+/** 过滤被前端清空遮罩的条目；遮罩期内重开的条目按重开时间置顶（绕过 30s DB 防抖）。 */
 export function filterMaskedRecentViews<T extends AppSummary>(items: readonly T[]): T[] {
   const mask = loadRecentViewsMask();
   if (mask.clearedAtSec <= 0) return [...items];

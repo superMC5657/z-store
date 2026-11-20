@@ -98,9 +98,7 @@ pub(crate) struct PreparedDownload {
     pub actual_sha256: String,
 }
 
-/// 下载资产择取（详情获取 + 命中择取），与实际下载分离：
-/// 安装通道需要在「择取」与「下载」之间插入 D3 无校验门禁（无 checksums
-/// 资产默认拒绝安装），不先消耗带宽/落盘。
+/// 获取详情并择取待下载资产；与实际下载分离，便于安装流程先执行校验门禁。
 pub(crate) async fn select_download_asset(
     state: &State<'_, AppState>,
     app_id: &str,
@@ -135,7 +133,6 @@ pub(crate) async fn prepare_and_download_asset(
     missing_asset_err: &str,
 ) -> Result<PreparedDownload, String> {
     let custom_download_dir = resolve_download_dir(state);
-    // 仅下载通道不消费详情元数据，仅取择取结果（detail 供安装通道使用）。
     let (_, asset) = select_download_asset(state, app_id, asset_name, missing_asset_err).await?;
 
     let (dest_path, actual_sha256) = download_asset_with_fallback(

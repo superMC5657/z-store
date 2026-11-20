@@ -11,8 +11,7 @@ pub fn get_favorites(state: State<'_, AppState>) -> crate::AppResult<Vec<String>
     Ok(db.get_favorites()?)
 }
 
-/// 收藏条目（含收录标记）：与 `get_favorites` 同序，形状见 `FavoriteEntry`；
-/// `get_favorites` 形状保持 `Vec<String>`（前端依赖此契约）。
+/// 收藏条目列表（含收录标记），与 `get_favorites` 同序。
 #[tauri::command]
 pub fn get_favorite_entries(state: State<'_, AppState>) -> crate::AppResult<Vec<FavoriteEntry>> {
     let db = state.db()?;
@@ -117,9 +116,7 @@ pub async fn get_recently_viewed_apps(
     Ok(result)
 }
 
-/// 最近浏览 DB 阶段：返回不含确认图标的条目与对齐的图标延迟任务。
-/// 详情换图标持久：收录 / 未收录两分支都 join `app_icon_cycles` 确认图标覆盖
-/// （与 catalog_search backfill 同语义：Some 才覆盖，None 保持静态 / `detail.icon`）。
+/// 最近浏览 DB 阶段：读取浏览记录并规划确认图标覆盖任务。
 fn recently_viewed_deferred(
     db: &crate::db::Database,
     catalog: &crate::github::CatalogService,
@@ -129,17 +126,12 @@ fn recently_viewed_deferred(
     let mut pendings = Vec::with_capacity(entries.len());
     for (id, viewed_at) in entries {
         let summary = if let Some(item) = catalog.get_catalog_item(&id) {
-            // 目录命中（远端精选或本地收录）：统一经目录盖章投影。
             let mut summary = catalog.item_to_stamped_summary(&item);
-            // 最近浏览简介占位根治：收录行占位（理论上不应出现）同样回填/置空，
-            // 非占位人工简介原样保留。
+            // 对占位简介回填 ETag 真值或置空；人工简介保留。
             heal_recent_summary(db, &mut summary);
             summary
         } else if let Some(mut summary) = cached_detail_summary_without_icon(db, &id) {
-            // 未收录：view_history 存全量 id，catalog 拼不出；回退 DB 详情缓存
-            // （收录/未收录同走 save_detail_with_cycle_row 落全量 detail_json）；
-            // 单条失败跳过不整单丢；仍无命中则跳过（不合成占位，避免污染过滤/计数，
-            // 趋势 L2 仍是未收录首展来源）。
+            // 未收录行回退 DB 详情缓存并盖章；无缓存记录则跳过，避免合成占位。
             catalog.stamp_summary(&mut summary);
             summary
         } else {
@@ -173,9 +165,7 @@ fn cached_detail_summary(db: &crate::db::Database, id: &str) -> Option<AppSummar
     Some(summary)
 }
 
-/// 未收录近期行的 DB 详情回退（不含确认图标）：fallback 版查询（TTL 外/离线仍可显，stale 由前端离线徽标呈现），
-/// 多键按序试：id 原值 → canonical → 小写 → 去 forge 前缀的 owner/repo（原值/小写）→
-/// github.com/ 前缀（原值/小写）；db 层签名不动，此处只做键展开。
+/// 未收录行的 DB 详情回退：按多种 id 形态顺序查缓存（离线仍可读）。
 fn cached_detail_summary_without_icon(db: &crate::db::Database, id: &str) -> Option<AppSummary> {
     let trimmed = id.trim();
     if trimmed.is_empty() {
@@ -204,7 +194,6 @@ fn cached_detail_summary_without_icon(db: &crate::db::Database, id: &str) -> Opt
     for key in keys {
         if let Ok(Some(detail)) = db.get_app_detail(&key, None) {
             let mut summary = detail_to_summary(&detail);
-            // 最近浏览简介占位根治：占位回填 ETag repo 真值，无真值置空（前端走“暂无简介”）。
             heal_recent_summary(db, &mut summary);
             return Some(summary);
         }
@@ -230,12 +219,7 @@ fn detail_to_summary(detail: &crate::models::AppDetail) -> AppSummary {
     }
 }
 
-/// 最近浏览简介占位后端根治：summary 占位简介回填 repo 真值，无真值置空。
-/// - 占位判定复用 `models::is_placeholder_description`（含空串与已知占位子串）；
-/// - 真值来源为 SQLite ETag repo payload 同步读（不触网），命中非占位真值即回填；
-/// - 无真值时占位转 `""`/`Some("")`，前端走“暂无简介”渲染而不显示占位文案；
-///   `""` 仍被前端 `needDesc` 视为待治愈，可由富卡 enrich 快照二次治愈；
-/// - 非占位（已收录人工简介等）原样保留。
+/// 将占位简介回填为 ETag 中的仓库真实简介；无真值时置空，非占位人工简介保留。
 fn heal_recent_summary(db: &crate::db::Database, summary: &mut AppSummary) {
     let need_desc = crate::github::models::is_placeholder_description(&summary.core.description);
     let need_en = summary

@@ -3,10 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { tauriApi } from '../../services/api';
 import { notifyToast } from '../../useToasts';
 
-/**
- * AppDetailModal 标星关注点 Hook：维护详情弹窗 GitHub 标星态与切换处理器。
- * 已认证蓝标由 catalog 驱动展示（is_verified + VerifiedBadge），不经此 Hook。
- */
+/** AppDetailModal 标星 Hook：维护当前应用的 GitHub 标星状态与切换操作。 */
 export function useDetailStarVerify(opts: {
   appId: string;
   owner: string;

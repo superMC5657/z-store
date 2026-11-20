@@ -99,11 +99,7 @@ pub async fn install_setup_exe(installer_path: &Path) -> Result<InstallOutcome, 
     }
 }
 
-/// Windows 通用回退安装体（`_` 分支，cfg(windows) 门控）。
-/// 直接以资产路径拉起进程，严禁经 cmd.exe `start` 路由：第三方资产名可能含
-/// `"`/`&`/`%` 等元字符，Rust 按 MSVCRT 规则转义为 `\"`，cmd 解析器并不认，
-/// 可断开参数注入任意命令；且 `start` 会把首个带引号参数当窗口标题吞掉。
-/// `.status()` 自带等待语义。
+/// 直接以资产路径拉起安装进程（避免经过 `cmd.exe /c start` 带来特殊字符命令注入与窗口标题解析问题）。
 #[cfg(target_os = "windows")]
 pub async fn install_fallback_default(installer_path: &Path) -> Result<InstallOutcome, String> {
     let status = tokio::process::Command::new(installer_path)

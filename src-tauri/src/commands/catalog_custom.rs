@@ -1,14 +1,5 @@
-//! 本地自维护草稿 commands（ADR-0017）：CRUD + 预填 Issue 链路。
-//!
-//! - `list_custom_apps` / `save_custom_app` / `delete_custom_app` /
-//!   `collect_local_app`（本地收录唯一命令面，草稿链路与视图共用） /
-//!   `revert_collected_to_draft`（规范名） / `withdraw_submitted` /
-//!   `mark_submitted` / `get_custom_app_pr_url` / `get_custom_app_pr_payload`；
-//! - 二次确认由前端做，后端 `delete_custom_app` 直接删；
-//! - `save_custom_app` 暂存档校验（`DraftLenient`，草稿允许不完整）+ `is_verified` 强制
-//!   false（草稿永不冒充已验证收录）；收录档（`CollectStrict`，与 `SubmitStrict` 同口径）
-//!   经 `collect_local_app` 置 `status=collected`，Issue 链路首行门禁仅收录行放行，
-//!   提交档全校验（`SubmitStrict`，D1 不破）保留二次校验。
+//! 本地自维护草稿与收录申请 commands：草稿 CRUD、本地收录与 Issue 预填。
+//! 草稿 `is_verified` 恒为 `false`；仅已收录条目允许进入 Issue 预填流程。
 
 use crate::config::LicenseGateConfig;
 use crate::db::custom_apps::{ValidateMode, CUSTOM_APP_STATUS_SUBMITTED};
@@ -17,17 +8,15 @@ use crate::github::models::CatalogItem;
 use crate::AppState;
 use tauri::State;
 
-/// 独立生态清单仓库收录申请预填页（ADR-0009）：收录 Issue 目标。
-/// 纯 URL 打开即可用，无需 token/OAuth（Issue-link entry）。
+/// 生态清单仓库收录申请 Issue 页。
 pub const CATALOG_REPO_ISSUES_URL: &str =
     "https://github.com/superMC5657/z-store-catalog/issues/new";
 
-/// 本地校验说明（预填正文共用）：取链接前已过提交档 `validate_custom_item(strict)` 全校验。
+/// 预填正文中的本地校验说明。
 const PR_BODY_CHECK_NOTE: &str =
     "本地校验：已通过提交档 `validate_custom_item(strict)`（canonical id / 必填字段 / OSI 协议），payload 见下方 JSON。";
 
-/// 单条收录申请预填链接（纯函数，可单测）：标题带 canonical id，正文携带关键字段 +
-/// 完整 JSON + 校验说明，用户在浏览器中确认后提交 Issue → 维护者转 PR；无需 token，纯 URL 打开。
+/// 生成单条收录申请 Issue 预填链接。
 pub fn build_single_pr_url(entry: &CustomAppEntry) -> String {
     let item = &entry.item;
     let title = format!("[收录申请] {}", entry.id);
@@ -64,16 +53,7 @@ pub fn build_single_pr_url(entry: &CustomAppEntry) -> String {
     )
 }
 
-/// Issue 提交前置门禁（纯函数，可单测）：仅 `status==collected` 行允许走 Issue 链路；
-/// 草稿行首行即拦（提示先收录），已提交行只读（明确文案，不走收录门禁）。
-/// `status`/`pr_url` 经 `list_custom_apps`/`get` 透出，无需新增轮询。
-/// Issue payload normalize: trim-empty homepage/description_en to None so
-/// they are omitted like catalog.json; install_dirs/search_subdirs/publishers
-/// are prefill heuristics and dropped outright to match the vscodium template
-/// (homepage → platforms → identifiers); field order is enforced by the manual
-/// formatter below, not by struct order. Preset is_verified=true on the
-/// prefill clone only (matches catalog.json all-true); stored payload on disk
-/// stays false.
+/// 规范化 Issue 预填条目：裁剪空字段、剔除启发式本地字段并置 `is_verified = true`（不改磁盘草稿）。
 fn normalize_pr_item(item: &CatalogItem) -> CatalogItem {
     let mut out = item.clone();
     if out
@@ -139,8 +119,7 @@ fn pr_ordered_identifier_keys(map: &std::collections::HashMap<String, Vec<String
     keys
 }
 
-/// 单条 Issue payload JSON（模板风格 2 空格：字符串数组单行内联，
-/// identifiers 对象展开且内层数组内联，空数组/空对象直接省略）。
+/// 格式化单条 Issue payload JSON（2 空格缩进，短字符串数组内联，省略空字段）。
 fn pr_single_payload_json(item: &CatalogItem) -> String {
     pr_item_json_with_indent(item, "")
 }
@@ -150,9 +129,7 @@ fn pr_item_json_with_indent(item: &CatalogItem, base: &str) -> String {
     let inner = format!("{base}    ");
     let mut lines: Vec<String> = Vec::new();
     lines.push(format!("{base}{{"));
-    // 标准顺序：id → … → description_en? → category → … → aliases? →
-    // default_version → license → stars → forks → is_verified → homepage? →
-    // platforms? → identifiers?（install_dirs/search_subdirs/publishers 已丢弃）。
+    // 按清单标准字段顺序输出。
     let mut fields: Vec<String> = Vec::new();
     fields.push(format!(
         "{field}\"id\": {comma}",
@@ -302,8 +279,7 @@ pub fn ensure_collected_for_pr(entry: &CustomAppEntry) -> Result<(), String> {
     Ok(())
 }
 
-/// 本地库 overlay 输入过滤（纯函数，供单测验证）：未归档的 collected（含存储同义值 `local_collected`）
-/// 与 `submitted` 行进入合并视图（远端优先去重由 `CatalogService` 执行）。
+/// 过滤本地库合并视图条目（仅未归档的已收录及已提交行）。
 #[cfg(test)]
 pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem> {
     entries
@@ -313,9 +289,7 @@ pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem>
         .collect()
 }
 
-/// 本地收录变更后的目录同步：重读 overlay（远端优先合并视图立即生效）
-/// 并回填收藏/关注收录标记（写时口径与启动回填同源）。
-/// 调用方持有 `db` 锁：overlay 重读与标记回填复用同一临界区。
+/// 重载本地收录 overlay 并回填收藏/关注的收录标记（复用调用方 `db` 锁）。
 fn sync_catalog_overlay(state: &AppState, db: &crate::db::Database) {
     state.catalog.sync_collected_from_db(db);
     crate::commands::history::backfill_cataloged_flags_in(db);
@@ -364,10 +338,8 @@ pub fn list_custom_apps(
     Ok(db.list_custom_apps(include_archived.unwrap_or(false))?)
 }
 
-/// 草稿暂存（暂存档校验：仅 `id==canonical` 且与 `owner/repo` 对齐；
-/// `license` 占位（`OpenSource` 等）/ 空 `homepage` / 不完整字段均放行）。
-/// 仅支持 GitHub `owner/repo`：由 `validate_custom_item` 统一收口校验。
-/// 新建行 `status=draft`；已存在行仅刷新 payload（`status`/`pr_url` 保持）。
+/// 暂存本地草稿（宽松校验，强制 `is_verified = false`）。
+/// 新建行默认 `status=draft`；已存在行保留原状态与 `pr_url`。
 #[tauri::command]
 pub fn save_custom_app(
     state: State<'_, AppState>,
@@ -391,8 +363,7 @@ pub fn save_custom_app(
     Ok(entry)
 }
 
-/// 草稿删除（后端直接删，二次确认由前端做）：返回是否命中。
-/// 未归档 `submitted` 可删；已归档行同样直接删（转正归档手动清理，现有语义不变）。
+/// 删除指定草稿或收录条目（返回是否命中）。
 #[tauri::command]
 pub fn delete_custom_app(state: State<'_, AppState>, id: String) -> crate::AppResult<bool> {
     let key = crate::forge::canonical_lookup_id(&id);
@@ -405,9 +376,7 @@ pub fn delete_custom_app(state: State<'_, AppState>, id: String) -> crate::AppRe
     Ok(hit)
 }
 
-/// 本地收录：`status=collected`（收录档全校验，`is_verified=false` 入库约束保持）。
-/// 未收录行经此进入本地精选（可搜可装），Issue 链路前置门禁要求先收录；
-/// 草稿链路与视图直调共用此唯一命令面。
+/// 将草稿标记为本地已收录（严格校验，`is_verified` 保持 `false`）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn collect_local_app(
     state: State<'_, AppState>,
@@ -417,14 +386,13 @@ pub fn collect_local_app(
     let db = state.db().map_err(crate::AppError::from)?;
     let entry = db.mark_custom_app_collected(&key)?;
     sync_custom_app_cache_and_cycle(&db, &entry.item);
-    // 入本地库即视为已收录，单仓富卡旧行不再参与水合。
+    // 已收录条目由目录视图承接，清理单仓富卡旧缓存。
     let _ = db.purge_cataloged_repo_cards();
     sync_catalog_overlay(&state, &db);
     Ok(entry)
 }
 
-/// 本地收录退回草稿：`status=collected` → `draft`（未归档限定；已提交/已归档不退回，只读）。
-/// `pr_url` 清空，`is_verified=false` 保持（草稿永不冒充已验证）。
+/// 将本地已收录条目退回草稿（仅未归档的已收录行可退回）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn revert_collected_to_draft(
     state: State<'_, AppState>,
@@ -438,8 +406,7 @@ pub fn revert_collected_to_draft(
     Ok(entry)
 }
 
-/// 标记为未提交：`submitted` → `collected`，`pr_url` 清空，payload 不变；Issue 需在 GitHub 自行关闭。
-/// 已归档行与未提交行拒绝（分别提示归档、仅已提交行可标记为未提交）。
+/// 撤回已提交标记：`submitted` → `collected` 并清空 `pr_url`。
 #[tauri::command(rename_all = "camelCase")]
 pub fn withdraw_submitted(
     state: State<'_, AppState>,
@@ -452,10 +419,7 @@ pub fn withdraw_submitted(
     Ok(entry)
 }
 
-/// 标记已提交：`status=submitted` + 落 `pr_url`；已转正归档行拒绝。
-/// 首行收录门禁：仅 `status==collected` 行允许提交 Issue（否则 `须先收录进本地再提交 Issue`）；
-/// 已提交行只读：二次 `mark` 明确拒绝（`已提交行不可重复提交`）；
-/// 提交档全校验在 db 层保留二次校验（占位 license 草稿被拦，先补真实 SPDX 再提交）。
+/// 标记为已提交并记录 `pr_url`（仅允许 `collected` 行，已归档或已提交行拒绝）。
 #[tauri::command(rename_all = "camelCase")]
 pub fn mark_submitted(
     state: State<'_, AppState>,
@@ -473,8 +437,7 @@ pub fn mark_submitted(
     Ok(entry)
 }
 
-/// Issue 链路通用取件（单条）：canonical 归一 → 取行 → 收录门禁 → 提交档二次全校验。
-/// Issue 入口（URL/payload）共用此门禁。
+/// 校验并加载待生成 Issue 预填的已收录条目。
 fn load_pr_entry(
     db: &crate::db::Database,
     id: &str,
@@ -492,9 +455,7 @@ fn load_pr_entry(
     Ok(entry)
 }
 
-/// 收录申请预填链接：由草稿 payload 生成清单仓库 Issue 预填 URL（预填 Issue 链路入口）。
-/// 首行收录门禁：仅 `status==collected` 行允许取链接；取链接前保留提交档二次全校验
-///（占位 license 草稿在此被拦，前端指到 license 字段补 SPDX）。
+/// 生成单条收录申请 Issue 预填链接（仅已收录且通过严格校验的条目可用）。
 #[tauri::command]
 pub fn get_custom_app_pr_url(state: State<'_, AppState>, id: String) -> crate::AppResult<String> {
     let db = state.db().map_err(crate::AppError::from)?;
@@ -503,8 +464,7 @@ pub fn get_custom_app_pr_url(state: State<'_, AppState>, id: String) -> crate::A
     Ok(build_single_pr_url(&entry))
 }
 
-/// 收录申请预填 payload（单条）：与 `get_custom_app_pr_url` 同口径门禁，
-/// 只返回原始 JSON 文本（前端自行渲染/复制，不在前端拼模板）。
+/// 生成单条收录申请 Issue 的 JSON payload（校验口径与预填链接一致）。
 #[tauri::command]
 pub fn get_custom_app_pr_payload(
     state: State<'_, AppState>,
@@ -516,16 +476,14 @@ pub fn get_custom_app_pr_payload(
     Ok(pr_single_payload_json(&normalize_pr_item(&entry.item)))
 }
 
-/// 许可名单只读查询结果（ADR-0018）：名单唯一源头为后端编译时配置，
-/// 前端 SubmitStrict 校验（提交/预填 Issue 前）经此拉取；加载失败前端放行暂存、
-/// 提交提示重试，绝不在前端回退一份写死名单。
+/// 开源许可白名单查询结果（编译时配置唯一源头）。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LicenseAllowlist {
     pub enabled: bool,
     pub allowed: Vec<String>,
 }
 
-/// 许可名单只读查询（ADR-0018 唯一源头）：返回编译时名单 + 门禁开关。
+/// 查询编译时开源许可白名单与门禁开关。
 #[tauri::command]
 pub fn get_license_allowlist() -> LicenseAllowlist {
     let gate = crate::db::custom_apps::resolve_license_gate();
@@ -546,8 +504,6 @@ mod tests {
     }
 
     fn entry_with_license(id: &str, license: &str) -> CustomAppEntry {
-        // CatalogItem literal follows catalog.json disk order, behavior unchanged.
-        // owner/repo 由 id 派生，保证对齐（校验失败只可能来自被测字段本身）。
         let (owner, repo) = id.split_once('/').unwrap_or(("o", id));
         CustomAppEntry {
             id: id.to_string(),
@@ -586,7 +542,6 @@ mod tests {
 
     #[test]
     fn license_allowlist_mirrors_compiled_gate() {
-        // ADR-0018 唯一源头：只读命令返回编译时门禁（默认开 + 37 项全量）。
         let allowlist = get_license_allowlist();
         assert!(allowlist.enabled);
         assert_eq!(allowlist.allowed.len(), 37);
@@ -672,7 +627,7 @@ mod tests {
 
     #[test]
     fn overlay_accepts_legacy_local_collected_literal_and_rejects_draft() {
-        // 存储同义值 `local_collected`：进入 overlay；draft 态不进入 overlay。
+        // 兼容存储同义值 `local_collected`。
         let mut legacy = entry("o/legacy");
         legacy.status = "local_collected".to_string();
         let mut reverted = entry("o/reverted");
@@ -683,7 +638,6 @@ mod tests {
         assert!(items.iter().any(|i| i.id == "o/legacy"));
         assert!(items.iter().any(|i| i.id == "o/keep"));
         assert!(!items.iter().any(|i| i.id == "o/reverted"));
-        // Issue 门禁同样on-disk literal。
         let mut gate_legacy = entry("o/legacy");
         gate_legacy.status = "local_collected".to_string();
         assert!(ensure_collected_for_pr(&gate_legacy).is_ok());
@@ -720,9 +674,7 @@ mod tests {
 
     #[test]
     fn pr_payload_matches_vscodium_template_style() {
-        // 模板（vscodium）：字段止于 homepage→platforms→identifiers，
-        // 无 install_dirs/search_subdirs/publishers；aliases/platforms 单行内联，
-        // identifiers 对象展开，整体 2 空格。
+        // 验证字段顺序、2 空格缩进与数组内联格式，且剔除启发式字段。
         let payload = pr_single_payload_json(&normalize_pr_item(&full_entry("o/r").item));
         let v: serde_json::Value = serde_json::from_str(&payload).expect("payload parses");
         assert!(v.get("install_dirs").is_none());
@@ -766,7 +718,6 @@ mod tests {
         assert!(!empty_payload.contains("\"forks\""));
         // Non-empty description keeps.
         assert!(empty_v.get("description").is_some());
-        // 字段顺序沿用既有标准顺序。
         let order = [
             "\"id\"",
             "\"name\"",

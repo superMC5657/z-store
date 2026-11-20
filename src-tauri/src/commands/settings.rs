@@ -7,9 +7,7 @@ enum SettingDefault {
     FromConfig(fn(&crate::config::ProjectConfig) -> String),
 }
 
-/// 受管设置键与默认值的唯一定义表（零堆分配校验 + 默认映射生成同源，防漂移）：
-/// `save_setting` 只接受这些键、`get_settings` 只回传这些键；OAuth 令牌/用户键由 oauth 模块专用命令经独立路径
-/// 读写，永不经通用设置 IPC 面进出（XSS 一发 IPC 拿不到凭据，也不能借设置面覆写）。
+/// 受管设置键与默认值定义表（读写白名单同源）；凭据键由 oauth 模块独立路径读写。
 const MANAGED_SETTING_DEFS: &[(&str, SettingDefault)] = &[
     ("theme", SettingDefault::Static("system")),
     ("language", SettingDefault::Static("zh-CN")),
@@ -73,10 +71,8 @@ pub fn get_settings(state: State<'_, AppState>) -> crate::AppResult<HashMap<Stri
     let db = state.db()?;
     let db_settings = db.get_all_settings()?;
 
-    // 1. 以 config.toml 及项目基准作为权威默认底表
     let mut map = get_default_settings();
 
-    // 2. 将用户在 SQLite 中持久化的修改项合并覆盖（只收白名单键，凭据键不回传）
     for (k, v) in db_settings {
         if is_managed_setting_key(&k) && !v.trim().is_empty() {
             map.insert(k, v);

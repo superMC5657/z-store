@@ -11,11 +11,7 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-/**
- * 顶层 React 渲染期异常兜底：任一子树渲染期抛错时以单色错误卡降级，
- * 提供重载按钮，替代整窗白屏。仅兜渲染期异常；异步 reject 由各调用侧
- * try/catch + toast 负责，不在此收敛。类组件无 hook，文案经 i18n 实例直取。
- */
+/** 顶层渲染期异常兜底：子树渲染抛错时降级为单色错误卡与重载按钮。 */
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null };
 

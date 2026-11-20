@@ -1,12 +1,4 @@
-//! 本地自维护草稿 overlay（ADR-0017）：`custom_apps` 表 CRUD + 校验 + 转正。
-//!
-//! - `id` 为 canonical 小写形态（仅 GitHub `owner/repo`，经 `canonical_app_id()` 归一）；`payload_json` 存完整 `CatalogItem`；
-//! - `status=draft/submitted/collected`（已提交另存 `pr_url`；`collected` 与 `submitted`
-//!   同为库内成员，可搜可装、与远端精选同行为；`collected` 是 Issue 提交前置门禁，
-//!   `submitted` 表示 已提交 Issue）；`archived=1` 为转正归档标记
-//!   （`sync_catalog` 命中 canonical id 即归档，权威交给远端）；
-//! - 存储层同义值 `local_collected` 与 `collected` 等价，收录判定/列表查询统一兼容；
-//! - 二次确认由前端做，后端 `delete` 直接删。
+//! 本地自维护草稿与本地收录表（`custom_apps`）的 CRUD、校验与转正归档。
 
 use super::{clean, now_secs, Database};
 use crate::github::models::CatalogItem;
@@ -31,20 +23,15 @@ pub struct CustomAppEntry {
     pub archived: bool,
 }
 
-/// D1 纯粹开源：默认仅接受 OSI 认证开源协议（SPDX，大写归一后比对）。
-/// 名单一源于 `crate::config::DEFAULT_LICENSE_ALLOWLIST`（ADR-0018 可配）；
-/// 目录现存 `CC-BY-4.0`（非 OSI）、`NOASSERTION`/`Unknown` 默认一律拒绝。
 use crate::config::{normalize_license_token, LicenseGateConfig};
 
-/// 是否命中许可名单（ADR-0018）：两侧均经 `normalize_license_token` 归一后比对，
-/// config 子集大小写/空格形态同样命中。
+/// 检查 `license` 是否命中允许名单（大小写与空白归一化后比对）。
 pub fn is_allowed_license(license: &str, allowed: &[String]) -> bool {
     let norm = normalize_license_token(license);
     allowed.iter().any(|a| normalize_license_token(a) == norm)
 }
 
-/// 门禁唯一源（编译时 config）：行为只由 `config.toml [license_gate]` 在编译发行时
-/// 确定；无运行时覆盖、无用户提醒，静默生效。
+/// 读取编译时嵌入的开源协议门禁配置。
 pub fn resolve_license_gate() -> LicenseGateConfig {
     crate::config::get_project_config().license_gate.clone()
 }
@@ -55,28 +42,18 @@ pub const OFFICIAL_CATEGORIES: &[&str] = &[
     "games",
 ];
 
-/// 校验档位：草稿允许不完整（暂存即存），提交与收录时强制完整校验（D1 不破）。
+/// 草稿与收录校验档位。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidateMode {
-    /// 暂存档（`save_custom_app`）：仅校验 `id==canonical` 与 `owner/repo` 对齐；
-    /// `license` 允许空 / `OpenSource` / `NOASSERTION` / 未知占位，`homepage` 允许空，
-    /// `name`/`description`/`category` 允许不完整。
+    /// 暂存档：仅校验 `id` 与 `owner/repo` 规范一致。
     DraftLenient,
-    /// 提交档（`mark_submitted` / 预填 Issue 链接）：完整校验——必填 +
-    /// `homepage` http(s) + OSI 白名单（D1）。
+    /// 提交档：完整校验必填字段、`http(s)` 主页与许可白名单。
     SubmitStrict,
-    /// 收录档（`collect_local_app`）：与 `SubmitStrict` 同口径——
-    /// 必填 + `homepage` http(s) + OSI 白名单（D1），仅语义区分收录与提交。
+    /// 收录档：同 `SubmitStrict` 的完整校验。
     CollectStrict,
 }
 
-/// 草稿校验（纯函数，可单测）：通过返回 canonical id，失败返回中文原因。
-/// - 两档共用：仅支持 GitHub `owner/repo`（含冒号 `:` 的 forge 形态一律拒绝）；
-///   `id` 必须已是 canonical 小写形态（`canonical_app_id(id) == id`）；
-///   `id` 必须与 `owner/repo` 对齐（要求相等）；
-/// - 提交档另查：必填 `name`/`description`/`category`/`homepage`/`license`；
-///   `homepage` 必须为 http(s) URL；`license` 必须命中许可名单（门禁开时默认 D1，
-///   见 `LicenseGateConfig`；门禁关闭放行任意非空并记 WARN 审计）。
+/// 校验草稿/收录条目，通过返回 canonical id，失败返回中文原因。
 pub fn validate_custom_item(
     item: &CatalogItem,
     mode: ValidateMode,
@@ -278,10 +255,7 @@ impl Database {
         Ok(rows > 0)
     }
 
-    /// 标记已提交：`status=submitted` + 落 `pr_url`；已归档（转正）行拒绝，不复活。
-    /// 提交时强制提交档全校验（`SubmitStrict`：必填 + homepage http(s) + OSI 白名单 D1），
-    /// 占位 license（`OpenSource` 等）草稿在此被拦下，先补真实 SPDX 再提交。
-    /// 已提交行只读：二次 `mark` 直接拒绝（明确文案，不走收录门禁）。
+    /// 标记为已提交并写入 `pr_url`，执行完整提交校验，已归档或已提交行拒绝操作。
     pub fn mark_custom_app_submitted(
         &self,
         id: &str,
@@ -337,10 +311,7 @@ impl Database {
             .map_err(MarkSubmittedError::Db)
     }
 
-    /// 标记本地收录：`status=collected`（`archived` 不动，已归档行拒绝不复活）。
-    /// 收录时强制收录档全校验（`CollectStrict`，与 `SubmitStrict` 同口径）；
-    /// 入库保持 `is_verified=false`（已收录仍不冒充已验证，纠正后落盘）。
-    /// 已提交行只读：重收录直接拒绝（明确文案，不降级回 `collected`）。
+    /// 标记为本地收录（`status=collected`），执行严格收录校验并保持 `is_verified=false`。
     pub fn mark_custom_app_collected(
         &self,
         id: &str,
@@ -921,8 +892,6 @@ mod tests {
 
     #[test]
     fn validate_rejects_non_osi_license() {
-        // D1：CC-BY（非 OSI）、Unknown/NOASSERTION、闭源空 license 一律拒绝。
-        // `unknown`（显式未知哨兵值）与 `FLOSS` 占位同按名单外拒绝。
         for bad in [
             "CC-BY-4.0",
             "Unknown",
@@ -961,7 +930,6 @@ mod tests {
 
     #[test]
     fn draft_lenient_tolerates_placeholders_but_keeps_identity() {
-        // 暂存档：占位 license / 空 homepage / 不完整字段均放行（D1 门禁置于提交/收录档）。
         for placeholder in [
             "",
             "OpenSource",
@@ -1187,7 +1155,6 @@ mod tests {
         assert!(sub_archived.archived);
         assert_eq!(sub_archived.status, CUSTOM_APP_STATUS_SUBMITTED);
 
-        // 已归档行拒绝重复提交，不复活。
         assert!(db
             .mark_custom_app_submitted("o/hit", "https://github.com/x/y/pull/2")
             .is_err());
@@ -1306,7 +1273,6 @@ mod tests {
             .expect_err("submitted must stay read-only");
         assert!(err.to_string().contains("已提交行不可退回草稿"));
 
-        // 已归档行不复活。
         db.upsert_custom_app_payload(&draft_item("o/h", "o", "h"))
             .unwrap();
         db.mark_custom_app_collected("o/h").unwrap();
@@ -1454,7 +1420,6 @@ mod tests {
             .withdraw_submitted("o/collected")
             .expect_err("collected cannot withdraw");
         assert!(err.to_string().contains("仅已提交行可标记为未提交"));
-        // 已归档 submitted 拒绝，状态不复活。
         db.upsert_custom_app_payload(&draft_item("o/arch", "o", "arch"))
             .unwrap();
         db.mark_custom_app_collected("o/arch").unwrap();

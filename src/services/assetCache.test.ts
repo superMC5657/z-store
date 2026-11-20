@@ -1,8 +1,4 @@
-/**
- * 前端远端图片收敛契约：真实 Tauri 运行时首屏不暴露远端 `<img src>`，
- * 经 `fetchOrCacheAssetUrl` 解析后回填 data:；并发 ≤ 4、同 URL 单飞；动态徽章直连；
- * 非 Tauri 运行时原样直出。
- */
+/** 远端图片缓存收敛与并发去重测试。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 

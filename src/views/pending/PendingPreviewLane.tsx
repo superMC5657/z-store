@@ -1,7 +1,4 @@
-/**
- * 待收录页草稿表单上方的实时卡片预览窗口（Draft Visual / Post-inclusion preview lane）。
- * 可见文案全部取 `pending.preview.*`。
- */
+/** 待收录草稿表单上方的实时卡片预览窗口。 */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronUp, Eye, Globe, ShieldCheck, Tag } from 'lucide-react';

@@ -6,10 +6,7 @@ interface TransientFeedback {
   show: (text: string, error: boolean) => void;
 }
 
-/**
- * 行内瞬时反馈：`show` 写入文案并在 `durationMs` 后清空。
- * 定时器在卸载与新 `show` 时清除，卸载后不调用 `setState`。
- */
+/** 行内瞬时反馈：`show` 写入文案并在 `durationMs` 后自动清空，卸载时清理定时器。 */
 export function useTransientFeedback(durationMs = 5000): TransientFeedback {
   const [text, setText] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);

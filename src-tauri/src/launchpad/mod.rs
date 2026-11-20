@@ -1,7 +1,4 @@
-//! 开源广场（Launchpad）清单解析、置顶实时分流与无凭据拉取。
-//!
-//! 清单与精选目录物理隔离：本模块只读写 `launchpad_feed_cache` / `api_etag_cache`
-//! 与未收录 `repo_card_cache`，永不触碰 `catalog_apps` / `custom_apps`。
+//! 开源广场（Launchpad）清单解析与无凭据拉取，数据独立存于广场缓存表，不写入收录目录。
 
 pub mod models;
 

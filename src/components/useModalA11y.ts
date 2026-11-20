@@ -1,9 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 
-/**
- * 打开中的模态弹窗栈（按打开先后入栈）。Esc 与 Tab 焦点陷阱只作用于栈顶，
- * 叠放的弹窗（讨论 → 详情 → 安装确认）因此一次只关最上层。
- */
+/** 打开中的模态弹窗栈，用于确保 Esc 与 Tab 焦点陷阱仅作用于栈顶弹窗。 */
 const openModalStack: symbol[] = [];
 
 const FOCUSABLE_SELECTOR = [
@@ -30,11 +27,7 @@ interface ModalA11yOptions {
 }
 
 /**
- * 模态弹窗的键盘与焦点约定：
- * - 打开时把焦点移入弹窗容器（容器需 `tabIndex={-1}`），关闭时归还给打开前的焦点元素；
- * - Tab / Shift+Tab 在弹窗内循环，不落到背后的页面；
- * - Esc 只关闭栈顶弹窗。弹窗内部控件若自行处理 Esc（收起浮层等），
- *   调用 `preventDefault()` 或 `stopPropagation()` 即可截留；输入法组字中的 Esc 不处理。
+ * 模态弹窗键盘与焦点管理：打开时聚焦容器、关闭时归还焦点、循环 Tab 并仅对栈顶处理 Esc。
  */
 export function useModalA11y(
   containerRef: RefObject<HTMLElement | null>,

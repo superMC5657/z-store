@@ -1,12 +1,4 @@
-/**
- * App 级别平台筛选状态 + localStorage 持久化测试
- * （决策方案 B：[] = 不选任何平台）。
- *
- * 所有测试均基于行为级覆盖：持久化往返经过 loadSelectedPlatforms/parseSelectedPlatforms 检验，
- * 过滤语义经过 matchPlatformSet 检验。无任何针对源码字面量的脆弱断言。
- *
- * 末尾的真实 <App/> 跨视图回归：顶栏搜索后切页不丢卡，侧栏平台筛选下各视图角标与可见卡片数同源。
- */
+/** 测试 App 级平台筛选状态、localStorage 持久化与跨视图计数一致性。 */
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AppSummary } from './types';
@@ -268,9 +260,7 @@ describe('global platform filter applies to Favorites/Installed/Updates', () => 
   });
 });
 
-// ---------------------------------------------------------------------------
-// 真实 <App/> 跨视图回归：数量与可见内容同源
-// ---------------------------------------------------------------------------
+// 真实 <App/> 跨视图一致性测试：数量与可见内容同源
 
 function makeCatalogApp(id: string, name: string, platforms: string[], category: string): AppSummary {
   const [owner = 'o', repo = id] = id.split('/');

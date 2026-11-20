@@ -1,10 +1,5 @@
-//! 开源广场（Launchpad）命令：清单同步水合（`get_launchpad_feed`）、实时讨论脉冲同步
-//! （`sync_launchpad_discussions`）与 GitHub Discussions 讨论/评论/顶帖
-//! （`get_launchpad_discussion`、`add_launchpad_comment`、`toggle_launchpad_upvote`、
-//! `toggle_launchpad_comment_upvote`）。
-//!
-//! 只读写 `launchpad_feed_cache`、`launchpad_discussion_cache`、`api_etag_cache`、`user_stars`
-//! 与未收录 `repo_card_cache`；精选目录表（`catalog_apps` / `custom_apps`）永不写入。
+//! 开源广场（Launchpad）命令：清单拉取水合、讨论脉冲同步与 GitHub Discussions 交互。
+//! 只读写 Launchpad 专属缓存与未收录富卡缓存，不写入精选目录表。
 
 use crate::db::{Database, LaunchpadDiscussionUpsert};
 use crate::launchpad::{
@@ -45,10 +40,7 @@ fn discussion_lookup_key(repo: &str, number: u64) -> Option<(String, u64)> {
     (!key.is_empty()).then_some((key, number))
 }
 
-/// 拉取并落盘清单：
-/// - 有快照且非强刷时携带 `If-None-Match`，`304` 直接复用快照（不重写载荷）；
-/// - `200` 校验后单事务写入 `launchpad_feed_cache` 与 `api_etag_cache`（镜像响应不落 ETag）；
-/// - 拉取/解析/落盘失败回退快照并置 `is_stale`；无快照时返回错误供页内重试。
+/// 拉取并落盘开源广场清单（ETag 条件请求；失败时回退本地快照并置 `is_stale`）。
 pub(crate) async fn load_launchpad_manifest(
     db: &Mutex<Database>,
     client: &reqwest::Client,
@@ -142,9 +134,7 @@ pub(crate) async fn load_launchpad_manifest(
     })
 }
 
-/// 本地状态零网络叠加：先合并 `launchpad_discussion_cache` 中比清单更新的讨论计数、本人顶帖态与源仓统计，
-/// 再将未收录项非破坏写入 `repo_card_cache`，盖收录章、叠加已确认图标与本地 Star 态；
-/// 返回仍缺图标的 GitHub 项（供后台补图）。
+/// 本地水合清单条目：合并较新的讨论脉冲、补齐确认图标与 Star 状态，并返回仍缺图标的 GitHub 项。
 pub(crate) fn hydrate_entries(
     db: &Database,
     catalog: &crate::github::CatalogService,

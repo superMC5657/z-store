@@ -1,7 +1,4 @@
-/**
- * 演示站精选页负反馈（mock `handleDismissFeatured`，与 Rust `dismiss_featured` 同形）：
- * 「少推这类」带 `appId` 时，重拉页面后该分类与触发卡片都不再出现在页面上（其余分类足够填满 hero）。
- */
+/** 测试演示站精选页负反馈（「少推这类」）对页面货架的过滤行为。 */
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FeaturedPage } from '../../types';
 import { handleClearFeedFeedback, handleDismissFeatured, handleGetFeaturedPage } from './featured';

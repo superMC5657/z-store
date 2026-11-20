@@ -1,6 +1,5 @@
-//! Linux 应用发现：7 类 XDG 目录下的 `*.desktop` 与 `~/Applications`、`~/AppImages` 下的裸 AppImage；
-//! 版本缺失且主程序位于系统目录时按所属 `dpkg` / `rpm` 包反查上游版本。
-//! 桌面文件解析与包版本净化均为纯函数，跨平台可单测。
+//! Linux 应用发现：扫描 XDG `*.desktop` 与用户目录下的裸 AppImage，
+//! 并在版本缺失时通过 dpkg / rpm 反查系统包版本。
 
 #[cfg(target_os = "linux")]
 use super::types::SourceKind;
@@ -159,10 +158,7 @@ pub fn parse_appimage_stem(stem: &str) -> (String, String) {
 
 #[cfg(target_os = "linux")]
 impl AppScanner {
-    /// Linux 系统应用枚举：遍历 [`Self::linux_desktop_dirs`] 下 `*.desktop` 转
-    /// `ScannedRawApp`（`Name=`→display_name，`X-AppImage-Version=`→display_version，
-    /// `Exec` 解析落盘→install_location，文件名→registry_key）；版本缺失时按所属
-    /// dpkg/rpm 包反查上游版本；另补 `~/Applications`、`~/AppImages` 下的裸 AppImage。
+    /// 扫描 Linux 桌面文件与裸 AppImage，并按 dpkg/rpm 回填系统包版本。
     pub fn scan_linux_desktop() -> Vec<super::ScannedRawApp> {
         use std::collections::HashSet;
         let mut out: Vec<super::ScannedRawApp> = Vec::new();

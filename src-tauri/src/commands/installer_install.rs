@@ -13,7 +13,7 @@ pub async fn install_app(
     custom_install_dir: Option<String>,
     allow_unverified: Option<bool>,
 ) -> AppResult<InstalledApp> {
-    // ADR-0010：深链安装可能传入 URL/前缀形态，入站归一化后全程使用 canonical id；未知标识直接拒绝
+    // 归一化入站 app_id（支持 URL/前缀形态），未知标识直接拒绝。
     let app_id = super::require_app_id(&app_id)?;
     // 读取用户配置（绿色便携根路径）
     let custom_portable_dir = {
@@ -31,7 +31,7 @@ pub async fn install_app(
         }
     };
 
-    // 1-2. 获取应用详情、匹配择取资产（择取与下载分离：D3 门禁须在消耗带宽/落盘之前判定）
+    // 先择取资产并执行校验门禁，再下载落盘。
     let (detail, asset) = super::installer_download::select_download_asset(
         &state,
         &app_id,
@@ -40,10 +40,7 @@ pub async fn install_app(
     )
     .await?;
 
-    // D3 零信任门禁：无校验清单的资产默认拒绝安装。下载侧终态诚实标注
-    // completed_unverified，执行侧同样以该门禁把关：仅在 UI 显式警示（「未校验」）
-    // 且用户逐次确认（allowUnverified=true）后放行；放行后下载终态仍保留
-    // completed_unverified 标记，不虚假声明已校验。
+    // 默认拒绝无 SHA-256 校验清单的资产，仅在用户显式确认（allow_unverified）后放行。
     let has_checksum = asset
         .sha256
         .as_deref()
@@ -70,8 +67,7 @@ pub async fn install_app(
     // 4. 调用原生安装器或解压便携版（优先使用用户在前端主动选择的目录）
     let (kind, _, _) = crate::installer::classify_asset(&asset.name);
     let effective_portable_dir = custom_install_dir.or(custom_portable_dir);
-    // Finding 3.3-4：平台跳过是结构化非成功信号，映射为 Err 中断、
-    // 绝不落库为"已安装"（经 InstallOutcome::into_result 统一）。
+    // 平台跳过等非成功结果映射为 Err 中断，避免写入已安装记录。
     let _install_note = crate::installer::execute_installation(
         &dest_path,
         &kind,
@@ -128,10 +124,7 @@ pub async fn install_app(
         }
     }
 
-    // Linux deb/rpm：包管理器列表 / desktop Exec / which 回填（pkexec 安装后
-    // resolve 仍可能因包名与 repo 名不一致而为空，如 Motrix 包名 `motrix` vs repo `Motrix`）。
-    // deb 走 `dpkg -L`，rpm 走 `rpm -ql`（`rpm_list_argv` 经 `resolve_rpm_installed_path` 接线）。
-    // Windows 编译时整块消除，行为不变。
+    // Linux 系统包回填：按包管理器文件列表（dpkg/rpm）、desktop Exec 与 PATH 顺序定位主程序。
     #[cfg(target_os = "linux")]
     {
         let is_sys_pkg = matches!(
@@ -139,8 +132,6 @@ pub async fn install_app(
             crate::installer::AssetKind::Deb | crate::installer::AssetKind::Rpm
         );
         if real_install_path.is_empty() && is_sys_pkg {
-            // 候选包名/二进制名共享派生（与 installer_query 4b / scanner dpkg 共用
-            // `AppScanner::linux_candidate_names`，收敛重复；本地收录同样识别）。
             let catalog_ids = state
                 .catalog
                 .get_catalog_item(&detail.core.id)
@@ -194,7 +185,6 @@ pub async fn install_app(
         .await?
     };
 
-    // 5. 写入本地 SQLite 持久化
     let installed_app = InstalledApp {
         app_id: detail.core.id.clone(),
         app_name: detail.core.name.clone(),

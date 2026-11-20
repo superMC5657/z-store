@@ -116,11 +116,8 @@ impl CatalogService {
             .profile)
     }
 
-    /// ETag 感知的开发者画像拉取（与 `fetch_app_detail` 调用模式一致）：
-    /// 调用方经 SQLite `api_etag_cache` 取出 `CachedEtagPayload` 传入 → 本函数并发拉取
-    /// `/users/{dev}` 与 `/users/{dev}/repos` 并发送 `If-None-Match` → 304 时用 payload 恢复
-    /// 并列入 `touched` → 200 时列入 `etag_writes` 供调用方持久化。
-    /// 带 Token 请求命中 401 时上报登录过期；失败/限流时降级 catalog 兜底。
+    /// ETag 感知的开发者画像拉取：并发请求 `/users/{dev}` 与 `/users/{dev}/repos`，
+    /// 304 从缓存载荷恢复，401 上报登录过期，失败或限流时降级本地目录兜底。
     pub async fn fetch_developer_profile_with_cache(
         &self,
         developer: &str,

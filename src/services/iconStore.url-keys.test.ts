@@ -1,7 +1,4 @@
-/**
- * iconStore URL 键回归：URL 键按去空白小写比较，不经 `normalizeId` 解析成仓库 canonical。
- * 因此同仓不同图标文件（`.../a.png` 与 `.../b.png`）不共享缓存/在途键。
- */
+/** 验证 `iconStore` URL 键按去空白小写比较，不经 `normalizeId` 解析成仓库 id。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./api/catalog', () => ({

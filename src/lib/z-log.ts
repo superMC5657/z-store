@@ -50,11 +50,7 @@ export function zlogError(msg: string): void {
   void error(redact(msg)).catch(() => undefined);
 }
 
-/**
- * 前端日志入口初始化：在 main.tsx 最早调用。
- * - DEV 才 attachConsole（将后端日志转发到浏览器控制台）
- * - 接管 onerror / unhandledrejection 并脱敏直透 error
- */
+/** 初始化前端日志：DEV 下转发后端控制台日志，并接管全局未捕获错误脱敏上报。 */
 export async function initZLog(): Promise<void> {
   if (isInitialized) return;
   isInitialized = true;

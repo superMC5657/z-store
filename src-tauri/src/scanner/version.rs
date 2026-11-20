@@ -157,9 +157,7 @@ impl AppScanner {
             .or_else(|| Self::detect_path_installed_at(install_path))
     }
 
-    /// 已导入应用的当前本地版本：须先找到其注册表条目（与导入同源），找不到则返回 None 保持原值，
-    /// 避免拿格式不同的主程序版本覆盖原本来自注册表的版本。找到条目但注册表与主程序都没有版本时
-    /// 返回空串（版本未知），以清掉早先导入时用收录库最新版填充的值。
+    /// 读取已导入应用的本地版本；找不到所属注册表条目返回 `None`，有条目但无版本时返回空串。
     pub fn detect_installed_version(
         entries: &[ScannedRawApp],
         install_path: &str,

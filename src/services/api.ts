@@ -9,10 +9,7 @@ import { isTauri, tauriInvoke } from './api/client';
 export { isTauri, tauriInvoke };
 export { UNVERIFIED_ASSET_MARKER } from './api/installer';
 
-/**
- * 发现页 feed 后端分页契约（Rust `get_home_feed` 返回）：
- * `{ items, total, has_more }`。
- */
+/** 发现页 feed 后端分页结果。 */
 export interface HomeFeedResult {
   items: AppSummary[];
   total: number;
@@ -38,11 +35,7 @@ export interface ReadmeVariantsResult {
   variants: ReadmeVariant[];
 }
 
-/**
- * 平台轻量回填结果（Rust `get_platforms_lite`，见 `PlatformsLiteResult`）。
- * `platforms` 为空表示未知（unknown）；`is_stale` 为 true 表示降级数据，
- * 调用方必须视为 loading/待 backfill，永不确认 Other。
- */
+/** 平台轻量回填结果；`is_stale` 为 true 时视为降级数据，不能确认 Other。 */
 export interface PlatformsLiteResult {
   id: string;
   platforms: string[];
@@ -61,11 +54,7 @@ export interface AppIconCycleResult {
   is_cataloged?: boolean;
 }
 
-/**
- * 表驱动：全部 Tauri 命令名的唯一来源。
- * View 层禁止出现字面量命令名与直调 invoke，必须经 tauriApi 方法调用；
- * api.ts 内部统一经 CMD 派发（见下方的 tauriApi 实现）。
- */
+/** 全部 Tauri 命令名的唯一来源。 */
 export const CMD = {
   search: 'search_apps',
   searchOnline: 'search_apps_online',
@@ -187,10 +176,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   watch_notify_frequency: 'daily',
 };
 
-/**
- * 在线搜索默认页大小：与后端 `LimitsConfig::online_search_page_size` 对齐（None 即 20）。
- * 前端翻页时显式透传，后端统一钳制 1-50；直查单条仍只回 1 条（page>1 回空）。
- */
+/** 在线搜索默认页大小（与后端配置对齐，直查单条只返回 1 条）。 */
 export const ONLINE_SEARCH_PER_PAGE = 20;
 
 export const tauriApi = {
