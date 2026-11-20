@@ -33,6 +33,6 @@ Blocked by: 01, 02, 03, 04, 05, 06, 07
 
 ## 验收标准
 
-- [ ] `CONTEXT.md` 与 `docs/adr/0023`、`docs/adr/0024` 术语严格对齐统一领域词汇表，且只描述当前行为、不含变更历史流水账。
-- [ ] `spec.md` §6 全部验收项达成。
-- [ ] `cargo test`、`cargo clippy -- -D warnings`、`npx tsc --noEmit`、`pnpm test` 与演示站构建全部零错误通过。
+- [x] `CONTEXT.md` 与 `docs/adr/0023`、`docs/adr/0024` 术语严格对齐统一领域词汇表，且只描述当前行为、不含变更历史流水账。
+- [x] `spec.md` §6 全部验收项达成。
+- [x] `cargo test`、`cargo clippy -- -D warnings`、`npx tsc --noEmit`、`pnpm test` 与演示站构建全部零错误通过。

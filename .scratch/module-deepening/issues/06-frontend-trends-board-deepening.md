@@ -41,7 +41,7 @@ Although `src/services/trends/board.ts` (1368 lines) states in its header that `
 
 ## Acceptance Criteria
 
-- [ ] `fetchTrendsResultSeam` forwarder is eliminated; `board.ts` and `boards.ts` no longer duplicate the facade boundary.
-- [ ] `useTrendEnrichment.ts` (or its replacement) no longer imports 26 step-by-step merge/persist helpers; orchestration lives inside `services/trends`.
-- [ ] `TrendsView.tsx` and `useTrendBoard.ts` consume a single clean `services/trends` interface.
-- [ ] `pnpm test` and `pnpm build` pass completely.
+- [x] `fetchTrendsResultSeam` forwarder is eliminated; `board.ts` and `boards.ts` no longer duplicate the facade boundary.
+- [x] `useTrendEnrichment.ts` (or its replacement) no longer imports 26 step-by-step merge/persist helpers; orchestration lives inside `services/trends`.
+- [x] `TrendsView.tsx` and `useTrendBoard.ts` consume a single clean `services/trends` interface.
+- [x] `pnpm test` and `pnpm build` pass completely.

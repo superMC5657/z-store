@@ -106,8 +106,8 @@ Upgrade the shared frontend cache services (`src/services/repoEnrichCache.ts`, `
 
 ## Acceptance Criteria
 
-- [ ] Unit tests in `repoEnrichCache.test.ts` verify:
+- [x] Unit tests in `repoEnrichCache.test.ts` verify:
   - State 0 (empty unconfirmed platforms), State 1 (`confirmedOther`), and State 2 (concrete platforms) cards round-trip in M1 without `data:` icons or catalog annotations (`is_cataloged`, `source`, `status`), and State 0 / State 1 writes never overwrite existing concrete platforms or real versions/descriptions;
   - `hydrateCardsByIds` resolves warm M1 cards with 0 IPC calls, batch-fetches only M1 misses via `getRepoCardsBatch`, restores `data:` icons via `iconStore` onto returned `rows` while keeping M1 card storage `data:`-free, restores `confirmedOtherIds` & `freshCardIds`, and `clearPrivateSharedRepoCards` purges private cards on logout.
-- [ ] Unit tests in `searchListCache.patch.test.ts` and `starredMemory.test.ts` verify L1 stores slim `ids` indexes, single-source patching reflects immediately on `readSearchListCache`, L2 `readDbSearchListCache` / `saveDbSearchListCache` round-trips `{ v: 2, ids, hasMore }`, and logout clears both `@me:` starred entries and `hasPrivate` search entries + private repo cards.
-- [ ] `npx tsc --noEmit` and `npx vitest run` pass 100%.
+- [x] Unit tests in `searchListCache.patch.test.ts` and `starredMemory.test.ts` verify L1 stores slim `ids` indexes, single-source patching reflects immediately on `readSearchListCache`, L2 `readDbSearchListCache` / `saveDbSearchListCache` round-trips `{ v: 2, ids, hasMore }`, and logout clears both `@me:` starred entries and `hasPrivate` search entries + private repo cards.
+- [x] `npx tsc --noEmit` and `npx vitest run` pass 100%.

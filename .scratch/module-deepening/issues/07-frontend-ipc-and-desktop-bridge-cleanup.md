@@ -45,7 +45,7 @@ Around the frontend IPC seam (`src/services/api.ts` + `src/services/api/client.t
 
 ## Acceptance Criteria
 
-- [ ] `src/services/api/zlog.ts`, `src/services/appProcess.ts`, and `src/utils/fallbackOpener.ts` are deleted.
-- [ ] `submitPrefillFlow.ts` no longer duplicates `openUrl`'s fallback opener logic.
-- [ ] `noDirectInvoke.test.ts`, `cmdAlignment.test.ts`, `ipcArgsNaming.test.ts`, `settings.openUrl.test.ts`, and `browserLockdown.test.ts` all pass.
-- [ ] `pnpm test` and `pnpm build` pass completely.
+- [x] `src/services/api/zlog.ts`, `src/services/appProcess.ts`, and `src/utils/fallbackOpener.ts` are deleted.
+- [x] `submitPrefillFlow.ts` no longer duplicates `openUrl`'s fallback opener logic.
+- [x] `noDirectInvoke.test.ts`, `cmdAlignment.test.ts`, `ipcArgsNaming.test.ts`, `settings.openUrl.test.ts`, and `browserLockdown.test.ts` all pass.
+- [x] `pnpm test` and `pnpm build` pass completely.

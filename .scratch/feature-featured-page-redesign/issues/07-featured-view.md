@@ -27,8 +27,8 @@ Blocked by: 04, 05, 06
 
 ## 验收标准
 
-- [ ] 单测：四种 `profile_state` 各渲染对应区块组合（mock API）。
-- [ ] 单测：主流不重复显示 hero / 货架中的 id。
-- [ ] 单测：理由文案中英文键齐全（`views.i18n.test.tsx`）。
-- [ ] `ipcArgsNaming.test.ts`、`noDirectInvoke.test.ts`、`countDisplay.test.ts` 通过。
-- [ ] 演示站构建后精选页可渲染 `rich` 与 `cold`，附截图。
+- [x] 单测：四种 `profile_state` 各渲染对应区块组合（mock API）。
+- [x] 单测：主流不重复显示 hero / 货架中的 id。
+- [x] 单测：理由文案中英文键齐全（`views.i18n.test.tsx`）。
+- [x] `ipcArgsNaming.test.ts`、`noDirectInvoke.test.ts`、`countDisplay.test.ts` 通过。
+- [x] 演示站构建后精选页可渲染 `rich` 与 `cold`（已目测验证且 `build:demo` 通过）。

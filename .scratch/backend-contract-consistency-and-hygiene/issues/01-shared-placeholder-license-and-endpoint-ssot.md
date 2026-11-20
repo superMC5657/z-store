@@ -1,6 +1,6 @@
 # Issue 01: 占位元数据判定、协议归一与 GitHub 端点 URL SSOT 收敛
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -44,9 +44,9 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] 全仓不再存在未经过 `urlencoding::encode` 的手写 `/repos/{}/{}/releases/latest` 或 `/repos/{}/{}` URL 拼接。
-- [ ] 占位描述/版本/协议判定及协议名归一仅保留单一实现并有单元测试覆盖。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+- [x] 全仓不再存在未经过 `urlencoding::encode` 的手写 `/repos/{}/{}/releases/latest` 或 `/repos/{}/{}` URL 拼接。
+- [x] 占位描述/版本/协议判定及协议名归一仅保留单一实现并有单元测试覆盖。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
 
 ## Comments
 

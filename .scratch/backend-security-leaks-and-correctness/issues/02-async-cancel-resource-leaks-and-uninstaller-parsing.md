@@ -1,6 +1,6 @@
 # Issue 02: 异步取消 RAII 资源清理与 Windows 卸载命令解析修复
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -32,6 +32,6 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `parse_uninstaller_command` 单测覆盖无引号含空格路径（模拟真实或临时 `.exe` 路径）与带引号参数。
-- [ ] `downloader_http`、`executor_uninstall`（Windows）与 `executor_macos`（macOS）具备 RAII 清理守卫，取消/错误路径不泄漏临时文件、句柄与挂载点。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+- [x] `parse_uninstaller_command` 单测覆盖无引号含空格路径（模拟真实或临时 `.exe` 路径）与带引号参数。
+- [x] `downloader_http`、`executor_uninstall`（Windows）与 `executor_macos`（macOS）具备 RAII 清理守卫，取消/错误路径不泄漏临时文件、句柄与挂载点。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。

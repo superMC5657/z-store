@@ -37,11 +37,11 @@ Blocked by: 03
 
 ## 验收标准
 
-- [ ] 单测：已收藏（`favorites`）与已关注（`watched`）的应用不会出现在 `hero` 或任何 `shelves[].items` 中，但仍可作为 `because_you` 的 `seed_id` 产出推荐货架。
-- [ ] 单测：在 `Explore`（原分类权重 `0`）、`Warm`/`Rich`（原分类权重 `0.24`，折半后 `0.12 < 0.15`）及 `Off` 态下，被标记 `FeedbackScope::Category` 的分类不会出现在 `Explore` 或 `category_pick` 中（其他分类充足时）。
-- [ ] 单测：`Rich` 态下若 `seeds` 仅全是目录外仓库导致 `because_you` 产出 `0` 排（或仅 `1` 排）且目录内有近 30 天新应用时，页面自动补出 `Fresh` 货架；当 `because_you` 满 `2` 排时 `Rich` 态不出 `Fresh`。
-- [ ] 单测：`Explore` 某分类有 5 款不同星数的精品应用时，切换不同 `day_seed` 能在该分类内轮换出不止 1 款代表应用。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
+- [x] 单测：已收藏（`favorites`）与已关注（`watched`）的应用不会出现在 `hero` 或任何 `shelves[].items` 中，但仍可作为 `because_you` 的 `seed_id` 产出推荐货架。
+- [x] 单测：在 `Explore`（原分类权重 `0`）、`Warm`/`Rich`（原分类权重 `0.24`，折半后 `0.12 < 0.15`）及 `Off` 态下，被标记 `FeedbackScope::Category` 的分类不会出现在 `Explore` 或 `category_pick` 中（其他分类充足时）。
+- [x] 单测：`Rich` 态下若 `seeds` 仅全是目录外仓库导致 `because_you` 产出 `0` 排（或仅 `1` 排）且目录内有近 30 天新应用时，页面自动补出 `Fresh` 货架；当 `because_you` 满 `2` 排时 `Rich` 态不出 `Fresh`。
+- [x] 单测：`Explore` 某分类有 5 款不同星数的精品应用时，切换不同 `day_seed` 能在该分类内轮换出不止 1 款代表应用。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
 
 ## Comments
 

@@ -29,17 +29,17 @@
 | **#08** | Phase 2: 趋势与图标 | [`feature-trends-board`](./feature-trends-board/spec.md) | 开源趋势榜单体系重构与 L2 缓存治理 | 2026-10-04 | `1b0bbe8` | ADR-0011, 0014 | 6 / 6 Resolved |
 | **#09** | Phase 2: 趋势与图标 | [`icon-fix`](./icon-fix/spec.md) | 本地图标缓存优先与打包图标退役 | 2026-10-10 | `a52a1d3` | ADR-0015 | 5 / 5 Resolved |
 | **#10** | Phase 2: 趋势与图标 | [`pending-apps`](./pending-apps/SPEC.md) | 待收录应用生命周期管理与草稿流 | 2026-10-11 | `084156e` | ADR-0017 | 5 / 5 Resolved |
-| **#11** | Phase 2: 趋势与图标 | [`architecture-deepening`](./architecture-deepening/plan.md) | 架构深度治理计划（C1~C6 核心卡片） | 2026-10-11 | `fd70c4b` | ADR-0006, 0010 | 14 / 14 落地 |
+| **#11** | Phase 2: 趋势与图标 | [`architecture-deepening`](./architecture-deepening/plan.md) | 架构深度治理计划（C1~C6 核心卡片） | 2026-10-11 | `fd70c4b` | ADR-0006, 0010 | 14 / 14 Resolved |
 | **#12** | Phase 2: 趋势与图标 | [`code-review-2026-10-21`](./code-review-2026-10-21/execution-plan.md) | 10-21 深度代码审计与工单体系入库 | 2026-10-21 | `68bb2ff` | ADR-0018, 0020 | 48 / 48 Resolved |
 | **#13** | Phase 3: 性能与缓存 | [`icon-l3-discovery-fix`](./icon-l3-discovery-fix/spec.md) | 富卡与详情页 L3/L4 图标多级探索一致性 | 2026-11-08 | `7f8f8a6` | ADR-0010, 0015 | 4 / 4 Resolved |
 | **#14** | Phase 3: 性能与缓存 | [`perf-and-cache-hardening`](./perf-and-cache-hardening/spec.md) | 全链路性能治理与 HTTP/目录缓存加固 | 2026-11-10 | `e482f20` | ADR-0007, 0012 | 5 / 5 Resolved |
 | **#15** | Phase 3: 性能与缓存 | [`icon-and-cache-local-first`](./icon-and-cache-local-first/spec.md) | 图标与富卡全字段本地缓存优先与写透 | 2026-11-11 | `f80b164` | ADR-0003, 0019 | 6 / 6 Resolved |
 | **#16** | Phase 3: 性能与缓存 | [`catalog-db-refactor`](./catalog-db-refactor/spec.md) | Catalog 清单与 SQLite 分层重构架构规范 | 2026-11-12 | `b76e1f7` | ADR-0017 | Schema v2 落地 |
 | **#17** | Phase 3: 性能与缓存 | [`module-deepening`](./module-deepening/spec.md) | 全仓模块合并加深与浅层碎片文件清理 | 2026-11-12 | `675542e` | ADR-0004, 0018 | 8 / 9 Resolved |
-| **#18** | Phase 3: 性能与缓存 | [`manage-ui-redesign`](./manage-ui-redesign/spec.md) | 管理中心（已安装 & 更新）UI 深度重设计 | 2026-11-12 | `92b3fe5` | UI 体验规范 | 5 / 5 落地 |
+| **#18** | Phase 3: 性能与缓存 | [`manage-ui-redesign`](./manage-ui-redesign/spec.md) | 管理中心（已安装 & 更新）UI 深度重设计 | 2026-11-12 | `92b3fe5` | UI 体验规范 | 5 / 5 Resolved |
 | **#19** | Phase 3: 性能与缓存 | [`button-size-and-inverted-icon-parity`](./button-size-and-inverted-icon-parity/spec.md) | 全站同级按钮盒尺寸严格统一与反色图标 | 2026-11-13 | `d59aa1d` | UI 体验规范 | 6 / 6 Resolved |
 | **#20** | Phase 4: 本地推荐 | [`feature-local-affinity-recommendation`](./feature-local-affinity-recommendation/spec.md) | 本地用户画像与 Catalog 动态推荐一期 | 2026-11-13 | `d5e9cd2` | ADR-0013 | 6 / 6 Resolved |
-| **#21** | Phase 4: 本地推荐 | [`feature-featured-page-redesign`](./feature-featured-page-redesign/spec.md) | 精选页重设计（可解释的本地推荐货架） | 2026-11-14 | `94f9f68` | ADR-0023 | 9 / 10 Resolved |
+| **#21** | Phase 4: 本地推荐 | [`feature-featured-page-redesign`](./feature-featured-page-redesign/spec.md) | 精选页重设计（可解释的本地推荐货架） | 2026-11-14 | `94f9f68` | ADR-0023 | 10 / 10 Resolved |
 | **#22** | Phase 4: 本地推荐 | [`feature-detail-homepage`](./feature-detail-homepage/spec.md) | 应用详情弹窗官方主页展示与单色视觉统一 | 2026-11-14 | `43515cd` | ADR-0001, 0010 | 3 / 3 Resolved |
 | **#23** | Phase 4: 本地推荐 | [`affinity-algorithm-v2`](./affinity-algorithm-v2/spec.md) | 本地推荐算法二期优化（单调词袋与温度轮换） | 2026-11-14 | `1943942` | ADR-0023, 0024 | 8 / 8 Resolved |
 | **#24** | Phase 5: 管道收敛 | [`outbound-proxy-and-asset-convergence`](./outbound-proxy-and-asset-convergence/spec.md) | 系统代理动态热感知与远端资产缓存收敛 | 2026-11-14 | `a4e7104` | ADR-0025 | 6 / 6 Resolved |
@@ -49,11 +49,11 @@
 | **#28** | Phase 6: 匹配与广场 | [`local-app-matcher-v2`](./local-app-matcher-v2/spec.md) | 存量应用匹配引擎 v2（内存倒排索引与安全打分） | 2026-11-16 | `b18fb19` | ADR-0028 | 5 / 5 Resolved |
 | **#29** | Phase 6: 匹配与广场 | [`feature-launchpad`](./feature-launchpad/spec.md) | 开源广场（Launchpad）社交导流与零后端上架 | 2026-11-16 | `537afed` | ADR-0029 | 8 / 8 Resolved |
 | **#30** | Phase 7: 底座与优化 | [`unified-modal-shell`](./unified-modal-shell/spec.md) | 全站统一弹窗底座与语义层级规范 (ModalShell) | 2026-11-17 | `aef5439` | UI 底座规范 | 2 / 2 Resolved |
-| **#31** | Phase 7: 底座与优化 | [`backend-security-leaks-and-correctness`](./backend-security-leaks-and-correctness/spec.md) | 后端专题一：安装器安全、异步泄漏与规则健壮性 | 2026-11-17 | `430e222` | ADR-0004, 0028 | 3 / 3 实施落地 |
+| **#31** | Phase 7: 底座与优化 | [`backend-security-leaks-and-correctness`](./backend-security-leaks-and-correctness/spec.md) | 后端专题一：安装器安全、异步泄漏与规则健壮性 | 2026-11-17 | `430e222` | ADR-0004, 0028 | 3 / 3 Resolved |
 | **#32** | Phase 7: 底座与优化 | [`backend-asset-icon-io-and-http-resilience`](./backend-asset-icon-io-and-http-resilience/spec.md) | 后端专题二：资产与图标磁盘缓存治理与 HTTP 重试 | 2026-11-17 | `8e1fde2` | ADR-0012, 0025 | 3 / 3 Resolved |
-| **#33** | Phase 7: 底座与优化 | [`backend-catalog-index-and-affinity-cache`](./backend-catalog-index-and-affinity-cache/spec.md) | 后端专题三：`CatalogService` 哈希索引与画像预计算 | 2026-11-18 | `867a5d4` | ADR-0010, 0024 | 3 / 3 实施落地 |
-| **#34** | Phase 7: 底座与优化 | [`backend-sqlite-batching-and-async-offload`](./backend-sqlite-batching-and-async-offload/spec.md) | 后端专题四：SQLite 批量读写去重与阻塞 IO 异步卸载 | 2026-11-18 | `67f053e` | ADR-0003, 0027 | 3 / 3 实施落地 |
-| **#35** | Phase 7: 底座与优化 | [`backend-contract-consistency-and-hygiene`](./backend-contract-consistency-and-hygiene/spec.md) | 后端专题五：后端元数据校验、端点 SSOT 与收尾卫生 | 2026-11-18 | `a5fb3b8` | ADR-0010, 0018 | 2 / 2 实施落地 |
+| **#33** | Phase 7: 底座与优化 | [`backend-catalog-index-and-affinity-cache`](./backend-catalog-index-and-affinity-cache/spec.md) | 后端专题三：`CatalogService` 哈希索引与画像预计算 | 2026-11-18 | `867a5d4` | ADR-0010, 0024 | 3 / 3 Resolved |
+| **#34** | Phase 7: 底座与优化 | [`backend-sqlite-batching-and-async-offload`](./backend-sqlite-batching-and-async-offload/spec.md) | 后端专题四：SQLite 批量读写去重与阻塞 IO 异步卸载 | 2026-11-18 | `67f053e` | ADR-0003, 0027 | 3 / 3 Resolved |
+| **#35** | Phase 7: 底座与优化 | [`backend-contract-consistency-and-hygiene`](./backend-contract-consistency-and-hygiene/spec.md) | 后端专题五：后端元数据校验、端点 SSOT 与收尾卫生 | 2026-11-18 | `a5fb3b8` | ADR-0010, 0018 | 2 / 2 Resolved |
 
 ---
 
@@ -219,7 +219,7 @@
 - **核心交付**：
   - 传统静态榜单升级为多维模块化货架（猜你喜欢、最近浏览、技术栈精选）（[ADR-0023](../docs/adr/0023-featured-page-explainable-local-recommendation.md)）。
   - 每项推荐提供明确可解释理由；支持“减少此类推荐”负反馈机制；独立拆分搜索结果页。
-- **工单规模**：10 张工单（9 项 Resolved）。
+- **工单规模**：10 张工单（全部 Resolved）。
 
 #### #22 · `feature-detail-homepage`
 - **定位**：应用详情弹窗官方主页展示与单色视觉统一
@@ -303,7 +303,7 @@
   - PowerShell 传参加固防注入；ZIP/Tar 解压硬限防止解压炸弹攻击。
   - 下载临时文件与 Windows/macOS 挂载句柄引入 RAII Drop 机制，杜绝异步取消导致的资源泄漏。
   - 强化规则读取异常向上传播，杜绝静默清空。
-- **工单规模**：3 张工单全量落地。
+- **工单规模**：3 张工单（全部 Resolved）。
 
 #### #32 · `backend-asset-icon-io-and-http-resilience`
 - **定位**：后端优化专题二：资产与图标磁盘缓存治理与 HTTP 重试
@@ -318,7 +318,7 @@
   - `CatalogService` 内部从线性扫描重构为 HashMap $O(1)$ 点查。
   - 支持锁内轻量字段投影，消除全量 `CatalogItem` 克隆。
   - 全局预计算并缓存 `CatalogIdf`，大幅缩减推荐画像计算耗时。
-- **工单规模**：3 张工单全量落地。
+- **工单规模**：3 张工单（全部 Resolved）。
 
 #### #34 · `backend-sqlite-batching-and-async-offload`
 - **定位**：后端优化专题四：SQLite 批量读写去重与阻塞 IO 异步卸载
@@ -326,14 +326,14 @@
   - 消除 N+1 查询：引入批量 `IN (...)` 读取与批量 `upsert`。
   - 全面应用 `prepare_cached` 缓存预编译 SQL 语句；合并命令层数据库锁。
   - 将繁重文件读写、哈希校验、解压缩及注册表扫描全面卸载到 `tokio::task::spawn_blocking`。
-- **工单规模**：3 张工单全量落地。
+- **工单规模**：3 张工单（全部 Resolved）。
 
 #### #35 · `backend-contract-consistency-and-hygiene`
 - **定位**：后端优化专题五：后端元数据校验、端点 SSOT 与收尾卫生
 - **核心交付**：
   - 收口跨模块重复代码：GitHub 端点编码、License 格式化、分类字典与占位符统一收归单一真实源（SSOT）。
   - 统一命令层错误处理为 `AppResult<T>` 闭环；消除全平台 Clippy 警告与死分支代码。
-- **工单规模**：2 张工单全量落地。
+- **工单规模**：2 张工单（全部 Resolved）。
 
 ---
 

@@ -1,6 +1,6 @@
 # Feature Spec: 本地用户画像与 Catalog 动态推荐（Local Affinity Recommendation）
 
-> 状态：Draft（Ready for Implementation · Phase 1 含本地隐私数据看板）
+> 状态：Implemented（`01`–`06` 均为 `resolved`，二期能力已并入 ADR-0023 / ADR-0024）
 > 架构边界：严格遵循 D2 零服务器成本（Serverless Direct API）与 ADR-0013（发现页 Feed 契约），全链路在客户端本地 Rust + SQLite (`z_store.db`) + React 内闭环完成，不引入任何中心化推荐服务端。
 
 ## 1. 目标与一/二期范围边界

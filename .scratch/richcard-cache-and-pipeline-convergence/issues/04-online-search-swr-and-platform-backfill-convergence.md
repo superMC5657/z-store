@@ -62,10 +62,10 @@ Wire the namespace-isolated `searchListCache` (with 5-minute fresh tier + 30-min
 
 ## Acceptance Criteria
 
-- [ ] Vitest tests verify:
+- [x] Vitest tests verify:
   - First online search for `"rustdesk"` calls `searchAppsOnline(..., false)` and `getPlatformsLite(..., false)` (never `forceRefresh = true` on initial search).
   - Re-searching `"rustdesk"` within 5 minutes renders cached rows immediately and makes **0** calls to `searchAppsOnline`.
   - Re-searching `"rustdesk"` after advancing fake timers by 6 minutes (within 30m) immediately paints cached rows and triggers background `searchAppsOnline(..., false)` SWR revalidation.
   - Clicking `search-online-trigger` when `onlineSearchPerformed` is `true` (`retry_online`) passes `forceRefresh = true` to bypass the 5-minute cache short-circuit.
   - A repo already marked in `repoEnrichCache` (concrete platforms or `confirmedOther`) skips `getPlatformsLite` when appearing in online search results.
-- [ ] `npx tsc --noEmit` and `npx vitest run` pass with 0 regressions.
+- [x] `npx tsc --noEmit` and `npx vitest run` pass with 0 regressions.

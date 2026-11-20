@@ -41,7 +41,7 @@ Two backend feature clusters are fragmented into tiny single-purpose files while
 
 ## Acceptance Criteria
 
-- [ ] `oauth/constants.rs` and `oauth/http.rs` micro-files are eliminated; `oauth` exposes a clean, self-contained interface with `should_refetch_oauth_user` owned inside `oauth`.
-- [ ] `userdata` owns the full import pipeline (validation + `IMPORT_SETTINGS_ALLOWLIST` + DB execution) testable directly against `Database::open_in_memory()`.
-- [ ] `commands/history.rs` no longer embeds backup-import business logic.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass.
+- [x] `oauth/constants.rs` and `oauth/http.rs` micro-files are eliminated; `oauth` exposes a clean, self-contained interface with `should_refetch_oauth_user` owned inside `oauth`.
+- [x] `userdata` owns the full import pipeline (validation + `IMPORT_SETTINGS_ALLOWLIST` + DB execution) testable directly against `Database::open_in_memory()`.
+- [x] `commands/history.rs` no longer embeds backup-import business logic.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass.

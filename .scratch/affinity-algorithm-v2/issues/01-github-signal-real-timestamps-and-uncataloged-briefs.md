@@ -30,11 +30,11 @@ Blocked by: none
 
 ## 验收标准
 
-- [ ] 单测：模拟返回 `application/vnd.github.star+json` 格式（含不同 `starred_at`）时，落库的 `UserRepoSignal.updated_at` 精确等于对应 RFC3339 时间戳秒数，且请求头 `Accept` 为 `application/vnd.github.star+json`。
-- [ ] 单测：旧格式裸仓库数组（无 `starred_at`）分页解析依然成功，且第 1 条与第 2 条信号的 `updated_at` 严格保持先后顺序（`sig[0].updated_at > sig[1].updated_at`）。
-- [ ] 单测：当 `api_etag_cache` 存有不含 `starred_at` 的旧缓存时，同步请求不携带旧 `If-None-Match`，成功升级为含 `starred_at` 的新载荷。
-- [ ] 单测：`app_details` 存有未收录应用详情且被加入收藏/浏览后，`load_raw_affinity_signals().uncataloged_briefs` 包含对应概要，占位简介已被过滤为空串。
-- [ ] 既有 `db::affinity` 与 `github::affinity` 同步单测全部通过：`cargo test --manifest-path src-tauri/Cargo.toml --lib`。
+- [x] 单测：模拟返回 `application/vnd.github.star+json` 格式（含不同 `starred_at`）时，落库的 `UserRepoSignal.updated_at` 精确等于对应 RFC3339 时间戳秒数，且请求头 `Accept` 为 `application/vnd.github.star+json`。
+- [x] 单测：旧格式裸仓库数组（无 `starred_at`）分页解析依然成功，且第 1 条与第 2 条信号的 `updated_at` 严格保持先后顺序（`sig[0].updated_at > sig[1].updated_at`）。
+- [x] 单测：当 `api_etag_cache` 存有不含 `starred_at` 的旧缓存时，同步请求不携带旧 `If-None-Match`，成功升级为含 `starred_at` 的新载荷。
+- [x] 单测：`app_details` 存有未收录应用详情且被加入收藏/浏览后，`load_raw_affinity_signals().uncataloged_briefs` 包含对应概要，占位简介已被过滤为空串。
+- [x] 既有 `db::affinity` 与 `github::affinity` 同步单测全部通过：`cargo test --manifest-path src-tauri/Cargo.toml --lib`。
 
 ## Comments
 

@@ -76,7 +76,7 @@ Redesign backend icon cache resolution so that any valid icon file already prese
 
 ## Acceptance Criteria
 
-- [ ] `get_or_fetch_icon` hits on-disk `sha256(url)[0:16].{ext}` files even when `app_icon_cycles.cache_file` is empty or `icon_cache_meta` row is absent, and self-heals metadata.
-- [ ] When an on-disk icon file is older than 7 days (`ICON_TTL_SECS`) and the network is unreachable/fluctuating, `get_or_fetch_icon`, `restore_existing_cycle`, and `restore_cataloged_default` return the valid on-disk `data:` URI instead of `Err` or empty `url`.
-- [ ] `resolve_confirmed_icon_from_db` locates on-disk hash files (`sha256(selected_url)[0:16].{ext}`) even when `cycle.cache_file` is `""`, self-heals `cache_file`, and returns `Some(data:...)` for `level 1..=4` (while preserving `level4_without_cache_file_is_not_m2` when no file exists on disk).
-- [ ] All unit tests in `src-tauri/src/commands/icons.rs`, `icons_cycle_probe.rs`, `github/http.rs`, and `commands/catalog_detail.rs` pass under `cargo test --manifest-path src-tauri/Cargo.toml`.
+- [x] `get_or_fetch_icon` hits on-disk `sha256(url)[0:16].{ext}` files even when `app_icon_cycles.cache_file` is empty or `icon_cache_meta` row is absent, and self-heals metadata.
+- [x] When an on-disk icon file is older than 7 days (`ICON_TTL_SECS`) and the network is unreachable/fluctuating, `get_or_fetch_icon`, `restore_existing_cycle`, and `restore_cataloged_default` return the valid on-disk `data:` URI instead of `Err` or empty `url`.
+- [x] `resolve_confirmed_icon_from_db` locates on-disk hash files (`sha256(selected_url)[0:16].{ext}`) even when `cycle.cache_file` is `""`, self-heals `cache_file`, and returns `Some(data:...)` for `level 1..=4` (while preserving `level4_without_cache_file_is_not_m2` when no file exists on disk).
+- [x] All unit tests in `src-tauri/src/commands/icons.rs`, `icons_cycle_probe.rs`, `github/http.rs`, and `commands/catalog_detail.rs` pass under `cargo test --manifest-path src-tauri/Cargo.toml`.

@@ -43,12 +43,12 @@ Blocked by: 01, 02
 
 ## 验收标准
 
-- [ ] 单测（单调性）：候选应用 B 命中的偏好词集合为候选 A 的严格超集（如 `["video", "player", "ffmpeg"]` vs `["video"]`）且同分类同作者时，`profile.affinity_boost(&app_b) > profile.affinity_boost(&app_a)`。
-- [ ] 单测（抗淹没）：输入 300 条目录外 GitHub Star（语言均为 Rust/Python）+ 2 条本地 `media` 收藏时，`profile.category_weights["media"] >= 0.45` 且排进 `top_categories(2)`。
-- [ ] 单测（中文搜索词）：仅输入中文搜索历史 `searches = [("远程桌面", now)]` 时，`profile.has_signals == true` 且远程桌面应用获得正向关键词增益与 `Reason::Keywords`。
-- [ ] 单测（未收录足迹）：收藏或浏览不在 `catalog` 但存在于 `uncataloged_briefs` 的应用时，`signal_count >= 1` 且 `has_signals == true`。
-- [ ] 单测（跨类相似度）：不同分类但共享核心领域词与别名（如远程控制与局域网传输）的两款应用 `seed_similarity >= 0.28`。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
+- [x] 单测（单调性）：候选应用 B 命中的偏好词集合为候选 A 的严格超集（如 `["video", "player", "ffmpeg"]` vs `["video"]`）且同分类同作者时，`profile.affinity_boost(&app_b) > profile.affinity_boost(&app_a)`。
+- [x] 单测（抗淹没）：输入 300 条目录外 GitHub Star（语言均为 Rust/Python）+ 2 条本地 `media` 收藏时，`profile.category_weights["media"] >= 0.45` 且排进 `top_categories(2)`。
+- [x] 单测（中文搜索词）：仅输入中文搜索历史 `searches = [("远程桌面", now)]` 时，`profile.has_signals == true` 且远程桌面应用获得正向关键词增益与 `Reason::Keywords`。
+- [x] 单测（未收录足迹）：收藏或浏览不在 `catalog` 但存在于 `uncataloged_briefs` 的应用时，`signal_count >= 1` 且 `has_signals == true`。
+- [x] 单测（跨类相似度）：不同分类但共享核心领域词与别名（如远程控制与局域网传输）的两款应用 `seed_similarity >= 0.28`。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
 
 ## Comments
 

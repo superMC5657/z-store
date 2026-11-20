@@ -65,7 +65,7 @@ Eliminate pure pass-through modules and empty `#[path]` re-export shells in the 
 
 ## Acceptance Criteria
 
-- [ ] `commands/catalog.rs`, `commands/updates.rs`, `github/readme_variants.rs`, `installer/downloader.rs`, and `github/developer_endpoints.rs` are deleted; `InstallerEngine` is removed.
-- [ ] `commands::installer` no longer duplicates signatures as single-line forwarders.
-- [ ] All `tauri::generate_handler!` commands in `src-tauri/src/lib.rs` and `cmdAlignment.test.ts` remain 100% aligned (no IPC command rename).
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass with zero warnings.
+- [x] `commands/catalog.rs`, `commands/updates.rs`, `github/readme_variants.rs`, `installer/downloader.rs`, and `github/developer_endpoints.rs` are deleted; `InstallerEngine` is removed.
+- [x] `commands::installer` no longer duplicates signatures as single-line forwarders.
+- [x] All `tauri::generate_handler!` commands in `src-tauri/src/lib.rs` and `cmdAlignment.test.ts` remain 100% aligned (no IPC command rename).
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass with zero warnings.

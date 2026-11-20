@@ -21,6 +21,6 @@ Blocked by: none
 
 ## 验收标准
 
-- [ ] `HomeView.online-more.test.tsx`、`HomeView.search-icon.test.tsx`、`HomeView.localBadgeTiming.test.tsx` 迁移后断言不变并通过。
-- [ ] `noDirectInvoke.test.ts`、`views.i18n.test.tsx` 通过。
-- [ ] `pnpm test` 全绿。
+- [x] `HomeView.online-more.test.tsx`、`HomeView.search-icon.test.tsx`、`HomeView.localBadgeTiming.test.tsx` 迁移后断言不变并通过。
+- [x] `noDirectInvoke.test.ts`、`views.i18n.test.tsx` 通过。
+- [x] `pnpm test` 全绿。

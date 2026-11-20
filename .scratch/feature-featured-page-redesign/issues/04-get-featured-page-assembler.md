@@ -28,8 +28,8 @@ Blocked by: 03
 
 ## 验收标准
 
-- [ ] 表驱动单测覆盖四种状态的区块组合。
-- [ ] 单测：整页无重复 id；hero 三个分类互不相同；已装与 `app` 反馈命中的应用不出现。
-- [ ] 单测：同一 `day_seed` 两次结果完全相同；目录 ≥ 20 时换 `day_seed` 后 hero 至少 1 个变化。
-- [ ] 单测：`platforms = ["windows"]` 时所有条目支持 Windows。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
+- [x] 表驱动单测覆盖四种状态的区块组合。
+- [x] 单测：整页无重复 id；hero 三个分类互不相同；已装与 `app` 反馈命中的应用不出现。
+- [x] 单测：同一 `day_seed` 两次结果完全相同；目录 ≥ 20 时换 `day_seed` 后 hero 至少 1 个变化。
+- [x] 单测：`platforms = ["windows"]` 时所有条目支持 Windows。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。

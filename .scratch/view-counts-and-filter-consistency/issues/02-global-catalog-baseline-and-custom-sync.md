@@ -80,8 +80,8 @@ Blocked by: 01
 
 ## Acceptance Criteria
 
-- [ ] 单测验证：当顶栏 `searchQuery = "vlc"`（`apps` 仅 1 款）而 `fullCatalogApps` 含 10 款已收录应用时，`catalogPlatformFilteredApps`、`favoritesViewApps` 及非 `home` 视图的 `sidebarPlatformCounts` 仍完整保留全部 10 款，不发生搜索词跨页截断或收藏卡片蒸发。
-- [ ] 单测验证：`entryFromWire` → `entryToCollectedSummary` 正确携带 `added_at`（`YYYY-MM-DD`），且 `itemToWire` 输出不包含 `added_at`。
-- [ ] 单测验证：`useCustomApps` 执行 `handleRevertCollectedApp` / `handleDeleteCustomApp` / `handleCollectLocalApp` 后触发 `zstore:catalog-synced`。
-- [ ] 单测验证：`handleApplyUpdate`、`handleSkipVersion`、`handleUnmanageApp` 在大小写混合 ID（如 `Owner/Repo` vs `owner/repo`）下不产生重复已装行或残留更新项。
-- [ ] `npx tsc --noEmit` 与相关 Vitest 测试套件全部通过。
+- [x] 单测验证：当顶栏 `searchQuery = "vlc"`（`apps` 仅 1 款）而 `fullCatalogApps` 含 10 款已收录应用时，`catalogPlatformFilteredApps`、`favoritesViewApps` 及非 `home` 视图的 `sidebarPlatformCounts` 仍完整保留全部 10 款，不发生搜索词跨页截断或收藏卡片蒸发。
+- [x] 单测验证：`entryFromWire` → `entryToCollectedSummary` 正确携带 `added_at`（`YYYY-MM-DD`），且 `itemToWire` 输出不包含 `added_at`。
+- [x] 单测验证：`useCustomApps` 执行 `handleRevertCollectedApp` / `handleDeleteCustomApp` / `handleCollectLocalApp` 后触发 `zstore:catalog-synced`。
+- [x] 单测验证：`handleApplyUpdate`、`handleSkipVersion`、`handleUnmanageApp` 在大小写混合 ID（如 `Owner/Repo` vs `owner/repo`）下不产生重复已装行或残留更新项。
+- [x] `npx tsc --noEmit` 与相关 Vitest 测试套件全部通过。

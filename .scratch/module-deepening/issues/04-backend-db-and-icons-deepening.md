@@ -41,7 +41,7 @@ The backend **Confirmed Icon** / **IconFetch** / `AppIconCycle` subsystem is fra
 
 ## Acceptance Criteria
 
-- [ ] `commands/icons_cycle_probe.rs` and `commands/icons_cycle_commands.rs` are merged/removed; `commands/icons.rs` holds only thin command adapters without disk/probe mechanics or `image_sniff` pass-throughs.
-- [ ] `db/icon_cycle.rs` contains SQLite persistence only; pure icon state-machine and `pick_detail_icon_with_level` logic live in `crate::icons`.
-- [ ] `db/tokens.rs` and `db/mod.rs` setting normalizers are consolidated into `db/settings.rs`.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass.
+- [x] `commands/icons_cycle_probe.rs` and `commands/icons_cycle_commands.rs` are merged/removed; `commands/icons.rs` holds only thin command adapters without disk/probe mechanics or `image_sniff` pass-throughs.
+- [x] `db/icon_cycle.rs` contains SQLite persistence only; pure icon state-machine and `pick_detail_icon_with_level` logic live in `crate::icons`.
+- [x] `db/tokens.rs` and `db/mod.rs` setting normalizers are consolidated into `db/settings.rs`.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass.

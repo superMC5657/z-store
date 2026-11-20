@@ -1,6 +1,6 @@
 # Issue 02: 设置键白名单零分配、错误边界统一与启动降级可观测性
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -32,9 +32,9 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `is_managed_setting_key` 零堆分配，且有单测保证与 `get_default_settings()` 键集 100% 同步。
-- [ ] `get_home_feed` 与 `fetch_trends_text` 返回 `crate::AppResult<T>`，与其余 Tauri commands 保持一致。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 全部通过。
+- [x] `is_managed_setting_key` 零堆分配，且有单测保证与 `get_default_settings()` 键集 100% 同步。
+- [x] `get_home_feed` 与 `fetch_trends_text` 返回 `crate::AppResult<T>`，与其余 Tauri commands 保持一致。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 全部通过。
 
 ## Comments
 

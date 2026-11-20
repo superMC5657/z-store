@@ -1,6 +1,6 @@
 # 本地用户画像与 Catalog 动态推荐 · 开发计划
 
-Status: ready-for-agent
+Status: resolved
 Scope: 一期严格基于用户 GitHub Stars/Forks 仓库特征、应用内 Stars/Favorites/Watch 以及候选应用自身的 Stars/Forks 在本地构建推荐画像，并在设置页提供「本地推荐与隐私数据看板」（点击、浏览、停留时长等延后至二期；不做 300 条目规模下的冗余本地搜索缓存）
 
 ## 1. 核心决策锁定

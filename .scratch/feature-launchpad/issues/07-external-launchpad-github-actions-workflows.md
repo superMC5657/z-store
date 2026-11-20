@@ -74,9 +74,9 @@ Blocked by: 06
 
 ## Acceptance Criteria
 
-- [ ] Node 单测（`node --test scripts/*.test.mjs`）完整覆盖：
+- [x] Node 单测（`node --test scripts/*.test.mjs`）完整覆盖：
   - Issue Form Markdown 解析（含多行自荐语、空选填项、恶意 Markdown 边界）；
   - 置顶满 4 个坑位时的拒绝与最早到期提示逻辑、同 `id` 续期幂等更新逻辑；
   - `pin_until` 到期撤下后 `items` 完整保留且不丢讨论编号；
   - `stars-history.json` 跨天滚动裁剪与 `stars_7d_delta` 计算准确性。
-- [ ] 全部 `.github/workflows/*.yml` 无表达式注入漏洞（零 `${{ github.event.issue.* }}` 直接拼入 `run:` 脚本行），且写操作工作流均声明同一 `launchpad-json-write` 并发组。
+- [x] 全部 `.github/workflows/*.yml` 无表达式注入漏洞（零 `${{ github.event.issue.* }}` 直接拼入 `run:` 脚本行），且写操作工作流均声明同一 `launchpad-json-write` 并发组。

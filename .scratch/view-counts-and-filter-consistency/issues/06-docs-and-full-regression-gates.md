@@ -46,6 +46,6 @@ Blocked by: 03, 04, 05
 
 ## Acceptance Criteria
 
-- [ ] `docs/count-display.md` 与 `CONTEXT.md` 准确反映现行实现，无历史演进措辞，不引入任何违反 `countDisplay.test.ts` 的示例。
-- [ ] 新增的 App 级跨视图数量一致性回归测试通过。
-- [ ] 上述 5 项全量构建与测试门禁 100% 绿灯通过。
+- [x] `docs/count-display.md` 与 `CONTEXT.md` 准确反映现行实现，无历史演进措辞，不引入任何违反 `countDisplay.test.ts` 的示例。
+- [x] 新增的 App 级跨视图数量一致性回归测试通过。
+- [x] 上述 5 项全量构建与测试门禁 100% 绿灯通过。

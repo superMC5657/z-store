@@ -1,6 +1,6 @@
 # Issue 03: 重阻塞系统探测与磁盘图标读取的异步卸载与锁拆分
 
-Status: needs-triage
+Status: resolved
 Blocked by: 01
 
 ## Summary
@@ -45,6 +45,6 @@ Blocked by: 01
 
 ## Acceptance Criteria
 
-- [ ] `get_installed_apps` 与 `launch_app` 不再在 Tauri 主线程/IPC 线程执行同步注册表枚举与文件系统探测。
-- [ ] 批量接口读取磁盘图标文件与 Base64 编码期间不持有 `AppState.db` `Mutex` 锁。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 全部通过。
+- [x] `get_installed_apps` 与 `launch_app` 不再在 Tauri 主线程/IPC 线程执行同步注册表枚举与文件系统探测。
+- [x] 批量接口读取磁盘图标文件与 Base64 编码期间不持有 `AppState.db` `Mutex` 锁。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 全部通过。

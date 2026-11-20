@@ -51,10 +51,10 @@ Blocked by: 04
 
 ## Acceptance Criteria
 
-- [ ] 单测（`LaunchpadDiscussionDrawer.test.tsx`）验证：
+- [x] 单测（`LaunchpadDiscussionDrawer.test.tsx`）验证：
   - 打开抽屉正确加载主帖、评论与二级回复，包含 `<script>alert(1)</script>` 或 `onerror=` 的恶意评论 Markdown 被 `sanitizeHtml` 完全剥离；
   - 项目作者本人的评论正确显示单色 `作者` / `Maker` `.status-tag`；
   - 已登录态下点击 `+1` 顶帖调用 `toggleLaunchpadUpvote` 并同步更新父级计数；提交一级评论与二级回复（带 `replyToId`）调用 `addLaunchpadComment` 并就地上屏；
   - 未登录态下不渲染可提交文本框，展示「前往登录」与「在 GitHub 打开」降级入口，点击「前往登录」触发账号设置导航；
   - 按下 `Escape` 正常关闭抽屉。
-- [ ] `noDirectInvoke.test.ts`、`countDisplay.test.ts`、`components.i18n.scan.test.ts`、`npx vitest run` 全部通过。
+- [x] `noDirectInvoke.test.ts`、`countDisplay.test.ts`、`components.i18n.scan.test.ts`、`npx vitest run` 全部通过。

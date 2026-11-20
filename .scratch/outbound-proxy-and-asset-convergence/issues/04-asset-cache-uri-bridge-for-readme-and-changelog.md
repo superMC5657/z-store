@@ -67,10 +67,10 @@ Fix the broken general image disk-cache bridge (`fetch_or_cache_asset_url`) and 
 
 ## Acceptance Criteria
 
-- [ ] Rust unit test: `fetch_or_cache_asset_url_inner` stores a mocked PNG/GIF image and returns a `data:image/png;base64,...` / `data:image/gif;base64,...` string on both initial fetch and subsequent 30-day cache hit; dynamic badge URLs (`shields.io`) return the original URL without network fetch.
-- [ ] Frontend unit test (`assetCache.test.ts`): in simulated real Tauri runtime (`__TAURI_INTERNALS__.invoke` mocked), initial render of Markdown with `<img src="https://raw.githubusercontent.com/o/r/main/demo.png">` and `demo.gif` does **not** expose raw `https://raw.githubusercontent.com/...` on `<img src>` before `fetchOrCacheAssetUrl` resolves, and updates `<img src>` to the returned `data:image/...` URI once resolved (bounded to concurrency `<= 4` and single-flight per unique URL).
-- [ ] Existing `AppDetailModal.readme.test.tsx` and `InstalledView.test.tsx` pass without regression.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` and `npx vitest run` pass.
+- [x] Rust unit test: `fetch_or_cache_asset_url_inner` stores a mocked PNG/GIF image and returns a `data:image/png;base64,...` / `data:image/gif;base64,...` string on both initial fetch and subsequent 30-day cache hit; dynamic badge URLs (`shields.io`) return the original URL without network fetch.
+- [x] Frontend unit test (`assetCache.test.ts`): in simulated real Tauri runtime (`__TAURI_INTERNALS__.invoke` mocked), initial render of Markdown with `<img src="https://raw.githubusercontent.com/o/r/main/demo.png">` and `demo.gif` does **not** expose raw `https://raw.githubusercontent.com/...` on `<img src>` before `fetchOrCacheAssetUrl` resolves, and updates `<img src>` to the returned `data:image/...` URI once resolved (bounded to concurrency `<= 4` and single-flight per unique URL).
+- [x] Existing `AppDetailModal.readme.test.tsx` and `InstalledView.test.tsx` pass without regression.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` and `npx vitest run` pass.
 
 ## Comments
 

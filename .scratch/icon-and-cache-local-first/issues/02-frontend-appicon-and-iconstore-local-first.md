@@ -88,8 +88,8 @@ Fix the frontend icon rendering and preloading pipeline so that cached icons on 
 
 ## Acceptance Criteria
 
-- [ ] When `<AppIcon icon="https://..." appId="o/r" />` experiences an `<img onError>` due to network fluctuation, and `iconStore` subsequently populates `iconDataCache` for `"https://..."` or `"o/r"`, `<AppIcon>` automatically resets `hasError`, re-renders, and displays `<img src="data:image/..." />`.
-- [ ] When `startIconFetch` resolves `getOrFetchIcon`, mounted `<AppIcon>` components waiting on that URL or `appId` re-render with the `data:` URI without requiring a parent component re-render.
-- [ ] In `queueAssembledRowIcons`, URLs currently within their 30s backoff window do not consume slots in the 30-item batch, allowing items at index 30+ to be queued.
-- [ ] `FavoritesView`, `InstalledView`, `UpdatesView`, and `AppDetailModal/Header` load local cached icons normally.
-- [ ] All tests in `AppIcon.simplify.test.tsx`, `iconStore.deepen.test.ts`, `iconStore.bounds.test.ts`, and `Header.l5cycle.test.tsx` pass under `npx vitest run`.
+- [x] When `<AppIcon icon="https://..." appId="o/r" />` experiences an `<img onError>` due to network fluctuation, and `iconStore` subsequently populates `iconDataCache` for `"https://..."` or `"o/r"`, `<AppIcon>` automatically resets `hasError`, re-renders, and displays `<img src="data:image/..." />`.
+- [x] When `startIconFetch` resolves `getOrFetchIcon`, mounted `<AppIcon>` components waiting on that URL or `appId` re-render with the `data:` URI without requiring a parent component re-render.
+- [x] In `queueAssembledRowIcons`, URLs currently within their 30s backoff window do not consume slots in the 30-item batch, allowing items at index 30+ to be queued.
+- [x] `FavoritesView`, `InstalledView`, `UpdatesView`, and `AppDetailModal/Header` load local cached icons normally.
+- [x] All tests in `AppIcon.simplify.test.tsx`, `iconStore.deepen.test.ts`, `iconStore.bounds.test.ts`, and `Header.l5cycle.test.tsx` pass under `npx vitest run`.

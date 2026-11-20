@@ -106,20 +106,20 @@ Replace the `O(N × M)` substring heuristic loop in `src-tauri/src/scanner/match
 
 ## Acceptance Criteria
 
-- [ ] `CatalogMatchIndex` unit tests verify candidate retrieval runs via inverted buckets without scanning unrelated catalog items, and `match_unmanaged` skips already-managed IDs and incompatible-platform items before disk/PE probes.
-- [ ] Unit tests verify `normalize_app_title`:
+- [x] `CatalogMatchIndex` unit tests verify candidate retrieval runs via inverted buckets without scanning unrelated catalog items, and `match_unmanaged` skips already-managed IDs and incompatible-platform items before disk/PE probes.
+- [x] Unit tests verify `normalize_app_title`:
   - `"Motrix 1.8.19"` → `"motrix"`
   - `"7-Zip 24.08 (x64)"` → `"7-zip"`
   - `"Mozilla Firefox (x64 zh-CN)"` → `"mozilla firefox"`
   - `"Microsoft Visual Studio Code (User)"` → `"microsoft visual studio code"` (and matches `microsoft/vscode` with `high` confidence).
-- [ ] Anti-false-positive unit tests verify:
+- [x] Anti-false-positive unit tests verify:
   - `Miniconda3` at `C:\Users\admin\miniconda3` scores `< 0.45` (0 match) against `minbrowser/min`;
   - `WPS Office` at `C:\Program Files\WPS Office` scores `< 0.45` against `jordanbaird/ice`;
   - `Microsoft Visual Studio IDE` (Publisher: `Microsoft Corporation`) does **not** match `microsoft/vscode`;
   - `AnyDesk`, `1Password`, `Postman`, `Mozilla Firefox` do **not** match `rustdesk`, `keepassxc`, API clients, or `floorp`;
   - Official `7-Zip 24.08 (x64)` at `C:\Program Files\7-Zip\7zFM.exe` (Publisher: `Igor Pavlov`) does **not** falsely match `mcmilk/7-zip-zstd`.
-- [ ] Recall unit tests verify:
+- [x] Recall unit tests verify:
   - `"Motrix 1.8.18"` (older version, no `InstallLocation`, non-matching publisher) matches `agalwood/motrix`;
   - Localized `"思源笔记"` with `DisplayIcon = "D:\\SiYuan\\SiYuan.exe"` matches `siyuan-note/siyuan`;
   - `AppMatchResult.match_reasons` contains accurate reason tags (`"exact_name"`, `"executable"`, `"publisher"`, etc.).
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml` pass cleanly.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml` pass cleanly.

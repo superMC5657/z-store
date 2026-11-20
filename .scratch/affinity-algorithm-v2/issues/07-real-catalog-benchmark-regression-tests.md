@@ -33,5 +33,5 @@ Blocked by: 04, 05, 06
 
 ## 验收标准
 
-- [ ] 5 项真实目录量化门禁测试全部编写完成并通过。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 零警告全绿。
+- [x] 5 项真实目录量化门禁测试全部编写完成并通过。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 零警告全绿。

@@ -22,7 +22,7 @@ Blocked by: 02, 07
 
 ## 验收标准
 
-- [ ] 单测：点击「不感兴趣」以正确 camelCase 参数调用 `dismiss_featured`，卡片从 DOM 移除且其余卡片顺序不变。
-- [ ] 单测：调用失败时卡片恢复。
-- [ ] 单测：兴趣选择卡未选直接保存出现行内提示且不发请求。
-- [ ] `ipcArgsNaming.test.ts` 通过。
+- [x] 单测：点击「不感兴趣」以正确 camelCase 参数调用 `dismiss_featured`，卡片从 DOM 移除且其余卡片顺序不变。
+- [x] 单测：调用失败时卡片恢复。
+- [x] 单测：兴趣选择卡未选直接保存出现行内提示且不发请求。
+- [x] `ipcArgsNaming.test.ts` 通过。

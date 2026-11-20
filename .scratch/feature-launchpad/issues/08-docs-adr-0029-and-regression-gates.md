@@ -48,5 +48,5 @@ Blocked by: 04, 05
 
 ## Acceptance Criteria
 
-- [ ] `ADR-0029`、`CONTEXT.md`、`AGENTS.md`、`docs/count-display.md` 术语一致，遵循「只描述当前系统行为、不写变更流水账」的文档规范。
-- [ ] 上述 5 条全量构建与测试命令 100% 绿灯通过。
+- [x] `ADR-0029`、`CONTEXT.md`、`AGENTS.md`、`docs/count-display.md` 术语一致，遵循「只描述当前系统行为、不写变更流水账」的文档规范。
+- [x] 上述 5 条全量构建与测试命令 100% 绿灯通过。

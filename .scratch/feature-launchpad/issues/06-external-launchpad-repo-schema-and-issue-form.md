@@ -53,7 +53,7 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `node --test scripts/validate-launchpad.test.mjs` 覆盖并通过以下用例：
+- [x] `node --test scripts/validate-launchpad.test.mjs` 覆盖并通过以下用例：
   - 合法的含置顶与多托管源条目的 `launchpad.json` 校验通过；
   - `pinned` 超过 4 条、引用不存在的 `id`、含重复 `id`、含 `data:image/png...` 图标、非 OSI 协议（如 `BUSL-1.1` / `NOASSERTION`）或超 140 字 `maker_note` 均精准报错并以非 0 退出码拦截。
-- [ ] `submit-launchpad.yml` 符合 GitHub Issue Forms YAML 语法规范，全部字段 `id` 唯一且与解析脚本契约一致。
+- [x] `submit-launchpad.yml` 符合 GitHub Issue Forms YAML 语法规范，全部字段 `id` 唯一且与解析脚本契约一致。

@@ -54,7 +54,7 @@ Blocked by: 01
 
 ## Acceptance Criteria
 
-- [ ] Rust 单测覆盖 `discussion_repo` 非法坐标拦截（空串、单段、含路径遍历 `..`、非 GitHub `codeberg:a/b` 前缀）。
-- [ ] Rust 单测覆盖 GraphQL 响应解析器（正常主帖+二级回复、已锁帖 `locked == true`、`INSUFFICIENT_SCOPES` 错误映射、`addUpvote` `FORBIDDEN` 时触发 `THUMBS_UP` Reaction 回退解析）。
-- [ ] Rust 单测覆盖匿名 REST JSON 解析与限流降级行为（`auth_required_for_write == true`，`url` 拼接正确）。
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部零警告通过。
+- [x] Rust 单测覆盖 `discussion_repo` 非法坐标拦截（空串、单段、含路径遍历 `..`、非 GitHub `codeberg:a/b` 前缀）。
+- [x] Rust 单测覆盖 GraphQL 响应解析器（正常主帖+二级回复、已锁帖 `locked == true`、`INSUFFICIENT_SCOPES` 错误映射、`addUpvote` `FORBIDDEN` 时触发 `THUMBS_UP` Reaction 回退解析）。
+- [x] Rust 单测覆盖匿名 REST JSON 解析与限流降级行为（`auth_required_for_write == true`，`url` 拼接正确）。
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部零警告通过。

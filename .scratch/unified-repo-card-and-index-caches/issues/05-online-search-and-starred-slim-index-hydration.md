@@ -93,12 +93,12 @@ Complete the slim ID-index + `repo_card_cache` batch hydration refactor across O
 
 ## Acceptance Criteria
 
-- [ ] Unit tests in `starredCache.test.ts` verify `buildStarredEnvelopeJson` produces `{ v: 2, pages: [{ page, ids }], hasMore }`, caps at 3 pages / 60 IDs with `hasMore: true`, contains zero `AppSummary` fields, and `readDbStarredCache` rejects `v: 1` envelopes, future timestamps, and >12h stale rows unless `allowStale: true`.
-- [ ] Component tests in `StarredFeed.test.tsx` verify:
+- [x] Unit tests in `starredCache.test.ts` verify `buildStarredEnvelopeJson` produces `{ v: 2, pages: [{ page, ids }], hasMore }`, caps at 3 pages / 60 IDs with `hasMore: true`, contains zero `AppSummary` fields, and `readDbStarredCache` rejects `v: 1` envelopes, future timestamps, and >12h stale rows unless `allowStale: true`.
+- [x] Component tests in `StarredFeed.test.tsx` verify:
   - Cold mount reads `getStarredFeedCache` (`v: 2` IDs) + `getRepoCardsBatch` once to render full `<AppCard>`s with persisted `platforms`, `confirmed_other` badges, and `data:`/URL icons with **0** `listGithubStarred` calls and **0** `getPlatformsLite` calls for already-settled repos;
   - Manual re-sync keeps old cards on screen, writes slim `v: 2` `{ pages, hasMore }` to `saveStarredFeedCache`, and platform/icon updates do not trigger redundant `saveStarredFeedCache` writes;
   - Logging out clears `@me:` UI state, L1 memory, and private cards in `repoEnrichCache`, and never writes `@me:` back to `saveStarredFeedCache`.
-- [ ] Hook tests in `useSearchState.test.tsx` verify:
+- [x] Hook tests in `useSearchState.test.tsx` verify:
   - Cold search (empty L1 memory, populated L2 `getSearchListCache` + `getRepoCardsBatch`) paints hydrated cards immediately: `< 5min` makes **0** `searchAppsOnline` calls, while `> 5min` paints immediately (SWR) and revalidates silently via `searchAppsOnline(..., forceRefresh = false)`;
   - Live non-stale search writes `{ v: 2, ids, hasMore }` (and `hasPrivate = true` when `private_ids` is non-empty) to `saveSearchListCache`, and honors `confirmed_other_ids` so settled `Other` rows skip `getPlatformsLite`.
-- [ ] `npx tsc --noEmit` and `npx vitest run` pass 100%.
+- [x] `npx tsc --noEmit` and `npx vitest run` pass 100%.

@@ -58,7 +58,7 @@ Document the architecture concisely in present tense:
 
 ## Acceptance Criteria
 
-- [ ] `docs/adr/0026-search-starred-cache-and-enrich-convergence.md` is created and `ADR-0015`, `ADR-0019`, and `CONTEXT.md` are aligned in present tense with zero contradictions.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` passes with 0 warnings.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes with 0 failures.
-- [ ] `npx tsc --noEmit`, `npx vitest run`, and `npx vite build --config vite.demo.config.ts` all pass with 0 errors.
+- [x] `docs/adr/0026-search-starred-cache-and-enrich-convergence.md` is created and `ADR-0015`, `ADR-0019`, and `CONTEXT.md` are aligned in present tense with zero contradictions.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` passes with 0 warnings.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` passes with 0 failures.
+- [x] `npx tsc --noEmit`, `npx vitest run`, and `npx vite build --config vite.demo.config.ts` all pass with 0 errors.

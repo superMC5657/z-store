@@ -43,7 +43,7 @@ Per `codebase-design`, this splits one cohesive **External App Management** oper
 
 ## Acceptance Criteria
 
-- [ ] `src-tauri/src/scanner/join.rs` is deleted and removed from `scanner/mod.rs`.
-- [ ] `commands/scanner.rs` calls a single `AppScanner::scan_unmanaged` interface rather than orchestrating scan → canonicalize → match → filter steps.
-- [ ] Behavioral coverage for fuzzy matching + canonical case-drift healing is tested directly through `AppScanner::match_unmanaged`.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass.
+- [x] `src-tauri/src/scanner/join.rs` is deleted and removed from `scanner/mod.rs`.
+- [x] `commands/scanner.rs` calls a single `AppScanner::scan_unmanaged` interface rather than orchestrating scan → canonicalize → match → filter steps.
+- [x] Behavioral coverage for fuzzy matching + canonical case-drift healing is tested directly through `AppScanner::match_unmanaged`.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` and `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` pass.

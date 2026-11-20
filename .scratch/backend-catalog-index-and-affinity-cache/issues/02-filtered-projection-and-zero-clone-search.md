@@ -1,6 +1,6 @@
 # Issue 02: 按需过滤投影与零全库克隆搜索/开发者画像匹配
 
-Status: needs-triage
+Status: resolved
 Blocked by: 01
 
 ## Summary
@@ -35,6 +35,6 @@ Blocked by: 01
 
 ## Acceptance Criteria
 
-- [ ] `get_category_apps`、`get_latest_catalog_apps`、`search_local_catalog` 与 `fetch_developer_profile_with_cache` 不再触发全库 `Vec<CatalogItem>` 克隆。
-- [ ] 分页结果、`matched_ids` 与排序稳定性（`stars DESC, id ASC` 等）与现有行为完全一致。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+- [x] `get_category_apps`、`get_latest_catalog_apps`、`search_local_catalog` 与 `fetch_developer_profile_with_cache` 不再触发全库 `Vec<CatalogItem>` 克隆。
+- [x] 分页结果、`matched_ids` 与排序稳定性（`stars DESC, id ASC` 等）与现有行为完全一致。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。

@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS user_feed_feedback (
 
 ## 8. 验收
 
-- 四种画像状态各有前端单测覆盖区块组合；后端组装器有表驱动单测覆盖去重、分类互斥、平台过滤、已装排除、反馈过期。
-- 同一 `daySeed` 下两次调用结果完全一致；换 `daySeed` 后 hero 至少有 1 个变化（目录 ≥ 20 时）。
-- `ipcArgsNaming.test.ts`、`noDirectInvoke.test.ts`、`countDisplay.test.ts`、`views.i18n.test.tsx` 通过。
-- `pnpm test`、`cargo test --manifest-path src-tauri/Cargo.toml` 全绿；演示站（`vite.demo.config.ts`）精选页可渲染 `rich` 与 `cold` 两种 mock。
+- [x] 四种画像状态各有前端单测覆盖区块组合；后端组装器有表驱动单测覆盖去重、分类互斥、平台过滤、已装排除、反馈过期。
+- [x] 同一 `daySeed` 下两次调用结果完全一致；换 `daySeed` 后 hero 至少有 1 个变化（目录 ≥ 20 时）。
+- [x] `ipcArgsNaming.test.ts`、`noDirectInvoke.test.ts`、`countDisplay.test.ts`、`views.i18n.test.tsx` 通过。
+- [x] `pnpm test`、`cargo test --manifest-path src-tauri/Cargo.toml` 全绿；演示站（`vite.demo.config.ts`）精选页可渲染 `rich` 与 `cold` 两种 mock。

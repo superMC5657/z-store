@@ -28,8 +28,8 @@ Blocked by: none
 
 ## 验收标准
 
-- [ ] 单测：只有 installed 信号时 `has_signals = true`，对应分类权重 > 0，且该 id 在 `known_ids` 与 `installed_ids` 中。
-- [ ] 单测：7 天前的浏览权重约为当天的一半（±1%）。
-- [ ] 单测：搜索词只影响 `token_weights`，不改 `category_weights`。
-- [ ] 现有 `affinity` 与 `catalog_feed_score` 单测不改断言全部通过。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
+- [x] 单测：只有 installed 信号时 `has_signals = true`，对应分类权重 > 0，且该 id 在 `known_ids` 与 `installed_ids` 中。
+- [x] 单测：7 天前的浏览权重约为当天的一半（±1%）。
+- [x] 单测：搜索词只影响 `token_weights`，不改 `category_weights`。
+- [x] 现有 `affinity` 与 `catalog_feed_score` 单测不改断言全部通过。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。

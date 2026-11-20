@@ -1,6 +1,6 @@
 # Issue 01: `CatalogService` 哈希索引与只读借用收口
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -33,6 +33,6 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `CatalogService` 内部所有按 `id` 查找方法均为 $O(1)$ 哈希查找，无 `.iter().find(|i| i.id == key)` 线性扫描。
-- [ ] `is_cataloged` 与 `resolve_catalog_stamp` 不产生 `CatalogItem` 克隆。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 中所有目录、盖章与搜索相关单测全部通过。
+- [x] `CatalogService` 内部所有按 `id` 查找方法均为 $O(1)$ 哈希查找，无 `.iter().find(|i| i.id == key)` 线性扫描。
+- [x] `is_cataloged` 与 `resolve_catalog_stamp` 不产生 `CatalogItem` 克隆。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 中所有目录、盖章与搜索相关单测全部通过。

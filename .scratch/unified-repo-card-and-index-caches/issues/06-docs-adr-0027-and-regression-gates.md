@@ -51,6 +51,6 @@ Run and verify clean exit codes on all repository gates:
 
 ## Acceptance Criteria
 
-- [ ] `docs/adr/0027-isolated-repo-card-cache-and-slim-id-list-indexes.md` is complete, accurate, and cross-linked from `ADR-0014`, `ADR-0015`, `ADR-0026`, `CONTEXT.md`, and `.scratch/unified-repo-card-and-index-caches/spec.md`.
-- [ ] `CONTEXT.md` terminology and D2/D9/D10 invariants match the implemented code without stale numbers or change-history narration.
-- [ ] All 5 verification commands (`cargo clippy`, `cargo test`, `npx tsc --noEmit`, `npx vitest run`, `npx vite build --config vite.demo.config.ts`) pass with zero warnings and zero errors.
+- [x] `docs/adr/0027-isolated-repo-card-cache-and-slim-id-list-indexes.md` is complete, accurate, and cross-linked from `ADR-0014`, `ADR-0015`, `ADR-0026`, `CONTEXT.md`, and `.scratch/unified-repo-card-and-index-caches/spec.md`.
+- [x] `CONTEXT.md` terminology and D2/D9/D10 invariants match the implemented code without stale numbers or change-history narration.
+- [x] All 5 verification commands (`cargo clippy`, `cargo test`, `npx tsc --noEmit`, `npx vitest run`, `npx vite build --config vite.demo.config.ts`) pass with zero warnings and zero errors.

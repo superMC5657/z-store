@@ -60,9 +60,9 @@ Blocked by: 01, 02
 
 ## Acceptance Criteria
 
-- [ ] Rust 单测验证 `DeepLinkParser::parse`：
+- [x] Rust 单测验证 `DeepLinkParser::parse`：
   - `zstore://view/launchpad` 与 `zstore://launchpad` 返回 `OpenView { view: "launchpad" }`；
   - `zstore://launchpad/Acme/Hyper-Term` 归一返回 `LaunchpadApp { app_id: "acme/hyper-term" }`；
   - `zstore://launchpad/%00bad` 安全拒绝返回 `None`。
-- [ ] 前端门禁单测 `cmdAlignment.test.ts`、`ipcArgsNaming.test.ts`、`navigation.test.ts`、`Sidebar.test.tsx`、`useDeepLink.test.tsx` 全部通过。
-- [ ] `npx tsc --noEmit` 与 `npx vite build --config vite.demo.config.ts` 零错误通过。
+- [x] 前端门禁单测 `cmdAlignment.test.ts`、`ipcArgsNaming.test.ts`、`navigation.test.ts`、`Sidebar.test.tsx`、`useDeepLink.test.tsx` 全部通过。
+- [x] `npx tsc --noEmit` 与 `npx vite build --config vite.demo.config.ts` 零错误通过。

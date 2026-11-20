@@ -1,6 +1,6 @@
 # Issue 01: 批量 DAO 预读与 `repo_card_cache` / 富卡管道去 N+1
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -35,6 +35,6 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `upsert_repo_cards_batch` 对 $N$ 条卡片的读前置固定为常数次批量分片查询（而非 $2N$ 次单行查询）。
-- [ ] `search_apps_online`、`enrich_trend_repos`、`cards_from_repo_payloads` 与 `hydrate_repo_cards` 每页只查一次 `app_icon_cycles` / `repo_card_cache` / `app_details` / `api_etag_cache`。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过（含 `repo_card_pipeline_tests` 与 `db::repo_cards::tests`）。
+- [x] `upsert_repo_cards_batch` 对 $N$ 条卡片的读前置固定为常数次批量分片查询（而非 $2N$ 次单行查询）。
+- [x] `search_apps_online`、`enrich_trend_repos`、`cards_from_repo_payloads` 与 `hydrate_repo_cards` 每页只查一次 `app_icon_cycles` / `repo_card_cache` / `app_details` / `api_etag_cache`。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过（含 `repo_card_pipeline_tests` 与 `db::repo_cards::tests`）。

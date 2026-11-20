@@ -84,10 +84,10 @@ Upgrade `FavoritesView/StarredFeed` from a transient single-slot memory view int
 
 ## Acceptance Criteria
 
-- [ ] Unit tests in `src/services/starred/starredCache.test.ts` verify envelope sanitization (`data:` icon stripped to `''`, `is_cataloged`/`source`/`status` stripped, `> 60` rows capped to 3 pages, `> 256KB` truncated safely) and 12h freshness calculation.
-- [ ] Component tests in `src/views/FavoritesView/StarredFeed.test.tsx` verify:
+- [x] Unit tests in `src/services/starred/starredCache.test.ts` verify envelope sanitization (`data:` icon stripped to `''`, `is_cataloged`/`source`/`status` stripped, `> 60` rows capped to 3 pages, `> 256KB` truncated safely) and 12h freshness calculation.
+- [x] Component tests in `src/views/FavoritesView/StarredFeed.test.tsx` verify:
   - Cold mount with a mocked `get_starred_feed_cache` snapshot renders rich cards + backfilled DB icons immediately with **0** calls to `list_github_starred`.
   - Switching input `alice` → `bob` → `alice` within 5 minutes serves `alice` from L1 cache without re-calling `list_github_starred`.
   - Clicking「立即同步」on an already-loaded feed keeps existing cards visible during in-flight request, calls `list_github_starred` with `forceRefresh: true`, and updates L1 + `save_starred_feed_cache`.
   - Logging out (`oauthUser` changing from `{ login: 'alice' }` to `null`) clears `@me:alice` state and memory cache immediately.
-- [ ] `npx tsc --noEmit` and `npx vitest run src/services/starred/ src/views/FavoritesView/` pass with 0 errors.
+- [x] `npx tsc --noEmit` and `npx vitest run src/services/starred/ src/views/FavoritesView/` pass with 0 errors.

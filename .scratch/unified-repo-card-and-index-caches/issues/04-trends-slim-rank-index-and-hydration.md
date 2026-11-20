@@ -76,11 +76,11 @@ Slim `trend_board_cache` down to a pure `v: 2` ranking/stars-gained index (`{ v:
 
 ## Acceptance Criteria
 
-- [ ] Unit tests in `src/services/trends/cache.test.ts` verify:
+- [x] Unit tests in `src/services/trends/cache.test.ts` verify:
   - `saveDbTrendCache` writes `{ v: 2, items: [{ id, stars, starsGained, forks }] }` containing zero `AppSummary` fields (`description`, `icon`, `platforms`, `enrich`, `confirmedOther` are absent);
   - `getDbTrendCache` parses `v: 2` envelopes (preserving `stars`, `starsGained`, and `forks` for `doforce` `rising`/`healthy` sorting), rejects legacy `v: 1` or malformed payloads as misses, and honors `daily` 1h / others 12h TTL + jitter + `allowStale`.
-- [ ] Session & view tests (`swr.test.ts`, `swr-view.test.tsx`, `board.heal.test.ts`, `TrendsView*.test.tsx`) verify:
+- [x] Session & view tests (`swr.test.ts`, `swr-view.test.tsx`, `board.heal.test.ts`, `TrendsView*.test.tsx`) verify:
   - Cold start with L2 `trend_board_cache` (`v: 2`) + `getRepoCardsBatch` renders full `<AppCard>`s (including persisted `platforms`, `confirmed_other` `Other` badges, and `data:` confirmed icons) and makes **0** `enrichTrendRepos` or `getPlatformsLite` network calls for fresh settled cards;
   - Repos hydrated in State 0 (`platforms: []`, `confirmed_other: false`, fresh `updated_at`) render `<AppCard>` with `platformLoading = true`, skip `enrichTrendRepos`, and run `getPlatformsLite` to deduce platforms;
   - Streaming icons, lite platform patches, and detail healing update `TrendBoardSession` & M1 `repoEnrichCache` immediately **without** invoking `save_trend_board_cache`.
-- [ ] `npx tsc --noEmit` and `npx vitest run` pass 100%.
+- [x] `npx tsc --noEmit` and `npx vitest run` pass 100%.

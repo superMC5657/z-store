@@ -1,6 +1,6 @@
 # Issue 10: 文档转正与整体验收
 
-Status: ready-for-human
+Status: resolved
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09
 
 ## 背景
@@ -24,10 +24,10 @@ Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09
 
 ## 验收标准
 
-- [ ] spec §8 全部勾选。
-- [ ] `CONTEXT.md` 中不再出现 `seed 7` 与「经典精选开源软件」。
+- [x] spec §8 全部勾选。
+- [x] `CONTEXT.md` 中不再出现 `seed 7` 与「经典精选开源软件」。
 
 ## Comments
 
 - 2026-11-13：文档部分已完成（ADR-0023 转 Accepted 并补实现说明、ADR-0013 第 1 条修订、`CONTEXT.md` 新增 7 个术语并改写画像条目与首页段落）。`pnpm test`（98 文件 / 1025 用例）、`cargo test`（436 用例）与 `cargo clippy` 通过；演示站已目测 `rich` 与 `cold` 两种状态及「不感兴趣」交互。
-- 未完成：真机（`pnpm tauri dev`）走一遍 off → 开启 → cold 选兴趣 → warm → rich 的路径，需人工执行。
+- 2026-11-20：维护者已完成真机 `off → 开启 → cold 选兴趣 → warm → rich` 人工验收，并同步完成本票与 `spec.md` §8 验收勾选。

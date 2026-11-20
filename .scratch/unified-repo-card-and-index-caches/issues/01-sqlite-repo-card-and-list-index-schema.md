@@ -151,13 +151,13 @@ Build the SQLite persistence foundation for the refactored discovery/sync cache 
 
 ## Acceptance Criteria
 
-- [ ] Schema migration test in `db/schema.rs` verifies upgrading a `user_version = 5` DB with rows in `trend_board_cache` and `starred_feed_cache` stamps `user_version = 6`, clears legacy `v: 1` list rows, and creates `repo_card_cache` and `search_list_cache`.
-- [ ] Unit tests in `db/repo_cards.rs` verify:
+- [x] Schema migration test in `db/schema.rs` verifies upgrading a `user_version = 5` DB with rows in `trend_board_cache` and `starred_feed_cache` stamps `user_version = 6`, clears legacy `v: 1` list rows, and creates `repo_card_cache` and `search_list_cache`.
+- [x] Unit tests in `db/repo_cards.rs` verify:
   - `data:` icons and body-image URLs are stripped to `""` on write and never overwrite an existing remote `http(s)` icon;
   - Placeholder descriptions (`"开源软件项目"`, `"GitHub 社区开源项目"`, `"No description available"`), placeholder versions (`"latest"`, `"..."`), placeholder licenses (`"unknown"`), `"external"` category, and empty `homepage` never overwrite existing real values;
   - Concrete `platforms` (`["windows"]`) upgrade `confirmed_other = 1` and clear `confirmed_other` to `0`, while incoming empty `platforms` (both `confirmed_other = false` and `confirmed_other = true`) never downgrade existing concrete `platforms`;
   - Pre-seeded platform rows (`updated_at = 0`) are hidden from `get_repo_card` / `get_repo_cards_batch_and_touch` until full repo metadata arrives, at which point the full upsert inherits the pre-seeded platforms and version;
   - `get_repo_cards_batch_and_touch` updates `last_accessed_at`, and `prune_repo_card_cache` evicts least-recently-accessed rows first while keeping recently touched rows;
   - `purge_cataloged_repo_cards` removes rows matching `catalog_apps` or active local library `custom_apps` (`collected`/`local_collected`/`submitted`, `archived = 0`) while leaving `draft` or uncataloged rows intact.
-- [ ] Unit tests in `db/tests.rs` and `oauth/tests.rs` verify `search_list_cache` CRUD/64KiB cap/pruning, updated `64 KiB` caps on `trend_board_cache` & `starred_feed_cache`, and that `clear_oauth_session` purges `is_private = 1` repo cards and `has_private = 1` search list entries while preserving public entries.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib` pass cleanly.
+- [x] Unit tests in `db/tests.rs` and `oauth/tests.rs` verify `search_list_cache` CRUD/64KiB cap/pruning, updated `64 KiB` caps on `trend_board_cache` & `starred_feed_cache`, and that `clear_oauth_session` purges `is_private = 1` repo cards and `has_private = 1` search list entries while preserving public entries.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib` pass cleanly.

@@ -72,6 +72,6 @@ Load the real root `catalog.json` (`concat!(env!("CARGO_MANIFEST_DIR"), "/../cat
 
 ## Acceptance Criteria
 
-- [ ] `matcher_eval_tests.rs` passes 100% against the real `catalog.json` with zero adversarial false positives and full side-by-side disambiguation (`VS Code` + `VSCodium`, `Notepad++` + `Notepad Next`, standard `7-Zip` rejected from `7-Zip-zstd`).
-- [ ] `docs/adr/0028-inverted-index-and-boundary-safe-local-app-matching.md` and `CONTEXT.md` §35 are concise, present-tense, and aligned with domain terminology.
-- [ ] All 5 verification gates (`cargo clippy`, `cargo test`, `npx tsc --noEmit`, `npx vitest run`, `npx vite build --config vite.demo.config.ts`) exit 0 with zero warnings.
+- [x] `matcher_eval_tests.rs` passes 100% against the real `catalog.json` with zero adversarial false positives and full side-by-side disambiguation (`VS Code` + `VSCodium`, `Notepad++` + `Notepad Next`, standard `7-Zip` rejected from `7-Zip-zstd`).
+- [x] `docs/adr/0028-inverted-index-and-boundary-safe-local-app-matching.md` and `CONTEXT.md` §35 are concise, present-tense, and aligned with domain terminology.
+- [x] All 5 verification gates (`cargo clippy`, `cargo test`, `npx tsc --noEmit`, `npx vitest run`, `npx vite build --config vite.demo.config.ts`) exit 0 with zero warnings.

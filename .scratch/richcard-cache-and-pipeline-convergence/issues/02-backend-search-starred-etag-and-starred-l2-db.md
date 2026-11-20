@@ -103,7 +103,7 @@ Bring full HTTP ETag `304 Not Modified` conditional request caching, curated cat
 
 ## Acceptance Criteria
 
-- [ ] Mock server tests in `developer_starred_tests.rs` verify: first `fetch_starred_page` stores ETag + payload; second call sends `If-None-Match` and recovers `StarredPage` on `304 Not Modified` (including `has_more = true` when a full page of `per_page` items returns `304` without a `Link` header); transient 500/offline falls back to cached payload with `is_stale == Some(true)`.
-- [ ] Unit/mock tests verify `search_github_online` sends `If-None-Match`, recovers on `304`, and projects curated `CatalogItem` fields when a search hit matches `CatalogService`.
-- [ ] DB & OAuth tests verify `save_starred_feed_cache` (512KiB cap), `prune_starred_feed_cache` (7d + 15 rows), and that `clear_oauth_session` deletes `@me:alice` rows while preserving public `torvalds` rows.
-- [ ] `cmdAlignment.test.ts` and `ipcArgsNaming.test.ts` pass 100%, along with `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib`.
+- [x] Mock server tests in `developer_starred_tests.rs` verify: first `fetch_starred_page` stores ETag + payload; second call sends `If-None-Match` and recovers `StarredPage` on `304 Not Modified` (including `has_more = true` when a full page of `per_page` items returns `304` without a `Link` header); transient 500/offline falls back to cached payload with `is_stale == Some(true)`.
+- [x] Unit/mock tests verify `search_github_online` sends `If-None-Match`, recovers on `304`, and projects curated `CatalogItem` fields when a search hit matches `CatalogService`.
+- [x] DB & OAuth tests verify `save_starred_feed_cache` (512KiB cap), `prune_starred_feed_cache` (7d + 15 rows), and that `clear_oauth_session` deletes `@me:alice` rows while preserving public `torvalds` rows.
+- [x] `cmdAlignment.test.ts` and `ipcArgsNaming.test.ts` pass 100%, along with `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib`.

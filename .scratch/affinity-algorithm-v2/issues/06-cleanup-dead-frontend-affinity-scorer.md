@@ -23,5 +23,5 @@ ADR-0023 §3 已明确否决在前端维护一套独立画像打分器（“前�
 
 ## 验收标准
 
-- [ ] 全仓搜索 `buildFrontendAffinityScorer` 零残留引用。
-- [ ] `npx tsc --noEmit` 与 `pnpm test` 全部通过。
+- [x] 全仓搜索 `buildFrontendAffinityScorer` 零残留引用。
+- [x] `npx tsc --noEmit` 与 `pnpm test` 全部通过。

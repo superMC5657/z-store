@@ -79,9 +79,9 @@ Blocked by: 02
 
 ## Acceptance Criteria
 
-- [ ] `PendingView.test.tsx` 与 `PendingView.pr.test.tsx` 更新并通过，验证：
+- [x] `PendingView.test.tsx` 与 `PendingView.pr.test.tsx` 更新并通过，验证：
   - 顶层渲染 4 个 Tab（`草稿 / 待提交 / 已提交 / 已归档`），无二级分段行；每个 Tab 的角标严格等于点击后 `.pending-list` 内渲染的条目数；
   - 当 `entries` 仅有 `2` 条 `collected` 与 `1` 条 `submitted`（`draft = 0`）时，挂载进入 `PendingView` 自动落在 `待提交 2` Tab 并展示这 2 条，不再停在空的 `草稿 0`；
   - 当传入 `selectedPlatforms={new Set(['macos'])}` 时，4 个 Tab 角标与左栏列表仅统计/展示含 `macos` 平台的条目，被筛空的非空分组展示平台重置按钮并可触发 `onResetPlatformFilter`；
   - `onDisplayPlatformCounts` 准确上报待收录条目的平台分布。
-- [ ] `countDisplay.test.ts`（无括号计数、无私有计数类名）、`i18n.test.ts`（中英文键对称）与 `npx tsc --noEmit` 全部通过。
+- [x] `countDisplay.test.ts`（无括号计数、无私有计数类名）、`i18n.test.ts`（中英文键对称）与 `npx tsc --noEmit` 全部通过。

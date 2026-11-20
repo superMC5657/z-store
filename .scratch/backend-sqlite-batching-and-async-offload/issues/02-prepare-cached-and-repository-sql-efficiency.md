@@ -1,6 +1,6 @@
 # Issue 02: `prepare_cached` 语句复用与仓储/DAO SQL 效率优化
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -36,7 +36,7 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `Database` 静态 SQL 统一走 `prepare_cached`，动态 `IN (...)` 不污染语句缓存。
-- [ ] `CatalogRepository::backfill_cataloged_flags` 不再反序列化 `catalog_apps` / `custom_apps` 的 JSON 字段。
-- [ ] `launch_app` 使用主键点查 `get_installed_app`；`retire_custom_apps_in_tx` 使用批量 `IN` 更新。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+- [x] `Database` 静态 SQL 统一走 `prepare_cached`，动态 `IN (...)` 不污染语句缓存。
+- [x] `CatalogRepository::backfill_cataloged_flags` 不再反序列化 `catalog_apps` / `custom_apps` 的 JSON 字段。
+- [x] `launch_app` 使用主键点查 `get_installed_app`；`retire_custom_apps_in_tx` 使用批量 `IN` 更新。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。

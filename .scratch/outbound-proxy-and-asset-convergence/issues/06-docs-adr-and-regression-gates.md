@@ -47,10 +47,10 @@ Document the accepted architecture concisely:
 
 ## Acceptance Criteria
 
-- [ ] `docs/adr/0025-dynamic-system-proxy-and-asset-cache-convergence.md` is created and `ADR-0002`, `ADR-0008`, `ADR-0011`, and `CONTEXT.md` are consistent with zero contradictions or changelog-style history prose.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` passes cleanly.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml` passes with 0 failures.
-- [ ] `npx tsc --noEmit`, `npx vitest run`, and `npx vite build --config vite.demo.config.ts` all succeed with 0 errors.
+- [x] `docs/adr/0025-dynamic-system-proxy-and-asset-cache-convergence.md` is created and `ADR-0002`, `ADR-0008`, `ADR-0011`, and `CONTEXT.md` are consistent with zero contradictions or changelog-style history prose.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` passes cleanly.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` passes with 0 failures.
+- [x] `npx tsc --noEmit`, `npx vitest run`, and `npx vite build --config vite.demo.config.ts` all succeed with 0 errors.
 
 ## Comments
 

@@ -65,7 +65,7 @@ Converge the backend rich-card (`AppSummary`) assembly foundation shared across 
 
 ## Acceptance Criteria
 
-- [ ] Unit test in `commands/catalog_search.rs` verifies `backfill_uncataloged_card` populates `platforms` and `latest_version` from a cached `https://api.github.com/repos/{o}/{r}/releases/latest` entry in `api_etag_cache` when `app_details` has no row, while `app_details` still takes precedence when present.
-- [ ] Unit / mock HTTP test verifies `fetch_online_repo_with_etag(..., probe_icons = false)` makes 0 icon CDN / Git Trees requests and returns `icon = ""` when `pre_confirmed` is `None`.
-- [ ] Unit test in `commands/network.rs` verifies `api.github.com` requests attach token headers when a token is present, while `github.com` and `trend.doforce.dpdns.org` never carry `Authorization`.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib` pass cleanly.
+- [x] Unit test in `commands/catalog_search.rs` verifies `backfill_uncataloged_card` populates `platforms` and `latest_version` from a cached `https://api.github.com/repos/{o}/{r}/releases/latest` entry in `api_etag_cache` when `app_details` has no row, while `app_details` still takes precedence when present.
+- [x] Unit / mock HTTP test verifies `fetch_online_repo_with_etag(..., probe_icons = false)` makes 0 icon CDN / Git Trees requests and returns `icon = ""` when `pre_confirmed` is `None`.
+- [x] Unit test in `commands/network.rs` verifies `api.github.com` requests attach token headers when a token is present, while `github.com` and `trend.doforce.dpdns.org` never carry `Authorization`.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib` pass cleanly.

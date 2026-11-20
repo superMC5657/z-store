@@ -101,13 +101,13 @@ Fix all deterministic low-level path, shortcut, executable selection, version co
 
 ## Acceptance Criteria
 
-- [ ] `clean_display_icon` unit tests cover `"C:\Program Files\App\app.exe,0"` (comma inside quotes), `"C:\Program Files\App\app.exe",0` (comma outside quotes), `,-101`, and `.lnk` paths.
-- [ ] `lnk_target.rs` synthetic fixture tests verify UTF-16LE `LocalBasePathUnicode` containing Chinese characters (e.g. `目录_测试\目标程序.exe`), `StringData` `RelativePath` + `WorkingDir` resolution, and UTF-16LE heuristic fallback all resolve on disk without panicking on truncated buffers.
-- [ ] `display_icon.rs` unit tests verify:
+- [x] `clean_display_icon` unit tests cover `"C:\Program Files\App\app.exe,0"` (comma inside quotes), `"C:\Program Files\App\app.exe",0` (comma outside quotes), `,-101`, and `.lnk` paths.
+- [x] `lnk_target.rs` synthetic fixture tests verify UTF-16LE `LocalBasePathUnicode` containing Chinese characters (e.g. `目录_测试\目标程序.exe`), `StringData` `RelativePath` + `WorkingDir` resolution, and UTF-16LE heuristic fallback all resolve on disk without panicking on truncated buffers.
+- [x] `display_icon.rs` unit tests verify:
   - `C:\Users\tempuser\AppData\Local\Programs\Motrix\Motrix.exe` and `C:\Program Files\Core Temp\Core Temp.exe` are **not** rejected as cache/installer paths;
   - `Bulk-Crap-Uninstaller.exe` is accepted when present in `config.target_executables`, while `unins000.exe`, `Update.exe`, `crashpad_handler.exe`, and `elevate.exe` are rejected;
   - Squirrel layout (`root/Update.exe` + `root/app-3.5.0/GitHubDesktop.exe` + `root/app-3.6.10/GitHubDesktop.exe`) resolves to `root/app-3.6.10/GitHubDesktop.exe`;
   - Multi-binary directory with unrelated `foo.exe` and `bar.exe` returns `None` instead of blindly picking the first `.exe`.
-- [ ] `updates_check.rs` unit tests verify `is_version_newer("0.15.0", "v0.16") == true`, `is_version_newer("0.15.0", "v0.15") == false`, `is_version_newer("10.37.0", "10.38") == true`, and composite non-SemVer tags (`"v26.02-v1.5.7-R2"`) retain existing behavior.
-- [ ] `embedded_seed_catalog_matches_runtime_schema` passes with zero installer-asset filenames in `catalog.json`, and `ScanConfig::from(&CatalogItem)` preserves `exe_candidates(&cat.repo)` even when `identifiers.windows` is non-empty.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml` pass cleanly.
+- [x] `updates_check.rs` unit tests verify `is_version_newer("0.15.0", "v0.16") == true`, `is_version_newer("0.15.0", "v0.15") == false`, `is_version_newer("10.37.0", "10.38") == true`, and composite non-SemVer tags (`"v26.02-v1.5.7-R2"`) retain existing behavior.
+- [x] `embedded_seed_catalog_matches_runtime_schema` passes with zero installer-asset filenames in `catalog.json`, and `ScanConfig::from(&CatalogItem)` preserves `exe_candidates(&cat.repo)` even when `identifiers.windows` is non-empty.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml` pass cleanly.

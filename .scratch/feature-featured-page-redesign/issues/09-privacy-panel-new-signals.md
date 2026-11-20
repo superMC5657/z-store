@@ -21,6 +21,6 @@ Blocked by: 02, 08
 
 ## 验收标准
 
-- [ ] 单测：新字段缺省（旧后端）时看板不崩，新行隐藏。
-- [ ] 单测：清空反馈经确认后才调用命令。
-- [ ] `countDisplay.test.ts`、`views.i18n.test.tsx` 通过。
+- [x] 单测：新字段缺省（旧后端）时看板不崩，新行隐藏。
+- [x] 单测：清空反馈经确认后才调用命令。
+- [x] `countDisplay.test.ts`、`views.i18n.test.tsx` 通过。

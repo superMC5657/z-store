@@ -64,11 +64,11 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] Rust 单测覆盖 `partition_spotlight_and_recent`：
+- [x] Rust 单测覆盖 `partition_spotlight_and_recent`：
   - 未到期置顶项进入 `spotlight` 且不重复出现在 `items`；
   - `pin_until <= now_secs` 的到期置顶项自动降级进入 `items` 且 `is_pinned == false`；
   - 有效置顶超过 4 个时，`spotlight.len() == 4`，第 5 个自动回落至 `items`；
   - `data:` 图标在解析与写 `repo_card_cache` 时均被剥空。
-- [ ] Rust 单测验证隔离性：执行清单落库水合后，`catalog_apps` 与 `custom_apps` 表行数为 `0`；未收录项正确写入 `repo_card_cache`，已存在于 `CatalogService` 的项跳过 `repo_card_cache` 并正确盖章 `is_cataloged == Some(true)`。
-- [ ] Rust 单测验证缓存与降级：命中 `304` 零重复写盘返回缓存；远端失败时回退 `launchpad_feed_cache` 并置 `is_stale == true`；超 `512 KiB` 载荷被安全拒绝。
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+- [x] Rust 单测验证隔离性：执行清单落库水合后，`catalog_apps` 与 `custom_apps` 表行数为 `0`；未收录项正确写入 `repo_card_cache`，已存在于 `CatalogService` 的项跳过 `repo_card_cache` 并正确盖章 `is_cataloged == Some(true)`。
+- [x] Rust 单测验证缓存与降级：命中 `304` 零重复写盘返回缓存；远端失败时回退 `launchpad_feed_cache` 并置 `is_stale == true`；超 `512 KiB` 载荷被安全拒绝。
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。

@@ -107,9 +107,9 @@ Upgrade `src/components/AppImportModal.tsx`, TypeScript types, i18n copy, and th
 
 ## Acceptance Criteria
 
-- [ ] `src/components/AppImportModal.test.tsx` verifies:
+- [x] `src/components/AppImportModal.test.tsx` verifies:
   - Only `high` (`>= 0.70`) items are pre-checked on open; `medium` (`0.62`) and `low` (`0.48`) items start unchecked and can be toggled manually;
   - When `scanned.display_name` (`"Microsoft Visual Studio Code (User)"`) differs from `name` (`"VS Code"`), the local detected name is rendered; when identical (`"OBS Studio"`), it is not redundantly duplicated;
   - Known `match_reasons` render localized labels and `low` tier displays the verification warning hint;
   - Selecting items and clicking Import sends the expected `ImportAppRequest[]` payload via `tauriApi.importMatchedApps`.
-- [ ] `npx tsc --noEmit`, `npx vitest run` (including `countDisplay.test.ts`, `noDirectInvoke.test.ts`, `ipcArgsNaming.test.ts`, `cmdAlignment.test.ts`), and `npx vite build --config vite.demo.config.ts` all pass cleanly.
+- [x] `npx tsc --noEmit`, `npx vitest run` (including `countDisplay.test.ts`, `noDirectInvoke.test.ts`, `ipcArgsNaming.test.ts`, `cmdAlignment.test.ts`), and `npx vite build --config vite.demo.config.ts` all pass cleanly.

@@ -63,11 +63,11 @@ Establish the two pure-frontend caching primitives shared by Online Search, Tren
 
 ## Acceptance Criteria
 
-- [ ] Unit tests in `src/services/repoEnrichCache.test.ts` verify:
+- [x] Unit tests in `src/services/repoEnrichCache.test.ts` verify:
   - A concrete-platform summary written from Trends (`putTrendEnrichMemory`) immediately hydrates `platforms` and `latest_version` in `assembleOnlineRowsWithIcons` for Search/Starred rows while stripping `data:` icons and catalog annotations (`is_cataloged`/`source`/`status`).
   - Concrete platforms recorded via `recordSharedRepoPlatforms` clear `isSharedRepoConfirmedOther` and never get overwritten by empty-platform loading rows.
-- [ ] Unit tests in `src/services/search/searchListCache.patch.test.ts` verify:
+- [x] Unit tests in `src/services/search/searchListCache.patch.test.ts` verify:
   - Writing 60 `'starred'` entries evicts only `'starred'` FIFO entries beyond 50 and leaves `'search'` entries 100% intact.
   - `readSearchListCacheEntry` reports `isFresh: true` at `< 5min`, `isFresh: false` at `5min..30min`, and `undefined` at `>= 30min` or negative clock skew.
   - `clearSearchListCacheNamespace('starred', '@me:')` removes `@me:alice` entries while preserving public `'starred|torvalds|...'` and `'search|...'` entries.
-- [ ] `npx tsc --noEmit` and `npx vitest run src/services/repoEnrichCache.test.ts src/services/search/ src/services/trends/` pass with 0 errors.
+- [x] `npx tsc --noEmit` and `npx vitest run src/services/repoEnrichCache.test.ts src/services/search/ src/services/trends/` pass with 0 errors.

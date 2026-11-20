@@ -79,14 +79,14 @@ Blocked by: 01, 02
 
 ## Acceptance Criteria
 
-- [ ] `InstalledView.test.tsx` 新增并验证：
+- [x] `InstalledView.test.tsx` 新增并验证：
   - 输入页内搜索关键词后，`全部 / 有更新 / 已锁定 / 已隐藏` 四个 Tab 的 `<CountBadge>` 实时更新为匹配该关键词的行数，且逐一点选各 Tab 时下方列表行数与 Tab 角标完全一致；
   - 当 `totalInstalledCount = 5` 而平台过滤后 `installedApps = []` 时，渲染平台筛选 `FilterEmptyState` 并可触发 `onResetPlatformFilter`，不渲染「暂未安装任何应用」；
   - 被 `is_hidden` 隐藏的已装应用及未收录 `msi` 已装应用在 `selectedPlatforms = new Set()`（或仅选 `android`）时同样被平台过滤器排除，不再穿透显示；
   - `selectUpdatableInstalled` 排除 `is_frozen = true` 的应用。
-- [ ] `FavoritesView.test.tsx` 与 `StarredFeed.test.tsx` 更新并验证：
+- [x] `FavoritesView.test.tsx` 与 `StarredFeed.test.tsx` 更新并验证：
   - 切换 `selectedPlatforms` 或输入页内 `searchText` 时，`收藏` 与 `关注` Tab 角标始终等于各自网格实际渲染的卡片数；
   - 当 `favoriteIds` / `watchedIds` 非空但因平台筛选导致可见行为 0 时，渲染 `FilterEmptyState` 并可点击重置，不再误报「还没有收藏的应用」或「关注的应用暂不在当前目录」；
   - 在 `收藏` 与 `关注` 签切换时，`onDisplayPlatformCounts` 分别收到收藏集与关注集的平台分布计数；
   - `StarredFeed` 在平台筛选激活时，底部 `starred_end` / `online_armed_hint` 展示 `filteredRows.length` 而非未过滤的 `rows.length`。
-- [ ] `countDisplay.test.ts`、`i18n.test.ts`、`npx tsc --noEmit` 全部通过。
+- [x] `countDisplay.test.ts`、`i18n.test.ts`、`npx tsc --noEmit` 全部通过。

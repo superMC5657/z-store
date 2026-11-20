@@ -81,11 +81,11 @@ Blocked by: 01, 02
 
 ## Acceptance Criteria
 
-- [ ] `LatestView.test.tsx` 新增并验证：
+- [x] `LatestView.test.tsx` 新增并验证：
   - 当全窗共 30 款（`matched_ids` 30 个），侧栏仅勾选 `android`（`apps` 含其中 4 款）时，`getLatestCatalogApps` 收到 `allowedIds`，标题 `<CountBadge>` 显示 `4`（而非 `30` 或 `0`），页面渲染全部 4 张卡片，且 `onDisplayPlatformCounts` 收到该时间窗全平台 30 款的真实平台分布；
   - 当该时间窗有 Windows 应用但无 iOS 应用，且侧栏仅选 iOS 时，渲染带重置按钮的 `FilterEmptyState`（绝不渲染空白 `.app-grid`）；
   - 当 `has_more = true` 时渲染「加载更多」按钮，点击后请求第 2 页。
-- [ ] `CategoriesView.test.tsx` 新增并验证：
+- [x] `CategoriesView.test.tsx` 新增并验证：
   - 某分类共有 25 款应用、第 1 页返回 20 款时，大厅卡片显示 `25 款可用`，点击进入子页后首帧标题 `<CountBadge>` 立即显示 `25`（而非 `20`，且加载期间不闪 `0`）；
   - 进入分类子页时 `onDisplayPlatformCounts` 上报该分类各平台计数，点击「返回分类」回到大厅时上报 `null`。
-- [ ] `countDisplay.test.ts`、`npx tsc --noEmit` 及两视图全部单测通过。
+- [x] `countDisplay.test.ts`、`npx tsc --noEmit` 及两视图全部单测通过。

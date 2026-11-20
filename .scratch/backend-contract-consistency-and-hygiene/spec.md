@@ -1,6 +1,6 @@
 # Feature Spec: 后端元数据校验与端点 SSOT 收敛、错误边界与局部性能细节清理
 
-> 状态：Proposed（`needs-triage`）
+> 状态：Implemented（`01`、`02` 均为 `resolved`）
 > 关联契约：`CONTEXT.md`（`Unified Project Config`、`Canonical App Id`、`ETag Cache`）、ADR-0010（规范应用标识）、ADR-0018（开源协议门禁可配置）。
 
 ---

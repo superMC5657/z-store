@@ -83,10 +83,10 @@ Currently:
 
 ## Acceptance Criteria
 
-- [ ] Unit tests cover `parse_windows_proxy_override` (`<local>`, `*.domain.com`, empty/whitespace), `parse_scutil_proxy_output` (HTTP/HTTPS/SOCKS enabled vs disabled, `ExceptionsList` extraction, IPv6 bracket handling), and `apply_proxy_snapshot` direct-mode `.no_proxy()` behavior.
-- [ ] Unit test verifies that changing a mocked/injected proxy snapshot signature causes `new_api_client`, `new_icon_client`, and `CatalogService::http_client` to return a rebuilt `reqwest::Client` while identical signatures reuse the same instance.
-- [ ] No production code path calls `std::env::set_var` for `http_proxy`, `https_proxy`, `all_proxy`, or `no_proxy`.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` and `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` pass.
+- [x] Unit tests cover `parse_windows_proxy_override` (`<local>`, `*.domain.com`, empty/whitespace), `parse_scutil_proxy_output` (HTTP/HTTPS/SOCKS enabled vs disabled, `ExceptionsList` extraction, IPv6 bracket handling), and `apply_proxy_snapshot` direct-mode `.no_proxy()` behavior.
+- [x] Unit test verifies that changing a mocked/injected proxy snapshot signature causes `new_api_client`, `new_icon_client`, and `CatalogService::http_client` to return a rebuilt `reqwest::Client` while identical signatures reuse the same instance.
+- [x] No production code path calls `std::env::set_var` for `http_proxy`, `https_proxy`, `all_proxy`, or `no_proxy`.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` and `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` pass.
 
 ## Comments
 

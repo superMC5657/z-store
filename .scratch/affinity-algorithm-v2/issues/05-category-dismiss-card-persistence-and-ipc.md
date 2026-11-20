@@ -29,10 +29,10 @@ Blocked by: 04
 
 ## 验收标准
 
-- [ ] 后端单测：`dismiss_featured`（或底层 DAO）在 `scope = "category"` 且附带 `app_id` 时，同时产生 `Category` 与 `App` 两条有效反馈；`app_id` 缺省时仅产生 `Category` 反馈。
-- [ ] 前端单测：`FeaturedView.test.tsx` 与 `ipcArgsNaming.test.ts` 全绿，所有 IPC 参数键严格 camelCase。
-- [ ] 演示站单测或交互：触发分类负反馈后重拉 `handleGetFeaturedPage`，该分类与触发卡片均被过滤。
-- [ ] `pnpm test` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
+- [x] 后端单测：`dismiss_featured`（或底层 DAO）在 `scope = "category"` 且附带 `app_id` 时，同时产生 `Category` 与 `App` 两条有效反馈；`app_id` 缺省时仅产生 `Category` 反馈。
+- [x] 前端单测：`FeaturedView.test.tsx` 与 `ipcArgsNaming.test.ts` 全绿，所有 IPC 参数键严格 camelCase。
+- [x] 演示站单测或交互：触发分类负反馈后重拉 `handleGetFeaturedPage`，该分类与触发卡片均被过滤。
+- [x] `pnpm test` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 通过。
 
 ## Comments
 

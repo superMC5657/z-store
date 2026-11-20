@@ -74,11 +74,11 @@ Blocked by: 03
 
 ## Acceptance Criteria
 
-- [ ] 组件单测（`LaunchpadView.test.tsx`）覆盖：
+- [x] 组件单测（`LaunchpadView.test.tsx`）覆盖：
   - Spotlight 置顶卡正确渲染 `.status-tag`「置顶推荐」与作者自荐语，且不重复出现在下方「最新上架」网格；
   - 切换 `推荐 / 最新上架 / 讨论热度` 排序正确重排卡片；
   - 点击作者头像触发 `onOpenDeveloper(login)`；
   - GitHub 源卡片点击 Star 调用 `tauriApi.starApp` / `unstarApp` 并更新星数；Codeberg 源卡片不渲染 GitHub Star 写按钮，点击外链走 `tauriApi.openUrl`；
   - 切换 `selectedPlatforms` 筛空全部条目时渲染 `FilterEmptyState`，侧栏平台分布上报全量未裁剪计数；
   - 中英文切换（`zh-CN` ↔ `en-US`）无残留硬编码中文，英文优先展示 `maker_note_en`。
-- [ ] `countDisplay.test.ts`、`noDirectInvoke.test.ts`、`components.i18n.scan.test.ts`、`buttons.parity.test.tsx` 全部通过。
+- [x] `countDisplay.test.ts`、`noDirectInvoke.test.ts`、`components.i18n.scan.test.ts`、`buttons.parity.test.tsx` 全部通过。

@@ -54,11 +54,11 @@ Converge the remaining two frontend-originated image channels onto backend proxy
 
 ## Acceptance Criteria
 
-- [ ] In simulated real Tauri runtime (`__TAURI_INTERNALS__.invoke` mocked, `__ZSTORE_DEMO_MOCK__` unset), mounting `<AppIcon icon="https://raw.githubusercontent.com/o/r/main/icon.png" name="Demo" appId="o/r" />` invokes `get_or_fetch_icon` **once** and does **not** mount `<img src="https://raw.githubusercontent.com/...">` while the backend call is in flight; once `get_or_fetch_icon` resolves `data:image/png;base64,...`, `<img src="data:image/png;base64,...">` is rendered.
-- [ ] In simulated real Tauri runtime, if `get_or_fetch_icon` rejects, `<AppIcon>` wakes up via `notifyIconDataReady`, falls back gracefully, and settles on the initials badge on `img` error without infinite retry loops.
-- [ ] In non-Tauri (`jsdom`) and Demo (`__ZSTORE_DEMO_MOCK__ = true`) modes, all existing tests in `AppIcon.simplify.test.tsx`, `Sidebar.test.tsx`, and `OAuthAccountCard.poll-leak.test.tsx` pass unchanged.
-- [ ] Unit tests in `CachedAvatar.test.tsx` verify `data:` cache resolution via `assetCache`, non-Tauri passthrough, and initials fallback on missing/errored avatar URLs.
-- [ ] `noDirectInvoke.test.ts` and `npx vitest run` pass with 0 failures.
+- [x] In simulated real Tauri runtime (`__TAURI_INTERNALS__.invoke` mocked, `__ZSTORE_DEMO_MOCK__` unset), mounting `<AppIcon icon="https://raw.githubusercontent.com/o/r/main/icon.png" name="Demo" appId="o/r" />` invokes `get_or_fetch_icon` **once** and does **not** mount `<img src="https://raw.githubusercontent.com/...">` while the backend call is in flight; once `get_or_fetch_icon` resolves `data:image/png;base64,...`, `<img src="data:image/png;base64,...">` is rendered.
+- [x] In simulated real Tauri runtime, if `get_or_fetch_icon` rejects, `<AppIcon>` wakes up via `notifyIconDataReady`, falls back gracefully, and settles on the initials badge on `img` error without infinite retry loops.
+- [x] In non-Tauri (`jsdom`) and Demo (`__ZSTORE_DEMO_MOCK__ = true`) modes, all existing tests in `AppIcon.simplify.test.tsx`, `Sidebar.test.tsx`, and `OAuthAccountCard.poll-leak.test.tsx` pass unchanged.
+- [x] Unit tests in `CachedAvatar.test.tsx` verify `data:` cache resolution via `assetCache`, non-Tauri passthrough, and initials fallback on missing/errored avatar URLs.
+- [x] `noDirectInvoke.test.ts` and `npx vitest run` pass with 0 failures.
 
 ## Comments
 

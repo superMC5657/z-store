@@ -45,6 +45,6 @@ This creates reverse dependencies (`custom/draft.ts` → `api/catalog.ts`), spli
 
 ## Acceptance Criteria
 
-- [ ] `status.ts`, `iconUrl.ts`, `draft.ts`, `mappers.ts`, and `types.ts` micro-files are consolidated; `services/api/catalog.ts` contains no draft heuristic builder logic (`buildCustomDraftItemFromSummary` / `guessDraftCategoryKey`).
-- [ ] Zero reverse import from `services/custom` into `services/api/catalog`.
-- [ ] `pnpm test` and `pnpm build` pass completely.
+- [x] `status.ts`, `iconUrl.ts`, `draft.ts`, `mappers.ts`, and `types.ts` micro-files are consolidated; `services/api/catalog.ts` contains no draft heuristic builder logic (`buildCustomDraftItemFromSummary` / `guessDraftCategoryKey`).
+- [x] Zero reverse import from `services/custom` into `services/api/catalog`.
+- [x] `pnpm test` and `pnpm build` pass completely.

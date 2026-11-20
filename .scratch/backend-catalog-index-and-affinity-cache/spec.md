@@ -1,6 +1,6 @@
 # Feature Spec: `CatalogService` 哈希索引化、按需投影与推荐画像 `CatalogIdf` 预计算
 
-> 状态：Proposed（`needs-triage`）
+> 状态：Implemented（`01`、`02`、`03` 均为 `resolved`）
 > 关联契约：`CONTEXT.md`（`Curated Catalog`、`Canonical App Id`、`User Affinity Profile`、`Featured Shelf`）、ADR-0010（规范应用标识）、ADR-0013（发现页 Feed 契约）、ADR-0023（精选页可解释本地推荐）、ADR-0024（亲和度打分 v2）。
 
 ---

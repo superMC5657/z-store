@@ -70,7 +70,7 @@ Fix two critical caching defects in `TrendsView` (`src/services/trends/enrich.ts
 
 ## Acceptance Criteria
 
-- [ ] When `enrichTrendRepos` returns a rich card with `platforms: ['windows']` and `icon: 'data:image/png;base64,...'`, `admitIconHit` stores the `data:` icon in `iconStore`, AND `snapshotTrendEnrichCache()` contains the rich card with `icon: ''` (no `data:` string in `trendEnrichCache` or `trend_board_cache`, and the rich card is NOT dropped).
-- [ ] When `saveDbTrendCache` or `putTrendEnrichMemory` is called with a summary whose `icon` is `data:...`, the summary is persisted with `icon: ''` rather than skipped.
-- [ ] When L2 `trend_board_cache` is expired and the network fetch fails (`fetchTrendsText` rejects), `fetchTrendsResult` falls back to the stale L2 cache (`status: 'ok', stale: true`) and renders the cached rich cards and icons.
-- [ ] Update `src/services/trends/enrich.simplify.test.ts`, `src/services/trends/cache.test.ts`, and `src/services/trends/swr-view.test.tsx` to lock in the new behavior; all frontend and Rust tests pass.
+- [x] When `enrichTrendRepos` returns a rich card with `platforms: ['windows']` and `icon: 'data:image/png;base64,...'`, `admitIconHit` stores the `data:` icon in `iconStore`, AND `snapshotTrendEnrichCache()` contains the rich card with `icon: ''` (no `data:` string in `trendEnrichCache` or `trend_board_cache`, and the rich card is NOT dropped).
+- [x] When `saveDbTrendCache` or `putTrendEnrichMemory` is called with a summary whose `icon` is `data:...`, the summary is persisted with `icon: ''` rather than skipped.
+- [x] When L2 `trend_board_cache` is expired and the network fetch fails (`fetchTrendsText` rejects), `fetchTrendsResult` falls back to the stale L2 cache (`status: 'ok', stale: true`) and renders the cached rich cards and icons.
+- [x] Update `src/services/trends/enrich.simplify.test.ts`, `src/services/trends/cache.test.ts`, and `src/services/trends/swr-view.test.tsx` to lock in the new behavior; all frontend and Rust tests pass.

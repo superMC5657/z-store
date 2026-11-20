@@ -1,6 +1,6 @@
 # Issue 03: 更新规则错误传播、Markdown/扫描器局部性能与 Cargo 构建优化
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -40,6 +40,6 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] `check_for_updates` / `get_cached_updates` / `hidden_rule_ids` 在 DB 读取规则失败时不再静默返回空规则集。
-- [ ] `markdown.rs` 不再在循环内调用 `Regex::new`。
-- [ ] `cargo check --manifest-path src-tauri/Cargo.toml`、`cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+- [x] `check_for_updates` / `get_cached_updates` / `hidden_rule_ids` 在 DB 读取规则失败时不再静默返回空规则集。
+- [x] `markdown.rs` 不再在循环内调用 `Regex::new`。
+- [x] `cargo check --manifest-path src-tauri/Cargo.toml`、`cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 与 `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。

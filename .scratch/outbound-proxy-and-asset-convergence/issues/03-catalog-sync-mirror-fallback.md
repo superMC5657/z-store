@@ -48,11 +48,11 @@ Enable users in mainland China who **do not** have a system proxy running to sti
 
 ## Acceptance Criteria
 
-- [ ] Unit / local TCP mock test: when primary `catalog.json` endpoint fails (connection refused / 502) and `is_default_catalog_source` is true, `fetch_remote_catalog` retries via the mirror endpoint, validates `Vec<CatalogItem>`, and succeeds.
-- [ ] Unit test: when `catalog_source_url` is a custom third-party URL (`https://example.com/catalog.json`), failure does **not** trigger mirror fallback.
-- [ ] Unit test: when mirror fallback returns an empty JSON array `[]` or invalid `id` entries for the official default source, it is rejected with an error rather than overwriting `catalog_apps`.
-- [ ] `extract_checksums_map` never rewrites URLs through `gh-proxy.com` and uses the 6s timeout budget; existing `test_checksum_manifest_fetch_via_unified_interface_degrades_to_empty` still passes quickly.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` passes.
+- [x] Unit / local TCP mock test: when primary `catalog.json` endpoint fails (connection refused / 502) and `is_default_catalog_source` is true, `fetch_remote_catalog` retries via the mirror endpoint, validates `Vec<CatalogItem>`, and succeeds.
+- [x] Unit test: when `catalog_source_url` is a custom third-party URL (`https://example.com/catalog.json`), failure does **not** trigger mirror fallback.
+- [x] Unit test: when mirror fallback returns an empty JSON array `[]` or invalid `id` entries for the official default source, it is rejected with an error rather than overwriting `catalog_apps`.
+- [x] `extract_checksums_map` never rewrites URLs through `gh-proxy.com` and uses the 6s timeout budget; existing `test_checksum_manifest_fetch_via_unified_interface_degrades_to_empty` still passes quickly.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` passes.
 
 ## Comments
 

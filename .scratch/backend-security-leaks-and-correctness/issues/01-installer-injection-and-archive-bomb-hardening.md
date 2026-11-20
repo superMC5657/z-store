@@ -1,6 +1,6 @@
 # Issue 01: 安装器脚本注入防护、解压炸弹硬限与命令参数校验收口
 
-Status: needs-triage
+Status: resolved
 Blocked by: none
 
 ## Summary
@@ -36,7 +36,7 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] 伪造小声明大小但实际超配额的 ZIP/Tar 包在解压写入达到阈值时立即中止并回滚，不会写满磁盘。
-- [ ] `create_desktop_shortcut` 不存在任何基于路径字符串的 PowerShell 脚本拼接。
-- [ ] 补齐单元测试覆盖：伪造头大小 ZIP/Tar 拦截与回滚、`active_mirror` 经 `save_setting` 的 HTTPS 校验、UNC 路径拒绝。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。
+- [x] 伪造小声明大小但实际超配额的 ZIP/Tar 包在解压写入达到阈值时立即中止并回滚，不会写满磁盘。
+- [x] `create_desktop_shortcut` 不存在任何基于路径字符串的 PowerShell 脚本拼接。
+- [x] 补齐单元测试覆盖：伪造头大小 ZIP/Tar 拦截与回滚、`active_mirror` 经 `save_setting` 的 HTTPS 校验、UNC 路径拒绝。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 全部通过。

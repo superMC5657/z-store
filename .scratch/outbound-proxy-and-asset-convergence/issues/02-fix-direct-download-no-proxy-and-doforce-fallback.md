@@ -65,10 +65,10 @@ Fix two outbound routing defects that break or degrade connectivity for users in
 
 ## Acceptance Criteria
 
-- [ ] Unit test in `mirror.rs` / `downloader_http.rs`: in `"direct"` mode, `rewrite_installer_asset_url_resolved("https://github.com/o/r/releases/download/v1/a.msi")` yields `bypass_proxy_host == None` (`dl_extra` is empty, `github.com` is **not** in `merged_no_proxy_string`), whereas `"https://gh-proxy.com"` or `wrap_gh_proxy_resolved` yields `bypass_proxy_host == Some("gh-proxy.com")`.
-- [ ] Unit test: non-GitHub URLs (`https://codeberg.org/o/r/releases/download/v1/a.AppImage`) never add `codeberg.org` to `no_proxy` under either `"direct"` or `"ghproxy"` mode.
-- [ ] Unit / local TCP integration test in `commands/network.rs` (or `proxy/mod.rs`): `default_no_proxy_entries()` no longer contains `trend.doforce.dpdns.org`, and the `doforce` fallback helper retries via proxy client on transport error/timeout/5xx when `has_proxy()` is true, while not retrying on `200` or `429`.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` passes with 0 warnings/failures.
+- [x] Unit test in `mirror.rs` / `downloader_http.rs`: in `"direct"` mode, `rewrite_installer_asset_url_resolved("https://github.com/o/r/releases/download/v1/a.msi")` yields `bypass_proxy_host == None` (`dl_extra` is empty, `github.com` is **not** in `merged_no_proxy_string`), whereas `"https://gh-proxy.com"` or `wrap_gh_proxy_resolved` yields `bypass_proxy_host == Some("gh-proxy.com")`.
+- [x] Unit test: non-GitHub URLs (`https://codeberg.org/o/r/releases/download/v1/a.AppImage`) never add `codeberg.org` to `no_proxy` under either `"direct"` or `"ghproxy"` mode.
+- [x] Unit / local TCP integration test in `commands/network.rs` (or `proxy/mod.rs`): `default_no_proxy_entries()` no longer contains `trend.doforce.dpdns.org`, and the `doforce` fallback helper retries via proxy client on transport error/timeout/5xx when `has_proxy()` is true, while not retrying on `200` or `429`.
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` passes with 0 warnings/failures.
 
 ## Comments
 

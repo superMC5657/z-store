@@ -28,8 +28,8 @@ Blocked by: 01
 
 ## 验收标准
 
-- [ ] 存量库经 `init_schema()` 后两张新表存在，迁移测试通过。
-- [ ] 单测：91 天前的反馈不出现在 `get_active_feed_feedback`。
-- [ ] 单测：只有兴趣种子时 `signal_count` 等于种子数，`has_signals = true`。
-- [ ] 单测：`scope=category` 反馈使该分类权重减半。
-- [ ] 单测：清空本地画像后两张表为空。
+- [x] 存量库经 `init_schema()` 后两张新表存在，迁移测试通过。
+- [x] 单测：91 天前的反馈不出现在 `get_active_feed_feedback`。
+- [x] 单测：只有兴趣种子时 `signal_count` 等于种子数，`has_signals = true`。
+- [x] 单测：`scope=category` 反馈使该分类权重减半。
+- [x] 单测：清空本地画像后两张表为空。

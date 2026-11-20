@@ -36,8 +36,8 @@ Blocked by: none
 
 ## 验收标准
 
-- [ ] 单测：`extract_tokens` 对 `"An open-source cross-platform desktop app https://code.videolan.org/vlc"` 不产出 `open-source`、`cross-platform`、`desktop`、`https`；对 `"远程桌面视频播放器"` 产出有效中文双字词元（含 `"远程"`、`"桌面"`、`"视频"`、`"播放"`）；对 `"3d ai ui tool"` 产出 `["3d", "ai", "ui"]`。
-- [ ] 单测：`CatalogIdf` 中高频词的 `weight` 严格低于罕见专有词（如 `mpv` > `editor`），空目录或未知词返回 `1.0`，`cosine_similarity` 对相同非空集合返回 `1.0`（±1e-9）、无交集返回 `0.0`。
-- [ ] 单测：`infer_categories("C++", "Command line video client with https://github.com/a/b", "org/player")` 命中 `media` 且**不**误命中 `dev`（无 `video→ide`、`client→cli`、`github→git` 误判）。
-- [ ] 单测：`infer_categories("Rust", "", "alice/my-experiment")` 返回空列表，不再盲目归入 `dev`。
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 通过。
+- [x] 单测：`extract_tokens` 对 `"An open-source cross-platform desktop app https://code.videolan.org/vlc"` 不产出 `open-source`、`cross-platform`、`desktop`、`https`；对 `"远程桌面视频播放器"` 产出有效中文双字词元（含 `"远程"`、`"桌面"`、`"视频"`、`"播放"`）；对 `"3d ai ui tool"` 产出 `["3d", "ai", "ui"]`。
+- [x] 单测：`CatalogIdf` 中高频词的 `weight` 严格低于罕见专有词（如 `mpv` > `editor`），空目录或未知词返回 `1.0`，`cosine_similarity` 对相同非空集合返回 `1.0`（±1e-9）、无交集返回 `0.0`。
+- [x] 单测：`infer_categories("C++", "Command line video client with https://github.com/a/b", "org/player")` 命中 `media` 且**不**误命中 `dev`（无 `video→ide`、`client→cli`、`github→git` 误判）。
+- [x] 单测：`infer_categories("Rust", "", "alice/my-experiment")` 返回空列表，不再盲目归入 `dev`。
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml --lib` 与 `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` 通过。

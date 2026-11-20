@@ -1,6 +1,6 @@
 # Feature Spec: SQLite 批量读写去重、`prepare_cached` 复用与阻塞 IO 异步卸载
 
-> 状态：Proposed（`needs-triage`）
+> 状态：Implemented（`01`、`02`、`03` 均为 `resolved`）
 > 关联契约：`CONTEXT.md`（`Repo Enrich Cache`、`Confirmed Icon`、`InstalledApp`、`ETag Cache`）、ADR-0003（SQLite 持久化与 ETag 缓存）、ADR-0026（搜索与 Star 列表缓存收敛）、ADR-0027（单仓富卡与瘦索引缓存）、ADR-0028（存量应用匹配）。
 
 ---

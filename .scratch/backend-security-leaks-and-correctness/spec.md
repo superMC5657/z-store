@@ -1,6 +1,6 @@
 # Feature Spec: 安装器安全加固、异步取消资源泄漏防护与更新规则/扫描健壮性
 
-> 状态：Proposed（`needs-triage`）
+> 状态：Implemented（`01`、`02`、`03` 均为 `resolved`）
 > 关联契约：`CONTEXT.md`（D3 零信任防篡改、`Portable App`、`Update Rule`、`External App Management`）、ADR-0004（流式安装与校验和验证）、ADR-0028（倒排索引与边界安全的本地应用匹配）。
 
 ---

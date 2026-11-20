@@ -1,6 +1,6 @@
 # Issue 03: 预计算 `CatalogIdf` 缓存与零克隆 `UserAffinityProfile` 构建
 
-Status: needs-triage
+Status: resolved
 Blocked by: 01
 
 ## Summary
@@ -36,5 +36,5 @@ Blocked by: 01
 
 ## Acceptance Criteria
 
-- [ ] `get_home_feed`、`get_featured_page` 与 `get_affinity_profile_summary` 在目录未变更时不再重新执行全库 `CatalogIdf::from_catalog` 分词，也不克隆全库 `Vec<CatalogItem>`。
-- [ ] `affinity_eval_tests`、`featured::tests` 与 `catalog_feed::tests` 全量回归通过，推荐分数与理由输出与重构前完全一致。
+- [x] `get_home_feed`、`get_featured_page` 与 `get_affinity_profile_summary` 在目录未变更时不再重新执行全库 `CatalogIdf::from_catalog` 分词，也不克隆全库 `Vec<CatalogItem>`。
+- [x] `affinity_eval_tests`、`featured::tests` 与 `catalog_feed::tests` 全量回归通过，推荐分数与理由输出与重构前完全一致。

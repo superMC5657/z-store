@@ -71,10 +71,10 @@ Blocked by: none
 
 ## Acceptance Criteria
 
-- [ ] Rust 单元测试验证 `get_category_apps` / `get_latest_catalog_apps` 过滤与分页逻辑：
+- [x] Rust 单元测试验证 `get_category_apps` / `get_latest_catalog_apps` 过滤与分页逻辑：
   - `allowed_ids = None` 时，`total` 与 `matched_ids.len()` 相等；
   - `allowed_ids = Some(vec![...])`（例如 30 条分类数据中仅 5 条散落在原第 1~2 页的项命中）时，第 1 页一次返回全部 5 条，`total == 5`、`has_more == false`，而 `matched_ids` 仍保留全部 30 个 ID；
   - `allowed_ids = Some(vec![])`（空平台选择）时，`items` 为空、`total == 0`、`has_more == false`，`matched_ids` 保留原非空列表。
-- [ ] Rust 单元测试验证 `resolve_cached_or_catalog_summary`：当 `app_details` 与 `repo_card_cache` 均无记录，但应用存在于 `CatalogService`（远端或本地库）时，返回带完整 `platforms`、`name`、`is_cataloged = Some(true)` 的摘要。
-- [ ] 前端测试（`catalog.test.ts` 与 `ipcArgsNaming.test.ts`）验证 `allowedIds`（含空数组 `[]`）正确传递且无非 camelCase 请求键。
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings`、`cargo test --manifest-path src-tauri/Cargo.toml --lib`、`npx tsc --noEmit` 通过。
+- [x] Rust 单元测试验证 `resolve_cached_or_catalog_summary`：当 `app_details` 与 `repo_card_cache` 均无记录，但应用存在于 `CatalogService`（远端或本地库）时，返回带完整 `platforms`、`name`、`is_cataloged = Some(true)` 的摘要。
+- [x] 前端测试（`catalog.test.ts` 与 `ipcArgsNaming.test.ts`）验证 `allowedIds`（含空数组 `[]`）正确传递且无非 camelCase 请求键。
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings`、`cargo test --manifest-path src-tauri/Cargo.toml --lib`、`npx tsc --noEmit` 通过。

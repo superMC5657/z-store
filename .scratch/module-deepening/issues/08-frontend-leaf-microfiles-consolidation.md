@@ -45,6 +45,6 @@ A cluster of 10–55 line frontend files each contain a single constant, single 
 
 ## Acceptance Criteria
 
-- [ ] Deleted micro-files: `lib/manualOnly.ts`, `utils/notify.ts`, `views/useViewFilter.ts`, `views/pending/pendingText.ts`, `views/pending/pendingStyles.ts`, `components/AppDetailModal/openExternal.ts`, `components/hostEnv.ts`, `app/platformStorage.ts`, `app/navigation.ts`, `views/SettingsView/SettingsSection.tsx`.
-- [ ] `src/types/index.ts` no longer re-exports core types from `src/app/`.
-- [ ] `pnpm test` (including `components.i18n.scan.test.ts` and `noDirectInvoke.test.ts`) and `pnpm build` pass completely.
+- [x] Deleted micro-files: `lib/manualOnly.ts`, `utils/notify.ts`, `views/useViewFilter.ts`, `views/pending/pendingText.ts`, `views/pending/pendingStyles.ts`, `components/AppDetailModal/openExternal.ts`, `components/hostEnv.ts`, `app/platformStorage.ts`, `app/navigation.ts`, `views/SettingsView/SettingsSection.tsx`.
+- [x] `src/types/index.ts` no longer re-exports core types from `src/app/`.
+- [x] `pnpm test` (including `components.i18n.scan.test.ts` and `noDirectInvoke.test.ts`) and `pnpm build` pass completely.

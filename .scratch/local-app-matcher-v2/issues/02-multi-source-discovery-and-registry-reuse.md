@@ -109,9 +109,9 @@ pub struct ScannedRawApp {
 
 ## Acceptance Criteria
 
-- [ ] Unit tests verify `parse_desktop_entry_content` ignores `Version=1.0` and `[Desktop Action ...]` blocks, extracts `X-AppImage-Version=2.4.1`, and `clean_distro_package_version("1:3.0.21-1build2") == "3.0.21"`.
-- [ ] Unit tests verify `parse_info_plist_xml` accurately extracts `CFBundleDisplayName`, `CFBundleIdentifier`, `CFBundleShortVersionString`, and `CFBundleExecutable` from realistic macOS `Info.plist` XML fixtures.
-- [ ] Unit tests verify `scan_scoop_apps_in_dir` on a `tempdir` Scoop layout (`apps/ripgrep/current/manifest.json` + binary) produces a `ScannedRawApp` with `source_kind = Some("scoop")`, accurate version, and executable path.
-- [ ] Unit tests verify `match_wix_component_location` never cross-contaminates unrelated apps via short component names like `"Core"` or `"SDK"`, and `infer_install_dir_from_uninstall_string` extracts `"D:\\Apps\\PicGo"` from `"\"D:\\Apps\\PicGo\\Uninstall PicGo.exe\" /allusers"` while rejecting `MsiExec.exe /X{...}`.
-- [ ] Unit tests verify `detect_installed_at_from_entries` resolves `installed_at` from cached `ScannedRawApp` entries without touching the Windows Registry.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml` pass cleanly.
+- [x] Unit tests verify `parse_desktop_entry_content` ignores `Version=1.0` and `[Desktop Action ...]` blocks, extracts `X-AppImage-Version=2.4.1`, and `clean_distro_package_version("1:3.0.21-1build2") == "3.0.21"`.
+- [x] Unit tests verify `parse_info_plist_xml` accurately extracts `CFBundleDisplayName`, `CFBundleIdentifier`, `CFBundleShortVersionString`, and `CFBundleExecutable` from realistic macOS `Info.plist` XML fixtures.
+- [x] Unit tests verify `scan_scoop_apps_in_dir` on a `tempdir` Scoop layout (`apps/ripgrep/current/manifest.json` + binary) produces a `ScannedRawApp` with `source_kind = Some("scoop")`, accurate version, and executable path.
+- [x] Unit tests verify `match_wix_component_location` never cross-contaminates unrelated apps via short component names like `"Core"` or `"SDK"`, and `infer_install_dir_from_uninstall_string` extracts `"D:\\Apps\\PicGo"` from `"\"D:\\Apps\\PicGo\\Uninstall PicGo.exe\" /allusers"` while rejecting `MsiExec.exe /X{...}`.
+- [x] Unit tests verify `detect_installed_at_from_entries` resolves `installed_at` from cached `ScannedRawApp` entries without touching the Windows Registry.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml` pass cleanly.

@@ -118,9 +118,9 @@ Connect all backend uncataloged card/platform/icon pipelines to `repo_card_cache
 
 ## Acceptance Criteria
 
-- [ ] Backend unit/mock tests verify:
+- [x] Backend unit/mock tests verify:
   - `search_apps_online` and `list_github_starred` populate `repo_card_cache` for uncataloged items, skip cataloged items, flag `is_private = 1` when repo JSON has `"private": true`, and return `confirmed_other_ids` / `private_ids`;
   - `get_platforms_lite` returns `from_cache = true` with zero HTTP requests when `repo_card_cache` holds fresh concrete `platforms` or `confirmed_other = true`, and marks `confirmed_other = true` (`is_stale = None`) when an existing repo in `repo_card_cache` returns HTTP `404` on `/releases/latest`, while offline/500 errors return `is_stale = Some(true)` without poisoning `repo_card_cache`;
   - `get_repo_cards_batch` preserves input order, projects curated items from `CatalogService` with priority over `repo_card_cache`, overlays confirmed `app_icon_cycles` icons, stamps `is_cataloged = Some(false)` on wire output without writing it to `repo_card_cache`, and touches `last_accessed_at`.
-- [ ] `npx vitest run src/services/api/cmdAlignment.test.ts src/services/api/ipcArgsNaming.test.ts src/views/noDirectInvoke.test.ts` pass 100%.
-- [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib` pass cleanly.
+- [x] `npx vitest run src/services/api/cmdAlignment.test.ts src/services/api/ipcArgsNaming.test.ts src/views/noDirectInvoke.test.ts` pass 100%.
+- [x] `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings` and `cargo test --manifest-path src-tauri/Cargo.toml --lib` pass cleanly.
