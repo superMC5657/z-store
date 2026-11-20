@@ -36,3 +36,4 @@
 
 4. **Android Shizuku 静默安装预研方案**
    - 详尽阐述 Android 11+ 架构下基于 Binder 与 Shizuku Server 提权进行 `PackageInstaller.Session` 静默分包安装的架构设计与实现原型。
+   - > 校准（以代码为准）：本项仅为移动端技术预研储备（设计文档见 `docs/design/android-shizuku-research.md`），当前桌面端（Windows / Linux / macOS）未实现，也不纳入本阶段功能交付。

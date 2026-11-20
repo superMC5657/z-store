@@ -62,6 +62,7 @@ platforms, identifiers
 
 ## 5. 提交 Issue 流程（手动确认）
 
+- 提交通道：原规划的「批量 PR 提交」功能已裁撤并移除，统一收敛为单/多条目 Issue 模板提交；后续并入 Launchpad 自动化上架流。
 - 点提交：许可门禁 → 预检 → 复制 JSON →（超 8000 字符提示分批）→ 打开 Issue 预填页；
   不自动 mark，取消即停留收录态可重提；贴 Issue URL 点“我已提交”才进已提交。
 - 打开通道：直调后端 `open_url` 成功即返，失败走劫持前原生 `window.open` 兜底并判 `null`；

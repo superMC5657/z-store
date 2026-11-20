@@ -102,6 +102,6 @@ Issue 01 (Rust 后端清洗、自链回退与 open_url 协议对齐) ──┐
 Issue 02 (前端 URL 判重纯函数与 useDetailCacheSync 同步) ─┘
 ```
 
-- [`01-backend-homepage-normalization-and-external-url-parity.md`](./issues/01-backend-homepage-normalization-and-external-url-parity.md)：后端 `homepage` 协议清洗、仓库自链不冲精校官网、`overlay_detail_core` 回填与 `open_external_url` 大小写协议对齐及 Rust 单测（`Status: ready-for-agent`）。
-- [`02-frontend-url-guard-and-detail-cache-sync.md`](./issues/02-frontend-url-guard-and-detail-cache-sync.md)：前端 `buildAppRepoUrl` / `resolveExternalHomepageUrl` 纯函数与 `useDetailCacheSync` 首帧/后台静默刷新 `homepage` 同步及单测（`Status: ready-for-agent`）。
-- [`03-detail-modal-header-homepage-ui-i18n-and-monochrome-tests.md`](./issues/03-detail-modal-header-homepage-ui-i18n-and-monochrome-tests.md)：`AppDetailModal/Header` 官方主页外链入口、中英文 i18n、`.modal-meta-link` 单色视觉适配及组件/国际化/样式全量回归测试（`Status: ready-for-agent`，`Blocked by: 01, 02`）。
+- [`01-backend-homepage-normalization-and-external-url-parity.md`](./issues/01-backend-homepage-normalization-and-external-url-parity.md)：后端 `homepage` 协议清洗、仓库自链不冲精校官网、`overlay_detail_core` 回填与 `open_external_url` 大小写协议对齐及 Rust 单测（`Status: resolved`）。
+- [`02-frontend-url-guard-and-detail-cache-sync.md`](./issues/02-frontend-url-guard-and-detail-cache-sync.md)：前端 `buildAppRepoUrl` / `resolveExternalHomepageUrl` 纯函数与 `useDetailCacheSync` 首帧/后台静默刷新 `homepage` 同步及单测（`Status: resolved`）。
+- [`03-detail-modal-header-homepage-ui-i18n-and-monochrome-tests.md`](./issues/03-detail-modal-header-homepage-ui-i18n-and-monochrome-tests.md)：`AppDetailModal/Header` 官方主页外链入口、中英文 i18n、`.modal-meta-link` 单色视觉适配及组件/国际化/样式全量回归测试（`Status: resolved`）。

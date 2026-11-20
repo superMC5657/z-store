@@ -54,7 +54,7 @@
 | **#33** | Phase 7: 底座与优化 | [`backend-catalog-index-and-affinity-cache`](./backend-catalog-index-and-affinity-cache/spec.md) | 后端专题三：`CatalogService` 哈希索引与画像预计算 | 2026-11-18 | `867a5d4` | ADR-0010, 0024 | 3 / 3 Resolved |
 | **#34** | Phase 7: 底座与优化 | [`backend-sqlite-batching-and-async-offload`](./backend-sqlite-batching-and-async-offload/spec.md) | 后端专题四：SQLite 批量读写去重与阻塞 IO 异步卸载 | 2026-11-18 | `67f053e` | ADR-0003, 0027 | 3 / 3 Resolved |
 | **#35** | Phase 7: 底座与优化 | [`backend-contract-consistency-and-hygiene`](./backend-contract-consistency-and-hygiene/spec.md) | 后端专题五：后端元数据校验、端点 SSOT 与收尾卫生 | 2026-11-18 | `a5fb3b8` | ADR-0010, 0018 | 2 / 2 Resolved |
-| **#36** | Phase 7: 底座与优化 | [`richcard-pipeline-optimization`](./richcard-pipeline-optimization/spec.md) | 在线搜索 / 趋势榜 / GitHub Star 富卡链路收敛与缓存治理 | 2026-11-20 | HEAD | ADR-0011, 0015, 0027 | 5 / 5 Resolved |
+| **#36** | Phase 7: 底座与优化 | [`richcard-pipeline-optimization`](./richcard-pipeline-optimization/spec.md) | 在线搜索 / 趋势榜 / GitHub Star 富卡链路收敛与缓存治理 | 2026-11-20 | `b9a3137` | ADR-0011, 0015, 0027 | 5 / 5 Resolved |
 
 ---
 
@@ -141,8 +141,8 @@
 - **定位**：待收录应用生命周期管理与草稿流
 - **核心交付**：
   - 建立客户端本地自维护待收录应用体系（[ADR-0017](../docs/adr/0017-custom-apps-overlay.md)）。
-  - 涵盖草稿录入、待提交、已提交与已归档完整状态流，打通与侧栏数量徽标联动。
-- **工单规模**：5 张工单。
+  - 涵盖草稿录入、本地收录（待提交 / 已提交分段）与已归档完整状态流，打通与侧栏数量徽标联动。
+- **工单规模**：5 张工单（全部 Resolved，已人工验收；原规划的「批量 PR 提交」功能已裁撤）。
 
 #### #11 · `architecture-deepening`
 - **定位**：架构深度治理计划（C1~C6 核心卡片）
@@ -194,7 +194,7 @@
 #### #18 · `manage-ui-redesign`
 - **定位**：管理中心（已安装 & 更新）UI 深度重设计
 - **核心交付**：重塑管理中心已安装与更新页面，统一图标安全区三档 `AppIconFrame`，重构规则管理弹窗。
-- **工单规模**：5 张工单。
+- **工单规模**：5 张工单（全部 Resolved）。
 
 #### #19 · `button-size-and-inverted-icon-parity`
 - **定位**：全站同级按钮盒尺寸严格统一与反色图标光学对齐
@@ -287,7 +287,7 @@
 
 ---
 
-### Phase 7: 全站弹窗底座统一与后端 Rust 深度性能治理（2026-11-17 ~ 2026-11-18）
+### Phase 7: 全站弹窗底座统一、后端深度优化与富卡链路收敛（2026-11-17 ~ 2026-11-20）
 
 统一前端 UI 模态底座，并对后端 Rust 进行全域安全加固、阻塞 IO 异步卸载与数据库批处理优化。
 
@@ -335,6 +335,14 @@
   - 收口跨模块重复代码：GitHub 端点编码、License 格式化、分类字典与占位符统一收归单一真实源（SSOT）。
   - 统一命令层错误处理为 `AppResult<T>` 闭环；消除全平台 Clippy 警告与死分支代码。
 - **工单规模**：2 张工单（全部 Resolved）。
+
+#### #36 · `richcard-pipeline-optimization`
+- **定位**：在线搜索 / 趋势榜 / GitHub Star 富卡链路收敛与缓存治理
+- **核心交付**：
+  - 隔离在线搜索的图标补探风暴，统一 `get_platforms_lite` 60 分钟缓存 TTL 与同 `seq` 去重。
+  - 补齐 Star 列表、单仓直查与趋势 `new` 榜的 ETag 条件复用、12 小时软 TTL 及跨链路 Repo JSON 播种与离线画像回退。
+  - 收敛 `zstore://icon-ready` 为引用计数单订阅与三路世代门控，隔离在线搜索与 Star 列表缓存命名空间。
+- **工单规模**：5 张工单（全部 Resolved）。
 
 ---
 
