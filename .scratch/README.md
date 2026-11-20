@@ -1,6 +1,6 @@
 # ZStore Feature Specs & Issue Tracker 目录索引
 
-> 本目录为 ZStore 项目的本地需求工单与技术规格索引（遵循 [`docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md) 与 [`AGENTS.md`](../AGENTS.md)），按执行时序汇总 **38 个特性与治理专题**及其演进取舍。
+> 本目录为 ZStore 项目的本地需求工单与技术规格索引（遵循 [`docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md) 与 [`AGENTS.md`](../AGENTS.md)），按执行时序汇总 **39 个特性与治理专题**及其演进取舍。
 
 ---
 
@@ -56,6 +56,7 @@
 | **#36** | Phase 7: 底座与优化 | [`richcard-pipeline-optimization`](./richcard-pipeline-optimization/spec.md) | 在线搜索 / 趋势榜 / Star 富卡链路收敛与缓存治理 | 2026-11-20 | `b9a3137` | ADR-0011, 0015, 0027 | 5 / 5 Resolved |
 | **#37** | Phase 8: 发现深化与生态工具 | [`feature-launchpad-preflight-and-badges`](./feature-launchpad-preflight-and-badges/spec.md) | 开源广场应用内投稿预检向导与 README 徽章生成器 | 2026-11-20 | — | ADR-0018, 0029 | 4 / 4 Resolved |
 | **#38** | Phase 8: 发现深化与生态工具 | [`feature-shareable-collections`](./feature-shareable-collections/spec.md) | 可分享应用合集深链（`zstore://collection`）与批量预览安装 | 2026-11-20 | — | ADR-0001, 0004, 0010 | 4 / 4 Resolved |
+| **#39** | Phase 8: 发现深化与生态工具 | [`feature-similar-and-alternatives`](./feature-similar-and-alternatives/spec.md) | 商业软件「开源平替」搜索增强与详情页「相似开源项目」推荐 | 2026-11-20 | — | ADR-0023, 0024, 0030 | 4 / 4 Resolved |
 
 ---
 
@@ -224,6 +225,9 @@
 
 #### #38 · `feature-shareable-collections`
 - **定位**：可分享应用合集深链与批量预览安装（4 / 4 Resolved），打通 `zstore://collection?...` 协议解析、合集预览与显式批量安装，以及「我的应用 / 收藏」清单深链与 Markdown 导出。
+
+#### #39 · `feature-similar-and-alternatives`
+- **定位**：商业软件「开源平替」搜索增强与详情页「相似开源项目」推荐（4 / 4 Resolved），引入 `alternatives` 元数据映射与检索评分增强，并复用 `CatalogIdf` 与 `seed_similarity_with_idf` 实现详情页零网络相似应用推荐（[ADR-0030](../docs/adr/0030-similar-apps-and-alternatives-search.md)）。
 
 ---
 

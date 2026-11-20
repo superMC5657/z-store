@@ -603,6 +603,7 @@ mod tests {
             category: category.to_string(),
             category_name: category.to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v1".to_string(),
             added_at: added_at.map(str::to_string),
             license: "MIT".to_string(),

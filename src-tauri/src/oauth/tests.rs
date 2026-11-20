@@ -191,6 +191,7 @@ fn clear_oauth_session_purges_private_repo_cards_and_search_lists_only() {
                     source: None,
                     status: None,
                     added_at: None,
+                    alternatives: Vec::new(),
                 },
             },
             confirmed_other: false,

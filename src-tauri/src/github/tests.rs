@@ -427,4 +427,34 @@ mod catalog_mirror_fallback {
         cat.http_client_for(&direct);
         assert_eq!(cat.client.build_count(), 3, "proxy turned off must rebuild");
     }
+
+    #[test]
+    fn search_alternatives_hits_and_ranks_above_description_match() {
+        let cat = CatalogService::new();
+        for q in ["TeamViewer", "toDesk", "向日葵"] {
+            let res = cat.search_local_catalog(q);
+            assert!(!res.is_empty(), "query={q} should return rustdesk");
+            assert_eq!(res[0].core.id, "rustdesk/rustdesk", "query={q}");
+            assert!(
+                res[0].core.alternatives.iter().any(|a| a == "TeamViewer"),
+                "alternatives should be projected onto AppSummary"
+            );
+        }
+
+        let notion = cat.search_local_catalog("Notion");
+        assert!(
+            notion
+                .iter()
+                .any(|a| a.core.id == "toeverything/affine" || a.core.id == "appflowy-io/appflowy"),
+            "searching Notion should return open-source alternatives"
+        );
+
+        let postman = cat.search_local_catalog("Postman");
+        assert!(
+            postman
+                .iter()
+                .any(|a| a.core.id == "usebruno/bruno" || a.core.id == "hoppscotch/hoppscotch"),
+            "searching Postman should return open-source API tools"
+        );
+    }
 }

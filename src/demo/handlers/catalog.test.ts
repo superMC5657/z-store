@@ -7,7 +7,9 @@ import {
   handleGetLatestCatalogApps,
   handleGetOrFetchIcon,
   handleGetPlatformsLite,
+  handleGetSimilarApps,
   handleResolveCollectionApps,
+  handleSearchApps,
   handleSearchAppsOnline,
 } from './catalog';
 import { handleHandleDeepLink } from './settings';
@@ -265,5 +267,29 @@ describe('collection demo handlers', () => {
     expect(() => handleHandleDeepLink({ url: `zstore://collection?ids=a/b&note=${'汉'.repeat(700)}` })).toThrow();
     expect(() => handleHandleDeepLink({ url: 'zstore://collection?ids=a/b,%00' })).toThrow();
     expect(() => handleHandleDeepLink({ url: 'zstore://app/rustdesk/rustdesk' })).toThrow();
+  });
+
+  it('handleSearchApps matches commercial alternatives and handleGetSimilarApps returns similar items', () => {
+    const tvHits = handleSearchApps({ query: 'TeamViewer' });
+    expect(tvHits[0]?.id).toBe('rustdesk/rustdesk');
+    expect(tvHits[0]?.alternatives).toContain('TeamViewer');
+
+    const similar = handleGetSimilarApps({ appId: 'rustdesk/rustdesk', limit: 4 });
+    expect(similar.target_id).toBe('rustdesk/rustdesk');
+    expect(similar.target_alternatives).toContain('TeamViewer');
+    expect(similar.items.length).toBeGreaterThan(0);
+    expect(similar.items.length).toBeLessThanOrEqual(4);
+    expect(similar.items.every((entry) => entry.app.id !== 'rustdesk/rustdesk')).toBe(true);
+
+    // 跨分类且无共享关键词时不得产出虚假的 category 理由；且内置字典应包含 moonlight-qt
+    const moonlight = handleGetSimilarApps({ appId: 'moonlight-stream/moonlight-qt' });
+    expect(moonlight.target_alternatives).toContain('Parsec');
+    for (const entry of similar.items) {
+      const hasCat = entry.reasons.some((r) => r.kind === 'category');
+      if (hasCat) {
+        const targetSummary = summaries.find((s) => s.id === 'rustdesk/rustdesk');
+        expect(entry.app.category.toLowerCase()).toBe(targetSummary?.category.toLowerCase());
+      }
+    }
   });
 });

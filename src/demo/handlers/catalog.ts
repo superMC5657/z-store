@@ -7,10 +7,15 @@ import {
   type HydratedRepoCard,
   type ImportAppRequest,
   type MatchReason,
+  type RecommendationReason,
   type SearchListCacheEntry,
+  type SimilarAppItem,
+  type SimilarAppsResponse,
   type SyncCatalogResult,
+  type UpdateRule,
 } from '../../types';
 import type { AppIconCycleResult, PlatformsLiteResult, ReadmeVariantsResult } from '../../services/api';
+import { resolveAlternatives } from '../alternatives';
 import {
   demoExternalFallback,
   findExternalTrend,
@@ -28,6 +33,7 @@ import {
   getSearchHistory,
   iconLevel,
   LS,
+  lsGet,
   lsSet,
   setRecentIds,
   setRecentViewTime,
@@ -36,15 +42,41 @@ import {
 } from '../demoState';
 import { argNum, argStr, warnUnknownArgs, type InvokeArgs, rankSummariesForFeed } from './common';
 
+function demoSearchScore(s: AppSummary, q: string): number {
+  const nameLower = s.name.toLowerCase();
+  if (nameLower === q || s.id.toLowerCase() === q) return 100;
+  if (nameLower.startsWith(q)) return 60;
+  if (nameLower.includes(q)) return 40;
+  if ((s.alternatives ?? []).some((alt) => alt.toLowerCase().includes(q))) return 38;
+  if (s.owner.toLowerCase().includes(q) || s.repo.toLowerCase().includes(q)) return 30;
+  if (
+    q.length >= 2 &&
+    (s.description.toLowerCase().includes(q) || (s.description_en ?? '').toLowerCase().includes(q))
+  ) {
+    return 20;
+  }
+  return 0;
+}
+
 export function handleSearchApps(a: InvokeArgs): AppSummary[] {
   const q = argStr(a, 'query').trim().toLowerCase();
-  const matched = !q
-    ? [...summaries]
-    : summaries.filter((s) =>
-        `${s.id} ${s.name} ${s.description} ${s.description_en ?? ''} ${s.owner} ${s.repo} ${s.category_name}`
-          .toLowerCase()
-          .includes(q),
-      );
+  let matched: AppSummary[];
+  if (!q) {
+    matched = [...summaries].sort((x, y) => y.stars - x.stars);
+  } else {
+    const catHits = summaries.filter(
+      (s) => s.category.toLowerCase() === q || s.category_name.toLowerCase() === q,
+    );
+    if (catHits.length > 0) {
+      matched = [...catHits].sort((x, y) => y.stars - x.stars);
+    } else {
+      matched = summaries
+        .map((s) => ({ s, score: demoSearchScore(s, q) }))
+        .filter((e) => e.score > 0)
+        .sort((x, y) => y.score - x.score || y.s.stars - x.s.stars)
+        .map((e) => e.s);
+    }
+  }
   const limit = argNum(a, 'limit');
   const offset = argNum(a, 'offset');
   if (limit === undefined && offset === undefined) return matched;
@@ -654,4 +686,93 @@ export function handleResolveCollectionApps(a: InvokeArgs): AppSummary[] {
     if (out.length >= 30) break;
   }
   return out;
+}
+
+const DEMO_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'open', 'source', 'opensource',
+  'free', 'cross', 'platform', 'app', 'apps', 'tool', 'tools', 'desktop', 'client',
+  'windows', 'linux', 'macos', 'android', 'ios', 'software', 'based', 'fast', 'simple',
+]);
+
+function demoTokens(app: Pick<AppSummary, 'name' | 'repo' | 'description' | 'description_en'>): Set<string> {
+  const raw = `${app.name} ${app.repo} ${app.description} ${app.description_en ?? ''}`.toLowerCase();
+  const out = new Set<string>();
+  for (const m of raw.matchAll(/[a-z0-9]{3,}|[\u4e00-\u9fff]{2,}/g)) {
+    if (!DEMO_STOPWORDS.has(m[0])) out.add(m[0]);
+  }
+  return out;
+}
+
+export function handleGetSimilarApps(a: InvokeArgs): SimilarAppsResponse {
+  warnUnknownArgs(
+    ['appId', 'name', 'owner', 'category', 'description', 'descriptionEn', 'limit'],
+    a,
+    'handleGetSimilarApps',
+  );
+  const rawId = argStr(a, 'appId');
+  const cleanId = canonicalAppId(rawId) ?? rawId.trim().toLowerCase();
+  if (!cleanId) return { target_id: '', target_alternatives: [], items: [] };
+
+  const rawLimit = argNum(a, 'limit');
+  const limit = Math.min(8, Math.max(1, Math.floor(rawLimit ?? 4)));
+  const hit = findSummary(cleanId);
+  const coord = parseCanonicalCoord(cleanId);
+  const seed: Pick<AppSummary, 'id' | 'name' | 'owner' | 'repo' | 'category' | 'description' | 'description_en'> = hit ?? {
+    id: cleanId,
+    name: argStr(a, 'name') || coord?.repo || cleanId,
+    owner: argStr(a, 'owner') || coord?.owner || '',
+    repo: coord?.repo || cleanId,
+    category: argStr(a, 'category').toLowerCase(),
+    description: argStr(a, 'description'),
+    description_en: argStr(a, 'descriptionEn') || undefined,
+  };
+  const targetAlternatives = resolveAlternatives(hit?.alternatives, cleanId);
+  const seedToks = demoTokens(seed);
+
+  const hiddenIds = new Set(
+    lsGet<UpdateRule[]>(LS.updateRules, [])
+      .filter((r) => r.is_hidden)
+      .map((r) => r.app_id.toLowerCase()),
+  );
+
+  const scored: Array<{ rank: number; item: SimilarAppItem }> = [];
+  for (const cand of summaries) {
+    const candLower = cand.id.toLowerCase();
+    if (candLower === cleanId || hiddenIds.has(candLower)) continue;
+
+    const sameCat = Boolean(seed.category && cand.category.toLowerCase() === seed.category.toLowerCase());
+    const sameOwner = Boolean(seed.owner && cand.owner.toLowerCase() === seed.owner.toLowerCase());
+    const candToks = demoTokens(cand);
+    const shared: string[] = [];
+    for (const t of candToks) {
+      if (seedToks.has(t)) shared.push(t);
+    }
+    const denom = Math.sqrt(seedToks.size * candToks.size);
+    const cos = denom > 0 ? shared.length / denom : 0;
+    const sim = (sameCat ? 0.25 : 0) + (sameOwner ? 0.25 : 0) + 0.5 * cos;
+    if (sim < 0.25) continue;
+
+    const reasons: RecommendationReason[] = [];
+    if (sameOwner) reasons.push({ kind: 'owner', owner: cand.owner });
+    if (shared.length > 0) reasons.push({ kind: 'keywords', tokens: shared.slice(0, 3) });
+    if (sameCat) reasons.push({ kind: 'category', category: cand.category });
+
+    const rank = sim * 10 + 0.15 * (Math.log(cand.stars + 1) + 0.25 * Math.log(cand.forks + 1));
+    scored.push({
+      rank,
+      item: {
+        app: cand,
+        similarity: sim,
+        reasons,
+        ...(cand.alternatives && cand.alternatives.length > 0 ? { alternatives: cand.alternatives } : {}),
+      },
+    });
+  }
+
+  scored.sort((x, y) => y.rank - x.rank || y.item.app.stars - x.item.app.stars);
+  return {
+    target_id: cleanId,
+    target_alternatives: targetAlternatives,
+    items: scored.slice(0, limit).map((e) => e.item),
+  };
 }

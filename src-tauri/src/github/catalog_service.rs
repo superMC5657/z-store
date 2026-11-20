@@ -445,11 +445,27 @@ fn search_score(item: &CatalogItem, q: &str) -> i32 {
     if name_lower.contains(q) {
         return SEARCH_SCORE_NAME_CONTAINS;
     }
-    if item.owner.to_lowercase().contains(q) || item.repo.to_lowercase().contains(q) {
-        return SEARCH_SCORE_OWNER_OR_REPO_CONTAINS;
+    if crate::github::alternatives::resolved_alternatives(item)
+        .iter()
+        .any(|a| a.to_lowercase().contains(q))
+    {
+        return SEARCH_SCORE_ALTERNATIVE_MATCH;
     }
     if item.aliases.iter().any(|a| a.to_lowercase().contains(q)) {
         return SEARCH_SCORE_ALIAS_CONTAINS;
+    }
+    if item.owner.to_lowercase().contains(q) || item.repo.to_lowercase().contains(q) {
+        return SEARCH_SCORE_OWNER_OR_REPO_CONTAINS;
+    }
+    // 单字符查询不触发简介模糊匹配，避免大量单字母噪点泛滥。
+    if q.chars().count() >= 2
+        && (item.description.to_lowercase().contains(q)
+            || item
+                .description_en
+                .as_deref()
+                .is_some_and(|en| en.to_lowercase().contains(q)))
+    {
+        return SEARCH_SCORE_DESCRIPTION_CONTAINS;
     }
     0
 }
@@ -981,6 +997,195 @@ impl CatalogService {
     }
 }
 
+/// 详情页「相似开源项目」计算入参（支持已收录与未收录外部仓库）。
+pub struct SimilarAppSeed<'a> {
+    pub clean_id: &'a str,
+    pub name: Option<&'a str>,
+    pub owner: Option<&'a str>,
+    pub category: Option<&'a str>,
+    pub description: Option<&'a str>,
+    pub description_en: Option<&'a str>,
+}
+
+/// 单条相似开源项目匹配结果（未回填 DB 确认图标前的目录态投影）。
+pub struct SimilarAppMatch {
+    pub app: AppSummary,
+    pub similarity: f64,
+    pub reasons: Vec<crate::github::affinity::Reason>,
+}
+
+/// `CatalogService::find_similar_apps` 计算产物。
+pub struct SimilarAppsPlan {
+    pub target_id: String,
+    pub target_alternatives: Vec<String>,
+    pub items: Vec<SimilarAppMatch>,
+}
+
+const SIMILAR_MIN_SIMILARITY: f64 = 0.25;
+const SIMILAR_DEFAULT_LIMIT: usize = 4;
+const SIMILAR_MIN_LIMIT: usize = 1;
+const SIMILAR_MAX_LIMIT: usize = 8;
+
+/// 构造未收录应用临时 `AppSummary` 种子，供详情页相似项目打分使用。
+fn build_external_seed_summary(seed: &SimilarAppSeed<'_>) -> AppSummary {
+    let (parsed_owner, parsed_repo) = crate::forge::RepositoryUrlParser::parse(seed.clean_id)
+        .map(|c| (c.owner, c.repo))
+        .or_else(|| {
+            seed.clean_id
+                .split_once('/')
+                .map(|(o, r)| (o.to_string(), r.to_string()))
+        })
+        .unwrap_or_else(|| (String::new(), seed.clean_id.to_string()));
+    let owner = seed
+        .owner
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or(parsed_owner);
+    let name = seed
+        .name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| parsed_repo.clone());
+    let category = seed
+        .category
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_lowercase)
+        .unwrap_or_default();
+    let description = seed
+        .description
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_default();
+    let description_en = seed
+        .description_en
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    AppSummary {
+        core: crate::models::AppCore {
+            id: seed.clean_id.to_string(),
+            name,
+            description_en,
+            owner,
+            repo: parsed_repo,
+            icon: String::new(),
+            icon_bg: crate::github::http::DEFAULT_ICON_BG.to_string(),
+            description,
+            stars: 0,
+            forks: 0,
+            license: String::new(),
+            latest_version: String::new(),
+            category,
+            category_name: String::new(),
+            is_verified: false,
+            forge: None,
+            forge_host: None,
+            homepage: None,
+            platforms: Vec::new(),
+            is_cataloged: Some(false),
+            source: None,
+            status: None,
+            added_at: None,
+            alternatives: crate::github::alternatives::resolved_alternatives_for(&[], seed.clean_id),
+        },
+    }
+}
+
+impl CatalogService {
+    /// 基于读锁内 `CatalogStore::derived()`（IDF + 别名）计算相似开源项目（零网络）。
+    pub fn find_similar_apps(
+        &self,
+        seed: &SimilarAppSeed<'_>,
+        hidden_ids: &std::collections::HashSet<String>,
+        limit: Option<usize>,
+    ) -> SimilarAppsPlan {
+        let store = self.read_store();
+        let derived = store.derived();
+        let clean_lower = seed.clean_id.to_lowercase();
+
+        let seed_summary = if let Some(item) = store.get(&clean_lower) {
+            item.to_summary()
+        } else {
+            build_external_seed_summary(seed)
+        };
+        let target_alternatives = seed_summary.core.alternatives.clone();
+
+        let seed_aliases = derived
+            .aliases
+            .get(&clean_lower)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let seed_tokens =
+            crate::github::affinity_text::extract_summary_tokens(&seed_summary, seed_aliases);
+
+        let cap = limit
+            .unwrap_or(SIMILAR_DEFAULT_LIMIT)
+            .clamp(SIMILAR_MIN_LIMIT, SIMILAR_MAX_LIMIT);
+
+        let mut scored: Vec<(f64, u64, f64, AppSummary)> = Vec::new();
+        for (item, origin) in store.merged() {
+            let item_lower = item.id.to_lowercase();
+            if item_lower == clean_lower || hidden_ids.contains(&item_lower) {
+                continue;
+            }
+            let cand_summary = Self::project_merged_summary(item, origin);
+            let cand_tokens = crate::github::affinity::similarity_tokens(
+                &cand_summary,
+                Some(&*derived.aliases),
+            );
+            let sim = crate::github::affinity::similarity_from_tokens(
+                &seed_summary,
+                &seed_tokens,
+                &cand_summary,
+                &cand_tokens,
+                &derived.idf,
+            );
+            if sim < SIMILAR_MIN_SIMILARITY {
+                continue;
+            }
+            let rank = sim * 10.0 + 0.15 * feed_stars_forks_base(item.stars, item.forks);
+            scored.push((rank, item.stars, sim, cand_summary));
+        }
+
+        scored.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.1.cmp(&a.1))
+                .then_with(|| a.3.core.id.cmp(&b.3.core.id))
+        });
+        scored.truncate(cap);
+
+        let items = scored
+            .into_iter()
+            .map(|(_, _, sim, app)| {
+                let reasons = crate::github::affinity::explain_similarity_reasons(
+                    &seed_summary,
+                    &seed_tokens,
+                    &app,
+                    &derived.idf,
+                    Some(&*derived.aliases),
+                );
+                SimilarAppMatch {
+                    app,
+                    similarity: sim,
+                    reasons,
+                }
+            })
+            .collect();
+
+        SimilarAppsPlan {
+            target_id: seed.clean_id.to_string(),
+            target_alternatives,
+            items,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -999,6 +1204,7 @@ mod tests {
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v1.0.0".to_string(),
             added_at: None,
             license: "MIT".to_string(),
@@ -1632,5 +1838,192 @@ mod tests {
         );
         assert_eq!(profile.seeds.len(), 1);
         assert_eq!(profile.seeds[0].id, "local/app");
+    }
+
+    #[test]
+    fn test_search_score_alternatives_priority_and_single_char_description_gate() {
+        let mut alt_hit = item("rustdesk/rustdesk", "rustdesk", "rustdesk");
+        alt_hit.name = "RustDesk".to_string();
+        alt_hit.stars = 10;
+
+        let mut desc_hit = item("other/helper", "other", "helper");
+        desc_hit.name = "Helper".to_string();
+        desc_hit.description = "不同于 TeamViewer 的轻量工具".to_string();
+        desc_hit.stars = 99_999;
+
+        let mut single_char_desc = item("other/xtool", "other", "xtool");
+        single_char_desc.name = "Alpha".to_string();
+        single_char_desc.description = "contains z inside".to_string();
+
+        let svc = test_service(vec![desc_hit, alt_hit, single_char_desc]);
+
+        let hits = svc.search_local_catalog("toDesk");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].core.id, "rustdesk/rustdesk");
+
+        let ranked = svc.search_local_catalog("teamviewer");
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(
+            ranked[0].core.id, "rustdesk/rustdesk",
+            "alternative match (38) must outrank description-only match (20) despite fewer stars"
+        );
+        assert_eq!(ranked[1].core.id, "other/helper");
+
+        assert!(
+            svc.search_local_catalog("z").is_empty(),
+            "single-char query must not trigger description fuzzy match"
+        );
+        let two_char = svc.search_local_catalog("zi");
+        assert!(two_char.is_empty());
+        let inside_hit = svc.search_local_catalog("inside");
+        assert_eq!(inside_hit.len(), 1);
+        assert_eq!(inside_hit[0].core.id, "other/xtool");
+    }
+
+    #[test]
+    fn test_find_similar_apps_cataloged_external_hidden_and_clamping() {
+        let mut seed_item = item("rustdesk/rustdesk", "rustdesk", "rustdesk");
+        seed_item.name = "RustDesk".to_string();
+        seed_item.category = "system".to_string();
+        seed_item.description = "远程桌面控制工具".to_string();
+        seed_item.description_en = Some("Remote desktop control software".to_string());
+        seed_item.stars = 80_000;
+
+        let mut same_owner = item("rustdesk/rustdesk-server", "rustdesk", "rustdesk-server");
+        same_owner.name = "RustDesk Server".to_string();
+        same_owner.category = "system".to_string();
+        same_owner.description = "远程桌面自建中继服务".to_string();
+        same_owner.stars = 5_000;
+
+        let mut hidden_peer = item("hidden/remote-app", "hidden", "remote-app");
+        hidden_peer.name = "Hidden Remote".to_string();
+        hidden_peer.category = "system".to_string();
+        hidden_peer.description = "Remote desktop control alternative".to_string();
+        hidden_peer.stars = 90_000;
+
+        let mut same_track = item("acme/moonlight", "acme", "moonlight");
+        same_track.name = "Moonlight".to_string();
+        same_track.category = "system".to_string();
+        same_track.description = "远程桌面低延迟串流".to_string();
+        same_track.description_en = Some("Remote desktop streaming".to_string());
+        same_track.stars = 20_000;
+
+        let mut extra_items = Vec::new();
+        for idx in 0..10 {
+            let mut peer = item(&format!("peer/sys-{idx}"), "peer", &format!("sys-{idx}"));
+            peer.name = format!("System Peer {idx}");
+            peer.category = "system".to_string();
+            peer.description = "远程桌面工具".to_string();
+            peer.stars = 100 + idx as u64;
+            extra_items.push(peer);
+        }
+
+        let mut unrelated = item("media/music", "media", "music");
+        unrelated.name = "Music Player".to_string();
+        unrelated.category = "media".to_string();
+        unrelated.description = "Audio equalizer".to_string();
+
+        let mut catalog = vec![seed_item, same_owner, hidden_peer, same_track, unrelated];
+        catalog.extend(extra_items);
+        let svc = test_service(catalog);
+
+        let hidden: std::collections::HashSet<String> =
+            ["hidden/remote-app".to_string()].into_iter().collect();
+
+        // 1. 已收录应用：排除自身、排除隐藏应用、透出目标平替标签
+        let plan = svc.find_similar_apps(
+            &SimilarAppSeed {
+                clean_id: "rustdesk/rustdesk",
+                name: None,
+                owner: None,
+                category: None,
+                description: None,
+                description_en: None,
+            },
+            &hidden,
+            Some(4),
+        );
+        assert!(plan.target_alternatives.iter().any(|a| a == "TeamViewer"));
+        assert!(!plan.items.iter().any(|i| i.app.core.id == "rustdesk/rustdesk"));
+        assert!(!plan.items.iter().any(|i| i.app.core.id == "hidden/remote-app"));
+        assert!(!plan.items.iter().any(|i| i.app.core.id == "media/music"));
+        assert_eq!(plan.items.len(), 4);
+        let owner_hit = plan
+            .items
+            .iter()
+            .find(|i| i.app.core.id == "rustdesk/rustdesk-server")
+            .expect("same owner peer should match");
+        assert!(owner_hit
+            .reasons
+            .iter()
+            .any(|r| matches!(r, crate::github::affinity::Reason::Owner { .. })));
+
+        // 2. limit 夹紧在 1..=8
+        let min_clamped = svc.find_similar_apps(
+            &SimilarAppSeed {
+                clean_id: "rustdesk/rustdesk",
+                name: None,
+                owner: None,
+                category: None,
+                description: None,
+                description_en: None,
+            },
+            &hidden,
+            Some(0),
+        );
+        assert_eq!(min_clamped.items.len(), 1);
+        let max_clamped = svc.find_similar_apps(
+            &SimilarAppSeed {
+                clean_id: "rustdesk/rustdesk",
+                name: None,
+                owner: None,
+                category: None,
+                description: None,
+                description_en: None,
+            },
+            &hidden,
+            Some(100),
+        );
+        assert_eq!(max_clamped.items.len(), 8);
+
+        // 3. 未收录外部应用：仅凭 name/category/description 命中同赛道已收录应用
+        let external_plan = svc.find_similar_apps(
+            &SimilarAppSeed {
+                clean_id: "external/anydesk-clone",
+                name: Some("AnyDesk Clone"),
+                owner: Some("external"),
+                category: Some("system"),
+                description: Some("远程桌面控制"),
+                description_en: Some("Remote desktop control"),
+            },
+            &hidden,
+            Some(4),
+        );
+        assert!(!external_plan.items.is_empty());
+        assert!(external_plan
+            .items
+            .iter()
+            .any(|i| i.app.core.id == "rustdesk/rustdesk"));
+        assert!(external_plan.items[0].reasons.iter().any(|r| matches!(
+            r,
+            crate::github::affinity::Reason::Keywords { .. }
+                | crate::github::affinity::Reason::Category { .. }
+        )));
+
+        // 4. 零结果边界
+        let empty_plan = svc.find_similar_apps(
+            &SimilarAppSeed {
+                clean_id: "external/nothing",
+                name: Some("Unicorn"),
+                owner: Some("nobody"),
+                category: Some("unknown-cat"),
+                description: Some("Quantum flux"),
+                description_en: None,
+            },
+            &hidden,
+            None,
+        );
+        assert!(empty_plan.items.is_empty());
+        assert!(empty_plan.target_alternatives.is_empty());
     }
 }

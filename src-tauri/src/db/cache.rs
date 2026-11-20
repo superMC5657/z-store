@@ -831,6 +831,7 @@ mod cache_quota_tests {
                 is_cataloged: Some(false),
                 source: None,
                 status: None,
+                alternatives: Vec::new(),
             },
             readme_markdown: String::new(),
             readme_variants: None,

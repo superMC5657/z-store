@@ -30,6 +30,7 @@ fn row_to_catalog_item(row: &rusqlite::Row<'_>) -> Result<CatalogItem> {
     let install_dirs_json: String = row.get(20)?;
     let search_subdirs_json: String = row.get(21)?;
     let publishers_json: String = row.get(22)?;
+    let alternatives_json: String = row.get(23)?;
 
     Ok(CatalogItem {
         id: row.get(0)?,
@@ -43,6 +44,7 @@ fn row_to_catalog_item(row: &rusqlite::Row<'_>) -> Result<CatalogItem> {
         category: row.get(8)?,
         category_name: row.get(9)?,
         aliases: parse_json_vec(&aliases_json),
+        alternatives: parse_json_vec(&alternatives_json),
         default_version: row.get(11)?,
         added_at: row.get(12)?,
         license: row.get(13)?,
@@ -62,7 +64,7 @@ const SELECT_CATALOG_COLS: &str =
     "id, name, owner, repo, icon, icon_bg, description, description_en, \
     category, category_name, aliases_json, default_version, added_at, license, stars, forks, \
     is_verified, homepage, platforms_json, identifiers_json, install_dirs_json, \
-    search_subdirs_json, publishers_json";
+    search_subdirs_json, publishers_json, alternatives_json";
 
 impl Database {
     fn insert_catalog_item_row(&self, item: &CatalogItem, now: i64) -> Result<()> {
@@ -81,18 +83,20 @@ impl Database {
             serde_json::to_string(&item.search_subdirs).unwrap_or_else(|_| "[]".into());
         let publishers_json =
             serde_json::to_string(&item.publishers).unwrap_or_else(|_| "[]".into());
+        let alternatives_json =
+            serde_json::to_string(&item.alternatives).unwrap_or_else(|_| "[]".into());
 
         self.exec_write(
             r#"
             INSERT INTO catalog_apps (
                 id, name, owner, repo, icon, icon_bg, description, description_en,
-                category, category_name, aliases_json, default_version, added_at,
+                category, category_name, aliases_json, alternatives_json, default_version, added_at,
                 license, stars, forks, is_verified, homepage, platforms_json,
                 identifiers_json, install_dirs_json, search_subdirs_json, publishers_json,
                 forge, forge_host, manifest_synced_at, detail_synced_at, updated_at
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-                ?9, ?10, ?11, ?12, ?13,
+                ?9, ?10, ?11, ?25, ?12, ?13,
                 ?14, ?15, ?16, ?17, ?18, ?19,
                 ?20, ?21, ?22, ?23,
                 'github', 'github.com', ?24, 0, ?24
@@ -108,6 +112,7 @@ impl Database {
                 category = excluded.category,
                 category_name = excluded.category_name,
                 aliases_json = excluded.aliases_json,
+                alternatives_json = excluded.alternatives_json,
                 default_version = excluded.default_version,
                 added_at = excluded.added_at,
                 license = excluded.license,
@@ -148,6 +153,7 @@ impl Database {
                 search_subdirs_json,
                 publishers_json,
                 now,
+                alternatives_json,
             ],
         )?;
         Ok(())
@@ -343,6 +349,7 @@ mod tests {
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec!["alias1".to_string()],
+            alternatives: Vec::new(),
             default_version: "v1.0.0".to_string(),
             added_at: Some("2026-10-01".to_string()),
             license: "MIT".to_string(),
@@ -422,6 +429,7 @@ mod tests {
                 source: Some("remote".to_string()),
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
             changelog: String::new(),
             readme_markdown: "# Demo".to_string(),

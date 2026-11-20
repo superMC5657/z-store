@@ -42,6 +42,7 @@ import {
   handleClearSearchHistory,
   handleEnrichTrendRepos,
   handleGetAppDetails,
+  handleGetSimilarApps,
   handleGetCachedAppDetailsBatch,
   handleGetAppIconCycle,
   handleGetCategoryApps,
@@ -254,6 +255,8 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
       return handleEnrichTrendRepos(a);
     case 'get_app_details':
       return handleGetAppDetails(a);
+    case 'get_similar_apps':
+      return handleGetSimilarApps(a);
     case 'resolve_collection_apps':
       return handleResolveCollectionApps(a);
     case 'get_cached_app_details_batch':

@@ -44,6 +44,8 @@ interface AppCardProps {
   onLoadDetail?: (id: string) => void;
   /** 推荐理由（精选页传入，已格式化）：描述下方一行次要文字，缺席不渲染。 */
   reasonText?: string;
+  /** 商业软件平替命中词（搜索结果页按需传入）：以 `.status-tag` 展示「可替代 X」。 */
+  alternativeHint?: string;
   /** 推荐负反馈入口（精选页推荐区块传入）：「不感兴趣」与「少推这类」，缺席不渲染菜单。 */
   onDismiss?: (app: AppSummary, scope: FeedbackScope) => void;
 }
@@ -171,6 +173,7 @@ function areAppCardPropsEqual(prev: AppCardProps, next: AppCardProps): boolean {
     (prev.isCustomExisting ?? false) === (next.isCustomExisting ?? false) &&
     (prev.showLoadDetail ?? false) === (next.showLoadDetail ?? false) &&
     prev.reasonText === next.reasonText &&
+    prev.alternativeHint === next.alternativeHint &&
     prev.onDismiss === next.onDismiss &&
     prev.onOpenDetail === next.onOpenDetail &&
     prev.onQuickInstall === next.onQuickInstall &&
@@ -204,6 +207,7 @@ export const AppCard: React.FC<AppCardProps> = memo(({
   showLoadDetail = false,
   onLoadDetail,
   reasonText,
+  alternativeHint,
   onDismiss,
 }) => {
   const { t, i18n } = useTranslation();
@@ -370,6 +374,15 @@ export const AppCard: React.FC<AppCardProps> = memo(({
           {typeof trendGain === 'number' && trendGain > 0 && trendGainText && (
             <span className="app-tag trend-gain" title={trendGainText}>
               {trendGainText}
+            </span>
+          )}
+          {alternativeHint && (
+            <span
+              className="status-tag"
+              data-testid={`alt-hint-${app.id}`}
+              title={t('search.alternative_to', { target: alternativeHint })}
+            >
+              {t('search.alternative_to', { target: alternativeHint })}
             </span>
           )}
           {showLoadingPlaceholder ? (

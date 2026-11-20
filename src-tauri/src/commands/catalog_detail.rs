@@ -726,6 +726,7 @@ fn placeholder_collection_summary(clean_id: &str) -> Option<AppSummary> {
             source: None,
             status: None,
             added_at: None,
+            alternatives: Vec::new(),
         },
     })
 }
@@ -976,6 +977,10 @@ async fn fetch_detail_from_forge(
             source: None,
             status: None,
             added_at: None,
+            alternatives: catalog_item
+                .as_ref()
+                .map(crate::github::alternatives::resolved_alternatives)
+                .unwrap_or_default(),
         },
         changelog: release_info.body.unwrap_or_default(),
         readme_markdown: format!(
@@ -1363,6 +1368,114 @@ pub async fn get_readme_variants(
     Ok(ReadmeVariantsResponse { variants })
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SimilarAppItem {
+    pub app: AppSummary,
+    pub similarity: f64,
+    pub reasons: Vec<crate::github::affinity::Reason>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SimilarAppsResponse {
+    pub target_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub target_alternatives: Vec<String>,
+    pub items: Vec<SimilarAppItem>,
+}
+
+/// `get_similar_apps` 核心同步执行逻辑（拆出供单测直测）。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn get_similar_apps_sync(
+    state: &AppState,
+    app_id: &str,
+    name: Option<&str>,
+    owner: Option<&str>,
+    category: Option<&str>,
+    description: Option<&str>,
+    description_en: Option<&str>,
+    limit: Option<usize>,
+) -> crate::AppResult<SimilarAppsResponse> {
+    let clean_id = crate::commands::require_app_id(app_id)?;
+    let hidden_ids: std::collections::HashSet<String> =
+        super::catalog_search::hidden_rule_ids(state)?
+            .into_iter()
+            .map(|id| id.to_lowercase())
+            .collect();
+
+    let mut plan = state.catalog.find_similar_apps(
+        &crate::github::catalog_service::SimilarAppSeed {
+            clean_id: &clean_id,
+            name,
+            owner,
+            category,
+            description,
+            description_en,
+        },
+        &hidden_ids,
+        limit,
+    );
+
+    if let Ok(db) = state.db() {
+        for entry in &mut plan.items {
+            if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
+                &db,
+                &entry.app.core.id,
+                &entry.app.core.owner,
+                &entry.app.core.repo,
+            ) {
+                entry.app.core.icon = ci;
+            }
+        }
+    }
+
+    let items = plan
+        .items
+        .into_iter()
+        .map(|entry| {
+            let alternatives = entry.app.core.alternatives.clone();
+            SimilarAppItem {
+                app: entry.app,
+                similarity: entry.similarity,
+                reasons: entry.reasons,
+                alternatives,
+            }
+        })
+        .collect();
+
+    Ok(SimilarAppsResponse {
+        target_id: plan.target_id,
+        target_alternatives: plan.target_alternatives,
+        items,
+    })
+}
+
+/// 详情页「相似开源项目」推荐（零网络复用 `CatalogDerived` 词袋 IDF 与 `seed_similarity_with_idf`）。
+#[allow(clippy::too_many_arguments)]
+#[tauri::command(rename_all = "camelCase")]
+pub fn get_similar_apps(
+    state: State<'_, AppState>,
+    app_id: String,
+    name: Option<String>,
+    owner: Option<String>,
+    category: Option<String>,
+    description: Option<String>,
+    description_en: Option<String>,
+    limit: Option<usize>,
+) -> crate::AppResult<SimilarAppsResponse> {
+    get_similar_apps_sync(
+        &state,
+        &app_id,
+        name.as_deref(),
+        owner.as_deref(),
+        category.as_deref(),
+        description.as_deref(),
+        description_en.as_deref(),
+        limit,
+    )
+}
+
 #[cfg(test)]
 mod catalog_platform_tests {
     use crate::github::detail_assets::platforms_from_assets;
@@ -1467,6 +1580,7 @@ mod catalog_platform_tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
         };
 
@@ -1510,6 +1624,7 @@ mod catalog_platform_tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
             changelog: String::new(),
             readme_markdown: String::new(),
@@ -1580,6 +1695,7 @@ mod catalog_platform_tests {
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v1.0.0".to_string(),
             added_at: None,
             license: "MIT".to_string(),
@@ -1677,6 +1793,7 @@ mod catalog_platform_tests {
             category: "tools".to_string(),
             category_name: "效率工具".to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v2.0.0".to_string(),
             added_at: None,
             license: "MIT".to_string(),
@@ -1748,6 +1865,7 @@ mod repo_card_hydration_tests {
                     source: None,
                     status: None,
                     added_at: None,
+                    alternatives: Vec::new(),
                 },
             },
             confirmed_other,
@@ -1769,6 +1887,7 @@ mod repo_card_hydration_tests {
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v9".to_string(),
             added_at: None,
             license: "MIT".to_string(),
@@ -1978,5 +2097,124 @@ mod repo_card_hydration_tests {
         assert!(out[3].core.platforms.is_empty());
         assert_eq!(out[4].core.is_cataloged, Some(true));
         assert_eq!(out[4].core.name, "Local Pick");
+    }
+
+    #[test]
+    fn similar_apps_response_serializes_without_empty_alternatives() {
+        let resp = SimilarAppsResponse {
+            target_id: "o/r".to_string(),
+            target_alternatives: Vec::new(),
+            items: vec![SimilarAppItem {
+                app: card("o/peer", &["windows"], false).summary,
+                similarity: 0.72,
+                reasons: vec![crate::github::affinity::Reason::Category {
+                    category: "dev".to_string(),
+                }],
+                alternatives: Vec::new(),
+            }],
+        };
+        let val = serde_json::to_value(&resp).unwrap();
+        assert_eq!(val["target_id"], "o/r");
+        assert!(val.get("target_alternatives").is_none());
+        assert!(val["items"][0].get("alternatives").is_none());
+        assert_eq!(val["items"][0]["reasons"][0]["kind"], "category");
+    }
+
+    #[test]
+    fn get_similar_apps_sync_covers_curated_external_hidden_and_empty() {
+        let state = test_state();
+        let mut rustdesk = curated("rustdesk/rustdesk");
+        rustdesk.name = "RustDesk".to_string();
+        rustdesk.category = "system".to_string();
+        rustdesk.description = "远程桌面控制工具 remote desktop control".to_string();
+        rustdesk.stars = 50_000;
+
+        let mut peer_same_owner = curated("rustdesk/rustdesk-server");
+        peer_same_owner.name = "RustDesk Server".to_string();
+        peer_same_owner.category = "system".to_string();
+        peer_same_owner.description = "远程桌面自建中继服务 remote desktop relay".to_string();
+        peer_same_owner.stars = 4_000;
+
+        let mut hidden_peer = curated("acme/hidden-remote");
+        hidden_peer.name = "Hidden Remote".to_string();
+        hidden_peer.category = "system".to_string();
+        hidden_peer.description = "远程桌面控制工具 remote desktop control".to_string();
+        hidden_peer.stars = 10_000;
+
+        let mut unrelated = curated("other/music-box");
+        unrelated.name = "Music Box".to_string();
+        unrelated.category = "media".to_string();
+        unrelated.description = "无损音频播放器 lossless audio player".to_string();
+        unrelated.stars = 2_000;
+
+        state
+            .catalog
+            .update_items(vec![rustdesk, peer_same_owner, hidden_peer, unrelated]);
+        state
+            .db()
+            .unwrap()
+            .set_hidden_status("acme/hidden-remote", true)
+            .unwrap();
+
+        // 1. 已收录 seed：排除自身与隐藏条目，并产出 Reason::Owner / target_alternatives
+        let curated_res = get_similar_apps_sync(
+            &state,
+            "RustDesk/RustDesk",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(4),
+        )
+        .unwrap();
+        assert_eq!(curated_res.target_id, "rustdesk/rustdesk");
+        assert!(curated_res
+            .target_alternatives
+            .iter()
+            .any(|a| a == "TeamViewer"));
+        let ids: Vec<&str> = curated_res
+            .items
+            .iter()
+            .map(|e| e.app.core.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["rustdesk/rustdesk-server"]);
+        assert!(curated_res.items[0]
+            .reasons
+            .iter()
+            .any(|r| matches!(r, crate::github::affinity::Reason::Owner { .. })));
+
+        // 2. 未收录动态 seed：利用入参元数据匹配同赛道目录项
+        let ext_res = get_similar_apps_sync(
+            &state,
+            "moonlight-stream/moonlight-qt",
+            Some("Moonlight"),
+            Some("moonlight-stream"),
+            Some("system"),
+            Some("远程桌面串流控制 remote desktop streaming"),
+            None,
+            Some(4),
+        )
+        .unwrap();
+        assert_eq!(ext_res.target_id, "moonlight-stream/moonlight-qt");
+        assert!(ext_res.target_alternatives.iter().any(|a| a == "Parsec"));
+        assert!(ext_res
+            .items
+            .iter()
+            .any(|e| e.app.core.id == "rustdesk/rustdesk"));
+
+        // 3. 零结果边界
+        let empty_res = get_similar_apps_sync(
+            &state,
+            "unknown/isolated",
+            Some("Isolated"),
+            Some("unknown"),
+            Some("games"),
+            Some("completely disjoint domain token"),
+            None,
+            Some(4),
+        )
+        .unwrap();
+        assert!(empty_res.items.is_empty());
     }
 }

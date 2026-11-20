@@ -597,6 +597,7 @@ pub fn run() {
             commands::get_category_apps,
             commands::get_latest_catalog_apps,
             commands::get_app_details,
+            commands::get_similar_apps,
             commands::resolve_collection_apps,
             commands::get_platforms_lite,
             commands::get_cached_app_details_batch,

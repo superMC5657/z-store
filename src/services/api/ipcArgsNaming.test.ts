@@ -24,6 +24,8 @@ function stubFor(cmd: string): unknown {
       return { id: 'x', platforms: [] };
     case 'get_readme_variants':
       return { variants: [] };
+    case 'get_similar_apps':
+      return { target_id: 'o/r', target_alternatives: [], items: [] };
     case 'resolve_collection_apps':
       return [];
     case 'fetch_or_cache_asset_url':
@@ -147,6 +149,17 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.searchAppsOnline('q', 'sid-1', 1, 20, true));
     await swallow(catalog.enrichTrendRepos([{ owner: 'o', repo: 'r' }], true));
     await swallow(catalog.getAppDetails('o/r', true));
+    await swallow(
+      catalog.getSimilarApps({
+        appId: 'o/r',
+        name: 'App',
+        owner: 'o',
+        category: 'dev',
+        description: 'desc',
+        descriptionEn: 'desc en',
+        limit: 4,
+      }),
+    );
     await swallow(catalog.resolveCollectionApps(['o/r']));
     await swallow(catalog.getCachedAppDetailsBatch(['o/r']));
     await swallow(catalog.getConfirmedIconsBatch(['o/r']));

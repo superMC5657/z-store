@@ -2,6 +2,7 @@ pub mod affinity;
 #[cfg(test)]
 mod affinity_eval_tests;
 pub mod affinity_text;
+pub mod alternatives;
 pub mod asset_fetch;
 pub mod catalog_feed_score;
 pub mod catalog_service;

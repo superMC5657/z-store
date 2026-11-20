@@ -422,6 +422,7 @@ pub(crate) async fn fallback_summary(
             source: None,
             status: None,
             added_at: None,
+            alternatives: Vec::new(),
         },
     }
 }

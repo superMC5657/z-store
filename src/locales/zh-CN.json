@@ -888,6 +888,8 @@
     "issue_feedback_body": "## 环境\n- ZStore 客户端版本：桌面端\n- 应用版本：{{version}}\n- 系统：{{platform}}\n\n## 问题描述\n\n## 复现步骤\n1. \n2. \n",
     "forge_codeberg": "Codeberg 源",
     "forge_gitea": "Gitea 源",
+    "alternatives_badge": "可替代 {{targets}}",
+    "alternatives_title": "可替代商业软件：{{targets}}",
     "size_label": "大小 {{size}}",
     "stale_title": "网络受限，正在展示本地缓存",
     "stale_badge": "离线缓存",
@@ -971,6 +973,12 @@
       "starred": "已在 GitHub 标星 {{name}}",
       "login_required": "请先登录 GitHub 账号",
       "failed": "GitHub 标星失败: {{error}}"
+    },
+    "similar": {
+      "title": "相似开源项目",
+      "reason_owner": "同一作者",
+      "reason_keywords": "包含关键词: {{tokens}}",
+      "reason_category": "同属「{{category}}」"
     }
   },
   "toast": {
@@ -1151,7 +1159,8 @@
     "search_online_btn": "在线搜索",
     "online_success": "已找到在线应用",
     "online_no_results": "未找到在线应用，已保留本地结果",
-    "online_failed": "在线搜索暂不可用，已保留本地结果"
+    "online_failed": "在线搜索暂不可用，已保留本地结果",
+    "alternative_to": "可替代 {{target}}"
   },
   "share_badge": {
     "title": "分享与 README 徽章",

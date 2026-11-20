@@ -88,6 +88,7 @@ impl Database {
                 category TEXT NOT NULL,
                 category_name TEXT NOT NULL,
                 aliases_json TEXT NOT NULL DEFAULT '[]',
+                alternatives_json TEXT NOT NULL DEFAULT '[]',
                 default_version TEXT NOT NULL DEFAULT '',
                 added_at TEXT,
                 license TEXT NOT NULL DEFAULT '',
@@ -426,6 +427,11 @@ impl Database {
         )?;
         // 幂等补列：缺列时执行 `ADD COLUMN` 补齐 `is_cataloged`（默认 0 fail-closed，启动回填按目录校准），
         // 列存在即跳过，保证任意版本启动均可自愈。
+        self.ensure_column(
+            "catalog_apps",
+            "alternatives_json",
+            "ALTER TABLE catalog_apps ADD COLUMN alternatives_json TEXT NOT NULL DEFAULT '[]'",
+        )?;
         self.ensure_column(
             "user_favorites",
             "is_cataloged",
@@ -964,6 +970,7 @@ mod schema_migration_tests {
                 category TEXT NOT NULL,
                 category_name TEXT NOT NULL,
                 aliases_json TEXT NOT NULL DEFAULT '[]',
+                alternatives_json TEXT NOT NULL DEFAULT '[]',
                 default_version TEXT NOT NULL DEFAULT '',
                 added_at TEXT,
                 license TEXT NOT NULL DEFAULT '',

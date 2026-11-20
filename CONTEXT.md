@@ -72,6 +72,8 @@
 | **开源广场** | `Launchpad` (`launchpad`) | 侧栏「发现」组下的独立视图，展示独立开发者新锐开源作品的置顶推荐与最新上架流，支持 Star、GitHub Discussions 评论/顶帖与安装；数据来自 `superMC5657/z-store-launchpad`，与精选目录物理隔离。详见 ADR-0029。 | 新品市场、推广页、广告位 |
 | **置顶推荐** | `Spotlight` | 开源广场顶部的置顶赞助坑位，可展示精选开源新品或经人工审核的开发者向商业赞助；到期自动撤出且卡片恒带单色 `.status-tag`，绝不进入精选目录与推荐打分。 | 竞价排名、推荐权重位 |
 | **作者自荐语** | `Maker Note` | 作者投稿时填写的一句话介绍（`maker_note` / 可选 `maker_note_en`），在广场卡片上以引用块呈现。 | 广告语、Slogan |
+| **开源平替元数据** | `Commercial Alternatives Metadata` | 附着在已通过 D1 门禁的开源应用上的商业/闭源软件替代关键词与标签（`alternatives` + 内置映射），仅用于检索召回与可解释标识，绝不入库为独立条目。详见 ADR-0030。 | 商业软件条目、闭源列表 |
+| **相似开源项目** | `Similar Open-Source Projects` | 详情页底部零网络推荐栏，复用 `CatalogIdf` 与 `seed_similarity_with_idf` 计算同赛道开源替代与可解释理由（作者 / 共享关键词 / 分类），支持弹窗内原地跳转对比。详见 ADR-0030。 | 猜你喜欢、竞品广告 |
 
 ---
 

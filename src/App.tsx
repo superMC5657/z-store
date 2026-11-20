@@ -886,6 +886,7 @@ export const App: React.FC = () => {
             onOpenAccountSettings={handleOpenAccountSettings}
             onRetry={(retryId) => handleOpenDetail(retryId)}
             onRefresh={(refreshId) => handleOpenDetail(refreshId, true)}
+            onOpenDetail={(detailId) => handleOpenDetail(detailId)}
           />
         </React.Suspense>
       )}

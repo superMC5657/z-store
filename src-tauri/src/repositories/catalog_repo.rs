@@ -118,6 +118,7 @@ mod tests {
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v1.0.0".to_string(),
             added_at: None,
             license: "MIT".to_string(),

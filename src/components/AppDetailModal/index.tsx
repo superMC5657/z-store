@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../../types';
@@ -8,6 +8,7 @@ import { Header, handleOpenExternal } from './Header';
 import { InstallActions } from './InstallActions';
 import { AssetList } from './AssetList';
 import { ReadmeSection } from './ReadmeSection';
+import { SimilarAppsSection } from './SimilarAppsSection';
 import { ModalShell } from '../ModalShell';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -36,6 +37,7 @@ interface AppDetailModalProps {
   onOpenAccountSettings?: () => void;
   onRetry?: (id: string) => void;
   onRefresh?: (id: string) => void;
+  onOpenDetail?: (id: string) => void;
 }
 
 export const AppDetailModal: React.FC<AppDetailModalProps> = ({
@@ -60,6 +62,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   onOpenAccountSettings,
   onRetry,
   onRefresh,
+  onOpenDetail,
 }) => {
   const { t, i18n } = useTranslation();
   const displayName = app.name;
@@ -74,6 +77,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [isDownloadingOnly, setIsDownloadingOnly] = useState(false);
   const [downloadedFile, setDownloadedFile] = useState<DownloadAssetResult | null>(null);
   const [isRevealingFolder, setIsRevealingFolder] = useState(false);
+  const [resolvedTargetAlts, setResolvedTargetAlts] = useState<{ appId: string; items: string[] } | null>(null);
+  const modalBodyRef = useRef<HTMLDivElement | null>(null);
   const effectiveIsInstalling = isInstalling || isInstallingGlobal;
   const effectiveIsBusy = effectiveIsInstalling || isDownloadingOnly;
 
@@ -83,7 +88,25 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
     setDownloadProgress(null);
     setDownloadedFile(null);
     setIsDownloadingOnly(false);
+    setResolvedTargetAlts(null);
+    if (modalBodyRef.current) {
+      modalBodyRef.current.scrollTop = 0;
+    }
   }, [app.id]);
+
+  const handleSelectSimilarApp = useCallback(
+    (id: string) => {
+      if (modalBodyRef.current) {
+        modalBodyRef.current.scrollTop = 0;
+      }
+      onOpenDetail?.(id);
+    },
+    [onOpenDetail],
+  );
+
+  const handleTargetAlternatives = useCallback((appId: string, alts: string[]) => {
+    setResolvedTargetAlts({ appId, items: alts });
+  }, []);
 
   // 切换选用包时清空上一包的下载结果，避免“打开文件夹”指向旧文件
   useEffect(() => {
@@ -277,6 +300,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
         primaryAsset={primaryAsset}
         platformLoading={platformLoading}
         oauthUser={oauthUser}
+        targetAlternatives={resolvedTargetAlts?.appId === app.id ? resolvedTargetAlts.items : undefined}
         isFavorite={isFavorite}
         isWatched={isWatched}
         onClose={onClose}
@@ -287,7 +311,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
       />
 
       {/* 弹窗主体内容区 */}
-      <div className="modal-body">
+      <div className="modal-body" ref={modalBodyRef}>
         {/* 操作交互卡片 */}
         <InstallActions
           app={app}
@@ -342,6 +366,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           displayDesc={displayDesc}
           showSkeleton={showSkeleton}
           onRetry={onRetry}
+        />
+
+        {/* 同赛道 / 相似开源项目推荐 */}
+        <SimilarAppsSection
+          app={app}
+          onSelectApp={handleSelectSimilarApp}
+          onTargetAlternatives={handleTargetAlternatives}
         />
       </div>
     </ModalShell>

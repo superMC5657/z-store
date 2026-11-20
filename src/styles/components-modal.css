@@ -1120,3 +1120,111 @@
 .collection-length-warning.is-exceeded {
   color: var(--status-danger);
 }
+
+/* 详情页底部「相似开源项目」单色紧凑推荐栏 */
+.detail-similar-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.detail-similar-title {
+  margin: 0 0 10px 0;
+  font-size: var(--font-md);
+  font-weight: 590;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: -0.014em;
+}
+
+.detail-similar-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 680px) {
+  .detail-similar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.detail-similar-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-acrylic-card);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  transition: background 0.12s var(--ease-smooth), border-color 0.12s var(--ease-smooth), transform 0.12s var(--ease-smooth);
+}
+
+.detail-similar-card:hover {
+  background: var(--bg-acrylic-hover);
+  border-color: var(--border-highlight);
+}
+
+.detail-similar-card:active {
+  transform: scale(0.99);
+}
+
+.detail-similar-card:focus-visible {
+  outline: 2px solid var(--border-highlight);
+  outline-offset: 1px;
+}
+
+.detail-similar-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.detail-similar-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.detail-similar-card-name {
+  font-size: var(--font-sm);
+  font-weight: 590;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-similar-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-similar-card-platforms {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-tertiary);
+}
+
+.detail-similar-reason {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

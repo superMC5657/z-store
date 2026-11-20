@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import catalogRaw from '../../catalog.json';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
+import { resolveAlternatives } from './alternatives';
 import { DEMO_TREND_SNAPSHOT, type DemoTrendRow } from './trendSnapshot';
 
 interface CatalogRaw {
@@ -21,6 +22,7 @@ interface CatalogRaw {
   category: string;
   category_name?: string;
   aliases?: string[];
+  alternatives?: string[];
   default_version?: string;
   license?: string;
   stars?: number;
@@ -34,6 +36,7 @@ interface CatalogRaw {
 const catalogEntries = catalogRaw as unknown as CatalogRaw[];
 
 function toSummary(c: CatalogRaw): AppSummary {
+  const alternatives = resolveAlternatives(c.alternatives, c.id);
   return {
     id: c.id,
     name: c.name,
@@ -55,6 +58,7 @@ function toSummary(c: CatalogRaw): AppSummary {
     homepage: c.homepage ?? null,
     platforms: c.platforms && c.platforms.length > 0 ? c.platforms : [],
     added_at: c.added_at,
+    ...(alternatives.length > 0 ? { alternatives } : {}),
   };
 }
 
@@ -129,6 +133,7 @@ export function toDetail(s: AppSummary): AppDetail {
     forge_host: s.forge_host,
     homepage: s.homepage,
     platforms: s.platforms,
+    ...(s.alternatives && s.alternatives.length > 0 ? { alternatives: s.alternatives } : {}),
   };
 }
 

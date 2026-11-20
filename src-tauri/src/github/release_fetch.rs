@@ -336,6 +336,7 @@ mod tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
             changelog: "old notes".to_string(),
             readme_markdown: "# r".to_string(),

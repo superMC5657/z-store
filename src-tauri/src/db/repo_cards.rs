@@ -387,6 +387,7 @@ fn card_to_stored(card: CardRow) -> StoredRepoCard {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
         },
         confirmed_other: card.confirmed_other,
@@ -847,6 +848,7 @@ mod tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
         }
     }

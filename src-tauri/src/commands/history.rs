@@ -429,6 +429,7 @@ mod recent_uncataloged_tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
             changelog: String::new(),
             readme_markdown: String::new(),

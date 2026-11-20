@@ -21,6 +21,14 @@ import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
 /** 本地段每次展开的条数（与在线翻页 `per_page` 一致）。 */
 const SEARCH_LOCAL_PAGE = 20;
 
+/** 仅当查询词命中商业平替列表且未命中应用自身名称时，返回对应平替目标名。 */
+function matchAlternativeHint(app: AppSummary, query: string): string | undefined {
+  const q = query.trim().toLowerCase();
+  if (!q || !app.alternatives || app.alternatives.length === 0) return undefined;
+  if (app.name.toLowerCase().includes(q)) return undefined;
+  return app.alternatives.find((alt) => alt.toLowerCase().includes(q));
+}
+
 interface SearchResultsViewProps extends ViewAppActions {
   /** 本地段结果（App 已做平台过滤，保序）。 */
   apps: AppSummary[];
@@ -167,7 +175,11 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = (props) => {
       </div>
       {displayedLocal.length > 0 ? (
         <div className="app-grid" data-testid="search-local-grid">
-          {displayedLocal.map((app) => card(app))}
+          {displayedLocal.map((app) =>
+            card(app, {
+              alternativeHint: matchAlternativeHint(app, searchQuery),
+            }),
+          )}
         </div>
       ) : (
         <div className="feed-end" data-testid="search-local-empty">

@@ -888,6 +888,8 @@
     "issue_feedback_body": "## Environment\n- ZStore client version: Desktop\n- App version: {{version}}\n- OS: {{platform}}\n\n## Problem description\n\n## Reproduction steps\n1. \n2. \n",
     "forge_codeberg": "Codeberg source",
     "forge_gitea": "Gitea source",
+    "alternatives_badge": "Alt to {{targets}}",
+    "alternatives_title": "Open-source alternative to: {{targets}}",
     "size_label": "Size {{size}}",
     "stale_title": "Offline: showing local cached data",
     "stale_badge": "Offline cache",
@@ -971,6 +973,12 @@
       "starred": "Starred {{name}} on GitHub",
       "login_required": "Please sign in with GitHub first",
       "failed": "Failed to star on GitHub: {{error}}"
+    },
+    "similar": {
+      "title": "Similar Open-Source Projects",
+      "reason_owner": "Same author",
+      "reason_keywords": "Keywords: {{tokens}}",
+      "reason_category": "In {{category}}"
     }
   },
   "toast": {
@@ -1151,7 +1159,8 @@
     "search_online_btn": "Search",
     "online_success": "Online apps found",
     "online_no_results": "No online apps found, kept local results",
-    "online_failed": "Online search unavailable, kept local results"
+    "online_failed": "Online search unavailable, kept local results",
+    "alternative_to": "Alt to {{target}}"
   },
   "share_badge": {
     "title": "Share & README Badge",

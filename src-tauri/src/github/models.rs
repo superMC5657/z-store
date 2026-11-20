@@ -54,6 +54,9 @@ pub struct CatalogItem {
     pub category: String,
     pub category_name: String,
     pub aliases: Vec<String>,
+    /// 可替代的商业/闭源软件名称列表（仅作搜索与平替提示元数据，绝不入库为独立应用）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
     pub default_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub added_at: Option<String>,
@@ -185,6 +188,7 @@ impl CatalogItem {
                 source: None,
                 status: None,
                 added_at: self.added_at.clone(),
+                alternatives: crate::github::alternatives::resolved_alternatives(self),
             },
         }
     }
@@ -222,6 +226,7 @@ impl CatalogItem {
         if self.added_at.is_some() {
             core.added_at = self.added_at.clone();
         }
+        core.alternatives = crate::github::alternatives::resolved_alternatives(self);
         if Self::is_concrete_license(&self.license) {
             core.license = self.license.trim().to_string();
         }
@@ -507,6 +512,7 @@ mod tests {
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v1.0.0".to_string(),
             added_at: None,
             license: "MIT".to_string(),
@@ -575,6 +581,7 @@ mod tests {
             is_cataloged: None,
             source: None,
             status: None,
+            alternatives: Vec::new(),
         };
 
         item.overlay_detail_core(&mut core);
@@ -615,6 +622,7 @@ mod tests {
             is_cataloged: None,
             source: None,
             status: None,
+            alternatives: Vec::new(),
         }
     }
 

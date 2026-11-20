@@ -50,6 +50,7 @@ interface HeaderProps {
   primaryAsset?: ReleaseAsset;
   platformLoading: boolean;
   oauthUser?: OAuthUser | null;
+  targetAlternatives?: readonly string[];
   isFavorite?: boolean;
   isWatched?: boolean;
   onClose: () => void;
@@ -67,6 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
   primaryAsset,
   platformLoading,
   oauthUser = null,
+  targetAlternatives,
   isFavorite = false,
   isWatched = false,
   onClose,
@@ -303,6 +305,11 @@ export const Header: React.FC<HeaderProps> = ({
     );
     handleOpenExternal(e, `${repoUrl}/issues/new?title=${title}&body=${body}`);
   };
+
+  const effectiveAlternatives = useMemo(() => {
+    const raw = app.alternatives && app.alternatives.length > 0 ? app.alternatives : (targetAlternatives ?? []);
+    return raw.map((item) => item.trim()).filter(Boolean);
+  }, [app.alternatives, targetAlternatives]);
 
   return (
     <div className="modal-header">
@@ -578,6 +585,15 @@ export const Header: React.FC<HeaderProps> = ({
           )}
           {primaryAsset && (
             <span className="modal-tag">{t('detail.size_label', { size: formatBytes(primaryAsset.size_bytes) })}</span>
+          )}
+          {effectiveAlternatives.length > 0 && (
+            <span
+              className="modal-tag"
+              data-testid="detail-alternatives-tag"
+              title={t('detail.alternatives_title', { targets: effectiveAlternatives.join(' · ') })}
+            >
+              {t('detail.alternatives_badge', { targets: effectiveAlternatives.slice(0, 2).join(' · ') })}
+            </span>
           )}
           {homepageUrl && homepageDisplay && (
             <a

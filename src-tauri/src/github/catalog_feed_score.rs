@@ -4,8 +4,10 @@ use crate::models::AppSummary;
 pub const SEARCH_SCORE_EXACT_MATCH: i32 = 100;
 pub const SEARCH_SCORE_PREFIX_MATCH: i32 = 60;
 pub const SEARCH_SCORE_NAME_CONTAINS: i32 = 40;
+pub const SEARCH_SCORE_ALTERNATIVE_MATCH: i32 = 38;
 pub const SEARCH_SCORE_ALIAS_CONTAINS: i32 = 35;
 pub const SEARCH_SCORE_OWNER_OR_REPO_CONTAINS: i32 = 30;
+pub const SEARCH_SCORE_DESCRIPTION_CONTAINS: i32 = 20;
 
 /// 发现页 Feed 推荐策略。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -249,6 +251,7 @@ mod tests {
             category: category.to_string(),
             category_name: category.to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v1.0.0".to_string(),
             added_at: None,
             license: "MIT".to_string(),

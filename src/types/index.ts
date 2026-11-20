@@ -25,6 +25,8 @@ export interface AppSummary {
   homepage: string | null;
   platforms: string[];
   added_at?: string;
+  /** 可替代的商业/闭源软件名称（仅作搜索与平替提示元数据）。 */
+  alternatives?: string[];
   /** 最近一次浏览时间戳（Unix 秒），仅 `get_recently_viewed_apps` 返回，用于前端清空遮罩判断。 */
   viewed_at?: number;
 }
@@ -71,6 +73,8 @@ export interface AppDetail {
   /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
   status?: string;
   added_at?: string;
+  /** 可替代的商业/闭源软件名称（仅作搜索与平替提示元数据）。 */
+  alternatives?: string[];
 }
 
 // 纯前端视图态：加载/刷新/错误/认证状态不属于后端 AppDetail，独立存放
@@ -258,6 +262,21 @@ export type FeaturedReason =
   | { kind: 'keywords'; tokens: string[] }
   | { kind: 'fresh'; added_at: string }
   | { kind: 'explore'; category: string };
+
+export type RecommendationReason = FeaturedReason;
+
+export interface SimilarAppItem {
+  app: AppSummary;
+  similarity: number;
+  reasons: RecommendationReason[];
+  alternatives?: string[];
+}
+
+export interface SimilarAppsResponse {
+  target_id: string;
+  target_alternatives?: string[];
+  items: SimilarAppItem[];
+}
 
 export interface FeaturedPick {
   app: AppSummary;

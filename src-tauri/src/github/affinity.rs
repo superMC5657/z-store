@@ -1397,26 +1397,11 @@ impl UserAffinityProfile {
         {
             return r;
         }
-        let tokens = |a: &AppSummary| affinity_text::extract_summary_tokens(a, &[]);
-        let seed_toks: HashSet<String> = tokens(seed).into_iter().collect();
-        let mut shared: Vec<(String, f64)> = tokens(candidate)
-            .into_iter()
-            .filter(|t| seed_toks.contains(t))
-            .map(|t| {
-                let w = self.idf.weight(&t);
-                (t, w)
-            })
-            .filter(|(_, w)| *w >= SHARED_TOKEN_MIN_IDF)
-            .collect();
-        shared.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        let seed_toks = affinity_text::extract_summary_tokens(seed, &[]);
+        let cand_toks = affinity_text::extract_summary_tokens(candidate, &[]);
+        let shared = shared_high_idf_keywords(&seed_toks, &cand_toks, &self.idf);
         if !shared.is_empty() {
-            return Reason::Keywords {
-                tokens: shared.into_iter().take(3).map(|(t, _)| t).collect(),
-            };
+            return Reason::Keywords { tokens: shared };
         }
         Reason::Category {
             category: candidate.core.category.trim().to_lowercase(),
@@ -1424,11 +1409,69 @@ impl UserAffinityProfile {
     }
 }
 
-/// `seed_shelf_reason` 里种子与候选共同词元的最低 IDF。
+/// `seed_shelf_reason` 与详情相似推荐里种子与候选共同词元的最低 IDF。
 const SHARED_TOKEN_MIN_IDF: f64 = 0.5;
 
+/// 提取种子与候选之间满足最低 IDF 阈值的共享关键词（最多 3 个，按权重降序、字典序升序）。
+fn shared_high_idf_keywords(
+    seed_tokens: &[String],
+    candidate_tokens: &[String],
+    idf: &CatalogIdf,
+) -> Vec<String> {
+    let seed_toks: HashSet<&str> = seed_tokens.iter().map(String::as_str).collect();
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut shared: Vec<(String, f64)> = Vec::new();
+    for tok in candidate_tokens {
+        let t = tok.as_str();
+        if seed_toks.contains(t) && seen.insert(t) {
+            let w = idf.weight(t);
+            if w >= SHARED_TOKEN_MIN_IDF {
+                shared.push((tok.clone(), w));
+            }
+        }
+    }
+    shared.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    shared.into_iter().take(3).map(|(t, _)| t).collect()
+}
+
+/// 无状态可解释相似理由生成（供详情页 `get_similar_apps` 复用）：
+/// 按同作者 → 高 IDF 共享关键词 → 同分类顺序收集理由。
+pub fn explain_similarity_reasons(
+    seed: &AppSummary,
+    seed_tokens: &[String],
+    candidate: &AppSummary,
+    idf: &CatalogIdf,
+    aliases_map: Option<&HashMap<String, Vec<String>>>,
+) -> Vec<Reason> {
+    let mut reasons = Vec::new();
+    let seed_owner = seed.core.owner.trim();
+    let cand_owner = candidate.core.owner.trim();
+    if !seed_owner.is_empty() && seed_owner.eq_ignore_ascii_case(cand_owner) {
+        reasons.push(Reason::Owner {
+            owner: cand_owner.to_string(),
+        });
+    }
+    let cand_tokens = similarity_tokens(candidate, aliases_map);
+    let kw = shared_high_idf_keywords(seed_tokens, &cand_tokens, idf);
+    if !kw.is_empty() {
+        reasons.push(Reason::Keywords { tokens: kw });
+    }
+    let seed_cat = seed.core.category.trim();
+    let cand_cat = candidate.core.category.trim();
+    if !seed_cat.is_empty() && seed_cat.eq_ignore_ascii_case(cand_cat) {
+        reasons.push(Reason::Category {
+            category: cand_cat.to_lowercase(),
+        });
+    }
+    reasons
+}
+
 /// 种子相似度使用的词元：名称、仓库、别名与中英简介。
-fn similarity_tokens(
+pub(crate) fn similarity_tokens(
     app: &AppSummary,
     aliases_map: Option<&HashMap<String, Vec<String>>>,
 ) -> Vec<String> {
@@ -1460,7 +1503,7 @@ pub fn seed_similarity_with_idf(
 }
 
 /// 种子相似度公式本体（见 `seed_similarity_with_idf`），词元由调用方给出。
-fn similarity_from_tokens(
+pub(crate) fn similarity_from_tokens(
     seed: &AppSummary,
     seed_tokens: &[String],
     candidate: &AppSummary,
@@ -1527,6 +1570,7 @@ mod tests {
                 category: "media".to_string(),
                 category_name: "影音视听".to_string(),
                 aliases: vec!["mpv".to_string()],
+                alternatives: Vec::new(),
                 default_version: "v0.38.0".to_string(),
                 added_at: None,
                 license: "GPL-2.0".to_string(),
@@ -1552,6 +1596,7 @@ mod tests {
                 category: "media".to_string(),
                 category_name: "影音视听".to_string(),
                 aliases: vec![],
+                alternatives: Vec::new(),
                 default_version: "v1.11.1".to_string(),
                 added_at: None,
                 license: "GPL-3.0".to_string(),
@@ -1577,6 +1622,7 @@ mod tests {
                 category: "system".to_string(),
                 category_name: "系统实用".to_string(),
                 aliases: vec![],
+                alternatives: Vec::new(),
                 default_version: "v1.3.0".to_string(),
                 added_at: None,
                 license: "AGPL-3.0".to_string(),
@@ -2663,6 +2709,7 @@ mod tests {
             category: category.to_string(),
             category_name: category.to_string(),
             aliases: aliases.iter().map(|a| a.to_string()).collect(),
+            alternatives: Vec::new(),
             default_version: "v1".to_string(),
             added_at: None,
             license: "MIT".to_string(),
@@ -2943,6 +2990,27 @@ mod tests {
         assert!(
             profile.category_weights["media"] > profile_one.category_weights["media"],
             "多次有效浏览的分类置信度应高于单次浏览"
+        );
+    }
+
+    #[test]
+    fn explain_similarity_reasons_never_emits_false_category_across_categories() {
+        let mut seed_item = cat_item("acme/one", "dev", "generic utility alpha", &[]);
+        seed_item.owner = "alice".to_string();
+        let mut cand_item = cat_item("acme/two", "media", "generic utility beta", &[]);
+        cand_item.owner = "bob".to_string();
+
+        let seed = seed_item.to_summary();
+        let cand = cand_item.to_summary();
+        // 构造所有共享词元 IDF 均低于阈值 (< 0.5) 的场景，验证跨分类不伪造 Reason::Category。
+        let idf = CatalogIdf::default();
+        let seed_toks = similarity_tokens(&seed, None);
+        let reasons = explain_similarity_reasons(&seed, &seed_toks, &cand, &idf, None);
+        assert!(
+            !reasons
+                .iter()
+                .any(|r| matches!(r, Reason::Category { .. })),
+            "跨分类候选不得产出同分类理由: {reasons:?}"
         );
     }
 }

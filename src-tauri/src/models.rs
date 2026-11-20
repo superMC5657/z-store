@@ -40,6 +40,9 @@ pub struct AppCore {
     /// 收录时间（YYYY-MM-DD 格式，来自 catalog.json added_at 或本地 custom_apps 投影）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub added_at: Option<String>,
+    /// 可替代的商业/闭源软件名称（去重合并后透传，空时不序列化）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +117,7 @@ mod app_core_tests {
                 source: Some("local".to_string()),
                 status: Some("collected".to_string()),
                 added_at: Some("2026-10-22".to_string()),
+                alternatives: Vec::new(),
             },
             changelog: "c".to_string(),
             readme_markdown: "m".to_string(),

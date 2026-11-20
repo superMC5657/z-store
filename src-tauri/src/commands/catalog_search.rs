@@ -842,6 +842,7 @@ pub async fn search_apps_online(
                         source: None,
                         status: None,
                         added_at: None,
+                        alternatives: Vec::new(),
                     },
                 };
                 let confirmed_other = release_ok && row.core.platforms.is_empty();
@@ -1760,6 +1761,7 @@ mod tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
         }
     }
@@ -1911,6 +1913,7 @@ mod tests {
             category: "dev".to_string(),
             category_name: "开发工具".to_string(),
             aliases: vec![],
+            alternatives: Vec::new(),
             default_version: "v1.0.0".to_string(),
             added_at: None,
             license: "MIT".to_string(),
@@ -2106,6 +2109,7 @@ mod tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
             changelog: String::new(),
             readme_markdown: String::new(),
@@ -2171,6 +2175,7 @@ mod tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
             changelog: String::new(),
             readme_markdown: String::new(),
@@ -2284,6 +2289,7 @@ mod tests {
             platforms: vec!["windows".to_string()],
             identifiers: Default::default(),
             aliases: vec![],
+            alternatives: Vec::new(),
             install_dirs: vec![],
             publishers: vec![],
             search_subdirs: vec![],
@@ -2329,6 +2335,7 @@ mod tests {
                 platforms: vec![],
                 identifiers: Default::default(),
                 aliases: vec![],
+                alternatives: Vec::new(),
                 install_dirs: vec![],
                 publishers: vec![],
                 search_subdirs: vec![],
@@ -2354,6 +2361,7 @@ mod tests {
                 platforms: vec![],
                 identifiers: Default::default(),
                 aliases: vec![],
+                alternatives: Vec::new(),
                 install_dirs: vec![],
                 publishers: vec![],
                 search_subdirs: vec![],
@@ -2519,6 +2527,7 @@ mod repo_card_pipeline_tests {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
         };
         db.upsert_repo_card(&crate::db::RepoCardUpsert {

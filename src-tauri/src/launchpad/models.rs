@@ -224,6 +224,7 @@ impl RawLaunchpadItem {
                 source: None,
                 status: None,
                 added_at: None,
+                alternatives: Vec::new(),
             },
         }
     }

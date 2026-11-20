@@ -13,6 +13,7 @@ import type {
   ImportAppRequest,
   ProfileState,
   SearchListCacheEntry,
+  SimilarAppsResponse,
   SyncCatalogResult,
 } from '../../types';
 import {
@@ -216,6 +217,37 @@ export async function consumeStartupCatalogSynced(): Promise<boolean> {
 
 export async function getAppDetails(id: string, forceRefresh = false): Promise<AppDetail> {
   return tauriInvoke<AppDetail>(CMD.getAppDetails, { id, forceRefresh });
+}
+
+export interface GetSimilarAppsParams {
+  appId: string;
+  name?: string;
+  owner?: string;
+  category?: string;
+  description?: string;
+  descriptionEn?: string;
+  limit?: number;
+}
+
+/** 零网络获取同赛道/相似开源项目推荐（支持已收录与未收录外部仓库）。 */
+export async function getSimilarApps(params: GetSimilarAppsParams): Promise<SimilarAppsResponse> {
+  const args: Record<string, unknown> = { appId: params.appId };
+  if (params.name !== undefined && params.name.trim() !== '') args.name = params.name;
+  if (params.owner !== undefined && params.owner.trim() !== '') args.owner = params.owner;
+  if (params.category !== undefined && params.category.trim() !== '') args.category = params.category;
+  if (params.description !== undefined && params.description.trim() !== '') {
+    args.description = params.description;
+  }
+  if (params.descriptionEn !== undefined && params.descriptionEn.trim() !== '') {
+    args.descriptionEn = params.descriptionEn;
+  }
+  if (params.limit !== undefined && params.limit !== null) args.limit = params.limit;
+  const raw = await tauriInvoke<Partial<SimilarAppsResponse> | null>(CMD.getSimilarApps, args);
+  return {
+    target_id: typeof raw?.target_id === 'string' ? raw.target_id : params.appId,
+    target_alternatives: Array.isArray(raw?.target_alternatives) ? raw.target_alternatives : [],
+    items: Array.isArray(raw?.items) ? raw.items : [],
+  };
 }
 
 /** 批量本地水合合集应用概要（零网络，按输入顺序返回，非法或未知坐标由后端或兜底处理）。 */
