@@ -1,6 +1,6 @@
 # ZStore Feature Specs & Issue Tracker 目录索引
 
-> 本目录为 ZStore 项目的本地需求工单与技术规格索引（遵循 [`docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md) 与 [`AGENTS.md`](../AGENTS.md)），按执行时序汇总 **39 个特性与治理专题**及其演进取舍。
+> 本目录为 ZStore 项目的本地需求工单与技术规格索引（遵循 [`docs/agents/issue-tracker.md`](../docs/agents/issue-tracker.md) 与 [`AGENTS.md`](../AGENTS.md)），按执行时序汇总 **38 个特性与治理专题**及其演进取舍。
 
 ---
 
@@ -54,9 +54,8 @@
 | **#34** | Phase 7: 底座与优化 | [`backend-sqlite-batching-and-async-offload`](./backend-sqlite-batching-and-async-offload/spec.md) | 后端专题四：SQLite 批量读写与阻塞 IO 异步卸载 | 2026-11-18 | `67f053e` | ADR-0003, 0027 | 3 / 3 Resolved |
 | **#35** | Phase 7: 底座与优化 | [`backend-contract-consistency-and-hygiene`](./backend-contract-consistency-and-hygiene/spec.md) | 后端专题五：元数据校验、端点 SSOT 与构建卫生 | 2026-11-18 | `a5fb3b8` | ADR-0010, 0018 | 2 / 2 Resolved |
 | **#36** | Phase 7: 底座与优化 | [`richcard-pipeline-optimization`](./richcard-pipeline-optimization/spec.md) | 在线搜索 / 趋势榜 / Star 富卡链路收敛与缓存治理 | 2026-11-20 | `b9a3137` | ADR-0011, 0015, 0027 | 5 / 5 Resolved |
-| **#37** | Phase 8: 发现深化与生态工具 | [`feature-similar-and-alternatives`](./feature-similar-and-alternatives/spec.md) | 商业软件开源平替搜索与详情页相似项目推荐 | — | — | ADR-0023, 0024 | 0 / 4 Ready |
+| **#37** | Phase 8: 发现深化与生态工具 | [`feature-launchpad-preflight-and-badges`](./feature-launchpad-preflight-and-badges/spec.md) | 开源广场应用内投稿预检向导与 README 徽章生成器 | 2026-11-20 | — | ADR-0018, 0029 | 4 / 4 Resolved |
 | **#38** | Phase 8: 发现深化与生态工具 | [`feature-shareable-collections`](./feature-shareable-collections/spec.md) | 可分享应用合集深链（`zstore://collection`）与批量预览安装 | 2026-11-20 | — | ADR-0001, 0004, 0010 | 4 / 4 Resolved |
-| **#39** | Phase 8: 发现深化与生态工具 | [`feature-launchpad-preflight-and-badges`](./feature-launchpad-preflight-and-badges/spec.md) | 开源广场应用内投稿预检向导与 README 徽章生成器 | 2026-11-20 | — | ADR-0018, 0029 | 4 / 4 Resolved |
 
 ---
 
@@ -218,16 +217,13 @@
 
 ---
 
-### Phase 8: 发现深化、合集分享与开源广场自检工具
+### Phase 8: 合集分享与开源广场自检工具
 
-#### #37 · `feature-similar-and-alternatives`
-- **定位**：商业软件开源平替搜索与详情页相似开源项目推荐（0 / 4 Ready），在不引入闭源软件入库的前提下提升搜索命中率，并复用本地 `CatalogIdf` 实现详情页零网络相似推荐。
+#### #37 · `feature-launchpad-preflight-and-badges`
+- **定位**：开源广场应用内投稿预检向导与 README 徽章生成器（4 / 4 Resolved），提供仓库坐标、OSI 协议、Release 产物与图标探测的本地预检与 `<LaunchpadCard>` 实时预览，并支持一键生成深链与单色 README 徽章。
 
 #### #38 · `feature-shareable-collections`
 - **定位**：可分享应用合集深链与批量预览安装（4 / 4 Resolved），打通 `zstore://collection?...` 协议解析、合集预览与显式批量安装，以及「我的应用 / 收藏」清单深链与 Markdown 导出。
-
-#### #39 · `feature-launchpad-preflight-and-badges`
-- **定位**：开源广场应用内投稿预检向导与 README 徽章生成器（4 / 4 Resolved），提供仓库坐标、OSI 协议、Release 产物与图标探测的本地预检与 `<LaunchpadCard>` 实时预览，并支持一键生成深链与单色 README 徽章。
 
 ---
 

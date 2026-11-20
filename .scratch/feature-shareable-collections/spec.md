@@ -89,7 +89,7 @@
 - **底部操作栏**：
   - 「全选未安装 / 取消全选」切换；
   - 「全部加入收藏」按钮（遍历未收藏项调用 `onToggleFavorite`，或跳过已收藏项）；
-  - 主按钮「批量安装选中项」带 `<CountBadge value={selectedInstallIds.length} hideZero />`，点击后顺序调用既有 `onInstallApp(id)`：
+  - 底栏摘要显示已选安装数（`已选 {{count}} 款`），主按钮「安装选中项」（不挂 `<CountBadge>`，遵循 `docs/count-display.md`）点击后顺序调用批量安装处理器：
     - 展示当前安装进度（如正在安装第 `k / N` 款、单条失败不中断其余项、结束后 Toast 汇总成功/失败数）；
     - 若某项命中 `unverifiedInstallPrompt`（无 SHA-256 校验清单），正常由既有的 `InstallConfirmDialog` 确认机制接管。
 

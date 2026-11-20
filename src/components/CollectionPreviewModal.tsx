@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, BookmarkPlus, Download, PackageCheck, X } from 'lucide-react';
 import '../i18n';
+import type { BatchInstallOutcome } from '../app/hooks/useInstallState';
 import type { AppSummary, CollectionModalData, ShowToast } from '../types';
 import { tauriApi } from '../services/api';
 import { queueAssembledRowIcons } from '../services/iconStore';
@@ -20,8 +21,8 @@ export interface CollectionPreviewModalProps {
   onClose: () => void;
   onOpenDetail?: (id: string) => void;
   onLoadUncatalogedDetail?: (id: string) => Promise<void> | void;
-  onInstallApp: (id: string) => Promise<void>;
-  onToggleFavorite: (id: string) => Promise<void> | void;
+  onInstallApp: (id: string) => Promise<BatchInstallOutcome | void>;
+  onToggleFavorite: (id: string) => Promise<boolean | void> | boolean | void;
   showToast?: ShowToast;
 }
 
@@ -53,6 +54,7 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
   const [installProgress, setInstallProgress] = useState<BatchProgress | null>(null);
   const [isFavoritingAll, setIsFavoritingAll] = useState(false);
   const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(() => new Set());
+  const [loadedDetailIds, setLoadedDetailIds] = useState<Set<string>>(() => new Set());
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
     let active = true;
     setIsLoading(true);
     setLoadError(null);
+    setLoadedDetailIds(new Set());
 
     tauriApi
       .resolveCollectionApps(collection.app_ids)
@@ -167,17 +170,27 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
     }
     setIsFavoritingAll(true);
     let added = 0;
+    let failed = 0;
     try {
       for (const app of unFavoritedItems) {
         try {
-          await onToggleFavorite(app.id);
-          added += 1;
+          const ok = await onToggleFavorite(app.id);
+          if (ok === false) {
+            failed += 1;
+          } else {
+            added += 1;
+          }
         } catch {
-          // 单条收藏失败不中断其余项
+          failed += 1;
         }
       }
-      if (added > 0) {
+      if (!mountedRef.current) return;
+      if (added > 0 && failed === 0) {
         showToast?.(t('collection.preview.favorite_all_done', { count: added }), 'success');
+      } else if (added > 0 && failed > 0) {
+        showToast?.(t('collection.preview.favorite_all_partial', { added, failed }), 'warning');
+      } else if (failed > 0) {
+        showToast?.(t('collection.preview.favorite_all_failed', { failed }), 'error');
       }
     } finally {
       if (mountedRef.current) setIsFavoritingAll(false);
@@ -198,8 +211,12 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
         setInstallingAppId(app.id);
         setInstallProgress({ current: i + 1, total: targets.length, name: app.name });
         try {
-          await onInstallApp(app.id);
-          success += 1;
+          const outcome = await onInstallApp(app.id);
+          if (outcome === 'cancelled' || outcome === 'skipped') {
+            failed += 1;
+          } else {
+            success += 1;
+          }
         } catch {
           failed += 1;
         }
@@ -212,6 +229,7 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
       }
     }
 
+    if (!mountedRef.current || (success === 0 && failed === 0)) return;
     if (failed === 0) {
       showToast?.(t('collection.preview.batch_install_done', { success }), 'success');
     } else {
@@ -232,6 +250,20 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
       if (mountedRef.current && Array.isArray(refreshed) && refreshed.length > 0) {
         setItems(refreshed);
         queueAssembledRowIcons(refreshed);
+        setLoadedDetailIds((prev) => new Set(prev).add(norm));
+        const loadedRow = refreshed.find((item) => normalizeId(item.id) === norm);
+        if (loadedRow && loadedRow.platforms.length > 0) {
+          const currentHost = detectHostOs();
+          const compatible = loadedRow.platforms.some((p) => p.toLowerCase() === currentHost);
+          if (!compatible) {
+            setSelectedIds((prev) => {
+              if (!prev.has(norm)) return prev;
+              const next = new Set(prev);
+              next.delete(norm);
+              return next;
+            });
+          }
+        }
       }
     } catch {
       // 忽略行内按需加载错误，用户可点进详情页重试
@@ -308,7 +340,7 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
                 onLoadUncatalogedDetail !== undefined &&
                 app.is_cataloged === false &&
                 app.platforms.length === 0 &&
-                !desc;
+                !loadedDetailIds.has(norm);
               const supportsHost =
                 app.platforms.length === 0 ||
                 app.platforms.some((p) => p.toLowerCase() === hostOs);
@@ -403,7 +435,7 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
               ? t('collection.preview.deselect_all')
               : t('collection.preview.select_all_uninstalled')}
           </button>
-          {installProgress && (
+          {installProgress ? (
             <span className="collection-progress-text" role="status">
               {t('collection.preview.installing_progress', {
                 current: installProgress.current,
@@ -411,6 +443,13 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
                 name: installProgress.name,
               })}
             </span>
+          ) : (
+            !isLoading &&
+            uninstalledItems.length > 0 && (
+              <span className="collection-progress-text">
+                {t('collection.preview.selected_summary', { count: selectedInstallItems.length })}
+              </span>
+            )
           )}
         </div>
 
@@ -432,7 +471,6 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
           >
             <Download size={13} strokeWidth={1.5} aria-hidden="true" />
             <span>{t('collection.preview.install_selected')}</span>
-            <CountBadge value={selectedInstallItems.length} hideZero />
           </button>
         </div>
       </div>

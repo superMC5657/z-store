@@ -18,7 +18,7 @@ import {
   summaries,
   toDetail,
 } from '../fixtures';
-import { canonicalAppId } from '../../services/normalizeId';
+import { canonicalAppId, parseCanonicalCoord } from '../../services/normalizeId';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
 import {
   getDemoSettingsSaved,
@@ -615,38 +615,12 @@ export function handleSyncCatalog(): SyncCatalogResult {
 }
 
 function buildDemoCollectionPlaceholder(cleanId: string): AppSummary {
-  let forge = 'github';
-  let forgeHost = 'github.com';
-  let pathPart = cleanId;
-  const colonIdx = cleanId.indexOf(':');
-  if (colonIdx > 0) {
-    forge = cleanId.slice(0, colonIdx);
-    pathPart = cleanId.slice(colonIdx + 1);
-    forgeHost =
-      forge === 'codeberg'
-        ? 'codeberg.org'
-        : forge === 'gitlab'
-          ? 'gitlab.com'
-          : forge === 'gitea'
-            ? 'gitea.com'
-            : 'github.com';
-  }
-  const parts = pathPart.split('/').filter(Boolean);
-  let owner = '';
-  let repo = cleanId;
-  if (parts.length >= 3) {
-    forgeHost = parts[0];
-    owner = parts[1];
-    repo = parts[2];
-  } else if (parts.length === 2) {
-    owner = parts[0];
-    repo = parts[1];
-  }
+  const coord = parseCanonicalCoord(cleanId);
   return {
-    id: cleanId,
-    name: repo,
-    owner,
-    repo,
+    id: coord ? coord.id : cleanId,
+    name: coord?.repo || cleanId,
+    owner: coord?.owner ?? '',
+    repo: coord?.repo ?? cleanId,
     icon: '',
     icon_bg: DEFAULT_ICON_BG,
     description: '',
@@ -657,8 +631,8 @@ function buildDemoCollectionPlaceholder(cleanId: string): AppSummary {
     category: 'external',
     category_name: '跨平台开源',
     is_verified: false,
-    forge,
-    forge_host: forgeHost,
+    forge: coord?.forge ?? '',
+    forge_host: coord?.forge_host ?? '',
     homepage: null,
     platforms: [],
     is_cataloged: false,

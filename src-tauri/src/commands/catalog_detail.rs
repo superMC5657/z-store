@@ -739,18 +739,7 @@ pub(crate) fn resolve_collection_apps_deferred(
     app_ids: &[String],
     now: i64,
 ) -> (Vec<AppSummary>, Vec<crate::icons::DeferredIcon>) {
-    let mut seen = std::collections::HashSet::new();
-    let mut clean_ids = Vec::new();
-    for raw in app_ids {
-        if let Some(canon) = crate::forge::canonical_app_id(raw.trim()) {
-            if seen.insert(canon.clone()) {
-                clean_ids.push(canon);
-                if clean_ids.len() >= crate::deeplink::MAX_COLLECTION_APPS {
-                    break;
-                }
-            }
-        }
-    }
+    let clean_ids = crate::deeplink::normalize_collection_app_ids(app_ids.iter().map(String::as_str));
     if clean_ids.is_empty() {
         return (Vec::new(), Vec::new());
     }

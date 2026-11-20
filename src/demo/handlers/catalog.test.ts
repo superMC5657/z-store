@@ -225,16 +225,30 @@ describe('collection demo handlers', () => {
   it('resolve_collection_apps hydrates catalog hits and synthesizes unknown placeholders', () => {
     const known = summaries[0];
     const res = handleResolveCollectionApps({
-      appIds: [known.id.toUpperCase(), 'codeberg:acme/unknown-tool', known.id, 'bad-id'],
+      appIds: [
+        known.id.toUpperCase(),
+        'codeberg:acme/unknown-tool',
+        'gitea:git.example.com:8443/org/self-app',
+        known.id,
+        'bad-id',
+      ],
     });
-    expect(res.map((s) => s.id)).toEqual([known.id, 'codeberg:acme/unknown-tool']);
+    expect(res.map((s) => s.id)).toEqual([
+      known.id,
+      'codeberg:acme/unknown-tool',
+      'gitea:git.example.com:8443/org/self-app',
+    ]);
     expect(res[0].name).toBe(known.name);
     expect(res[1].is_cataloged).toBe(false);
     expect(res[1].forge).toBe('codeberg');
     expect(res[1].forge_host).toBe('codeberg.org');
+    expect(res[2].forge).toBe('gitea');
+    expect(res[2].forge_host).toBe('git.example.com:8443');
+    expect(res[2].owner).toBe('org');
+    expect(res[2].repo).toBe('self-app');
   });
 
-  it('handle_deep_link parses collection links and rejects non-collection or nul links', () => {
+  it('handle_deep_link parses collection links and rejects non-collection, trailing nul, or oversized utf-8 links', () => {
     const parsed = handleHandleDeepLink({
       url: 'zstore://collection?title=Demo+List&note=Curated&ids=rustdesk/rustdesk,codeberg:a/b',
     });
@@ -246,6 +260,9 @@ describe('collection demo handlers', () => {
         app_ids: ['rustdesk/rustdesk', 'codeberg:a/b'],
       },
     });
+    const thirty = Array.from({ length: 30 }, (_, i) => `o${i}/r${i}`).join(',');
+    expect(() => handleHandleDeepLink({ url: `zstore://collection/${thirty}?ids=%00` })).toThrow();
+    expect(() => handleHandleDeepLink({ url: `zstore://collection?ids=a/b&note=${'汉'.repeat(700)}` })).toThrow();
     expect(() => handleHandleDeepLink({ url: 'zstore://collection?ids=a/b,%00' })).toThrow();
     expect(() => handleHandleDeepLink({ url: 'zstore://app/rustdesk/rustdesk' })).toThrow();
   });

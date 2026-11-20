@@ -44,18 +44,28 @@ pub const MAX_COLLECTION_TITLE_CHARS: usize = 60;
 /// 合集备注最大 Unicode 字符数。
 pub const MAX_COLLECTION_NOTE_CHARS: usize = 140;
 
-/// 载荷解码 + 防御性过滤：解码失败回退原串（既有语义不变）；解码结果含
+/// 载荷解码 + 防御性过滤：解码失败回退原串（既有语义不变）；入参含 `%00` 或解码结果含
 /// NUL 控制字符视为畸形输入返回 None（%00 注入面，正常 id/查询串不含 NUL）。
 fn decode_payload(raw: &str) -> Option<String> {
+    if raw.contains('\0') || raw.contains("%00") {
+        return None;
+    }
     let decoded = urlencoding::decode(raw)
         .unwrap_or(std::borrow::Cow::Borrowed(raw))
         .into_owned();
     (!decoded.contains('\0')).then_some(decoded)
 }
 
-/// 剥除全部控制字符、折叠连续空白并按 Unicode 字符数截断。
+/// 剥除全部控制字符（换行/制表符先转为空格）、折叠连续空白并按 Unicode 字符数截断。
 fn sanitize_collection_text(raw: &str, max_chars: usize) -> String {
-    let without_control: String = raw.chars().filter(|c| !c.is_control()).collect();
+    let without_control: String = raw
+        .chars()
+        .map(|c| match c {
+            '\r' | '\n' | '\t' => ' ',
+            _ => c,
+        })
+        .filter(|c| !c.is_control())
+        .collect();
     let collapsed = without_control
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -63,27 +73,37 @@ fn sanitize_collection_text(raw: &str, max_chars: usize) -> String {
     collapsed.chars().take(max_chars).collect()
 }
 
-/// 拆分并清洗合集 `ids`：支持 `,` 与 `%2C`，逐项经 `canonical_app_id` 归一化并保序去重，上限 30 条。
-fn parse_collection_ids(raw_segments: &[&str]) -> Option<Vec<String>> {
+/// 归一化、保序去重并截取最多 `MAX_COLLECTION_APPS` 条规范应用坐标。
+pub(crate) fn normalize_collection_app_ids<'a>(
+    raw_ids: impl IntoIterator<Item = &'a str>,
+) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut app_ids: Vec<String> = Vec::new();
-    for raw in raw_segments {
-        let decoded = decode_payload(raw)?;
-        for piece in decoded.split(',') {
-            let trimmed = piece.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if let Some(canon) = crate::forge::canonical_app_id(trimmed) {
-                if seen.insert(canon.clone()) {
-                    app_ids.push(canon);
-                    if app_ids.len() >= MAX_COLLECTION_APPS {
-                        return Some(app_ids);
-                    }
+    for raw in raw_ids {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(canon) = crate::forge::canonical_app_id(trimmed) {
+            if seen.insert(canon.clone()) {
+                app_ids.push(canon);
+                if app_ids.len() >= MAX_COLLECTION_APPS {
+                    break;
                 }
             }
         }
     }
+    app_ids
+}
+
+/// 拆分并清洗合集 `ids`：先解码并校验全部片段（防止 30 条截断跳过尾部 `%00`），再按逗号归一化去重。
+fn parse_collection_ids(raw_segments: &[&str]) -> Option<Vec<String>> {
+    let mut decoded_segments: Vec<String> = Vec::with_capacity(raw_segments.len());
+    for raw in raw_segments {
+        decoded_segments.push(decode_payload(raw)?);
+    }
+    let app_ids =
+        normalize_collection_app_ids(decoded_segments.iter().flat_map(|seg| seg.split(',')));
     (!app_ids.is_empty()).then_some(app_ids)
 }
 
@@ -592,10 +612,18 @@ mod tests {
 
     #[test]
     fn collection_rejects_nul_oversized_and_sanitizes_text() {
-        // %00 NUL 注入拦截
+        // %00 NUL 注入拦截（含超出 30 条后的尾部片段）
         assert!(DeepLinkParser::parse("zstore://collection?ids=a/b,%00").is_none());
         assert!(DeepLinkParser::parse("zstore://collection?title=hi%00&ids=a/b").is_none());
         assert!(DeepLinkParser::parse("zstore://collection?note=%00&ids=a/b").is_none());
+        let thirty_ids = (0..30)
+            .map(|i| format!("o{i}/r{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let trailing_seg = format!("zstore://collection/{thirty_ids}?ids=%00");
+        assert!(DeepLinkParser::parse(&trailing_seg).is_none());
+        let trailing_comma = format!("zstore://collection?ids={thirty_ids},x%00y");
+        assert!(DeepLinkParser::parse(&trailing_comma).is_none());
 
         // 超长 2048 拒绝
         let huge_ids = (0..200)
@@ -606,7 +634,7 @@ mod tests {
         assert!(over_url.len() > MAX_DEEPLINK_LEN);
         assert!(DeepLinkParser::parse(&over_url).is_none());
 
-        // 控制字符剥除、空白折叠与 Unicode 字符上限截断（控制整体编码长度 < 2048）
+        // 控制字符剥除、换行/制表转空格折叠与 Unicode 字符上限截断（控制整体编码长度 < 2048）
         let long_title = format!("  A\x07\x1B   {}  ", "字".repeat(70));
         let long_note = format!("\t\n{}\r\n", "n".repeat(160));
         let url = format!(
@@ -626,6 +654,18 @@ mod tests {
         let note = note.unwrap();
         assert_eq!(note.chars().count(), MAX_COLLECTION_NOTE_CHARS);
         assert!(!note.chars().any(char::is_control));
+
+        let multiline =
+            DeepLinkParser::parse("zstore://collection?title=hello%0Aworld&note=foo%09bar&ids=a/b")
+                .unwrap();
+        assert_eq!(
+            multiline,
+            DeepLinkAction::Collection {
+                title: "hello world".to_string(),
+                note: Some("foo bar".to_string()),
+                app_ids: vec!["a/b".to_string()],
+            }
+        );
 
         // 仅空白或控制字符的 note 归一为 None
         let blank_note =

@@ -1034,7 +1034,7 @@
   color: var(--text-primary);
 }
 
-.collection-char-count {
+.collection-char-meter {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;

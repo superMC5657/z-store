@@ -273,3 +273,76 @@ describe('useInstallState：移除后清理与大小写归一', () => {
     );
   });
 });
+
+describe('useInstallState：批量安装无校验确认门禁', () => {
+  it('命中无校验清单时暂停等待确认，确认后携带 allowUnverified=true 重试并完成', async () => {
+    const { rendered } = renderInstall();
+    mocks.installApp
+      .mockRejectedValueOnce(`${UNVERIFIED_ASSET_MARKER}acme/unverified`)
+      .mockResolvedValueOnce(makeInstalled('acme/unverified', { app_name: 'Unverified' }));
+
+    let settled = false;
+    let outcomePromise!: Promise<string>;
+    act(() => {
+      outcomePromise = rendered.result.current.handleBatchInstallApp('acme/unverified').then((res) => {
+        settled = true;
+        return res;
+      });
+    });
+
+    await waitFor(() => {
+      expect(rendered.result.current.unverifiedInstallPrompt).toEqual({ id: 'acme/unverified' });
+    });
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      rendered.result.current.confirmUnverifiedInstall();
+      await outcomePromise;
+    });
+
+    await expect(outcomePromise).resolves.toBe('installed');
+    expect(mocks.installApp).toHaveBeenCalledTimes(2);
+    expect(mocks.installApp).toHaveBeenNthCalledWith(2, 'acme/unverified', undefined, undefined, true);
+    expect(rendered.result.current.unverifiedInstallPrompt).toBeNull();
+  });
+
+  it('取消无校验弹窗返回 cancelled 且不覆盖队列中下一款应用的确认弹窗', async () => {
+    const { rendered } = renderInstall();
+    mocks.installApp
+      .mockRejectedValueOnce(`${UNVERIFIED_ASSET_MARKER}acme/first`)
+      .mockRejectedValueOnce(`${UNVERIFIED_ASSET_MARKER}acme/second`)
+      .mockResolvedValueOnce(makeInstalled('acme/second', { app_name: 'Second' }));
+
+    const results: string[] = [];
+    let firstPromise!: Promise<void>;
+    act(() => {
+      firstPromise = (async () => {
+        results.push(await rendered.result.current.handleBatchInstallApp('acme/first'));
+        results.push(await rendered.result.current.handleBatchInstallApp('acme/second'));
+      })();
+    });
+
+    // 第一款弹窗打开期间，第二款尚未触发（不覆盖单槽位状态）
+    await waitFor(() => {
+      expect(rendered.result.current.unverifiedInstallPrompt).toEqual({ id: 'acme/first' });
+    });
+    expect(mocks.installApp).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rendered.result.current.dismissUnverifiedInstall();
+    });
+
+    // 取消第一款后推进到第二款，弹出第二款的确认窗
+    await waitFor(() => {
+      expect(rendered.result.current.unverifiedInstallPrompt).toEqual({ id: 'acme/second' });
+    });
+    expect(mocks.installApp).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      rendered.result.current.confirmUnverifiedInstall();
+      await firstPromise;
+    });
+
+    expect(results).toEqual(['cancelled', 'installed']);
+  });
+});

@@ -3,8 +3,18 @@
  * 可解析坐标转为 canonical id，不可解析回退 `trim().toLowerCase()`。
  */
 
+export type CanonicalForge = 'github' | 'codeberg' | 'gitea' | 'gitlab';
+
+export interface ParsedCanonicalCoord {
+  id: string;
+  forge: CanonicalForge;
+  forge_host: string;
+  owner: string;
+  repo: string;
+}
+
 /** forge 前缀短语法别名表（后端 `RepositoryUrlParser` 分支 2 同表）。 */
-const FORGE_PREFIX_ALIASES: Record<string, string> = {
+const FORGE_PREFIX_ALIASES: Record<string, CanonicalForge> = {
   github: 'github',
   gh: 'github',
   codeberg: 'codeberg',
@@ -15,7 +25,7 @@ const FORGE_PREFIX_ALIASES: Record<string, string> = {
   gl: 'gitlab',
 };
 
-const FORGE_DEFAULT_HOSTS: Record<string, string> = {
+const FORGE_DEFAULT_HOSTS: Record<CanonicalForge, string> = {
   github: 'github.com',
   codeberg: 'codeberg.org',
   gitea: 'gitea.com',
@@ -30,7 +40,7 @@ function normalizeForgeHost(host: string): string {
 }
 
 /** 宿主精确或白名单子域匹配（后端 `ForgeType::matches_host` 同口径）。 */
-function matchesForgeHost(forge: string, host: string): boolean {
+function matchesForgeHost(forge: CanonicalForge, host: string): boolean {
   const domain = FORGE_DEFAULT_HOSTS[forge];
   const normalized = normalizeForgeHost(host);
   return normalized === domain || normalized.endsWith(`.${domain}`);
@@ -59,14 +69,33 @@ function cleanRepoPart(repoPart: string): string {
 }
 
 /** canonical id 构造（后端 `UniversalRepoCoord::to_app_id` 镜像，调用方统一小写）。 */
-function toAppId(forge: string, host: string, owner: string, repo: string): string {
+function toAppId(forge: CanonicalForge, host: string, owner: string, repo: string): string {
   if (forge === 'github' && host === 'github.com') return `${owner}/${repo}`;
   if (host === FORGE_DEFAULT_HOSTS[forge]) return `${forge}:${owner}/${repo}`;
   return `${forge}:${host}/${owner}/${repo}`;
 }
 
-/** 三条解析分支（后端 `RepositoryUrlParser::parse` 一一对应），不可解析返回 null。 */
-function parseCanonical(input: string): string | null {
+function buildParsedCoord(
+  forge: CanonicalForge,
+  host: string,
+  owner: string,
+  repo: string,
+): ParsedCanonicalCoord {
+  const cleanHost = host.toLowerCase();
+  const cleanOwner = owner.toLowerCase();
+  const cleanRepo = repo.toLowerCase();
+  return {
+    id: toAppId(forge, cleanHost, cleanOwner, cleanRepo),
+    forge,
+    forge_host: cleanHost,
+    owner: cleanOwner,
+    repo: cleanRepo,
+  };
+}
+
+/** 三条解析分支（后端 `RepositoryUrlParser::parse` 一一对应），解析为结构化坐标。 */
+export function parseCanonicalCoord(input: unknown): ParsedCanonicalCoord | null {
+  if (typeof input !== 'string') return null;
   const s = input.trim();
   if (!s) return null;
 
@@ -78,7 +107,7 @@ function parseCanonical(input: string): string | null {
       const host = parts[0].trim().toLowerCase();
       const owner = parts[1].trim();
       const repo = cleanRepoPart(parts[2].trim());
-      const forge = matchesForgeHost('github', host)
+      const forge: CanonicalForge = matchesForgeHost('github', host)
         ? 'github'
         : matchesForgeHost('codeberg', host)
           ? 'codeberg'
@@ -94,7 +123,7 @@ function parseCanonical(input: string): string | null {
         validCoordSegment(owner) &&
         validCoordSegment(repo)
       ) {
-        return toAppId(forge, canonicalHost, owner, repo).toLowerCase();
+        return buildParsedCoord(forge, canonicalHost, owner, repo);
       }
       return null;
     }
@@ -111,7 +140,7 @@ function parseCanonical(input: string): string | null {
         const owner = (parts.length === 3 ? parts[1] : parts[0]).trim();
         const repo = cleanRepoPart(parts[parts.length - 1].trim());
         if (validCoordSegment(host) && validCoordSegment(owner) && validCoordSegment(repo)) {
-          return toAppId(forge, host, owner, repo).toLowerCase();
+          return buildParsedCoord(forge, host, owner, repo);
         }
         return null;
       }
@@ -124,13 +153,18 @@ function parseCanonical(input: string): string | null {
     if (parts.length === 2) {
       const owner = parts[0].trim();
       const repo = cleanRepoPart(parts[1].trim());
-      if (owner.length > 0 && repo.length > 0) {
-        return toAppId('github', 'github.com', owner, repo).toLowerCase();
+      if (validCoordSegment(owner) && validCoordSegment(repo)) {
+        return buildParsedCoord('github', 'github.com', owner, repo);
       }
     }
   }
 
   return null;
+}
+
+/** 三条解析分支（后端 `RepositoryUrlParser::parse` 一一对应），不可解析返回 null。 */
+function parseCanonical(input: string): string | null {
+  return parseCanonicalCoord(input)?.id ?? null;
 }
 
 /** 解析 canonical id；不可解析时返回 `null`（供校验场景区分非法输入）。 */

@@ -200,12 +200,14 @@ export const App: React.FC = () => {
     installLoadError,
     loadInstalledApps,
     handleInstallApp,
+    handleBatchInstallApp,
     handleQuickInstall,
     handleLaunchApp,
     handleUnmanageApp,
     handleUninstallApp,
     unverifiedInstallPrompt,
     dismissUnverifiedInstall,
+    confirmUnverifiedInstall,
   } = useInstallState({
     currentView,
     apps,
@@ -446,28 +448,35 @@ export const App: React.FC = () => {
     showToast(t('toast.clear_history_success'), 'info');
   };
 
-  // 切换收藏状态（稳定回调，供 memo 卡片复用；入口归一，读写一致）
-  // 后端 reject 时 toast 报错并保持原态：收藏集合仅在成功后更新，失败无乐观态可回滚
-  const handleToggleFavorite = useCallback(async (id: string) => {
+  // 切换收藏状态（稳定回调，供 memo 卡片复用；入口归一，读写一致；批量调用可传 silent 静默并凭返回值汇总）
+  // 后端 reject 时保持原态：收藏集合仅在成功后更新，失败无乐观态可回滚
+  const handleToggleFavorite = useCallback(async (id: string, options?: { silent?: boolean }): Promise<boolean> => {
     const key = normalizeId(id);
-    if (!key) return;
+    if (!key) return false;
     try {
       await tauriApi.toggleFavorite(key);
     } catch (e) {
-      showToast(t('toast.favorite_failed', { error: String(e) }), 'error');
-      return;
+      if (!options?.silent) {
+        showToast(t('toast.favorite_failed', { error: String(e) }), 'error');
+      }
+      return false;
     }
     setFavoriteIds((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
         next.delete(key);
-        showToast(t('toast.favorite_removed'), 'info');
+        if (!options?.silent) {
+          showToast(t('toast.favorite_removed'), 'info');
+        }
       } else {
         next.add(key);
-        showToast(t('toast.favorite_added'), 'success');
+        if (!options?.silent) {
+          showToast(t('toast.favorite_added'), 'success');
+        }
       }
       return next;
     });
+    return true;
   }, [showToast, t]);
 
   // 设备平台切换：空选择为有效状态（页面渲染空筛选引导），在函数式 updater 内计算以保证连续点击顺序生效。
@@ -828,11 +837,7 @@ export const App: React.FC = () => {
             dismissUnverifiedInstall();
             showToast(t('toast.unverified_install_cancelled'), 'info');
           }}
-          onConfirm={() => {
-            const pending = unverifiedInstallPrompt;
-            dismissUnverifiedInstall();
-            void handleInstallRequest({ ...pending, allowUnverified: true });
-          }}
+          onConfirm={confirmUnverifiedInstall}
         />
       )}
 
@@ -846,8 +851,8 @@ export const App: React.FC = () => {
             onClose={() => setActiveCollection(null)}
             onOpenDetail={(id) => handleOpenDetail(id)}
             onLoadUncatalogedDetail={loadUncatalogedDetail}
-            onInstallApp={(id) => handleInstallApp(id)}
-            onToggleFavorite={handleToggleFavorite}
+            onInstallApp={handleBatchInstallApp}
+            onToggleFavorite={(id) => handleToggleFavorite(id, { silent: true })}
             showToast={showToast}
           />
         </React.Suspense>

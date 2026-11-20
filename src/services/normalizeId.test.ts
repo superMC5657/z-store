@@ -1,6 +1,12 @@
 /** Canonical App Id 归一与 `canonicalAppId` 对齐测试。 */
 import { describe, expect, it } from 'vitest';
-import { canonicalAppId, normalizeId, normalizeIdLowerSet, normalizeIdSet } from './normalizeId';
+import {
+  canonicalAppId,
+  normalizeId,
+  normalizeIdLowerSet,
+  normalizeIdSet,
+  parseCanonicalCoord,
+} from './normalizeId';
 
 describe('normalizeId（canonical 深度，与后端 canonical_lookup_id 同值）', () => {
   it('裸 owner/repo 与大小写漂移归一', () => {
@@ -84,5 +90,52 @@ describe('normalizeIdSet / normalizeIdLowerSet（经 normalizeId 收敛去重）
     expect(normalizeIdLowerSet(['RustDesk/RustDesk', 'rustdesk/rustdesk'])).toEqual(
       new Set(['rustdesk/rustdesk']),
     );
+  });
+});
+
+describe('parseCanonicalCoord（结构化坐标解析）', () => {
+  it('解析 GitHub 裸坐标与 URL、Codeberg、GitLab 及自建带端口 Gitea', () => {
+    expect(parseCanonicalCoord('RustDesk/RustDesk')).toEqual({
+      id: 'rustdesk/rustdesk',
+      forge: 'github',
+      forge_host: 'github.com',
+      owner: 'rustdesk',
+      repo: 'rustdesk',
+    });
+    expect(parseCanonicalCoord('https://github.com/Owner/Repo')).toEqual({
+      id: 'owner/repo',
+      forge: 'github',
+      forge_host: 'github.com',
+      owner: 'owner',
+      repo: 'repo',
+    });
+    expect(parseCanonicalCoord('codeberg:FreeTubeApp/FreeTube')).toEqual({
+      id: 'codeberg:freetubeapp/freetube',
+      forge: 'codeberg',
+      forge_host: 'codeberg.org',
+      owner: 'freetubeapp',
+      repo: 'freetube',
+    });
+    expect(parseCanonicalCoord('gitlab:Inkscape/Inkscape')).toEqual({
+      id: 'gitlab:inkscape/inkscape',
+      forge: 'gitlab',
+      forge_host: 'gitlab.com',
+      owner: 'inkscape',
+      repo: 'inkscape',
+    });
+    expect(parseCanonicalCoord('gitea:git.example.com:8443/Org/App')).toEqual({
+      id: 'gitea:git.example.com:8443/org/app',
+      forge: 'gitea',
+      forge_host: 'git.example.com:8443',
+      owner: 'org',
+      repo: 'app',
+    });
+  });
+
+  it('非法坐标返回 null', () => {
+    expect(parseCanonicalCoord('single')).toBeNull();
+    expect(parseCanonicalCoord('o/r\\bad')).toBeNull();
+    expect(parseCanonicalCoord('xyz:o/r')).toBeNull();
+    expect(parseCanonicalCoord('')).toBeNull();
   });
 });

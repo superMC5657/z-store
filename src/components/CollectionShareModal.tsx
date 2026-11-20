@@ -100,10 +100,11 @@ export const CollectionShareModal: React.FC<CollectionShareModalProps> = ({
         title,
         note,
         apps: selectedApps,
-        deepLinkUrl: deepLink.url,
+        deepLinkUrl: deepLink.exceedsMaxLen ? '' : deepLink.url,
         locale: i18n.language,
+        fallbackHeading: t('collection.share.markdown_heading_fallback'),
       }),
-    [title, note, selectedApps, deepLink.url, i18n.language],
+    [title, note, selectedApps, deepLink.exceedsMaxLen, deepLink.url, i18n.language, t],
   );
 
   const handleToggleApp = (key: string) => {
@@ -181,7 +182,7 @@ export const CollectionShareModal: React.FC<CollectionShareModalProps> = ({
           <div className="collection-field">
             <div className="collection-field-head">
               <label htmlFor={titleInputId}>{t('collection.share.title_label')}</label>
-              <span className="collection-char-count">
+              <span className="collection-char-meter">
                 {titleChars} / {COLLECTION_TITLE_MAX_CHARS}
               </span>
             </div>
@@ -199,7 +200,7 @@ export const CollectionShareModal: React.FC<CollectionShareModalProps> = ({
           <div className="collection-field">
             <div className="collection-field-head">
               <label htmlFor={noteInputId}>{t('collection.share.note_label')}</label>
-              <span className="collection-char-count">
+              <span className="collection-char-meter">
                 {noteChars} / {COLLECTION_NOTE_MAX_CHARS}
               </span>
             </div>
@@ -300,7 +301,7 @@ export const CollectionShareModal: React.FC<CollectionShareModalProps> = ({
         <div className="collection-preview-box">
           <div className="collection-field-head">
             <span>{t('collection.share.deeplink_label')}</span>
-            <span className="collection-char-count">
+            <span className="collection-char-meter">
               {t('collection.share.length_counter', {
                 length: deepLink.length,
                 max: COLLECTION_MAX_DEEPLINK_LEN,

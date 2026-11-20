@@ -30,7 +30,7 @@ Blocked by: 01, 02
      - 使用 `encodeURIComponent` 拼接 `zstore://collection?ids=...&title=...&note=...`（`title`/`note` 为空时省略对应 query 参数）；
      - 返回 `{ url, length, exceedsMaxLen }`，供 UI 提前警示是否超出深链 `2048` 字节上限。
    - `buildCollectionMarkdown({ title, note, apps, deepLinkUrl })`：
-     - 生成包含合集标题、备注引用块、Markdown 表格（应用名、仓库链接、协议、平台、简介）以及底部 `zstore://collection?...` 一键打开提示的文本。
+     - 生成包含合集标题、备注引用块、Markdown 表格（应用名、仓库链接、协议、简介）以及底部 `zstore://collection?...` 一键打开提示的文本（深链超 2048 字节时省略深链提示行）。
 2. **`<CollectionShareModal>` 组件（`src/components/CollectionShareModal.tsx`）**：
    - 基于 `<ModalShell>` 构建；
    - 接收候选 `apps: AppSummary[]`（由 `InstalledView` 将 `installedApps` 映射/补全自 `catalogById` 传入，或由 `FavoritesView` 传入 `favoriteApps` / `watchedApps`）与默认标题；

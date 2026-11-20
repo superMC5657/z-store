@@ -44,6 +44,7 @@ import { PathText } from './InstalledView/PathText';
 import { CheckProgressBanner } from './InstalledView/CheckProgressBanner';
 import { lazyNamed } from '../lib/lazyNamed';
 import { queueAssembledRowIcons } from '../services/iconStore';
+import { parseCanonicalCoord } from '../services/normalizeId';
 import { AppIconFrame } from '../components/AppIconFrame';
 import { ManageHeader } from './manage/ManageHeader';
 import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar';
@@ -176,20 +177,20 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     const out: AppSummary[] = [];
     for (const app of installedApps) {
       if (rulesByAppId.get(app.app_id.toLowerCase())?.is_hidden) continue;
-      const hit = catalogById.get(app.app_id.toLowerCase());
+      const coord = parseCanonicalCoord(app.app_id);
+      const hit =
+        catalogById.get(app.app_id.toLowerCase()) ??
+        (coord ? catalogById.get(coord.id) : undefined);
       if (hit) {
         out.push(hit);
         continue;
       }
       const cleanId = app.app_id.trim();
-      const slash = cleanId.indexOf('/');
-      const owner = slash > 0 ? cleanId.slice(0, slash) : '';
-      const repo = slash > 0 ? cleanId.slice(slash + 1) : cleanId;
       out.push({
-        id: cleanId,
-        name: app.app_name || repo || cleanId,
-        owner,
-        repo,
+        id: coord ? coord.id : cleanId,
+        name: app.app_name || coord?.repo || cleanId,
+        owner: coord?.owner ?? '',
+        repo: coord?.repo ?? '',
         icon: app.icon || '',
         icon_bg: app.icon_bg || DEFAULT_ICON_BG,
         description: '',
@@ -200,8 +201,8 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
         category: 'external',
         category_name: '',
         is_verified: false,
-        forge: 'github',
-        forge_host: 'github.com',
+        forge: coord?.forge ?? '',
+        forge_host: coord?.forge_host ?? '',
         homepage: null,
         platforms: inferInstalledFallbackPlatforms(app.install_method),
       });

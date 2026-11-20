@@ -487,4 +487,37 @@ describe('InstalledView share collection entry', () => {
     expect(screen.getByRole('checkbox', { name: 'Neovim' })).toBeTruthy();
     expect(screen.queryByRole('checkbox', { name: 'AlphaTool' })).toBeNull();
   });
+
+  it('exports valid forge repo URLs in Markdown for uncataloged non-GitHub installed apps', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    const nonGithubInstalled: InstalledApp[] = [
+      { ...INSTALLED_LIST[0], app_id: 'codeberg:acme/cb-tool', app_name: 'CB Tool' },
+      { ...INSTALLED_LIST[1], app_id: 'gitea:git.example.com/org/self-app', app_name: 'Self App' },
+    ];
+    render(
+      <InstalledView
+        installedApps={nonGithubInstalled}
+        onLaunch={() => {}}
+        onUninstall={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '分享清单' }));
+    expect(await screen.findByRole('heading', { name: '分享应用合集' })).toBeTruthy();
+    fireEvent.click(screen.getByTestId('collection-copy-markdown'));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+    const md = writeText.mock.calls[0][0] as string;
+    expect(md).toContain('https://codeberg.org/acme/cb-tool');
+    expect(md).toContain('https://git.example.com/org/self-app');
+    expect(md).not.toContain('https://github.com/codeberg:');
+    expect(md).not.toContain('https://github.com/gitea:');
+  });
 });

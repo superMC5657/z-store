@@ -3,7 +3,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { AppSummary } from '../types';
 import i18n from '../i18n';
 import { CollectionShareModal } from './CollectionShareModal';
-import { COLLECTION_DEFAULT_PRESELECT, COLLECTION_MAX_APPS } from '../utils/collectionShare';
+import {
+  COLLECTION_DEFAULT_PRESELECT,
+  COLLECTION_MAX_APPS,
+  parseCollectionDeepLink,
+} from '../utils/collectionShare';
 
 (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
@@ -90,6 +94,11 @@ describe('CollectionShareModal', () => {
     expect(preview).toContain('zstore://collection?ids=owner1/repo1,owner3/repo3');
     expect(preview).toContain(`title=${encodeURIComponent('Rust 装机')}`);
     expect(preview).toContain(`note=${encodeURIComponent('开箱即用')}`);
+    expect(parseCollectionDeepLink(preview)).toEqual({
+      title: 'Rust 装机',
+      note: '开箱即用',
+      app_ids: ['owner1/repo1', 'owner3/repo3'],
+    });
 
     fireEvent.click(screen.getByTestId('collection-copy-deeplink'));
     await waitFor(() => {
@@ -108,7 +117,7 @@ describe('CollectionShareModal', () => {
     expect(copiedMd).not.toContain('owner2/repo2');
   });
 
-  it('warns and disables deep link copy when URL exceeds 2048 bytes', () => {
+  it('warns and disables deep link copy when URL exceeds 2048 bytes', async () => {
     const apps = Array.from({ length: 30 }, (_, i) =>
       makeCandidate(i, 'very-long-organization-prefix-segment-'),
     );
@@ -121,8 +130,15 @@ describe('CollectionShareModal', () => {
     expect(screen.getByTestId('collection-length-warning').textContent).toContain('2048');
     const copyDeepLinkBtn = screen.getByTestId('collection-copy-deeplink') as HTMLButtonElement;
     expect(copyDeepLinkBtn.disabled).toBe(true);
-    // Markdown 清单不受 2048 深链长度限制仍可复制
+    // Markdown 清单仍可复制，但不再嵌入超过 2048 字节上限的无效深链
     const copyMdBtn = screen.getByTestId('collection-copy-markdown') as HTMLButtonElement;
     expect(copyMdBtn.disabled).toBe(false);
+    fireEvent.click(copyMdBtn);
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledTimes(1);
+    });
+    const copiedMd = writeTextMock.mock.calls[0][0];
+    expect(copiedMd).toContain('| App 0 |');
+    expect(copiedMd).not.toContain('zstore://collection');
   });
 });

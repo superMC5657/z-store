@@ -6,6 +6,7 @@ import {
   buildCollectionDeepLink,
   buildCollectionMarkdown,
   escapeMarkdownCell,
+  parseCollectionDeepLink,
 } from './collectionShare';
 
 function makeApp(partial: Partial<AppSummary> & Pick<AppSummary, 'id' | 'name'>): AppSummary {
@@ -95,8 +96,59 @@ describe('collectionShare helpers', () => {
 
     expect(md).toContain('# 远程办公');
     expect(md).toContain('> 开箱即用');
-    expect(md).toContain('| 应用 | 仓库 | 协议 | 平台 | 简介 |');
-    expect(md).toContain('| Rust \\| Desk | [rustdesk/rustdesk](https://github.com/rustdesk/rustdesk) | AGPL-3.0 | Windows, macOS | 远程桌面 \\| 高效稳定 |');
+    expect(md).toContain('| 应用 | 仓库 | 协议 | 简介 |');
+    expect(md).toContain('| Rust \\| Desk | [rustdesk/rustdesk](https://github.com/rustdesk/rustdesk) | AGPL-3.0 | 远程桌面 \\| 高效稳定 |');
     expect(md).toContain(`\`${deepLink.url}\``);
+
+    const fallbackMd = buildCollectionMarkdown({
+      title: '   ',
+      apps,
+      deepLinkUrl: '',
+      locale: 'en-US',
+      fallbackHeading: 'Custom Fallback Heading',
+    });
+    expect(fallbackMd).toContain('# Custom Fallback Heading');
+    expect(fallbackMd).toContain('| App | Repository | License | Description |');
+    expect(fallbackMd).not.toContain('zstore://collection');
+
+    const overUrl = `zstore://collection?ids=${Array.from({ length: 200 }, (_, i) => `owner${i}/repo${i}`).join(',')}`;
+    expect(overUrl.length).toBeGreaterThan(COLLECTION_MAX_DEEPLINK_LEN);
+    const omittedOverMd = buildCollectionMarkdown({
+      title: 'Oversized Link',
+      apps,
+      deepLinkUrl: overUrl,
+      locale: 'zh-CN',
+    });
+    expect(omittedOverMd).not.toContain('zstore://collection');
+  });
+
+  it('round-trips generated deep links and guards NUL, UTF-8 bytes, and multiline whitespace', () => {
+    const res = buildCollectionDeepLink({
+      title: 'Rust 装机精选',
+      note: '开发效率必备',
+      appIds: ['RustDesk/RustDesk', 'codeberg:FreeTubeApp/FreeTube'],
+    });
+    expect(parseCollectionDeepLink(res.url)).toEqual({
+      title: 'Rust 装机精选',
+      note: '开发效率必备',
+      app_ids: ['rustdesk/rustdesk', 'codeberg:freetubeapp/freetube'],
+    });
+
+    const thirty = Array.from({ length: 30 }, (_, i) => `o${i}/r${i}`).join(',');
+    expect(parseCollectionDeepLink(`zstore://collection/${thirty}?ids=%00`)).toBeNull();
+    expect(parseCollectionDeepLink(`zstore://collection?ids=${thirty},x%00y`)).toBeNull();
+
+    // 700 个 3 字节汉字在 UTF-16 长度为 700+25 <= 2048，但 UTF-8 字节 > 2048，必须拒绝
+    const multiByteUrl = `zstore://collection?ids=a/b&note=${'汉'.repeat(700)}`;
+    expect(multiByteUrl.length).toBeLessThan(COLLECTION_MAX_DEEPLINK_LEN);
+    expect(parseCollectionDeepLink(multiByteUrl)).toBeNull();
+
+    expect(
+      parseCollectionDeepLink('zstore://collection?title=hello%0Aworld&note=foo%09bar&ids=a/b'),
+    ).toEqual({
+      title: 'hello world',
+      note: 'foo bar',
+      app_ids: ['a/b'],
+    });
   });
 });

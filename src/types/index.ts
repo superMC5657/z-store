@@ -447,8 +447,6 @@ export interface CollectionModalData {
   app_ids: string[];
 }
 
-export type CollectionPreviewState = CollectionModalData;
-
 export type DeepLinkAction =
   | { action: 'app_detail'; payload: { app_id: string } }
   | { action: 'install_app'; payload: { app_id: string } }

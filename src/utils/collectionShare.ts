@@ -1,5 +1,4 @@
-import type { AppSummary } from '../types';
-import { formatPlatformLabels } from '../lib/platformFilter';
+import type { AppSummary, CollectionModalData } from '../types';
 import { canonicalAppId } from '../services/normalizeId';
 import { buildAppRepoUrl, getAppDescription } from './appHelper';
 
@@ -9,6 +8,12 @@ export const COLLECTION_MAX_DEEPLINK_LEN = 2048;
 export const COLLECTION_WARN_DEEPLINK_LEN = 1900;
 export const COLLECTION_TITLE_MAX_CHARS = 60;
 export const COLLECTION_NOTE_MAX_CHARS = 140;
+
+const utf8Encoder = new TextEncoder();
+
+export function utf8ByteLength(s: string): number {
+  return utf8Encoder.encode(s).length;
+}
 
 export interface BuildCollectionDeepLinkInput {
   title: string;
@@ -83,13 +88,94 @@ export function buildCollectionDeepLink({
   }
 
   const url = `zstore://collection?${params.join('&')}`;
-  const length = new TextEncoder().encode(url).length;
+  const length = utf8ByteLength(url);
   return {
     url,
     length,
     exceedsMaxLen: length > COLLECTION_MAX_DEEPLINK_LEN,
     nearMaxLen: length >= COLLECTION_WARN_DEEPLINK_LEN,
     appIds: cleanIds,
+  };
+}
+
+function decodeDeepLinkPayload(raw: string): string | null {
+  if (raw.includes('\0') || raw.includes('%00')) return null;
+  try {
+    const decoded = decodeURIComponent(raw);
+    return decoded.includes('\0') ? null : decoded;
+  } catch {
+    return raw.includes('\0') ? null : raw;
+  }
+}
+
+/** 解析 `zstore://collection?...` 或 `zstore://collection/{ids}`（与后端 `deeplink.rs` 同口径）。 */
+export function parseCollectionDeepLink(rawUrl: string): CollectionModalData | null {
+  const s = rawUrl.trim();
+  if (!s || utf8ByteLength(s) > COLLECTION_MAX_DEEPLINK_LEN || s.includes('\0')) return null;
+  if (s.slice(0, 9).toLowerCase() !== 'zstore://') return null;
+
+  const afterScheme = s.slice(9).replace(/^\/+/, '');
+  const qIdx = afterScheme.indexOf('?');
+  const pathPart = (qIdx >= 0 ? afterScheme.slice(0, qIdx) : afterScheme).replace(/\/+$/, '');
+  const queryPart = qIdx >= 0 ? afterScheme.slice(qIdx + 1) : '';
+  const lowerPath = pathPart.toLowerCase();
+
+  let pathIds = '';
+  if (lowerPath === 'collection') {
+    pathIds = '';
+  } else if (lowerPath.startsWith('collection/')) {
+    pathIds = pathPart.slice('collection/'.length);
+  } else {
+    return null;
+  }
+
+  let title = '';
+  let note: string | null = null;
+  const rawIdSegments: string[] = [];
+  const trimmedPathIds = pathIds.trim();
+  if (trimmedPathIds) rawIdSegments.push(trimmedPathIds);
+
+  if (queryPart) {
+    for (const pair of queryPart.split('&')) {
+      if (!pair) continue;
+      const eq = pair.indexOf('=');
+      if (eq < 0) {
+        if (decodeDeepLinkPayload(pair) === null) return null;
+        continue;
+      }
+      const k = decodeDeepLinkPayload(pair.slice(0, eq));
+      if (k === null) return null;
+      const rawV = pair.slice(eq + 1);
+      if (k === 'ids') {
+        rawIdSegments.push(rawV);
+      } else if (k === 'title') {
+        const decoded = decodeDeepLinkPayload(rawV.replace(/\+/g, ' '));
+        if (decoded === null) return null;
+        title = sanitizeCollectionText(decoded, COLLECTION_TITLE_MAX_CHARS);
+      } else if (k === 'note') {
+        const decoded = decodeDeepLinkPayload(rawV.replace(/\+/g, ' '));
+        if (decoded === null) return null;
+        const cleaned = sanitizeCollectionText(decoded, COLLECTION_NOTE_MAX_CHARS);
+        note = cleaned || null;
+      } else if (decodeDeepLinkPayload(rawV) === null) {
+        return null;
+      }
+    }
+  }
+
+  const decodedPieces: string[] = [];
+  for (const seg of rawIdSegments) {
+    const decoded = decodeDeepLinkPayload(seg);
+    if (decoded === null) return null;
+    decodedPieces.push(...decoded.split(','));
+  }
+  const appIds = normalizeCollectionAppIds(decodedPieces);
+  if (appIds.length === 0) return null;
+
+  return {
+    title,
+    note,
+    app_ids: appIds,
   };
 }
 
@@ -105,6 +191,7 @@ export interface BuildCollectionMarkdownInput {
   apps: readonly AppSummary[];
   deepLinkUrl: string;
   locale?: string;
+  fallbackHeading?: string;
 }
 
 /** 生成排版规范的 Markdown 推荐清单（含表格与 `zstore://collection` 一键打开提示）。 */
@@ -114,10 +201,12 @@ export function buildCollectionMarkdown({
   apps,
   deepLinkUrl,
   locale = 'zh-CN',
+  fallbackHeading,
 }: BuildCollectionMarkdownInput): string {
   const isZh = !locale || locale.startsWith('zh');
   const cleanTitle =
     sanitizeCollectionText(title, COLLECTION_TITLE_MAX_CHARS) ||
+    sanitizeCollectionText(fallbackHeading ?? '', COLLECTION_TITLE_MAX_CHARS) ||
     (isZh ? '开源应用推荐清单' : 'Recommended Open-Source Apps');
   const cleanNote = sanitizeCollectionText(note, COLLECTION_NOTE_MAX_CHARS);
 
@@ -129,9 +218,9 @@ export function buildCollectionMarkdown({
   lines.push(
     '',
     isZh
-      ? '| 应用 | 仓库 | 协议 | 平台 | 简介 |'
-      : '| App | Repository | License | Platforms | Description |',
-    '| --- | --- | --- | --- | --- |',
+      ? '| 应用 | 仓库 | 协议 | 简介 |'
+      : '| App | Repository | License | Description |',
+    '| --- | --- | --- | --- |',
   );
 
   for (const app of apps.slice(0, COLLECTION_MAX_APPS)) {
@@ -142,17 +231,18 @@ export function buildCollectionMarkdown({
     const repoUrl = buildAppRepoUrl(app);
     const repoCell = repoUrl ? `[${coordLabel}](${repoUrl})` : coordLabel;
     const licenseCell = escapeMarkdownCell(app.license || '-') || '-';
-    const platformsCell = escapeMarkdownCell(formatPlatformLabels(app.platforms)) || '-';
     const descCell = escapeMarkdownCell(getAppDescription(app, locale)) || '-';
-    lines.push(`| ${appName} | ${repoCell} | ${licenseCell} | ${platformsCell} | ${descCell} |`);
+    lines.push(`| ${appName} | ${repoCell} | ${licenseCell} | ${descCell} |`);
   }
 
-  if (deepLinkUrl) {
+  const safeDeepLinkUrl =
+    deepLinkUrl && utf8ByteLength(deepLinkUrl) <= COLLECTION_MAX_DEEPLINK_LEN ? deepLinkUrl : '';
+  if (safeDeepLinkUrl) {
     lines.push(
       '',
       isZh
-        ? `> 在 ZStore 客户端中打开此合集预览与批量安装：\`${deepLinkUrl}\``
-        : `> Open in ZStore to preview and batch install: \`${deepLinkUrl}\``,
+        ? `> 在 ZStore 客户端中打开此合集预览与批量安装：\`${safeDeepLinkUrl}\``
+        : `> Open in ZStore to preview and batch install: \`${safeDeepLinkUrl}\``,
     );
   }
 

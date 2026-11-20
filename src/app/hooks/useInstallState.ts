@@ -11,6 +11,8 @@ interface UnverifiedInstallPrompt {
   customInstallDir?: string;
 }
 
+export type BatchInstallOutcome = 'installed' | 'cancelled' | 'skipped';
+
 interface UseInstallStateParams {
   currentView: ViewType;
   apps: AppSummary[];
@@ -34,15 +36,59 @@ export function useInstallState({
   const [installLoadError, setInstallLoadError] = useState<string | null>(null);
   // 无校验资产待用户确认状态（null = 无待确认安装）
   const [unverifiedInstallPrompt, setUnverifiedInstallPrompt] = useState<UnverifiedInstallPrompt | null>(null);
+  const unverifiedPromptRef = useRef<UnverifiedInstallPrompt | null>(null);
+  const unverifiedWaiterRef = useRef<{ resolve: (confirmed: boolean) => void } | null>(null);
 
-  // 安装集合经 ref 读取，回调引用在搜索、图标升级时保持稳定
-  const installingRef = useRef<Set<string>>(installingAppIds);
-  installingRef.current = installingAppIds;
+  const setUnverifiedPrompt = useCallback((next: UnverifiedInstallPrompt | null) => {
+    unverifiedPromptRef.current = next;
+    setUnverifiedInstallPrompt(next);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const waiter = unverifiedWaiterRef.current;
+      if (waiter) {
+        unverifiedWaiterRef.current = null;
+        waiter.resolve(false);
+      }
+    };
+  }, []);
+
+  // 安装集合经 ref 同步维护，回调引用稳定且同 tick 连续重试不读到陈旧集合
+  const installingRef = useRef<Set<string>>(new Set());
+
+  const addInstallingId = useCallback((id: string) => {
+    if (!installingRef.current.has(id)) {
+      const next = new Set(installingRef.current);
+      next.add(id);
+      installingRef.current = next;
+    }
+    setInstallingAppIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const removeInstallingId = useCallback((id: string) => {
+    if (installingRef.current.has(id)) {
+      const next = new Set(installingRef.current);
+      next.delete(id);
+      installingRef.current = next;
+    }
+    setInstallingAppIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   // 安装应用（稳定回调：经 ref 读 installing，搜索键入/图标升级时引用不变）
   const handleInstallApp = useCallback(async (id: string, assetName?: string, customInstallDir?: string, allowUnverified?: boolean): Promise<void> => {
     if (installingRef.current.has(id)) return;
-    setInstallingAppIds((prev) => new Set(prev).add(id));
+    addInstallingId(id);
     try {
       const installed = await tauriApi.installApp(id, assetName, customInstallDir, allowUnverified);
       const key = normalizeId(id);
@@ -50,9 +96,9 @@ export function useInstallState({
       showToast(t('toast.install_success', { name: installed.app_name }), 'success');
     } catch (err) {
       const errStr = String(err);
-      if (errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
+      if (!allowUnverified && errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
         // 无校验清单资产由弹窗确认放行，不按失败处理
-        setUnverifiedInstallPrompt({ id, assetName, customInstallDir });
+        setUnverifiedPrompt({ id, assetName, customInstallDir });
         return;
       }
       if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
@@ -62,18 +108,81 @@ export function useInstallState({
       }
       throw err;
     } finally {
-      setInstallingAppIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      removeInstallingId(id);
     }
-  }, [showToast, t]);
+  }, [addInstallingId, removeInstallingId, setUnverifiedPrompt, showToast, t]);
 
-  // 无校验资产警示弹窗关闭（确认/取消共用清口）
+  // 批量安装专用的单条执行器：命中无校验清单时挂起等待 InstallConfirmDialog 决策后再继续下一款
+  const handleBatchInstallApp = useCallback(async (id: string): Promise<BatchInstallOutcome> => {
+    if (installingRef.current.has(id)) return 'skipped';
+    let needsConfirm = false;
+    addInstallingId(id);
+    try {
+      const installed = await tauriApi.installApp(id);
+      const key = normalizeId(id);
+      setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), installed]);
+      showToast(t('toast.install_success', { name: installed.app_name }), 'success');
+      return 'installed';
+    } catch (err) {
+      const errStr = String(err);
+      if (errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
+        needsConfirm = true;
+      } else {
+        if (errStr.includes('取消') || errStr.includes('中止') || errStr.includes('1602')) {
+          showToast(t('toast.install_cancelled', { error: errStr }), 'info');
+        } else {
+          showToast(t('toast.install_failed', { error: errStr }), 'error');
+        }
+        throw err;
+      }
+    } finally {
+      removeInstallingId(id);
+    }
+
+    if (needsConfirm) {
+      const prevWaiter = unverifiedWaiterRef.current;
+      if (prevWaiter) {
+        unverifiedWaiterRef.current = null;
+        prevWaiter.resolve(false);
+      }
+      const confirmed = await new Promise<boolean>((resolve) => {
+        unverifiedWaiterRef.current = { resolve };
+        setUnverifiedPrompt({ id });
+      });
+      if (!confirmed) {
+        return 'cancelled';
+      }
+      await handleInstallApp(id, undefined, undefined, true);
+      return 'installed';
+    }
+
+    return 'skipped';
+  }, [addInstallingId, handleInstallApp, removeInstallingId, setUnverifiedPrompt, showToast, t]);
+
+  // 无校验资产警示弹窗取消（同时唤醒阻塞中的批量安装流程）
   const dismissUnverifiedInstall = useCallback(() => {
-    setUnverifiedInstallPrompt(null);
-  }, []);
+    setUnverifiedPrompt(null);
+    const waiter = unverifiedWaiterRef.current;
+    if (waiter) {
+      unverifiedWaiterRef.current = null;
+      waiter.resolve(false);
+    }
+  }, [setUnverifiedPrompt]);
+
+  // 无校验资产警示弹窗确认：批量场景交由等待方同步继续，单次场景立即携带 allowUnverified 重试
+  const confirmUnverifiedInstall = useCallback(() => {
+    const pending = unverifiedPromptRef.current;
+    setUnverifiedPrompt(null);
+    const waiter = unverifiedWaiterRef.current;
+    if (waiter) {
+      unverifiedWaiterRef.current = null;
+      waiter.resolve(true);
+      return;
+    }
+    if (pending) {
+      void handleInstallApp(pending.id, pending.assetName, pending.customInstallDir, true);
+    }
+  }, [handleInstallApp, setUnverifiedPrompt]);
 
   // 快捷安装（稳定回调，供 memo 卡片复用）
   const handleQuickInstall = useCallback(async (id: string) => {
@@ -162,11 +271,13 @@ export function useInstallState({
     loadInstalledApps,
     installingRef,
     handleInstallApp,
+    handleBatchInstallApp,
     handleQuickInstall,
     handleLaunchApp,
     handleUnmanageApp,
     handleUninstallApp,
     unverifiedInstallPrompt,
     dismissUnverifiedInstall,
+    confirmUnverifiedInstall,
   };
 }
