@@ -5,6 +5,7 @@ mod confirmed;
 mod cycle;
 mod fetch;
 mod image_sniff;
+mod lanes;
 mod probe;
 mod quota_throttle;
 mod singleflight;
@@ -38,6 +39,12 @@ pub use image_sniff::{
     detect_image_mime, infer_ext_from_url, is_valid_image, mime_to_ext, resolve_ext,
     sniff_image_mime, url_ext_allowed, url_path_ext,
 };
+#[cfg(test)]
+pub(crate) use lanes::record_stream_hit_with;
+pub(crate) use lanes::{
+    spawn_icon_fetch_lane, spawn_launchpad_icon_stream, spawn_starred_icon_stream,
+};
+pub use lanes::{IconEventSink, IconLane};
 pub(crate) use probe::{
     probe_repo_logo, remember_repo_default_branch, verify_custom_icon_d8, ProbedIcon,
 };

@@ -492,3 +492,200 @@ async fn get_or_fetch_icon_rejects_non_image_data_uri() {
             .is_err()
     );
 }
+
+// ---------------------------------------------------------------------------
+// IconFetch 世代通道
+// ---------------------------------------------------------------------------
+
+#[test]
+fn icon_lane_maps_ctx_to_lane_and_expected_gen() {
+    let search = IconFetchCtx::Search {
+        search_id: "s1".to_string(),
+        gen: 7,
+    };
+    assert_eq!(IconLane::of(&search), (IconLane::Search, 7));
+    let trend = IconFetchCtx::Trend {
+        board: "weekly".to_string(),
+        gen: 3,
+    };
+    assert_eq!(IconLane::of(&trend), (IconLane::Trend, 3));
+    assert_eq!(
+        IconLane::of(&IconFetchCtx::Starred { gen: 5 }),
+        (IconLane::Starred, 5)
+    );
+    assert_eq!(
+        IconLane::of(&IconFetchCtx::Launchpad { gen: 9 }),
+        (IconLane::Launchpad, 9)
+    );
+}
+
+#[test]
+fn icon_lane_advance_is_monotonic_and_observed_by_current() {
+    let a = IconLane::Trend.advance();
+    assert!(IconLane::Trend.current() >= a);
+    let b = IconLane::Trend.advance();
+    assert!(b > a, "advance strictly increases");
+}
+
+#[test]
+fn emit_payload_carries_ctx_through_single_interface() {
+    let job = IconFetchJob {
+        id: "o/r".to_string(),
+        owner: "O".to_string(),
+        repo: "R".to_string(),
+        ctx: IconFetchCtx::Trend {
+            board: "weekly".to_string(),
+            gen: 3,
+        },
+    };
+    let p = icon_ready_payload(&job, "https://cdn.simpleicons.org/r", 2, "live");
+    assert_eq!(p.id, "o/r");
+    assert_eq!(p.level, 2);
+    assert_eq!(p.via, "live");
+    let v = serde_json::to_value(&p).unwrap();
+    assert_eq!(v["context"]["kind"], "trend");
+    assert_eq!(v["context"]["board"], "weekly");
+    assert_eq!(v["context"]["gen"], 3);
+}
+
+/// 内存事件收集器（测试 adapter）。
+#[derive(Default)]
+struct CollectSink(std::sync::Mutex<Vec<IconReadyPayload>>);
+
+impl IconEventSink for CollectSink {
+    fn icon_ready(&self, payload: &IconReadyPayload) {
+        self.0.lock().unwrap().push(payload.clone());
+    }
+}
+
+fn lane_job(gen: u64) -> IconFetchJob {
+    IconFetchJob {
+        id: "o/r".to_string(),
+        owner: "O".to_string(),
+        repo: "R".to_string(),
+        ctx: IconFetchCtx::Starred { gen },
+    }
+}
+
+#[test]
+fn current_gen_stream_hit_selects_icon_syncs_card_and_emits() {
+    let db = std::sync::Mutex::new(Database::open_in_memory().unwrap());
+    let sink = CollectSink::default();
+    let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
+    record_stream_hit_with(&db, &lane_job(4), l3, 3, "live", &|| 4, &sink);
+
+    let cycle = db.lock().unwrap().get_icon_cycle("o/r").unwrap().unwrap();
+    assert_eq!(cycle.selected_url, l3);
+    assert_eq!(cycle.level, 3);
+    assert!(!cycle.is_cataloged);
+    let events = sink.0.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].id, "o/r");
+    assert_eq!(events[0].level, 3);
+    assert_eq!(events[0].via, "live");
+}
+
+#[test]
+fn stale_gen_stream_hit_only_fills_empty_slot_without_emitting() {
+    let db = std::sync::Mutex::new(Database::open_in_memory().unwrap());
+    let sink = CollectSink::default();
+    let l2 = "https://cdn.simpleicons.org/r";
+    record_stream_hit_with(&db, &lane_job(1), l2, 2, "live", &|| 1, &sink);
+    assert_eq!(sink.0.lock().unwrap().len(), 1);
+
+    // 世代已推进到 2：过期 L4 命中只补 l4 槽，选中态不动、不发射。
+    let l4 = "https://raw.githubusercontent.com/o/r/main/logo.png";
+    record_stream_hit_with(&db, &lane_job(1), l4, 4, "live", &|| 2, &sink);
+    let cycle = db.lock().unwrap().get_icon_cycle("o/r").unwrap().unwrap();
+    assert_eq!(cycle.l4_url, l4);
+    assert_eq!(cycle.selected_url, l2);
+    assert_eq!(cycle.level, 2);
+    assert_eq!(sink.0.lock().unwrap().len(), 1, "stale gen must not emit");
+}
+
+#[test]
+fn gen_advanced_between_write_and_emit_suppresses_event() {
+    let db = std::sync::Mutex::new(Database::open_in_memory().unwrap());
+    let sink = CollectSink::default();
+    // 首次检查为当前世代（落库收编），发射前世代被推进：只写库不发射。
+    let calls = std::sync::atomic::AtomicU64::new(0);
+    let gen = || {
+        if calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            5
+        } else {
+            6
+        }
+    };
+    let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
+    record_stream_hit_with(&db, &lane_job(5), l3, 3, "live", &gen, &sink);
+    let cycle = db.lock().unwrap().get_icon_cycle("o/r").unwrap().unwrap();
+    assert_eq!(cycle.selected_url, l3);
+    assert!(sink.0.lock().unwrap().is_empty());
+}
+
+fn stream_cycle(selected_level: i32, selected_url: &str, pinned: bool) -> crate::db::AppIconCycle {
+    let mut c = crate::db::AppIconCycle::new("o/r", "o", "r");
+    c.is_cataloged = false;
+    c.level = selected_level;
+    c.l2_url = "https://cdn.simpleicons.org/r".to_string();
+    c.selected_url = selected_url.to_string();
+    c.cache_file = "r.png".to_string();
+    c.updated_at = 1000;
+    c.pinned = pinned;
+    c
+}
+
+#[test]
+fn stale_stream_hit_fills_slot_without_moving_selection() {
+    // 不降级守卫：过期 L3 只补 l3 空槽（过期写库），level/selected/cache/updated_at 不动。
+    let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
+    let mut c = stream_cycle(2, "https://cdn.simpleicons.org/r", false);
+    let was_pinned = lanes::merge_stream_hit(&mut c, 3, l3, false, 2000, false);
+    assert!(!was_pinned);
+    assert_eq!(c.l3_url, l3);
+    assert_eq!(c.level, 2);
+    assert_eq!(c.selected_url, "https://cdn.simpleicons.org/r");
+    assert_eq!(c.cache_file, "r.png");
+    assert_eq!(c.updated_at, 1000);
+}
+
+#[test]
+fn fresh_stream_hit_merges_fully_like_merge_detail_icon() {
+    // 新鲜命中全量合并：L3 收编选中。
+    let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
+    let mut c = stream_cycle(2, "https://cdn.simpleicons.org/r", false);
+    let was_pinned = lanes::merge_stream_hit(&mut c, 3, l3, false, 2000, true);
+    assert!(!was_pinned);
+    assert_eq!(c.level, 3);
+    assert_eq!(c.l3_url, l3);
+    assert_eq!(c.selected_url, l3);
+    assert_eq!(c.updated_at, 2000);
+}
+
+#[test]
+fn stale_stream_hit_on_pinned_only_fills_slot() {
+    // pinned 行新旧一致：过期 L4 只补槽，不改选中（返回 true）。
+    let l4 = "https://raw.githubusercontent.com/o/r/main/logo.png";
+    let mut c = stream_cycle(2, "https://cdn.simpleicons.org/r", true);
+    let was_pinned = lanes::merge_stream_hit(&mut c, 4, l4, false, 2000, false);
+    assert!(was_pinned);
+    assert_eq!(c.l4_url, l4);
+    assert_eq!(c.level, 2);
+    assert_eq!(c.selected_url, "https://cdn.simpleicons.org/r");
+    assert_eq!(c.updated_at, 1000);
+}
+
+#[test]
+fn stale_stream_hit_on_pinned_l5_keeps_badge() {
+    // pinned L5（用户手动选空徽章）：过期命中只补槽，level=5 与双空选中态保持（锁徽章态）。
+    let l4 = "https://raw.githubusercontent.com/o/r/main/logo.png";
+    let mut c = crate::db::AppIconCycle::new("o/r", "o", "r");
+    crate::icons::seal_empty_selection(&mut c);
+    c.pinned = true;
+    let was_pinned = lanes::merge_stream_hit(&mut c, 4, l4, false, 2000, false);
+    assert!(was_pinned);
+    assert_eq!(c.level, 5);
+    assert!(c.selected_url.is_empty());
+    assert!(c.cache_file.is_empty());
+    assert_eq!(c.l4_url, l4);
+}

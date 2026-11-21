@@ -135,7 +135,7 @@ pub async fn list_github_starred(
     } else {
         Vec::new()
     };
-    let cards = super::catalog_search::cards_from_repo_payloads_offloaded(
+    let cards = crate::repositories::card_hydrator::cards_from_repo_payloads_offloaded(
         &state,
         fetched.page.repos,
         persist_cards,
@@ -154,12 +154,7 @@ pub async fn list_github_starred(
     )
     .await;
     let rows = cards.rows;
-    super::catalog_search::spawn_starred_icon_stream(
-        &app_handle,
-        cards.need_icon,
-        token,
-        page == 1,
-    );
+    crate::icons::spawn_starred_icon_stream(&app_handle, cards.need_icon, token, page == 1);
     if fetched.is_stale == Some(true) {
         let mut ev =
             crate::z_log::WideEvent::new("detail", "starred page stale").with_started(start);

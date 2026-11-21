@@ -245,8 +245,7 @@ pub fn get_home_feed(
     seed: Option<u64>,
     strategy: Option<String>,
 ) -> crate::AppResult<FeedPage> {
-    let hidden_ids: std::collections::HashSet<String> =
-        super::catalog_search::hidden_rule_ids(&state)?;
+    let hidden_ids: std::collections::HashSet<String> = super::hidden_rule_ids(&state)?;
     let filtered: Vec<AppSummary> = state
         .catalog
         .merged_summaries_filtered(|item| !hidden_ids.contains(&item.id));
@@ -291,8 +290,7 @@ pub fn get_category_apps(
     allowed_ids: Option<Vec<String>>,
 ) -> crate::AppResult<FeedPage> {
     let cat_clean = category.trim().to_lowercase();
-    let hidden_ids: std::collections::HashSet<String> =
-        super::catalog_search::hidden_rule_ids(&state)?;
+    let hidden_ids: std::collections::HashSet<String> = super::hidden_rule_ids(&state)?;
 
     let filtered: Vec<AppSummary> = state.catalog.merged_summaries_filtered(|item| {
         crate::github::catalog_service::category_matches(item, &cat_clean)
@@ -320,8 +318,7 @@ pub fn get_latest_catalog_apps(
     per_page: Option<u32>,
     allowed_ids: Option<Vec<String>>,
 ) -> crate::AppResult<FeedPage> {
-    let hidden_ids: std::collections::HashSet<String> =
-        super::catalog_search::hidden_rule_ids(&state)?;
+    let hidden_ids: std::collections::HashSet<String> = super::hidden_rule_ids(&state)?;
     let effective_max = max_days.or(since_days);
     let in_window: Vec<AppSummary> = state.catalog.merged_summaries_filtered(|item| {
         !hidden_ids.contains(&item.id)

@@ -10,7 +10,7 @@ pub fn get_featured_page(
     day_seed: u64,
     allowed_ids: Option<Vec<String>>,
 ) -> crate::AppResult<FeaturedPage> {
-    let hidden: HashSet<String> = super::catalog_search::hidden_rule_ids(&state)?
+    let hidden: HashSet<String> = super::hidden_rule_ids(&state)?
         .into_iter()
         .map(|id| id.to_lowercase())
         .collect();

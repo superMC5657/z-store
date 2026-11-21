@@ -6,12 +6,8 @@ use crate::launchpad::{
     LaunchpadEntry, LaunchpadFeedResponse, LaunchpadPulseItem, RawLaunchpadManifest,
 };
 use crate::AppState;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, State};
-
-/// 广场卡片后台补图世代：每次 `get_launchpad_feed` +1，上一轮在途补图停发。
-pub(crate) static LAUNCHPAD_ICON_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// 清单装载结果（尚未分流与水合）。
 #[derive(Debug)]
@@ -134,14 +130,15 @@ pub(crate) async fn load_launchpad_manifest(
     })
 }
 
-/// 本地水合清单条目：合并较新的讨论脉冲、补齐确认图标与 Star 状态，并返回仍缺图标的 GitHub 项。
-pub(crate) fn hydrate_entries(
+/// 本地水合清单条目（DB 阶段，持锁）：合并较新的讨论脉冲、写未收录富卡、盖章与 Star 状态，
+/// 并为空图标条目规划确认图标延迟任务（与入参对齐，磁盘读取留待锁外）。
+pub(crate) fn hydrate_entries_deferred(
     db: &Database,
     catalog: &crate::github::CatalogService,
     entries: &mut [LaunchpadEntry],
     logged_in: bool,
     manifest_generated_secs: i64,
-) -> Vec<crate::icons::RepoCoord> {
+) -> Vec<crate::icons::DeferredIcon> {
     let disc_keys: Vec<(String, u64)> = entries
         .iter()
         .filter_map(|e| discussion_lookup_key(&e.discussion_repo, e.discussion_number))
@@ -192,57 +189,52 @@ pub(crate) fn hydrate_entries(
         }
     }
 
-    let mut missing_icons = Vec::new();
     for entry in entries.iter_mut() {
         catalog.stamp_summary(&mut entry.summary);
         let core = &mut entry.summary.core;
         let is_github = core.forge.as_deref().unwrap_or("github") == "github";
-        if core.icon.trim().is_empty() {
-            if let Some(icon) =
-                crate::icons::resolve_confirmed_icon_from_db(db, &core.id, &core.owner, &core.repo)
-            {
-                core.icon = icon;
-            } else if is_github {
-                missing_icons.push(crate::icons::RepoCoord {
-                    id: core.id.clone(),
-                    owner: core.owner.clone(),
-                    repo: core.repo.clone(),
-                });
-            }
-        }
         entry.viewer_has_starred =
             logged_in && is_github && db.is_starred(&core.owner, &core.repo).unwrap_or(false);
         if entry.viewer_has_starred && core.stars == 0 {
             core.stars = 1;
         }
     }
-    missing_icons
+    crate::repositories::card_hydrator::plan_blank_icons(
+        db,
+        entries.iter().map(|e| &e.summary.core),
+    )
 }
 
-fn spawn_launchpad_icon_stream(
-    app_handle: &AppHandle,
-    coords: Vec<crate::icons::RepoCoord>,
-    token: Option<String>,
-) {
-    let gen = LAUNCHPAD_ICON_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-    if coords.is_empty() {
-        return;
-    }
-    let jobs: Vec<crate::icons::IconFetchJob> = coords
-        .into_iter()
-        .map(|coord| coord.into_job(crate::icons::IconFetchCtx::Launchpad { gen }))
-        .collect();
-    let cfg_icon = crate::config::get_project_config().limits.icon_fetch;
-    let should_stop: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
-        std::sync::Arc::new(move || LAUNCHPAD_ICON_GEN.load(Ordering::SeqCst) != gen);
-    tokio::spawn(crate::icons::fetch_icons_stream(
-        app_handle.clone(),
-        jobs,
-        token,
-        cfg_icon,
-        crate::commands::catalog_search::emit_icon_job,
-        Some(should_stop),
-    ));
+/// 叠加确认图标后仍缺图标的 GitHub 条目（交由后台补图）。
+fn missing_icon_coords(entries: &[LaunchpadEntry]) -> Vec<crate::icons::RepoCoord> {
+    entries
+        .iter()
+        .map(|e| &e.summary.core)
+        .filter(|c| c.icon.trim().is_empty() && c.forge.as_deref().unwrap_or("github") == "github")
+        .map(|c| crate::icons::RepoCoord {
+            id: c.id.clone(),
+            owner: c.owner.clone(),
+            repo: c.repo.clone(),
+        })
+        .collect()
+}
+
+/// 同步水合（图标磁盘阶段就地执行，测试入口）：返回仍缺图标的 GitHub 项。
+#[cfg(test)]
+pub(crate) fn hydrate_entries(
+    db: &Database,
+    catalog: &crate::github::CatalogService,
+    entries: &mut [LaunchpadEntry],
+    logged_in: bool,
+    manifest_generated_secs: i64,
+) -> Vec<crate::icons::RepoCoord> {
+    let jobs = hydrate_entries_deferred(db, catalog, entries, logged_in, manifest_generated_secs);
+    crate::repositories::card_hydrator::overlay_planned_icons_inline(
+        db,
+        &jobs,
+        entries.iter_mut().map(|e| &mut e.summary.core),
+    );
+    missing_icon_coords(entries)
 }
 
 /// 开源广场清单：按需拉取（启动阶段不预取），失败降级本地快照。
@@ -279,25 +271,39 @@ pub async fn get_launchpad_feed(
     let (mut spotlight, mut items) =
         crate::launchpad::partition_spotlight_and_recent(&load.manifest, crate::now_secs());
     let token = state.active_github_token();
-    let missing_icons = {
+    let (spotlight_icons, item_icons) = {
         let db = state.db()?;
-        let mut coords = hydrate_entries(
-            &db,
-            &state.catalog,
-            &mut spotlight,
-            token.is_some(),
-            manifest_ts,
-        );
-        coords.extend(hydrate_entries(
-            &db,
-            &state.catalog,
-            &mut items,
-            token.is_some(),
-            manifest_ts,
-        ));
-        coords
+        (
+            hydrate_entries_deferred(
+                &db,
+                &state.catalog,
+                &mut spotlight,
+                token.is_some(),
+                manifest_ts,
+            ),
+            hydrate_entries_deferred(
+                &db,
+                &state.catalog,
+                &mut items,
+                token.is_some(),
+                manifest_ts,
+            ),
+        )
     };
-    spawn_launchpad_icon_stream(&app_handle, missing_icons, token);
+    // 确认图标在锁外读盘编码。
+    let jobs: Vec<_> = spotlight_icons.into_iter().chain(item_icons).collect();
+    crate::repositories::card_hydrator::overlay_planned_icons(
+        &state,
+        jobs,
+        spotlight
+            .iter_mut()
+            .chain(items.iter_mut())
+            .map(|e| &mut e.summary.core),
+    )
+    .await;
+    let mut missing_icons = missing_icon_coords(&spotlight);
+    missing_icons.extend(missing_icon_coords(&items));
+    crate::icons::spawn_launchpad_icon_stream(&app_handle, missing_icons, token);
 
     let discussions_repo = load
         .manifest
@@ -904,10 +910,10 @@ pub async fn preflight_launchpad_submission(
     };
 
     let timeout_secs = cfg.network.api_timeout_seconds;
-    let icon_client = crate::forge::http::new_icon_client(timeout_secs)
-        .map_err(crate::AppError::from)?;
-    let api_client = crate::forge::http::new_api_client(timeout_secs)
-        .map_err(crate::AppError::from)?;
+    let icon_client =
+        crate::forge::http::new_icon_client(timeout_secs).map_err(crate::AppError::from)?;
+    let api_client =
+        crate::forge::http::new_api_client(timeout_secs).map_err(crate::AppError::from)?;
 
     let token_ref = host_token.as_deref();
     let (repo_res, release_res, icon_outcome) = tokio::join!(

@@ -56,6 +56,21 @@ pub(crate) fn require_app_id(raw: &str) -> Result<String, String> {
     crate::forge::canonical_app_id(raw).ok_or_else(|| format!("无法识别的应用标识: {}", raw))
 }
 
+/// 读取全部已隐藏应用的 ID 集合（fail-closed：读取失败时向上传播错误）。
+pub(crate) fn hidden_rule_ids(
+    state: &AppState,
+) -> Result<std::collections::HashSet<String>, String> {
+    let db = state.db()?;
+    let rules = db
+        .get_all_rules()
+        .map_err(|e| format!("读取隐藏规则失败: {}", e))?;
+    Ok(rules
+        .into_iter()
+        .filter(|r| r.is_hidden)
+        .map(|r| r.app_id)
+        .collect())
+}
+
 /// 获取当前生效的 GitHub API 访问令牌（OAuth 登录令牌优先，其次主机令牌）。
 pub fn resolve_active_github_token(state: &AppState) -> Option<String> {
     state.active_github_token()

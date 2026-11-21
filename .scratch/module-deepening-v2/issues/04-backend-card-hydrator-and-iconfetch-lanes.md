@@ -1,6 +1,6 @@
 # Issue 04: 收敛后端单仓富卡水合深模块 `CardHydrator` 并将四路 `IconFetch` 世代流迁入 `icons/`
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 03
 
 ## Summary
