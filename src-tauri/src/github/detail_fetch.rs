@@ -112,6 +112,7 @@ pub struct DetailFetchDiag {
 /// repo 抓取 seam：ETag 条件请求 + 限流上报 + 缓存回退解析（返回待写 ETag 与 `HttpDiag`）。
 async fn fetch_repo_info(
     client: &reqwest::Client,
+    api_base: Option<&str>,
     base_headers: &HeaderMap,
     repo_url: &str,
     repo_etag: Option<&str>,
@@ -122,9 +123,14 @@ async fn fetch_repo_info(
     Option<EtagWrite>,
     crate::log_support::HttpDiag,
 ) {
-    let (outcome, diag) =
-        crate::github::http::get_with_etag_diag(client, repo_url, None, base_headers, repo_etag)
-            .await;
+    let (outcome, diag) = crate::github::http::get_with_etag_diag(
+        client,
+        repo_url,
+        api_base,
+        base_headers,
+        repo_etag,
+    )
+    .await;
     match outcome {
         EtagGetOutcome::Fresh { text, etag } => {
             let etag_write = etag.map(|et| EtagWrite {
@@ -209,6 +215,7 @@ fn reuse_304_cached(
 /// readme 抓取输入束（多参数成束，避免长参数列在 join 点散开）。
 struct ReadmeFetch<'a> {
     client: &'a reqwest::Client,
+    api_base: Option<&'a str>,
     url: &'a str,
     headers: &'a HeaderMap,
     etag: Option<&'a str>,
@@ -227,9 +234,14 @@ async fn fetch_readme_markdown(req: ReadmeFetch<'_>) -> (String, Option<EtagWrit
             return (r.clone(), None, "readme:cached".to_string());
         }
     }
-    let (outcome, diag) =
-        crate::github::http::get_with_etag_diag(req.client, req.url, None, req.headers, req.etag)
-            .await;
+    let (outcome, diag) = crate::github::http::get_with_etag_diag(
+        req.client,
+        req.url,
+        req.api_base,
+        req.headers,
+        req.etag,
+    )
+    .await;
     let step = diag.step_label("readme");
     let mut etag_write: Option<EtagWrite> = None;
     let text = match outcome {
@@ -315,7 +327,7 @@ async fn probe_repo_icon(
 
 /// 消极缓存判定 seam：版本未变 + 24h 内 fresh + 有资产但 sha256 全缺时，
 /// checksum 抓取整路跳过。
-fn should_skip_checksum_fetch(
+pub(crate) fn should_skip_checksum_fetch(
     cached_detail: Option<&AppDetail>,
     version_changed: bool,
     now_secs: i64,
@@ -343,10 +355,10 @@ fn checksum_download_headers() -> HeaderMap {
     headers
 }
 
-/// checksum 抓取 seam：消极缓存命中整路跳过，否则以干净下载头经 `extract_checksums_map`
+/// checksum 抓取 seam：消极缓存命中整路跳过，否则以干净下载头经 [`extract_checksums_map`]
 /// 返回 `(checksum_map, step_label, skip_or_fail_reason)`。
 async fn fetch_checksum_table(
-    assets: &[GitHubAssetResponse],
+    assets: &[(&str, &str)],
     client: &reqwest::Client,
     skip_checksum: bool,
 ) -> (HashMap<String, String>, String, Option<String>) {
@@ -357,7 +369,31 @@ async fn fetch_checksum_table(
             Some("negative_cache_24h".to_string()),
         );
     }
-    CatalogService::extract_checksums_map(assets, client, &checksum_download_headers()).await
+    extract_checksums_map(assets, client, &checksum_download_headers()).await
+}
+
+/// 多源 `ForgeProvider` Release 资产的 `Checksum Manifest` 填充：按资产名匹配 `sha256`，
+/// 返回 `(step_label, skip_or_fail_reason)`。
+pub(crate) async fn fill_release_checksums(
+    assets: &mut [ReleaseAsset],
+    client: &reqwest::Client,
+    skip_checksum: bool,
+) -> (String, Option<String>) {
+    let projection: Vec<(String, String)> = assets
+        .iter()
+        .map(|a| (a.name.clone(), a.download_url.clone()))
+        .collect();
+    let refs: Vec<(&str, &str)> = projection
+        .iter()
+        .map(|(n, u)| (n.as_str(), u.as_str()))
+        .collect();
+    let (map, step, why) = fetch_checksum_table(&refs, client, skip_checksum).await;
+    for asset in assets.iter_mut() {
+        if let Some(hash) = map.get(&asset.name) {
+            asset.sha256 = Some(hash.clone());
+        }
+    }
+    (step, why)
 }
 
 /// release 资产组装 seam：校验过滤 → classify（`forge::provider::classify_asset_fields`
@@ -629,12 +665,15 @@ fn resolve_effective_descriptions(
 pub(crate) const CHECKSUM_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
 
 impl CatalogService {
+    /// GitHub 完整详情拉取：release / repo 并发 ETag 条件请求，README、图标探测与
+    /// `Checksum Manifest` 并发补齐。`api_base` 仅换请求前缀（测试指向本地 mock），缓存键不变。
     pub async fn fetch_app_detail(
         &self,
         id: &str,
         prefetch: DetailEtagPrefetch,
         cached_detail: Option<AppDetail>,
         token: Option<&str>,
+        api_base: Option<&str>,
     ) -> Result<DetailFetchOutput, String> {
         let mut diag = DetailFetchDiag::default();
         // 身份解析内部 seam：endpoints + 收录项一次取出。
@@ -660,12 +699,13 @@ impl CatalogService {
             crate::github::http::get_with_etag_diag(
                 client,
                 &release_url,
-                None,
+                api_base,
                 &base_headers,
                 prefetch.release_etag.as_deref(),
             ),
             fetch_repo_info(
                 client,
+                api_base,
                 &base_headers,
                 &repo_url,
                 prefetch.repo_etag.as_deref(),
@@ -786,6 +826,11 @@ impl CatalogService {
         let now_secs = crate::github::http::now_secs();
         let skip_checksum =
             should_skip_checksum_fetch(cached_detail.as_ref(), version_changed, now_secs);
+        let checksum_candidates: Vec<(&str, &str)> = release_resp
+            .assets
+            .iter()
+            .map(|a| (a.name.as_str(), a.browser_download_url.as_str()))
+            .collect();
         let (
             (raw_readme, readme_etag_write, readme_step),
             probed_hit,
@@ -793,6 +838,7 @@ impl CatalogService {
         ) = tokio::join!(
             fetch_readme_markdown(ReadmeFetch {
                 client,
+                api_base,
                 url: &readme_url,
                 headers: &readme_headers,
                 etag: prefetch.readme_etag.as_deref(),
@@ -811,7 +857,7 @@ impl CatalogService {
                 &probe_branch,
                 has_token
             ),
-            fetch_checksum_table(&release_resp.assets, client, skip_checksum)
+            fetch_checksum_table(&checksum_candidates, client, skip_checksum)
         );
         if let Some(w) = readme_etag_write {
             etag_writes.push(w);
@@ -924,103 +970,98 @@ impl CatalogService {
             diag,
         })
     }
+}
 
-    /// Checksum Manifest〈校验清单〉拉取 adapter：严守直连/系统代理（绝不经下载镜像），
-    /// [`CHECKSUM_FETCH_TIMEOUT`] 硬超时（不超过 API 超时），失败置空不阻塞；
-    /// 返回 `(map, step_label, skip_or_fail_reason)` 供宽事件汇总。
-    async fn extract_checksums_map(
-        assets: &[GitHubAssetResponse],
-        client: &reqwest::Client,
-        headers: &HeaderMap,
-    ) -> (HashMap<String, String>, String, Option<String>) {
-        let start = std::time::Instant::now();
-        let mut map = HashMap::new();
-        let mut first_ineligible: Option<(String, &'static str)> = None;
-        let mut candidate: Option<&GitHubAssetResponse> = None;
-        for a in assets {
-            let n = a.name.to_lowercase();
-            if !(n.contains("checksum") || n.contains("sha256") || n.ends_with(".sha256")) {
-                continue;
-            }
-            let (eligible, reason) = super::detail_assets::checksum_asset_platform_eligible(&n);
-            if eligible {
-                candidate = Some(a);
-                break;
-            } else if first_ineligible.is_none() {
-                first_ineligible = Some((a.name.clone(), reason));
-            }
+/// Checksum Manifest〈校验清单〉拉取 adapter（入参为 `(资产名, 原始 download_url)` 投影，
+/// GitHub 与多源 forge 共用）：严守直连/系统代理（绝不经下载镜像），
+/// [`CHECKSUM_FETCH_TIMEOUT`] 硬超时（不超过 API 超时），失败置空不阻塞；
+/// 返回 `(map, step_label, skip_or_fail_reason)` 供宽事件汇总。
+pub(crate) async fn extract_checksums_map(
+    assets: &[(&str, &str)],
+    client: &reqwest::Client,
+    headers: &HeaderMap,
+) -> (HashMap<String, String>, String, Option<String>) {
+    let start = std::time::Instant::now();
+    let mut map = HashMap::new();
+    let mut first_ineligible: Option<(String, &'static str)> = None;
+    let mut candidate: Option<&str> = None;
+    for &(name, download_url) in assets {
+        let n = name.to_lowercase();
+        if !(n.contains("checksum") || n.contains("sha256") || n.ends_with(".sha256")) {
+            continue;
         }
-
-        let Some(asset) = candidate else {
-            let reason = first_ineligible
-                .map(|(f, r)| format!("filtered({}:{})", f, r))
-                .unwrap_or_else(|| "no_asset".to_string());
-            let step = format!("chk:skip({})", reason);
-            return (map, step, Some(reason));
-        };
-        let effective_url = asset.browser_download_url.clone();
-        let checksum_timeout = CHECKSUM_FETCH_TIMEOUT.min(crate::github::http::api_timeout());
-        let send_fut = client.get(&effective_url).headers(headers.clone()).send();
-        let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => {
-                let reason = crate::log_support::short_reason(&e.to_string());
-                let step = format!("chk:err({}ms)", start.elapsed().as_millis());
-                return (map, step, Some(reason));
-            }
-            Err(_) => {
-                let step = format!("chk:timeout({}ms)", start.elapsed().as_millis());
-                return (
-                    map,
-                    step,
-                    Some(format!("timeout_{}s", checksum_timeout.as_secs())),
-                );
-            }
-        };
-        let status = res.status().as_u16();
-        if !res.status().is_success() {
-            let step = format!("chk:{}({}ms)", status, start.elapsed().as_millis());
-            return (map, step, Some(format!("http_{}", status)));
+        let (eligible, reason) = super::detail_assets::checksum_asset_platform_eligible(&n);
+        if eligible {
+            candidate = Some(download_url);
+            break;
+        } else if first_ineligible.is_none() {
+            first_ineligible = Some((name.to_string(), reason));
         }
-        let text = match tokio::time::timeout(checksum_timeout, res.text()).await {
-            Ok(Ok(t)) => t,
-            _ => {
-                let step = format!("chk:read_err({}ms)", start.elapsed().as_millis());
-                return (map, step, Some("read_timeout".to_string()));
-            }
-        };
-        for line in text.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let hash = parts[0].trim();
-                let filename = parts[1].trim().trim_start_matches('*');
-                if hash.len() == 64 {
-                    map.insert(filename.to_string(), hash.to_lowercase());
-                }
-            }
-        }
-        let step = format!("chk:ok({},{}ms)", map.len(), start.elapsed().as_millis());
-        (map, step, None)
     }
+
+    let Some(effective_url) = candidate else {
+        let reason = first_ineligible
+            .map(|(f, r)| format!("filtered({}:{})", f, r))
+            .unwrap_or_else(|| "no_asset".to_string());
+        let step = format!("chk:skip({})", reason);
+        return (map, step, Some(reason));
+    };
+    let checksum_timeout = CHECKSUM_FETCH_TIMEOUT.min(crate::github::http::api_timeout());
+    let send_fut = client.get(effective_url).headers(headers.clone()).send();
+    let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            let reason = crate::log_support::short_reason(&e.to_string());
+            let step = format!("chk:err({}ms)", start.elapsed().as_millis());
+            return (map, step, Some(reason));
+        }
+        Err(_) => {
+            let step = format!("chk:timeout({}ms)", start.elapsed().as_millis());
+            return (
+                map,
+                step,
+                Some(format!("timeout_{}s", checksum_timeout.as_secs())),
+            );
+        }
+    };
+    let status = res.status().as_u16();
+    if !res.status().is_success() {
+        let step = format!("chk:{}({}ms)", status, start.elapsed().as_millis());
+        return (map, step, Some(format!("http_{}", status)));
+    }
+    let text = match tokio::time::timeout(checksum_timeout, res.text()).await {
+        Ok(Ok(t)) => t,
+        _ => {
+            let step = format!("chk:read_err({}ms)", start.elapsed().as_millis());
+            return (map, step, Some("read_timeout".to_string()));
+        }
+    };
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let hash = parts[0].trim();
+            let filename = parts[1].trim().trim_start_matches('*');
+            if hash.len() == 64 {
+                map.insert(filename.to_string(), hash.to_lowercase());
+            }
+        }
+    }
+    let step = format!("chk:ok({},{}ms)", map.len(), start.elapsed().as_millis());
+    (map, step, None)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::CatalogService;
-
     #[tokio::test]
     async fn test_checksum_manifest_fetch_via_unified_interface_degrades_to_empty() {
         // 校验拉取（硬超时，失败置空）：不可达 hostile 对端时返回空表，
         // 不阻塞详情、不 panic。
         // 平台过滤断言见 `detail_assets` 单源覆盖，此处只锁置空行为。
-        let assets = vec![crate::github::models::GitHubAssetResponse {
-            name: "x.sha256".to_string(),
-            size: 100,
-            browser_download_url: "http://127.0.0.1:9/x.sha256".to_string(),
-        }];
+        let url = "http://127.0.0.1:9/x.sha256";
+        let assets = [("x.sha256", url)];
         let client = reqwest::Client::new();
         let headers = reqwest::header::HeaderMap::new();
-        let (map, _, _) = CatalogService::extract_checksums_map(&assets, &client, &headers).await;
+        let (map, _, _) = super::extract_checksums_map(&assets, &client, &headers).await;
         assert!(map.is_empty());
     }
 
@@ -1030,11 +1071,8 @@ mod tests {
         let hash = "b".repeat(64);
         let body = format!("{}  app.msi\n", hash);
         let server = serve(move |_| Reply::ok(body.clone())).await;
-        let assets = vec![crate::github::models::GitHubAssetResponse {
-            name: "checksums.sha256".to_string(),
-            size: 100,
-            browser_download_url: format!("{}/o/r/checksums.sha256", server.base),
-        }];
+        let url = format!("{}/o/r/checksums.sha256", server.base);
+        let assets = [("checksums.sha256", url.as_str())];
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
         let (map, _, _) = super::fetch_checksum_table(&assets, &client, false).await;
         assert_eq!(map.get("app.msi").map(String::as_str), Some(hash.as_str()));
@@ -1059,15 +1097,11 @@ mod tests {
             }
         })
         .await;
-        let assets = vec![crate::github::models::GitHubAssetResponse {
-            name: "checksums.sha256".to_string(),
-            size: 100,
-            browser_download_url: format!("{}/o/r/checksums.sha256", server.base),
-        }];
+        let url = format!("{}/o/r/checksums.sha256", server.base);
+        let assets = [("checksums.sha256", url.as_str())];
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
         let headers = reqwest::header::HeaderMap::new();
-        let (map, step, reason) =
-            CatalogService::extract_checksums_map(&assets, &client, &headers).await;
+        let (map, step, reason) = super::extract_checksums_map(&assets, &client, &headers).await;
         assert_eq!(
             map.get("app.msi").map(String::as_str),
             Some(hash.as_str()),

@@ -108,7 +108,7 @@ impl Database {
         )
     }
 
-    /// 轻量探测 DB 快径（`fetch_app_latest_version_lightweight` 非 force 臂）：
+    /// 轻量探测 DB 快径（`detail_service::resolve_latest_release_lightweight` 非 force 臂）：
     /// 返回该应用上次检查的远端版本对（不区分 `has_update`，调用方仍做版本比较）。
     pub fn get_cached_update_version(&self, app_id: &str) -> Result<Option<(String, String)>> {
         let cleaned = clean(app_id);

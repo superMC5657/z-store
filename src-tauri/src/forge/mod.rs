@@ -36,7 +36,8 @@ impl ForgeRegistry {
         })
     }
 
-    fn provider_for(forge: ForgeType) -> &'static dyn ForgeProvider {
+    /// 按 `forge` 取注册的 provider adapter。
+    pub fn provider_for(forge: ForgeType) -> &'static dyn ForgeProvider {
         Self::providers()
             .iter()
             .find(|p| p.forge_type() == forge)

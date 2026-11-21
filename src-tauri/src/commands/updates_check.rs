@@ -1,5 +1,7 @@
-use crate::models::{UpdateItem, UpdateRule, WatchUpdatedPayload, WatchedApp};
 use crate::installer::managed::{is_version_newer, should_include_update};
+use crate::models::{UpdateItem, UpdateRule, WatchUpdatedPayload, WatchedApp};
+use crate::repositories::detail_service::{self, LightweightRelease};
+use crate::repositories::DetailSources;
 use crate::AppState;
 use futures_util::stream::{self, StreamExt};
 use std::collections::HashMap;
@@ -14,236 +16,20 @@ pub const DAILY_NOTIFY_INTERVAL_SECONDS: i64 = 24 * 60 * 60;
 /// 发布不足 7 天即作为一条动态提醒一次，而非静默记为基线。
 pub const WATCH_RECENT_RELEASE_SECONDS: i64 = 7 * 24 * 60 * 60;
 
-pub(crate) struct LightweightRelease {
-    pub tag: String,
-    pub body: String,
-    pub published_at: Option<i64>,
-}
-
-/// 轻量获取应用最新 Release 版本与说明（不拉取 README、仓库详情或校验和文件）。
-/// `force_refresh != Some(true)` 仅读本地缓存；`Some(true)` 跳过详情 TTL 发起 ETag 条件请求。
-pub(crate) async fn fetch_app_latest_version_lightweight(
+/// 轻量获取应用最新 Release（入参 id 归一后交由详情决议模块）。
+async fn latest_release(
     state: &AppState,
     app_id: &str,
     force_refresh: Option<bool>,
 ) -> Result<LightweightRelease, String> {
-    let is_force = force_refresh.unwrap_or(false);
     let clean_id = crate::commands::require_app_id(app_id)?;
-
-    // 默认不触网：依次回退 update_results、详情缓存与目录默认版本。
-    if !is_force {
-        if let Ok(db) = state.db() {
-            if let Ok(Some((latest, changelog))) = db.get_cached_update_version(&clean_id) {
-                return Ok(LightweightRelease {
-                    tag: latest,
-                    body: changelog,
-                    published_at: None,
-                });
-            }
-            if let Ok(Some(cached)) = db.get_app_detail(&clean_id, None) {
-                return Ok(LightweightRelease {
-                    tag: cached.core.latest_version,
-                    body: cached.changelog,
-                    published_at: None,
-                });
-            }
-        }
-        if let Some(item) = state.catalog.get_catalog_item(&clean_id) {
-            return Ok(LightweightRelease {
-                tag: item.default_version,
-                body: String::new(),
-                published_at: None,
-            });
-        }
-        return Err("检查更新网络不可达且无本地缓存".to_string());
-    }
-
-    // 多源支持 (Codeberg, Gitea, GitLab 等)
-    if let Some(coord) = crate::forge::RepositoryUrlParser::parse(&clean_id) {
-        if coord.forge != crate::forge::ForgeType::GitHub {
-            let host_token = if let Ok(db) = state.db() {
-                db.get_host_token(&coord.host).ok().flatten()
-            } else {
-                None
-            };
-            let release_info =
-                crate::forge::ForgeRegistry::fetch_latest_release(&coord, host_token.as_deref())
-                    .await?;
-            return Ok(LightweightRelease {
-                tag: release_info.tag_name,
-                body: release_info.body.unwrap_or_default(),
-                published_at: release_info
-                    .published_at
-                    .as_deref()
-                    .and_then(parse_rfc3339_unix),
-            });
-        }
-    }
-
-    // GitHub Releases 单请求拉取
-    let coords = match state.catalog.get_repo_coordinates(&clean_id) {
-        Ok(c) => c,
-        Err(_) => {
-            if let Ok(db) = state.db() {
-                if let Ok(Some(fallback)) = db.get_app_detail(&clean_id, None) {
-                    return Ok(LightweightRelease {
-                        tag: fallback.core.latest_version,
-                        body: fallback.changelog,
-                        published_at: None,
-                    });
-                }
-            }
-            return Err(format!("未识别的应用坐标: {}", app_id));
-        }
-    };
-
-    let ep = crate::github::github_latest_release_endpoint(&coords.owner, &coords.repo);
-
-    let (cached_etag, cached_payload) = if let Ok(db) = state.db() {
-        (
-            db.get_etag(&ep)
-                .ok()
-                .flatten()
-                .filter(|s| !s.trim().is_empty()),
-            db.get_cached_payload(&ep).ok().flatten(),
-        )
-    } else {
-        (None, None)
-    };
-    let token = crate::commands::resolve_active_github_token(state);
-    let base_headers = crate::github::http::token_headers(token.as_deref());
-
-    let outcome = crate::github::http::get_with_etag(
-        &crate::shared_http_client(),
-        &ep,
-        None,
-        &base_headers,
-        cached_etag.as_deref(),
+    detail_service::resolve_latest_release_lightweight(
+        state,
+        DetailSources::default(),
+        &clean_id,
+        force_refresh.unwrap_or(false),
     )
-    .await;
-
-    if matches!(outcome, crate::github::http::EtagGetOutcome::Unauthorized) {
-        crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
-    }
-
-    // 仅在非 Fresh 时读取本地回退源，避免无谓 DB 读。
-    let (stale_row, catalog_default) = match &outcome {
-        crate::github::http::EtagGetOutcome::Fresh { .. } => (None, None),
-        _ => {
-            let row = state
-                .db()
-                .ok()
-                .and_then(|db| db.get_app_detail(&clean_id, None).ok().flatten());
-            let cat = state
-                .catalog
-                .get_catalog_item(&clean_id)
-                .map(|c| c.default_version);
-            (row, cat)
-        }
-    };
-    let mut fresh_text: Option<String> = match &outcome {
-        crate::github::http::EtagGetOutcome::Fresh { text, .. } => Some(text.clone()),
-        _ => None,
-    };
-    let mut resolution = resolve_update_shallow_with_fallback(
-        &outcome,
-        cached_payload.as_deref(),
-        stale_row.as_ref(),
-        catalog_default.as_deref(),
-    );
-    // 若 304 但本地 payload 损坏/缺失且无 stale_row / catalog_default 可兜底，
-    // 剥除坏 ETag 发起一次无条件请求自愈。
-    if matches!(
-        resolution,
-        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(
-            _
-        )) | Err(crate::github::release_fetch::ShallowError::Miss(
-            crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache
-        ))
-    ) {
-        let retry_outcome = crate::github::http::get_with_etag(
-            &crate::shared_http_client(),
-            &ep,
-            None,
-            &base_headers,
-            None,
-        )
-        .await;
-        if matches!(
-            retry_outcome,
-            crate::github::http::EtagGetOutcome::Unauthorized
-        ) {
-            crate::check_auth_expired(401, &format!("op=check_updates app={}", clean_id));
-        }
-        fresh_text = match &retry_outcome {
-            crate::github::http::EtagGetOutcome::Fresh { text, .. } => Some(text.clone()),
-            _ => None,
-        };
-        resolution = crate::github::release_fetch::decide_shallow_release(
-            &retry_outcome,
-            None,
-            stale_row.as_ref(),
-            catalog_default.as_deref(),
-        );
-    }
-    match resolution {
-        Ok(rel) => {
-            // 304 命中时 touch 延长详情缓存保鲜期；Fresh 保存新 ETag。
-            if rel.touch {
-                if let Ok(db) = state.db() {
-                    let _ = db.touch_app_detail(&clean_id, crate::now_secs());
-                }
-            }
-            if let Some((etag_val, payload_text)) = rel.cache_to_save {
-                if let Ok(db) = state.db() {
-                    let _ = db.save_etag(&ep, &etag_val, &payload_text, crate::now_secs());
-                }
-            }
-            let published_at = fresh_text
-                .as_deref()
-                .and_then(|t| release_published_at_from_payload(t, &rel.tag));
-            Ok(LightweightRelease {
-                tag: rel.tag,
-                body: rel.body,
-                published_at,
-            })
-        }
-        Err(crate::github::release_fetch::ShallowError::Parse(e)) => Err(e),
-        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_))
-        | Err(crate::github::release_fetch::ShallowError::Miss(
-            crate::github::release_fetch::ShallowMiss::NotModifiedWithoutCache,
-        )) => Err("304 响应但未能提取到有效版本信息".to_string()),
-        Err(crate::github::release_fetch::ShallowError::Miss(
-            crate::github::release_fetch::ShallowMiss::OfflineWithoutCache,
-        )) => Err("检查更新网络不可达且无本地缓存".to_string()),
-    }
-}
-
-/// 更新检查 shallow 决议包装：304 命中优先解析 `cached_payload`，若缓存 JSON 损坏则自动退回
-/// `stale_row` / `catalog_default_version` 兜底。
-pub(crate) fn resolve_update_shallow_with_fallback(
-    outcome: &crate::github::http::EtagGetOutcome,
-    cached_payload: Option<&str>,
-    stale_row: Option<&crate::models::AppDetail>,
-    catalog_default_version: Option<&str>,
-) -> Result<crate::github::release_fetch::ShallowRelease, crate::github::release_fetch::ShallowError>
-{
-    match crate::github::release_fetch::decide_shallow_release(
-        outcome,
-        cached_payload,
-        stale_row,
-        catalog_default_version,
-    ) {
-        Err(crate::github::release_fetch::ShallowError::PayloadCorrupt(_)) => {
-            crate::github::release_fetch::decide_shallow_release(
-                outcome,
-                None,
-                stale_row,
-                catalog_default_version,
-            )
-        }
-        other => other,
-    }
+    .await
 }
 
 /// 读取全量更新规则并按 `app_id` 建表；读取失败必须中止，避免已冻结/已隐藏/已跳过应用误报或误发提醒。
@@ -308,9 +94,7 @@ pub async fn check_for_updates(
                 let mut found_item: Option<UpdateItem> = None;
                 let mut write_row: Option<crate::db::UpdateCheckRow> = None;
 
-                match fetch_app_latest_version_lightweight(state_ref, &app.app_id, force_refresh)
-                    .await
-                {
+                match latest_release(state_ref, &app.app_id, force_refresh).await {
                     Ok(rel) => {
                         let (latest_version, changelog) = (rel.tag, rel.body);
                         let has_update =
@@ -509,35 +293,6 @@ fn decide_first_seen(published_at: Option<i64>, now: i64, is_force: bool) -> Fir
     }
 }
 
-fn parse_rfc3339_unix(raw: &str) -> Option<i64> {
-    let clean = raw.trim();
-    if clean.is_empty() {
-        return None;
-    }
-    time::OffsetDateTime::parse(clean, &time::format_description::well_known::Rfc3339)
-        .ok()
-        .map(|t| t.unix_timestamp())
-}
-
-/// 从 `releases/latest` 响应体取发布时间（Unix 秒）；tag 与 `version` 不符时视为未知，
-/// 避免拿旧载荷的时间去判定新版本。
-fn release_published_at_from_payload(payload: &str, version: &str) -> Option<i64> {
-    let v: serde_json::Value = serde_json::from_str(payload).ok()?;
-    if v.get("tag_name")?.as_str()?.trim() != version.trim() {
-        return None;
-    }
-    parse_rfc3339_unix(v.get("published_at")?.as_str()?)
-}
-
-/// 最新 Release 的发布时间，读手动检查时落库的 GitHub `releases/latest` ETag 载荷；
-/// 无载荷或非 GitHub 来源时为 None。
-fn cached_release_published_at(state: &AppState, app_id: &str, version: &str) -> Option<i64> {
-    let coords = state.catalog.get_repo_coordinates(app_id).ok()?;
-    let ep = crate::github::github_latest_release_endpoint(&coords.owner, &coords.repo);
-    let payload = state.db().ok()?.get_cached_payload(&ep).ok().flatten()?;
-    release_published_at_from_payload(&payload, version)
-}
-
 /// 遍历关注应用并按通知频率推送新版本提醒；首次关注的近期发布（7 天内）提醒一次，否则记为基线。
 async fn notify_watched_updates(
     state: &AppState,
@@ -577,16 +332,13 @@ async fn notify_watched_updates(
                 if skip_by_rule {
                     return;
                 }
-                let rel =
-                    match fetch_app_latest_version_lightweight(state, &w.app_id, force_refresh)
-                        .await
-                    {
-                        Ok(res) => res,
-                        Err(_) => {
-                            deferred_err.fetch_add(1, Ordering::Relaxed);
-                            return;
-                        }
-                    };
+                let rel = match latest_release(state, &w.app_id, force_refresh).await {
+                    Ok(res) => res,
+                    Err(_) => {
+                        deferred_err.fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                };
                 let latest = rel.tag.trim().to_string();
                 if latest.is_empty() {
                     return;
@@ -612,9 +364,9 @@ async fn notify_watched_updates(
                 if never_notified_at_latest {
                     // 仅尚无基线的新关注计入 deferred_baseline；已有静默基线的应用本轮无事可做，不计数
                     let is_new_watch = w.last_notified_version.is_none();
-                    let published_at = rel
-                        .published_at
-                        .or_else(|| cached_release_published_at(state, &w.app_id, &latest));
+                    let published_at = rel.published_at.or_else(|| {
+                        detail_service::cached_release_published_at(state, &w.app_id, &latest)
+                    });
                     match decide_first_seen(published_at, now, is_force) {
                         FirstSeenAction::Notify => {}
                         FirstSeenAction::Baseline => {
@@ -673,10 +425,7 @@ async fn notify_watched_updates(
 
 #[cfg(test)]
 mod watch_first_seen_tests {
-    use super::{
-        decide_first_seen, parse_rfc3339_unix, release_published_at_from_payload, FirstSeenAction,
-        WATCH_RECENT_RELEASE_SECONDS,
-    };
+    use super::{decide_first_seen, FirstSeenAction, WATCH_RECENT_RELEASE_SECONDS};
 
     const NOW: i64 = 1_800_000_000;
 
@@ -708,82 +457,6 @@ mod watch_first_seen_tests {
         assert_eq!(
             decide_first_seen(None, NOW, true),
             FirstSeenAction::Baseline
-        );
-    }
-
-    #[test]
-    fn publish_time_parsed_only_for_matching_tag() {
-        let payload = r#"{"tag_name":"v0.101.0","published_at":"2026-11-13T00:00:00Z"}"#;
-        assert_eq!(
-            release_published_at_from_payload(payload, "v0.101.0"),
-            Some(1_794_528_000)
-        );
-        assert_eq!(release_published_at_from_payload(payload, "v0.102.0"), None);
-        assert_eq!(
-            release_published_at_from_payload(r#"{"tag_name":"v1","published_at":null}"#, "v1"),
-            None
-        );
-        assert_eq!(release_published_at_from_payload("not json", "v1"), None);
-    }
-
-    #[test]
-    fn rfc3339_publish_time_parses_utc_and_offset_timestamps() {
-        assert_eq!(
-            parse_rfc3339_unix("2026-11-13T00:00:00Z"),
-            Some(1_794_528_000)
-        );
-        assert_eq!(
-            parse_rfc3339_unix("2026-11-13T08:00:00+08:00"),
-            Some(1_794_528_000)
-        );
-        assert_eq!(parse_rfc3339_unix("   "), None);
-        assert_eq!(parse_rfc3339_unix("not-a-date"), None);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::resolve_update_shallow_with_fallback;
-    use crate::github::http::EtagGetOutcome;
-    use crate::github::release_fetch::{ShallowError, ShallowMiss, ShallowSource};
-
-    #[test]
-    fn update_check_304_restores_payload_and_falls_back_on_corrupt_cache() {
-        let valid_payload = r#"{"tag_name":"v2.4.0","body":"release notes","assets":[]}"#;
-        let rel = resolve_update_shallow_with_fallback(
-            &EtagGetOutcome::NotModified,
-            Some(valid_payload),
-            None,
-            Some("v1.0.0"),
-        )
-        .expect("304 with valid cached payload should succeed");
-        assert_eq!(rel.source, ShallowSource::Payload);
-        assert_eq!(rel.tag, "v2.4.0");
-        assert_eq!(rel.body, "release notes");
-        assert!(rel.touch);
-
-        // 损坏的 cached_payload 自动降级至 catalog_default_version
-        let fallback = resolve_update_shallow_with_fallback(
-            &EtagGetOutcome::NotModified,
-            Some("{corrupt-json"),
-            None,
-            Some("v1.8.0"),
-        )
-        .expect("304 with corrupt payload should fall back to catalog default");
-        assert_eq!(fallback.source, ShallowSource::Catalog);
-        assert_eq!(fallback.tag, "v1.8.0");
-
-        // 损坏的 cached_payload 且无 stale_row / catalog_default 时返回 NotModifiedWithoutCache 供上层自愈重试
-        let err = resolve_update_shallow_with_fallback(
-            &EtagGetOutcome::NotModified,
-            Some("{corrupt-json"),
-            None,
-            None,
-        )
-        .unwrap_err();
-        assert_eq!(
-            err,
-            ShallowError::Miss(ShallowMiss::NotModifiedWithoutCache)
         );
     }
 }

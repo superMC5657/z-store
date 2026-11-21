@@ -1,6 +1,6 @@
 # Issue 03: 统一 `AppDetail` 与轻量 Release 跨 `ForgeProvider` 决议并补齐多源校验清单
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01, 02
 
 ## Summary

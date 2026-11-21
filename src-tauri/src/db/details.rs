@@ -256,20 +256,24 @@ impl Database {
         Ok(())
     }
 
-    /// 详情 + 图标轮换原子落库（单提交）：不改 TTL/ETag 逻辑。
-    pub fn save_detail_with_cycle_row(
+    /// 详情 ETag 预读：单次查询取多个端点的 `(etag, payload_json)`，按端点 URL 建表（缺行即缺键）。
+    pub fn get_detail_etag_rows(
         &self,
-        app_id: &str,
-        detail: &AppDetail,
-        cycle: Option<&super::AppIconCycle>,
-    ) -> Result<()> {
-        self.with_immediate_transaction(|| {
-            self.save_app_detail(app_id, detail)?;
-            if let Some(c) = cycle {
-                self.upsert_icon_cycle(c)?;
-            }
-            Ok(())
-        })
+        endpoint_urls: &[&str],
+    ) -> Result<HashMap<String, (String, String)>> {
+        if endpoint_urls.is_empty() {
+            return Ok(Default::default());
+        }
+        let placeholders = vec!["?"; endpoint_urls.len()].join(",");
+        let sql = format!(
+            "SELECT endpoint_url, etag, payload_json FROM api_etag_cache WHERE endpoint_url IN ({placeholders})"
+        );
+        let rows = self.query_vec_uncached(
+            &sql,
+            rusqlite::params_from_iter(endpoint_urls.iter()),
+            |row| Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?))),
+        )?;
+        Ok(rows.into_iter().collect())
     }
 
     /// 图标轮换写侧补齐：同步更新 `app_details.icon`，`cached_at` 保持不动。

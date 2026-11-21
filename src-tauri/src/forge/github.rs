@@ -1,11 +1,34 @@
 use futures_util::future::BoxFuture;
 
 use super::coord::ForgeType;
-use super::http::{api_headers, new_api_client, AuthScheme, HttpSpan, GITHUB_ACCEPT_VALUE};
+use super::http::{
+    api_headers, get_with_d7_retry_observed, new_api_client, AuthScheme, HttpSpan,
+    GITHUB_ACCEPT_VALUE,
+};
 use super::provider::{parse_assets, ForgeProvider, ForgeReleaseInfo, ForgeRepoInfo};
 use serde::Deserialize;
 
 pub struct GitHubProvider;
+
+/// GitHub REST GET：D7 有限重试（含传输错误时代理快照重探）、每轮限流上报，401 触发凭据失效通知。
+async fn get_github(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &reqwest::header::HeaderMap,
+    op: &str,
+    owner: &str,
+    repo: &str,
+) -> Result<reqwest::Response, String> {
+    let span = HttpSpan::start();
+    let resp = get_with_d7_retry_observed(client, url, headers, |r| span.notify(r, "github.com"))
+        .await
+        .result
+        .map_err(|e| e.to_string())?;
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        crate::check_auth_expired(401, &format!("op={op} repo={owner}/{repo}"));
+    }
+    Ok(resp)
+}
 
 impl ForgeProvider for GitHubProvider {
     fn forge_type(&self) -> ForgeType {
@@ -29,15 +52,7 @@ impl ForgeProvider for GitHubProvider {
             // owner/repo 段统一 percent-encoding（对齐 gitlab.rs）：解析出口已校验，
             // 此处兜底非 coord 来源的脏段（`/`→`%2F`、空格→`%20`），不致路径注入。
             let url = crate::github::github_repo_endpoint(owner, repo);
-            let span = HttpSpan::start();
-            let resp = client
-                .get(&url)
-                .headers(headers)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-            span.notify(&resp, "github.com");
-
+            let resp = get_github(&client, &url, &headers, "forge-repo", owner, repo).await?;
             if !resp.status().is_success() {
                 return Err(format!("GitHub API 响应失败: {}", resp.status()));
             }
@@ -100,15 +115,7 @@ impl ForgeProvider for GitHubProvider {
             let headers = api_headers(GITHUB_ACCEPT_VALUE, token, AuthScheme::Bearer);
 
             let url = crate::github::github_latest_release_endpoint(owner, repo);
-            let span = HttpSpan::start();
-            let resp = client
-                .get(&url)
-                .headers(headers)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-            span.notify(&resp, "github.com");
-
+            let resp = get_github(&client, &url, &headers, "forge-release", owner, repo).await?;
             if !resp.status().is_success() {
                 return Err(format!("获取 GitHub Release 失败: HTTP {}", resp.status()));
             }
