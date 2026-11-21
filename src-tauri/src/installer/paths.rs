@@ -155,6 +155,45 @@ pub fn dirs_or_fallback(app_id: &str) -> PathBuf {
     }
 }
 
+/// 当前用户桌面目录（`%USERPROFILE%\Desktop`，缺失时回退公共桌面）。
+#[cfg(target_os = "windows")]
+pub fn user_desktop_dir() -> PathBuf {
+    std::env::var("USERPROFILE")
+        .map(|p| PathBuf::from(p).join("Desktop"))
+        .unwrap_or_else(|_| PathBuf::from(r"C:\Users\Public\Desktop"))
+}
+
+/// 启动兜底用的桌面同名快捷方式（按应用名、应用 id 依次匹配，仅返回存在的文件）。
+#[cfg(target_os = "windows")]
+pub fn find_desktop_shortcut(app_name: &str, app_id: &str) -> Option<PathBuf> {
+    let desktop = user_desktop_dir();
+    [app_name, app_id]
+        .iter()
+        .map(|n| desktop.join(format!("{}.lnk", n)))
+        .find(|lnk| lnk.is_file())
+}
+
+/// Linux 主程序候选（按优先级）：`*.desktop` 的 Exec 解析结果在前，其后为 PATH/which 命中；
+/// 含空格或路径分隔符的名称不参与 PATH 查找。
+#[cfg(target_os = "linux")]
+pub fn linux_binary_candidates(bare_names: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(found) = crate::scanner::AppScanner::resolve_linux_via_desktop(bare_names) {
+        out.push(found);
+    }
+    for name in bare_names {
+        if name.contains(' ') || name.contains('/') || name.contains('\\') {
+            continue;
+        }
+        if let Some(found) = crate::scanner::AppScanner::which_binary(name) {
+            if !out.contains(&found) {
+                out.push(found);
+            }
+        }
+    }
+    out
+}
+
 /// 快捷方式文件名消毒：过滤 Windows 非法文件名字符 `\ / : * ? " < > |`，去首尾空白，
 /// 清洗后为空则回退 "App"。创建侧与卸载侧（desktop .lnk 清理）共用此唯一口径，
 /// 保证「能创建的快捷方式名」与「会删除的名字」字符集一致，特殊名不会被删到 Desktop 之外。

@@ -294,7 +294,12 @@ fn persisted_discussion_state_survives_restart_hydration_and_clears_viewer_flag_
     assert_eq!(zv.discussion_node_id.as_deref(), Some("D_kwDOVwccks4ArNkl"));
 
     // 模拟登出后重新水合：本人态清零，公开计数保留
-    crate::oauth::clear_oauth_session(&db).unwrap();
+    crate::oauth::revoke_oauth_session(
+        &db,
+        &std::sync::Mutex::new(None),
+        crate::oauth::RevokeReason::ManualLogout,
+    )
+    .unwrap();
     let (_, mut logged_out) =
         crate::launchpad::partition_spotlight_and_recent(&manifest, manifest_ts + 120);
     hydrate_entries(&db, &catalog, &mut logged_out, false, manifest_ts);

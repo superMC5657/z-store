@@ -1,4 +1,5 @@
 use crate::models::{UpdateItem, UpdateRule, WatchUpdatedPayload, WatchedApp};
+use crate::installer::managed::{is_version_newer, should_include_update};
 use crate::AppState;
 use futures_util::stream::{self, StreamExt};
 use std::collections::HashMap;
@@ -245,64 +246,6 @@ pub(crate) fn resolve_update_shallow_with_fallback(
     }
 }
 
-/// 判断 `latest` 是否严格高于 `current`（SemVer 优先，4 段纯数字末段为 0 视为 3 段，2 段纯数字补 `.0`）。
-/// 仅两侧都不可解析为 SemVer 时退化为归一化字符串不等；单侧不可解析返回 `false` 以防误报。
-pub(crate) fn is_version_newer(current: &str, latest: &str) -> bool {
-    /// 归一化：去 `v` 前缀与空白；4 段式纯数字 MSI 且末段为 0 时截断为 3 段；
-    /// 无后缀的 2 段纯数字（`0.16`、`10.38`）补成 3 段，以便与 PE 版本资源的 `0.15.0` 比较。
-    fn normalize(s: &str) -> String {
-        let clean = s.trim_start_matches('v').trim();
-        let parts: Vec<&str> = clean.split('.').collect();
-        if parts.len() == 2
-            && parts.iter().all(|p| {
-                !p.is_empty()
-                    && p.bytes().all(|b| b.is_ascii_digit())
-                    && (p.len() == 1 || !p.starts_with('0'))
-            })
-        {
-            return format!("{}.{}.0", parts[0], parts[1]);
-        }
-        if parts.len() == 4
-            && parts
-                .iter()
-                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
-            && parts[3].trim_start_matches('0').is_empty()
-        {
-            return parts[..3].join(".");
-        }
-        clean.to_string()
-    }
-
-    let cur = normalize(current);
-    let lat = normalize(latest);
-    match (semver::Version::parse(&cur), semver::Version::parse(&lat)) {
-        (Ok(c), Ok(l)) => l > c,
-        (Err(_), Err(_)) => cur != lat,
-        _ => false,
-    }
-}
-
-/// 判断是否应提示此更新（应用冻结与跳过版本规则；隐藏应用仍保留以便规则管理跳过版本）。
-pub(crate) fn should_include_update(
-    current_version: &str,
-    latest_version: &str,
-    rule: Option<&UpdateRule>,
-) -> bool {
-    if let Some(r) = rule {
-        if r.is_frozen {
-            return false;
-        }
-        if let Some(ref skipped) = r.skipped_version {
-            let clean_skipped = skipped.trim_start_matches('v').trim();
-            let clean_latest = latest_version.trim_start_matches('v').trim();
-            if clean_skipped == clean_latest {
-                return false;
-            }
-        }
-    }
-    is_version_newer(current_version, latest_version)
-}
-
 /// 读取全量更新规则并按 `app_id` 建表；读取失败必须中止，避免已冻结/已隐藏/已跳过应用误报或误发提醒。
 fn load_rules_map(state: &AppState) -> crate::AppResult<HashMap<String, UpdateRule>> {
     let db = state.db()?;
@@ -322,7 +265,7 @@ pub async fn check_for_updates(
     // 仅显式手动刷新（force_refresh == Some(true)）回写 update_results，默认只读。
     let is_force = force_refresh.unwrap_or(false);
     let check_start = std::time::Instant::now();
-    let installed = super::installer_query::load_installed_apps(&state).await?;
+    let installed = crate::installer::managed::load_installed_apps(&state).await?;
     let installed_ids: Vec<String> = installed.iter().map(|a| a.app_id.clone()).collect();
     let rules_map = load_rules_map(&state)?;
 

@@ -17,7 +17,7 @@ pub fn set_app_skip_version(
     // 归一化 app_id；未知标识直接拒绝，避免写入无效行。
     let app_id = crate::commands::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.set_skip_version(&app_id, version.as_deref())?;
+    crate::installer::managed::set_app_skip_version(&db, &app_id, version.as_deref())?;
     Ok(true)
 }
 
@@ -30,7 +30,7 @@ pub fn set_app_frozen(
     // 归一化 app_id；未知标识直接拒绝，避免写入无效行。
     let app_id = crate::commands::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.set_frozen_status(&app_id, is_frozen)?;
+    crate::installer::managed::set_app_frozen(&db, &app_id, is_frozen)?;
     Ok(true)
 }
 
@@ -43,7 +43,7 @@ pub fn set_app_hidden(
     // 归一化 app_id；未知标识直接拒绝，避免写入无效行。
     let app_id = crate::commands::require_app_id(&app_id)?;
     let db = state.db()?;
-    db.set_hidden_status(&app_id, is_hidden)?;
+    crate::installer::managed::set_app_hidden(&db, &app_id, is_hidden)?;
     Ok(true)
 }
 

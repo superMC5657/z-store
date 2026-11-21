@@ -327,23 +327,119 @@ pub fn save_oauth_user_snapshot(db: &crate::db::Database, user: &OAuthUser) {
     }
 }
 
-/// 清除 OAuth 登录态与 GitHub 账号特征信号，并返回回退主机令牌（如 PAT）。
-pub fn clear_oauth_session(db: &crate::db::Database) -> Result<Option<String>, String> {
-    db.remove_setting(SETTING_OAUTH_TOKEN)
-        .map_err(|e| e.to_string())?;
-    db.remove_setting(SETTING_OAUTH_USER)
-        .map_err(|e| e.to_string())?;
-    let _ = db.clear_github_account_signals();
-    let _ = db.delete_etags_by_prefix("https://api.github.com/user/");
-    let _ = db.delete_starred_feed_cache_by_scope_prefix("@me:");
-    let _ = db.delete_private_repo_cards();
-    let _ = db.delete_private_search_list_cache();
-    let _ = db.clear_launchpad_viewer_upvotes();
-    Ok(db
-        .get_host_token("github.com")
+/// 读取主机令牌（裁剪空白，空串视为未配置）。
+fn stored_host_token(db: &crate::db::Database, host: &str) -> Option<String> {
+    db.get_host_token(host)
         .ok()
         .flatten()
-        .filter(|s| !s.trim().is_empty()))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn read_token_cache(token_cache: &std::sync::Mutex<Option<String>>) -> Option<String> {
+    token_cache
+        .lock()
+        .ok()
+        .and_then(|t| t.as_deref().map(str::trim).map(str::to_string))
+        .filter(|t| !t.is_empty())
+}
+
+/// 当前生效的 GitHub 令牌：内存缓存 → 持久化 OAuth 令牌（命中回填缓存）→ `github.com` 主机令牌。
+pub fn resolve_github_token(
+    db: &crate::db::Database,
+    token_cache: &std::sync::Mutex<Option<String>>,
+) -> Option<String> {
+    if let Some(tok) = read_token_cache(token_cache) {
+        return Some(tok);
+    }
+    let oauth = db
+        .get_setting(SETTING_OAUTH_TOKEN)
+        .ok()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(tok) = oauth {
+        if let Ok(mut mem) = token_cache.lock() {
+            *mem = Some(tok.clone());
+        }
+        return Some(tok);
+    }
+    stored_host_token(db, "github.com")
+}
+
+/// 按托管源解析访问令牌：GitHub 走 [`resolve_github_token`]；其他 Forge 读 `host_tokens`。
+pub fn resolve_host_token(
+    db: &crate::db::Database,
+    forge: crate::forge::ForgeType,
+    host: &str,
+    token_cache: &std::sync::Mutex<Option<String>>,
+) -> Option<String> {
+    if forge == crate::forge::ForgeType::GitHub {
+        return resolve_github_token(db, token_cache);
+    }
+    stored_host_token(db, host)
+}
+
+/// 会话吊销原因：决定 OAuth 用户快照的去留。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevokeReason {
+    /// 用户主动登出：移除用户快照并清除 GitHub 账号画像信号。
+    ManualLogout,
+    /// 凭据 401 失效：用户快照标记 `is_expired`（前端提示重登），画像信号保留待重登续用。
+    AuthExpired401,
+}
+
+/// 吊销 OAuth 会话（手动登出与 401 失效唯一入口），返回并回填到 `token_cache` 的回退主机令牌。
+///
+/// 共享清理：移除 OAuth 令牌、`/user/` 前缀 ETag、开源广场本人顶帖态；无 `github.com`
+/// 主机令牌兜底时一并清除私有快照（`@me:` Star 列表、私有富卡、私有搜索列表）。
+pub fn revoke_oauth_session(
+    db: &crate::db::Database,
+    token_cache: &std::sync::Mutex<Option<String>>,
+    reason: RevokeReason,
+) -> Result<Option<String>, String> {
+    db.remove_setting(SETTING_OAUTH_TOKEN)
+        .map_err(|e| e.to_string())?;
+    match reason {
+        RevokeReason::ManualLogout => {
+            db.remove_setting(SETTING_OAUTH_USER)
+                .map_err(|e| e.to_string())?;
+            let _ = db.clear_github_account_signals();
+        }
+        RevokeReason::AuthExpired401 => mark_oauth_user_expired(db),
+    }
+    let _ = db.delete_etags_by_prefix("https://api.github.com/user/");
+    let _ = db.clear_launchpad_viewer_upvotes();
+    let fallback = stored_host_token(db, "github.com");
+    if fallback.is_none() {
+        let _ = db.delete_starred_feed_cache_by_scope_prefix("@me:");
+        let _ = db.delete_private_repo_cards();
+        let _ = db.delete_private_search_list_cache();
+    }
+    if let Ok(mut mem) = token_cache.lock() {
+        *mem = fallback.clone();
+    }
+    Ok(fallback)
+}
+
+/// 401 失效：用户快照置 `is_expired = true`；无法解析的损坏快照直接清除。
+fn mark_oauth_user_expired(db: &crate::db::Database) {
+    let Ok(Some(user_json)) = db.get_setting(SETTING_OAUTH_USER) else {
+        return;
+    };
+    match serde_json::from_str::<OAuthUser>(&user_json) {
+        Ok(mut user) => {
+            user.is_expired = true;
+            save_oauth_user_snapshot(db, &user);
+        }
+        Err(e) => {
+            let mut ev = crate::z_log::WideEvent::new("oauth", "user snapshot invalid");
+            ev.field("reason", crate::log_support::short_reason(&e.to_string()))
+                .field("action", "clear-and-relogin");
+            ev.warn();
+            let _ = db.remove_setting(SETTING_OAUTH_USER);
+        }
+    }
 }
 
 /// 解析 GitHub Star 使用的 `owner/repo` 坐标（拒绝非 GitHub 或畸形标识）。
@@ -362,8 +458,15 @@ pub fn split_github_repo_id(app_id: &str) -> Result<(String, String), String> {
     Ok((owner.to_string(), repo.to_string()))
 }
 
-/// Star 本地缓存同步（仅在实际状态变更时通知画像刷新）。
-pub fn sync_star_cache(db: &crate::db::Database, owner: &str, repo: &str, starred: bool) {
+/// Star 本地写透：`user_stars` 缓存、取消时移除画像 Star 信号，实际翻转时通知画像刷新；
+/// `adjust_launchpad_delta` 为真时按翻转方向同步开源广场快照 Star 计数（±1）。
+pub fn apply_star_mutation(
+    db: &crate::db::Database,
+    owner: &str,
+    repo: &str,
+    starred: bool,
+    adjust_launchpad_delta: bool,
+) {
     let prev = db.is_starred(owner, repo).unwrap_or(false);
     let _ = db.set_starred(owner, repo, starred);
     if !starred {
@@ -371,6 +474,10 @@ pub fn sync_star_cache(db: &crate::db::Database, owner: &str, repo: &str, starre
         let _ = db.remove_user_repo_signal(&full_name, crate::db::RepoRelation::Starred.as_str());
     }
     if prev != starred {
+        if adjust_launchpad_delta {
+            let delta = if starred { 1 } else { -1 };
+            let _ = db.adjust_launchpad_repo_stars(owner, repo, delta);
+        }
         crate::notify_affinity_updated();
     }
 }

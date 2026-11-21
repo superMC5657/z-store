@@ -95,31 +95,18 @@ impl AppState {
 
     /// 获取当前生效的 GitHub API 访问令牌（OAuth 登录令牌优先，其次主机令牌）。
     pub(crate) fn active_github_token(&self) -> Option<String> {
-        if let Ok(t) = self.github_token.lock() {
-            if let Some(ref tok) = *t {
-                if !tok.trim().is_empty() {
-                    return Some(tok.trim().to_string());
-                }
-            }
+        // 内存命中不取库锁：调用方可能已持有 `db` 锁。
+        if let Some(tok) = self
+            .github_token
+            .lock()
+            .ok()
+            .and_then(|t| t.as_deref().map(str::trim).map(str::to_string))
+            .filter(|t| !t.is_empty())
+        {
+            return Some(tok);
         }
-        if let Ok(db) = self.db() {
-            if let Ok(Some(t)) = db.get_setting(crate::oauth::SETTING_OAUTH_TOKEN) {
-                let clean = t.trim().to_string();
-                if !clean.is_empty() {
-                    if let Ok(mut mem) = self.github_token.lock() {
-                        *mem = Some(clean.clone());
-                    }
-                    return Some(clean);
-                }
-            }
-            if let Ok(Some(t)) = db.get_host_token("github.com") {
-                let clean = t.trim().to_string();
-                if !clean.is_empty() {
-                    return Some(clean);
-                }
-            }
-        }
-        None
+        let db = self.db().ok()?;
+        crate::oauth::resolve_github_token(&db, &self.github_token)
     }
 }
 
@@ -381,17 +368,7 @@ pub fn run() {
                 crate::icons::enforce_icon_quota_lru(Some(&db), &db_dir.join("icons"));
             }
 
-            let saved_token = db
-                .get_setting(crate::oauth::SETTING_OAUTH_TOKEN)
-                .ok()
-                .flatten()
-                .filter(|s| !s.trim().is_empty())
-                .or_else(|| {
-                    db.get_host_token("github.com")
-                        .ok()
-                        .flatten()
-                        .filter(|s| !s.trim().is_empty())
-                });
+            let saved_token = crate::oauth::resolve_github_token(&db, &Mutex::new(None));
             let saved_mirror = db.get_setting("active_mirror").ok().flatten();
 
             // 空库播种 catalog.json、装载远端精选与本地库 overlay、校准收录标记（零网络）；
@@ -472,48 +449,14 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 use tauri::{Emitter, Manager};
                 while auth_rx.recv().await.is_some() {
-                    if let Ok(db) = db_for_auth.lock() {
-                        let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_TOKEN);
-                        // 无 github.com 主机令牌兜底时，私有列表快照与私有仓富卡随凭据失效一并清除。
-                        let has_host_fallback = db
-                            .get_host_token("github.com")
-                            .ok()
-                            .flatten()
-                            .is_some_and(|s| !s.trim().is_empty());
-                        if !has_host_fallback {
-                            let _ = db.delete_starred_feed_cache_by_scope_prefix("@me:");
-                            let _ = db.delete_private_repo_cards();
-                            let _ = db.delete_private_search_list_cache();
-                        }
-                        if let Ok(Some(user_json)) =
-                            db.get_setting(crate::oauth::SETTING_OAUTH_USER)
-                        {
-                            match serde_json::from_str::<crate::oauth::OAuthUser>(&user_json) {
-                                Ok(mut user) => {
-                                    user.is_expired = true;
-                                    if let Ok(updated_json) = serde_json::to_string(&user) {
-                                        let _ = db.set_setting(
-                                            crate::oauth::SETTING_OAUTH_USER,
-                                            &updated_json,
-                                        );
-                                    }
-                                }
-                                Err(e) => {
-                                    // 无法解析的损坏快照直接清理，避免坏行永久残留。
-                                    log::warn!(
-                                        target: "oauth",
-                                        "user snapshot invalid reason={} action=clear-and-relogin",
-                                        crate::log_support::short_reason(&e.to_string())
-                                    );
-                                    let _ = db.remove_setting(crate::oauth::SETTING_OAUTH_USER);
-                                }
-                            }
-                        }
-                    }
-                    if let Some(state) = auth_handle.try_state::<AppState>() {
-                        if let Ok(mut mem) = state.github_token.lock() {
-                            *mem = None;
-                        }
+                    if let (Ok(db), Some(state)) =
+                        (db_for_auth.lock(), auth_handle.try_state::<AppState>())
+                    {
+                        let _ = crate::oauth::revoke_oauth_session(
+                            &db,
+                            &state.github_token,
+                            crate::oauth::RevokeReason::AuthExpired401,
+                        );
                     }
                     let _ = auth_handle.emit("zstore://oauth-expired", ());
                 }

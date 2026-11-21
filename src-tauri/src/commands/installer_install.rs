@@ -87,7 +87,7 @@ pub async fn install_app(
         let (id, name, repo) = (core_id.clone(), core_name.clone(), core_repo.clone());
         let kind = kind.clone();
         let portable_dir = effective_portable_dir.clone();
-        super::installer_query::run_blocking(move || match kind {
+        crate::installer::run_blocking(move || match kind {
             crate::installer::AssetKind::PortableZip
             | crate::installer::AssetKind::PortableTarball => {
                 let app_dir =
@@ -113,7 +113,7 @@ pub async fn install_app(
         for _ in 0..5 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let (id, name, repo) = (core_id.clone(), core_name.clone(), core_repo.clone());
-            let found = super::installer_query::run_blocking(move || {
+            let found = crate::installer::run_blocking(move || {
                 crate::scanner::AppScanner::resolve_installed_app_path(&name, &id, Some(&repo))
             })
             .await?;
@@ -156,33 +156,20 @@ pub async fn install_app(
                     &pkg_names, &bin_names,
                 ),
             };
-            if let Some(found) = sys_found {
+            if let Some(found) = sys_found.or_else(|| {
+                crate::installer::paths::linux_binary_candidates(&bin_names)
+                    .into_iter()
+                    .next()
+            }) {
                 real_install_path = found;
-            } else if let Some(found) =
-                crate::scanner::AppScanner::resolve_linux_via_desktop(&bin_names)
-            {
-                real_install_path = found;
-            } else {
-                // 最后兜底：PATH/which 直查（含空格/路径分隔符的长名跳过）
-                for name in &bin_names {
-                    if name.contains(' ') || name.contains('/') || name.contains('\\') {
-                        continue;
-                    }
-                    if let Some(found) = crate::scanner::AppScanner::which_binary(name) {
-                        real_install_path = found;
-                        break;
-                    }
-                }
             }
         }
     }
 
     let resolved_uninst = {
         let (id, name, path) = (core_id, core_name, real_install_path.clone());
-        super::installer_query::run_blocking(move || {
-            resolve_uninstaller_command(&name, &id, &path, None)
-        })
-        .await?
+        crate::installer::run_blocking(move || resolve_uninstaller_command(&name, &id, &path, None))
+            .await?
     };
 
     let installed_app = InstalledApp {
@@ -201,10 +188,8 @@ pub async fn install_app(
 
     {
         let db = state.db()?;
-        db.save_installed_app(&installed_app)
+        crate::installer::managed::record_installed(&db, &installed_app)
             .map_err(|e| e.to_string())?;
-        // 安装/版本变更失效：新版本即最新，旧判定行过期，best-effort 删除下次刷新重建。
-        let _ = db.remove_update_result(&installed_app.app_id);
     }
 
     Ok(installed_app)

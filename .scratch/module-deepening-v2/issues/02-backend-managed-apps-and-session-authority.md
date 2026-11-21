@@ -1,6 +1,6 @@
 # Issue 02: 下沉 `InstalledApp` 生命周期至 `installer/` 并统一 `oauth/` 凭据与 401 会话清理权威
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 ## Summary

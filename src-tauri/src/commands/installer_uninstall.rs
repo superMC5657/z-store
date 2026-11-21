@@ -8,13 +8,6 @@ pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
     super::require_app_id(raw)
 }
 
-/// 从返回视图中过滤幽灵应用，同时保留数据库记录。
-pub(crate) fn hide_ghost_apps(apps: Vec<InstalledApp>, ghost_ids: &[String]) -> Vec<InstalledApp> {
-    apps.into_iter()
-        .filter(|a| !ghost_ids.iter().any(|g| g == &a.app_id))
-        .collect()
-}
-
 /// 校验候选目录是否位于 ZStore 自建的隔离便携目录内（规范化后逐级路径比较）。
 pub(crate) fn is_owned_portable_dir(
     candidate: &std::path::Path,
@@ -85,9 +78,7 @@ fn deletable_desktop_lnk(desktop: &std::path::Path, app_name: &str) -> Option<st
 
 #[cfg(target_os = "windows")]
 fn cleanup_desktop_shortcut(app_name: &str) {
-    let desktop = std::env::var("USERPROFILE")
-        .map(|p| std::path::PathBuf::from(p).join("Desktop"))
-        .unwrap_or_else(|_| std::path::PathBuf::from("C:\\Users\\Public\\Desktop"));
+    let desktop = crate::installer::paths::user_desktop_dir();
     if let Some(lnk) = deletable_desktop_lnk(&desktop, app_name) {
         if let Err(e) = std::fs::remove_file(&lnk) {
             let mut ev = crate::z_log::WideEvent::new("installer", "shortcut cleanup failed");
@@ -123,7 +114,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
                 .ok_or_else(|| format!("未找到 ID 为 {} 的应用安装记录", app_id))?;
             let resolved_path = {
                 let (name, id, repo) = (cat.name.clone(), cat.id.clone(), cat.repo.clone());
-                super::installer_query::run_blocking(move || {
+                crate::installer::run_blocking(move || {
                     crate::scanner::AppScanner::resolve_installed_app_path(&name, &id, Some(&repo))
                 })
                 .await?
@@ -150,8 +141,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
             std::path::PathBuf::from(&app.install_path),
             crate::installer::dirs_or_fallback(&app.app_id),
         );
-        super::installer_query::run_blocking(move || cleanup_portable_path(&path, &owned))
-            .await??;
+        crate::installer::run_blocking(move || cleanup_portable_path(&path, &owned)).await??;
     } else {
         // 安装版与系统导入版：定位并执行官方卸载程序
         let resolved_uninst = {
@@ -161,7 +151,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
                 app.install_path.clone(),
                 app.uninstall_command.clone(),
             );
-            super::installer_query::run_blocking(move || {
+            crate::installer::run_blocking(move || {
                 resolve_uninstaller_command(&name, &id, &path, cmd.as_deref())
             })
             .await?
@@ -184,7 +174,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
 
     // 清理默认便携缓存目录（失败上浮以保留记录）
     let app_dir = crate::installer::dirs_or_fallback(&app.app_id);
-    super::installer_query::run_blocking(move || -> Result<(), String> {
+    crate::installer::run_blocking(move || -> Result<(), String> {
         if app_dir.exists() {
             std::fs::remove_dir_all(&app_dir)
                 .map_err(|e| format!("清理默认便携缓存目录失败 ({}): {}", app_dir.display(), e))?;
@@ -199,11 +189,7 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
 
     // 卸载核验通过后再移除数据库记录
     let db = state.db()?;
-    let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
-    // 卸载失效：已卸载应用的更新判定行同步清理，best-effort 不影响卸载结果。
-    if res.as_ref().is_ok_and(|v| *v) {
-        let _ = db.remove_update_result(&app_id);
-    }
+    let res = crate::installer::managed::remove_managed(&db, &app_id).map_err(|e| e.to_string());
 
     match &res {
         Ok(_) => {
@@ -232,12 +218,7 @@ pub fn unmanage_app(state: State<'_, AppState>, app_id: String) -> AppResult<boo
     // 归一化入站 app_id
     let app_id = resolve_managed_app_id(&app_id)?;
     let db = state.db()?;
-    let res = db.remove_installed_app(&app_id).map_err(|e| e.to_string());
-    // 取消管理同步失效更新判定行（同卸载语义，best-effort）。
-    if res.as_ref().is_ok_and(|v| *v) {
-        let _ = db.remove_update_result(&app_id);
-    }
-    Ok(res?)
+    Ok(crate::installer::managed::remove_managed(&db, &app_id)?)
 }
 
 #[cfg(test)]
@@ -300,25 +281,7 @@ mod portable_uninstall_safety_tests {
 }
 
 #[cfg(test)]
-mod ghost_and_id_guard_tests {
-    use crate::models::InstalledApp;
-
-    fn sample_app(id: &str, path: &str) -> InstalledApp {
-        InstalledApp {
-            app_id: id.to_string(),
-            app_name: format!("{}-name", id),
-            version: "1.0.0".to_string(),
-            installed_at: 0,
-            install_method: "portable_zip".to_string(),
-            install_path: path.to_string(),
-            asset_name: "a.zip".to_string(),
-            asset_sha256: "x".to_string(),
-            uninstall_command: None,
-            icon: None,
-            icon_bg: None,
-        }
-    }
-
+mod id_guard_tests {
     #[test]
     fn unmanage_rejects_unparseable_id() {
         // 无法解析的 id 必须直接报错拒绝，绝不可透传原始字符串。
@@ -338,32 +301,6 @@ mod ghost_and_id_guard_tests {
             super::resolve_managed_app_id("https://github.com/Owner/Repo").unwrap(),
             "owner/repo"
         );
-    }
-
-    #[test]
-    fn scan_hides_ghost_from_view_but_signals_retention() {
-        // 幽灵应用仅从返回视图中隐藏，不在此删除数据库记录。
-        let apps = vec![
-            sample_app("owner/healthy", "C:\\exists\\a.exe"),
-            sample_app("owner/ghost", "C:\\vanished\\g.exe"),
-        ];
-        let out = super::hide_ghost_apps(apps, &["owner/ghost".to_string()]);
-        assert_eq!(out.len(), 1, "ghost must be hidden from returned view");
-        assert_eq!(out[0].app_id, "owner/healthy");
-        assert!(
-            !out.iter().any(|a| a.app_id == "owner/ghost"),
-            "ghost id must not leak into view"
-        );
-    }
-
-    #[test]
-    fn scan_without_ghosts_returns_all() {
-        let apps = vec![
-            sample_app("owner/a", "C:\\exists\\a.exe"),
-            sample_app("owner/b", "C:\\exists\\b.exe"),
-        ];
-        let out = super::hide_ghost_apps(apps, &[]);
-        assert_eq!(out.len(), 2);
     }
 }
 

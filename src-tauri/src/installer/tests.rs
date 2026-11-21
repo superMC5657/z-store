@@ -459,3 +459,111 @@ async fn test_foreign_platform_skip_is_not_recorded_as_installed() {
         }
     }
 }
+
+mod version_rules {
+    use crate::installer::managed::{is_version_newer, should_include_update};
+    use crate::models::UpdateRule;
+
+    #[test]
+    fn test_is_version_newer() {
+        // 4 段式 MSI 与 3 段式 GitHub Release 相同版本时不误报
+        assert!(!is_version_newer("3.0.21.0", "v3.0.21"));
+        assert!(!is_version_newer("3.0.21", "3.0.21.0"));
+        assert!(!is_version_newer("v1.2.3", "1.2.3"));
+
+        // 真实新版本应当触发
+        assert!(is_version_newer("3.0.20", "3.0.21"));
+        assert!(is_version_newer("v1.0.0", "v1.1.0"));
+        assert!(is_version_newer("1.9.9", "2.0.0"));
+
+        // 降级（如 nightly 或用户更高版本）不应当触发
+        assert!(!is_version_newer("3.0.22", "3.0.21"));
+        assert!(!is_version_newer("1.4.0", "1.3.1"));
+    }
+
+    #[test]
+    fn test_is_version_newer_matrix() {
+        // 子问题 1：预发布版本低于正式版（SemVer 全序：1.0.0-beta.1 < 1.0.0）
+        assert!(!is_version_newer("1.0.0", "1.0.0-beta.1"));
+        assert!(is_version_newer("1.0.0-beta.1", "1.0.0"));
+        assert!(is_version_newer("1.0.0-beta.1", "1.0.0-beta.2"));
+        assert!(!is_version_newer("1.0.0-beta.2", "1.0.0-beta.1"));
+
+        // 子问题 2：`tip` 等非 SemVer 标签不对任何版本误报
+        assert!(!is_version_newer("1.0.0", "tip"));
+        assert!(!is_version_newer("tip", "1.0.0"));
+        assert!(!is_version_newer("tip", "tip"));
+
+        // 子问题 3：`R2` 后缀不做数值推测——单侧不可解析一律不提示；
+        // 两侧都不可解析才退化为归一化字符串不等。
+        assert!(!is_version_newer("v1.5.7", "v26.02-v1.5.7-R2"));
+        assert!(is_version_newer("v26.02-v1.5.7-R1", "v26.02-v1.5.7-R2"));
+        assert!(!is_version_newer("v26.02-v1.5.7-R2", "v26.02-v1.5.7-R2"));
+
+        // 4 段式 MSI：末段 0 截断后按 SemVer 比较（等值不误报，真升级仍检出）
+        assert!(!is_version_newer("3.0.21.0", "v3.0.21"));
+        assert!(is_version_newer("3.0.21.0", "3.0.22"));
+        assert!(!is_version_newer("3.0.22", "3.0.21.0"));
+    }
+
+    #[test]
+    fn two_segment_versions_compare_against_pe_three_segment() {
+        assert!(is_version_newer("0.15.0", "v0.16"));
+        assert!(!is_version_newer("0.15.0", "v0.15"));
+        assert!(is_version_newer("10.37.0", "10.38"));
+        assert!(!is_version_newer("10.38", "10.37.0"));
+        assert!(is_version_newer("v0.15", "v0.16"));
+        // 带 `-` 的复合标签不补段，按不可解析处理
+        assert!(!is_version_newer("1.0.0", "v26.02-v1.5.7-R2"));
+    }
+
+    #[test]
+    fn test_should_include_update() {
+        // 1. 无规则，有新版本 -> 应当包含
+        assert!(should_include_update("v1.0.0", "v1.1.0", None));
+        // 2. 无规则，相同版本 -> 不应当包含
+        assert!(!should_include_update("v1.1.0", "v1.1.0", None));
+
+        // 3. 规则锁定 (is_frozen == true) -> 即使有新版本也忽略
+        let frozen_rule = UpdateRule {
+            app_id: "test".to_string(),
+            skipped_version: None,
+            is_frozen: true,
+            is_hidden: false,
+            updated_at: 1000,
+        };
+        assert!(!should_include_update(
+            "v1.0.0",
+            "v2.0.0",
+            Some(&frozen_rule)
+        ));
+
+        // 4. 规则隐藏 (is_hidden == true) -> 仍包含，供「已隐藏」签与规则管理跳过版本
+        let hidden_rule = UpdateRule {
+            app_id: "test".to_string(),
+            skipped_version: None,
+            is_frozen: false,
+            is_hidden: true,
+            updated_at: 1000,
+        };
+        assert!(should_include_update(
+            "v1.0.0",
+            "v2.0.0",
+            Some(&hidden_rule)
+        ));
+
+        // 5. 规则跳过当前最新版本 -> 忽略此最新版本
+        let skip_rule = UpdateRule {
+            app_id: "test".to_string(),
+            skipped_version: Some("v2.0.0".to_string()),
+            is_frozen: false,
+            is_hidden: false,
+            updated_at: 1000,
+        };
+        assert!(!should_include_update("v1.0.0", "v2.0.0", Some(&skip_rule)));
+        assert!(!should_include_update("v1.0.0", "2.0.0", Some(&skip_rule))); // v 前缀容错
+
+        // 6. 规则跳过了 v2.0.0，但推出了更新的 v2.1.0 -> 应当恢复提示！
+        assert!(should_include_update("v1.0.0", "v2.1.0", Some(&skip_rule)));
+    }
+}

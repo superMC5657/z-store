@@ -1,6 +1,7 @@
 pub mod downloader_http;
 pub mod downloader_progress;
 pub mod executor;
+pub mod managed;
 pub mod paths;
 pub mod selector;
 
@@ -14,6 +15,17 @@ pub use paths::{
     resolve_uninstaller_command, sanitize_shortcut_name,
 };
 pub use selector::{classify_asset, score_asset, select_best_asset};
+
+/// 同步阻塞闭包卸到 Tokio 阻塞线程池（注册表枚举、文件系统探测、解压、进程启动等）。
+pub async fn run_blocking<T, F>(f: F) -> crate::AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| crate::AppError::new(e.to_string()))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssetKind {

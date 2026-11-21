@@ -141,11 +141,12 @@ pub async fn get_oauth_user(
 pub async fn oauth_logout(state: State<'_, AppState>) -> crate::AppResult<bool> {
     let fallback_pat = {
         let db = state.db()?;
-        crate::oauth::clear_oauth_session(&db)?
+        crate::oauth::revoke_oauth_session(
+            &db,
+            &state.github_token,
+            crate::oauth::RevokeReason::ManualLogout,
+        )?
     };
-    if let Ok(mut t) = state.github_token.lock() {
-        *t = fallback_pat.clone();
-    }
     let now = crate::now_ms();
     let last = LAST_LOGOUT_INFO_MS.swap(now, Ordering::SeqCst);
     if now.saturating_sub(last) >= LOGOUT_DEDUP_WINDOW_MS {
@@ -166,11 +167,7 @@ pub async fn star_app(
     let outcome = crate::oauth::star_repo(&token, &owner, &repo).await?;
     if outcome.starred {
         if let Ok(db) = state.db() {
-            let was_starred = db.is_starred(&owner, &repo).unwrap_or(false);
-            crate::oauth::sync_star_cache(&db, &owner, &repo, true);
-            if !was_starred {
-                let _ = db.adjust_launchpad_repo_stars(&owner, &repo, 1);
-            }
+            crate::oauth::apply_star_mutation(&db, &owner, &repo, true, true);
         }
     }
     Ok(outcome)
@@ -183,11 +180,7 @@ pub async fn unstar_app(state: State<'_, AppState>, app_id: String) -> crate::Ap
         resolve_active_github_token(&state).ok_or_else(|| "请先完成 GitHub 登录".to_string())?;
     crate::oauth::unstar_repo(&token, &owner, &repo).await?;
     if let Ok(db) = state.db() {
-        let was_starred = db.is_starred(&owner, &repo).unwrap_or(false);
-        crate::oauth::sync_star_cache(&db, &owner, &repo, false);
-        if was_starred {
-            let _ = db.adjust_launchpad_repo_stars(&owner, &repo, -1);
-        }
+        crate::oauth::apply_star_mutation(&db, &owner, &repo, false, true);
     }
     Ok(true)
 }
@@ -201,7 +194,7 @@ pub async fn fetch_starred_status(
     if let Some(ref t) = resolve_active_github_token(&state) {
         if let Ok(remote_val) = crate::oauth::check_starred(t, &owner, &repo).await {
             if let Ok(db) = state.db() {
-                crate::oauth::sync_star_cache(&db, &owner, &repo, remote_val);
+                crate::oauth::apply_star_mutation(&db, &owner, &repo, remote_val, false);
             }
             return Ok(remote_val);
         }
