@@ -295,14 +295,10 @@ fn apply_manifest_to_db(
     etag_entry: Option<(&str, &str, i64)>,
 ) -> Result<Vec<String>, String> {
     let db = state.db()?;
-    let graduated = crate::repositories::CatalogRepository::apply_remote_manifest_with_etag(
-        &db, items, etag_entry,
-    )
-    .map_err(|e| format!("保存收录清单到数据库失败: {}", e))?;
-    state.catalog.sync_from_db(&db);
-    // 新转正的仓库改由精选目录承接，清除其单仓富卡旧行。
-    let _ = db.purge_cataloged_repo_cards();
-    Ok(graduated)
+    state
+        .catalog
+        .apply_remote_manifest(&db, items, etag_entry)
+        .map_err(|e| format!("保存收录清单到数据库失败: {}", e))
 }
 
 /// 转正提示拼接到同步消息尾部（无转正原样返回）。

@@ -570,9 +570,7 @@ impl CatalogService {
 
     /// 从 SQLite 同步远端精选目录（`catalog_apps`）与本地库 overlay（`custom_apps`）到内存热读索引。
     pub fn sync_from_db(&self, db: &crate::db::Database) {
-        if let Ok((remote, local)) =
-            crate::repositories::CatalogRepository::load_remote_and_local(db)
-        {
+        if let (Ok(remote), Ok(local)) = (db.list_catalog_apps(), db.list_local_library_items()) {
             let mut store = self.write_store();
             store.set_remote(remote);
             store.set_collected(local);
@@ -1091,7 +1089,10 @@ fn build_external_seed_summary(seed: &SimilarAppSeed<'_>) -> AppSummary {
             source: None,
             status: None,
             added_at: None,
-            alternatives: crate::github::alternatives::resolved_alternatives_for(&[], seed.clean_id),
+            alternatives: crate::github::alternatives::resolved_alternatives_for(
+                &[],
+                seed.clean_id,
+            ),
         },
     }
 }
@@ -1134,10 +1135,8 @@ impl CatalogService {
                 continue;
             }
             let cand_summary = Self::project_merged_summary(item, origin);
-            let cand_tokens = crate::github::affinity::similarity_tokens(
-                &cand_summary,
-                Some(&*derived.aliases),
-            );
+            let cand_tokens =
+                crate::github::affinity::similarity_tokens(&cand_summary, Some(&*derived.aliases));
             let sim = crate::github::affinity::similarity_from_tokens(
                 &seed_summary,
                 &seed_tokens,
@@ -1182,6 +1181,242 @@ impl CatalogService {
             target_id: seed.clean_id.to_string(),
             target_alternatives,
             items,
+        }
+    }
+}
+
+/// 收录申请前置门禁：仅未提交的 collected 系行可进入 Issue 预填 / 标记已提交。
+pub fn ensure_collected_for_pr(entry: &crate::db::CustomAppEntry) -> Result<(), String> {
+    if entry.status == crate::db::custom_apps::CUSTOM_APP_STATUS_SUBMITTED {
+        return Err(format!("已提交行不可重复提交: {}", entry.id));
+    }
+    if !crate::db::custom_apps::is_collected_status(&entry.status) {
+        return Err("须先收录进本地再提交 Issue".to_string());
+    }
+    Ok(())
+}
+
+/// 首次启动播种：仅当 `catalog_apps` 为空时从配置种子 `catalog.json` 写入。
+/// 种子反序列化失败记 warn 并按空种子继续（目录随后由远端清单同步补齐）。
+fn seed_catalog_from_config_if_empty(db: &crate::db::Database) -> rusqlite::Result<bool> {
+    if db.count_catalog_apps()? > 0 {
+        return Ok(false);
+    }
+    let json = crate::config::get_project_config()
+        .catalog
+        .load_catalog_json();
+    let seed_items: Vec<CatalogItem> = match serde_json::from_str(&json) {
+        Ok(items) => items,
+        Err(e) => {
+            let mut ev = crate::z_log::WideEvent::new("catalog", "seed parse failed");
+            ev.field("reason", &e);
+            ev.warn();
+            Vec::new()
+        }
+    };
+    db.seed_catalog_apps_if_empty(&seed_items)
+}
+
+/// 按数据库目录口径（`catalog_apps` + 本地库）校准收藏与关注的 `is_cataloged` 标记；
+/// 只读 `id` 列，仅写入标记变化的行（可在调用方事务内执行）。
+fn backfill_cataloged_flags(db: &crate::db::Database) -> rusqlite::Result<()> {
+    let cataloged_ids = db.list_cataloged_ids()?;
+    let is_hit = |raw: &str| -> bool {
+        crate::forge::canonical_app_id(raw)
+            .map(|c| cataloged_ids.contains(&c))
+            .unwrap_or(false)
+    };
+    for f in &db.get_favorite_entries()? {
+        let hit = is_hit(&f.app_id);
+        if hit != f.is_cataloged {
+            db.set_favorite_cataloged(&f.app_id, hit)?;
+        }
+    }
+    for w in &db.get_watched_apps()? {
+        let hit = is_hit(&w.app_id);
+        if hit != w.is_cataloged {
+            db.set_watched_cataloged(&w.app_id, hit)?;
+        }
+    }
+    Ok(())
+}
+
+fn log_backfill_failure(reason: &rusqlite::Error) {
+    let mut ev = crate::z_log::WideEvent::new("app", "backfill cataloged flags failed");
+    ev.field(
+        "reason",
+        crate::log_support::short_reason(&reason.to_string()),
+    );
+    ev.warn();
+}
+
+/// 本地库条目进入收录态：图标轮换槽以 L1 目录图标为准并同步详情图标。
+fn mark_icon_cycle_cataloged(db: &crate::db::Database, item: &CatalogItem) {
+    let icon = item.icon.trim();
+    if icon.is_empty() {
+        return;
+    }
+    let clean_id = crate::forge::canonical_lookup_id(&item.id);
+    let mut cycle = db
+        .get_icon_cycle(&clean_id)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| crate::db::AppIconCycle::new(&clean_id, &item.owner, &item.repo));
+    cycle.is_cataloged = true;
+    if cycle.l1_url != icon {
+        cycle.cache_file = String::new();
+    }
+    cycle.l1_url = icon.to_string();
+    cycle.selected_url = icon.to_string();
+    cycle.level = 1;
+    cycle.pinned = false;
+    let _ = db.upsert_icon_cycle(&cycle);
+    let _ = db.sync_detail_icon(&clean_id, icon);
+}
+
+/// 本地库条目离开收录态：清空 L1 槽与磁盘缓存指针，图标回归 L2+ 轮换。
+fn mark_icon_cycle_uncataloged(db: &crate::db::Database, clean_id: &str) {
+    if let Ok(Some(mut cycle)) = db.get_icon_cycle(clean_id) {
+        cycle.is_cataloged = false;
+        cycle.l1_url = String::new();
+        cycle.cache_file = String::new();
+        let _ = db.upsert_icon_cycle(&cycle);
+    }
+}
+
+/// 目录持久化权威：`catalog_apps` / `custom_apps` 写入与内存索引、收藏/关注收录标记、
+/// `app_icon_cycles` L1 槽及 `repo_card_cache` 已收录行清理在同一入口内保持一致。
+/// 所有方法接收调用方已持锁的 `&Database`。
+impl CatalogService {
+    /// 启动装载：空库播种 → 内存装载远端精选与本地库 → 收录标记校准 → 清理已收录富卡行。
+    pub fn initialize_from_db(&self, db: &crate::db::Database) {
+        let _ = seed_catalog_from_config_if_empty(db);
+        self.sync_from_db(db);
+        if let Err(e) = backfill_cataloged_flags(db) {
+            log_backfill_failure(&e);
+        }
+        let _ = db.purge_cataloged_repo_cards();
+    }
+
+    /// 远端清单权威覆盖：单事务内替换 `catalog_apps`、退役已转正草稿、校准收录标记、
+    /// 清理已收录富卡行并可选落盘 ETag（防目录写失败导致假 304）；提交后刷新内存目录。
+    /// 返回本次转正归档的草稿 id。
+    pub fn apply_remote_manifest(
+        &self,
+        db: &crate::db::Database,
+        items: &[CatalogItem],
+        etag_entry: Option<(&str, &str, i64)>,
+    ) -> rusqlite::Result<Vec<String>> {
+        let graduated = db.with_immediate_transaction(|| {
+            db.replace_catalog_apps_in_tx(items)?;
+            let ids: Vec<String> = items.iter().map(|i| i.id.clone()).collect();
+            let graduated = db.retire_custom_apps_in_tx(&ids)?;
+            backfill_cataloged_flags(db)?;
+            db.purge_cataloged_repo_cards()?;
+            if let Some((url, etag, now)) = etag_entry {
+                db.save_etag(url, etag, "[]", now)?;
+            }
+            Ok(graduated)
+        })?;
+        self.sync_from_db(db);
+        Ok(graduated)
+    }
+
+    /// 暂存本地草稿（宽松校验，强制 `is_verified = false`）。新建行为 `draft`；
+    /// 已存在行保留原状态与 `pr_url`，处于本地库态时同步图标槽并清理富卡行。
+    pub fn save_custom_draft(
+        &self,
+        db: &crate::db::Database,
+        item: CatalogItem,
+    ) -> crate::AppResult<crate::db::CustomAppEntry> {
+        use crate::db::custom_apps::{resolve_license_gate, validate_custom_item, ValidateMode};
+        let canonical =
+            validate_custom_item(&item, ValidateMode::DraftLenient, &resolve_license_gate())
+                .map_err(crate::AppError::new)?;
+        let mut normalized = item;
+        normalized.id = canonical;
+        normalized.is_verified = false;
+        let entry = db.upsert_custom_app_payload(&normalized)?;
+        if crate::db::custom_apps::is_local_library_status(&entry.status) {
+            mark_icon_cycle_cataloged(db, &entry.item);
+            let _ = db.purge_cataloged_repo_cards();
+        }
+        self.after_local_library_change(db);
+        Ok(entry)
+    }
+
+    /// 草稿 → 本地已收录（严格校验，`is_verified` 保持 `false`）。
+    pub fn collect_local_app(
+        &self,
+        db: &crate::db::Database,
+        id: &str,
+    ) -> crate::AppResult<crate::db::CustomAppEntry> {
+        let key = crate::forge::canonical_lookup_id(id);
+        let entry = db.mark_custom_app_collected(&key)?;
+        mark_icon_cycle_cataloged(db, &entry.item);
+        let _ = db.purge_cataloged_repo_cards();
+        self.after_local_library_change(db);
+        Ok(entry)
+    }
+
+    /// 本地已收录 → 草稿（仅未归档的已收录行）。
+    pub fn revert_collected_to_draft(
+        &self,
+        db: &crate::db::Database,
+        id: &str,
+    ) -> crate::AppResult<crate::db::CustomAppEntry> {
+        let key = crate::forge::canonical_lookup_id(id);
+        let entry = db.revert_collected_to_draft(&key)?;
+        mark_icon_cycle_uncataloged(db, &key);
+        self.after_local_library_change(db);
+        Ok(entry)
+    }
+
+    /// 撤回已提交标记：`submitted` → `collected` 并清空 `pr_url`（仍在本地库内）。
+    pub fn withdraw_submitted(
+        &self,
+        db: &crate::db::Database,
+        id: &str,
+    ) -> crate::AppResult<crate::db::CustomAppEntry> {
+        let key = crate::forge::canonical_lookup_id(id);
+        let entry = db.withdraw_submitted(&key)?;
+        self.after_local_library_change(db);
+        Ok(entry)
+    }
+
+    /// 标记为已提交并记录 `pr_url`（仅允许未归档的 `collected` 行）。
+    pub fn mark_submitted(
+        &self,
+        db: &crate::db::Database,
+        id: &str,
+        pr_url: &str,
+    ) -> crate::AppResult<crate::db::CustomAppEntry> {
+        let key = crate::forge::canonical_lookup_id(id);
+        let entry = db
+            .get_custom_app(&key)?
+            .ok_or_else(|| crate::AppError::new(format!("草稿不存在: {}", key)))?;
+        ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
+        let entry = db.mark_custom_app_submitted(&key, pr_url)?;
+        self.after_local_library_change(db);
+        Ok(entry)
+    }
+
+    /// 删除草稿或本地库条目（返回是否命中）。
+    pub fn delete_custom_app(&self, db: &crate::db::Database, id: &str) -> crate::AppResult<bool> {
+        let key = crate::forge::canonical_lookup_id(id);
+        let hit = db.delete_custom_app(&key)?;
+        if hit {
+            mark_icon_cycle_uncataloged(db, &key);
+        }
+        self.after_local_library_change(db);
+        Ok(hit)
+    }
+
+    /// 本地库变更收尾：重载内存 overlay 并按数据库口径校准收录标记。
+    fn after_local_library_change(&self, db: &crate::db::Database) {
+        self.sync_collected_from_db(db);
+        if let Err(e) = backfill_cataloged_flags(db) {
+            log_backfill_failure(&e);
         }
     }
 }
@@ -1944,8 +2179,14 @@ mod tests {
             Some(4),
         );
         assert!(plan.target_alternatives.iter().any(|a| a == "TeamViewer"));
-        assert!(!plan.items.iter().any(|i| i.app.core.id == "rustdesk/rustdesk"));
-        assert!(!plan.items.iter().any(|i| i.app.core.id == "hidden/remote-app"));
+        assert!(!plan
+            .items
+            .iter()
+            .any(|i| i.app.core.id == "rustdesk/rustdesk"));
+        assert!(!plan
+            .items
+            .iter()
+            .any(|i| i.app.core.id == "hidden/remote-app"));
         assert!(!plan.items.iter().any(|i| i.app.core.id == "media/music"));
         assert_eq!(plan.items.len(), 4);
         let owner_hit = plan
@@ -2025,5 +2266,249 @@ mod tests {
         );
         assert!(empty_plan.items.is_empty());
         assert!(empty_plan.target_alternatives.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+    use crate::db::Database;
+    use std::collections::HashMap;
+
+    fn item(id: &str) -> CatalogItem {
+        let (owner, repo) = id.split_once('/').unwrap();
+        CatalogItem {
+            id: id.to_string(),
+            name: repo.to_string(),
+            owner: owner.to_string(),
+            repo: repo.to_string(),
+            icon: String::new(),
+            icon_bg: String::new(),
+            description: "desc".to_string(),
+            description_en: None,
+            category: "dev".to_string(),
+            category_name: "开发工具".to_string(),
+            aliases: vec![],
+            alternatives: Vec::new(),
+            default_version: "v1.0.0".to_string(),
+            added_at: None,
+            license: "MIT".to_string(),
+            stars: 10,
+            forks: 1,
+            is_verified: true,
+            homepage: Some("https://example.com".to_string()),
+            platforms: vec!["windows".to_string()],
+            identifiers: HashMap::new(),
+            install_dirs: vec![],
+            search_subdirs: vec![],
+            publishers: vec![],
+        }
+    }
+
+    fn seed_repo_card(db: &Database, id: &str) {
+        let (owner, repo) = id.split_once('/').unwrap();
+        db.exec_write(
+            "INSERT OR REPLACE INTO repo_card_cache (id, owner, repo, updated_at) VALUES (?1, ?2, ?3, 1)",
+            rusqlite::params![id, owner, repo],
+        )
+        .unwrap();
+    }
+
+    fn has_repo_card(db: &Database, id: &str) -> bool {
+        db.get_repo_card(id).unwrap().is_some()
+    }
+
+    fn fav_flag(db: &Database, id: &str) -> bool {
+        db.get_favorite_entries()
+            .unwrap()
+            .into_iter()
+            .find(|f| f.app_id == id)
+            .map(|f| f.is_cataloged)
+            .unwrap()
+    }
+
+    #[test]
+    fn apply_remote_manifest_overwrites_retires_backfills_purges_and_refreshes_memory() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        db.seed_catalog_apps_if_empty(&[item("o/old")]).unwrap();
+        svc.initialize_from_db(&db);
+        db.add_favorite("o/old", true).unwrap();
+        db.add_favorite("o/new", false).unwrap();
+        let mut draft = item("o/new");
+        draft.is_verified = false;
+        db.upsert_custom_app_payload(&draft).unwrap();
+        db.mark_custom_app_collected("o/new").unwrap();
+        seed_repo_card(&db, "o/fresh");
+
+        let url = "https://example.com/catalog.json";
+        let graduated = svc
+            .apply_remote_manifest(
+                &db,
+                &[item("o/new"), item("o/fresh")],
+                Some((url, "W/\"v2\"", 1_700_000_000)),
+            )
+            .unwrap();
+
+        assert_eq!(graduated, vec!["o/new".to_string()]);
+        assert!(!db.exists_catalog_app("o/old").unwrap());
+        assert!(db.get_custom_app("o/new").unwrap().unwrap().archived);
+        assert!(!fav_flag(&db, "o/old"));
+        assert!(fav_flag(&db, "o/new"));
+        assert!(!has_repo_card(&db, "o/fresh"));
+        assert_eq!(db.get_etag(url).unwrap().as_deref(), Some("W/\"v2\""));
+        assert!(!svc.is_cataloged("o/old"));
+        assert!(svc.get_remote_catalog_item("o/fresh").is_some());
+        assert!(svc.get_collected_item("o/new").is_none());
+    }
+
+    #[test]
+    fn apply_remote_manifest_failure_rolls_back_and_keeps_memory() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        db.seed_catalog_apps_if_empty(&[item("o/keep")]).unwrap();
+        svc.initialize_from_db(&db);
+        db.exec_write("DROP TABLE api_etag_cache", []).unwrap();
+
+        let res = svc.apply_remote_manifest(
+            &db,
+            &[item("o/other")],
+            Some(("https://example.com/c.json", "e", 1)),
+        );
+        assert!(res.is_err());
+        assert!(db.exists_catalog_app("o/keep").unwrap());
+        assert!(svc.is_cataloged("o/keep"));
+        assert!(!svc.is_cataloged("o/other"));
+    }
+
+    #[test]
+    fn initialize_from_db_loads_overlay_backfills_flags_and_purges_cards() {
+        let db = Database::open_in_memory().unwrap();
+        db.seed_catalog_apps_if_empty(&[item("o/remote")]).unwrap();
+        db.upsert_custom_app_payload(&item("o/local")).unwrap();
+        db.mark_custom_app_collected("o/local").unwrap();
+        db.add_favorite("o/local", false).unwrap();
+        seed_repo_card(&db, "o/remote");
+        seed_repo_card(&db, "o/free");
+
+        let svc = CatalogService::new_empty();
+        svc.initialize_from_db(&db);
+
+        assert!(svc.is_cataloged("o/remote"));
+        assert!(svc.get_collected_item("o/local").is_some());
+        assert!(fav_flag(&db, "o/local"));
+        assert!(!has_repo_card(&db, "o/remote"));
+        assert!(has_repo_card(&db, "o/free"));
+    }
+
+    #[test]
+    fn collect_local_app_syncs_memory_flags_icon_slot_and_purges_card() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        let mut draft = item("o/app");
+        draft.icon = "https://cdn.example.com/app.png".to_string();
+        svc.save_custom_draft(&db, draft).unwrap();
+        db.add_favorite("o/app", false).unwrap();
+        seed_repo_card(&db, "o/app");
+        assert!(!svc.is_cataloged("o/app"));
+
+        let entry = svc.collect_local_app(&db, "O/App").unwrap();
+        assert!(!entry.item.is_verified);
+        assert!(svc.get_catalog_item("o/app").is_some());
+        assert!(fav_flag(&db, "o/app"));
+        assert!(!has_repo_card(&db, "o/app"));
+        let cycle = db.get_icon_cycle("o/app").unwrap().unwrap();
+        assert!(cycle.is_cataloged);
+        assert_eq!(cycle.l1_url, "https://cdn.example.com/app.png");
+        assert_eq!(cycle.level, 1);
+    }
+
+    #[test]
+    fn save_custom_draft_on_active_library_entry_purges_repo_card() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        svc.save_custom_draft(&db, item("o/app")).unwrap();
+        svc.collect_local_app(&db, "o/app").unwrap();
+        seed_repo_card(&db, "o/app");
+
+        let mut edited = item("o/app");
+        edited.description = "edited".to_string();
+        edited.icon = "https://cdn.example.com/new.png".to_string();
+        let entry = svc.save_custom_draft(&db, edited).unwrap();
+
+        assert!(crate::db::custom_apps::is_local_library_status(
+            &entry.status
+        ));
+        assert!(!has_repo_card(&db, "o/app"));
+        assert_eq!(
+            svc.get_collected_item("o/app").unwrap().description,
+            "edited"
+        );
+        let cycle = db.get_icon_cycle("o/app").unwrap().unwrap();
+        assert_eq!(cycle.l1_url, "https://cdn.example.com/new.png");
+    }
+
+    #[test]
+    fn save_custom_draft_rejects_invalid_and_forces_unverified() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        let mut bad = item("o/app");
+        bad.id = "O/App".to_string();
+        assert!(svc.save_custom_draft(&db, bad).is_err());
+
+        let entry = svc.save_custom_draft(&db, item("o/app")).unwrap();
+        assert!(!entry.item.is_verified);
+        assert!(!svc.is_cataloged("o/app"));
+    }
+
+    #[test]
+    fn revert_and_delete_leave_catalog_and_clear_icon_slot() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        let mut draft = item("o/app");
+        draft.icon = "https://cdn.example.com/app.png".to_string();
+        svc.save_custom_draft(&db, draft).unwrap();
+        svc.collect_local_app(&db, "o/app").unwrap();
+        db.add_favorite("o/app", true).unwrap();
+
+        svc.revert_collected_to_draft(&db, "o/app").unwrap();
+        assert!(!svc.is_cataloged("o/app"));
+        assert!(!fav_flag(&db, "o/app"));
+        let cycle = db.get_icon_cycle("o/app").unwrap().unwrap();
+        assert!(!cycle.is_cataloged);
+        assert!(cycle.l1_url.is_empty());
+
+        svc.collect_local_app(&db, "o/app").unwrap();
+        assert!(svc.is_cataloged("o/app"));
+        assert!(svc.delete_custom_app(&db, "o/app").unwrap());
+        assert!(!svc.is_cataloged("o/app"));
+        assert!(db.get_custom_app("o/app").unwrap().is_none());
+        assert!(!fav_flag(&db, "o/app"));
+        assert!(!db.get_icon_cycle("o/app").unwrap().unwrap().is_cataloged);
+        assert!(!svc.delete_custom_app(&db, "o/app").unwrap());
+    }
+
+    #[test]
+    fn mark_submitted_and_withdraw_keep_entry_in_library() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        svc.save_custom_draft(&db, item("o/app")).unwrap();
+        assert!(svc
+            .mark_submitted(&db, "o/app", "https://github.com/x/y/issues/1")
+            .is_err());
+
+        svc.collect_local_app(&db, "o/app").unwrap();
+        let entry = svc
+            .mark_submitted(&db, "o/app", "https://github.com/x/y/issues/1")
+            .unwrap();
+        assert_eq!(
+            entry.status,
+            crate::db::custom_apps::CUSTOM_APP_STATUS_SUBMITTED
+        );
+        assert!(svc.is_cataloged("o/app"));
+
+        let entry = svc.withdraw_submitted(&db, "o/app").unwrap();
+        assert!(entry.pr_url.is_none());
+        assert!(svc.is_cataloged("o/app"));
     }
 }

@@ -2,7 +2,7 @@
 //! 草稿 `is_verified` 恒为 `false`；仅已收录条目允许进入 Issue 预填流程。
 
 use crate::config::LicenseGateConfig;
-use crate::db::custom_apps::{ValidateMode, CUSTOM_APP_STATUS_SUBMITTED};
+use crate::db::custom_apps::ValidateMode;
 use crate::db::CustomAppEntry;
 use crate::github::models::CatalogItem;
 use crate::AppState;
@@ -269,15 +269,7 @@ fn pr_item_json_with_indent(item: &CatalogItem, base: &str) -> String {
     lines.join("\n")
 }
 
-pub fn ensure_collected_for_pr(entry: &CustomAppEntry) -> Result<(), String> {
-    if entry.status == CUSTOM_APP_STATUS_SUBMITTED {
-        return Err(format!("已提交行不可重复提交: {}", entry.id));
-    }
-    if !crate::db::custom_apps::is_collected_status(&entry.status) {
-        return Err("须先收录进本地再提交 Issue".to_string());
-    }
-    Ok(())
-}
+pub use crate::github::catalog_service::ensure_collected_for_pr;
 
 /// 过滤本地库合并视图条目（仅未归档的已收录及已提交行）。
 #[cfg(test)]
@@ -287,45 +279,6 @@ pub fn collected_overlay_items(entries: Vec<CustomAppEntry>) -> Vec<CatalogItem>
         .filter(|e| crate::db::custom_apps::is_local_library_status(&e.status) && !e.archived)
         .map(|e| e.item)
         .collect()
-}
-
-/// 重载本地收录 overlay 并回填收藏/关注的收录标记（复用调用方 `db` 锁）。
-fn sync_catalog_overlay(state: &AppState, db: &crate::db::Database) {
-    state.catalog.sync_collected_from_db(db);
-    crate::commands::history::backfill_cataloged_flags_in(db);
-}
-
-fn sync_custom_app_cache_and_cycle(db: &crate::db::Database, item: &CatalogItem) {
-    let clean_id = crate::forge::canonical_lookup_id(&item.id);
-    let icon_trimmed = item.icon.trim();
-    if !icon_trimmed.is_empty() {
-        let mut cycle = db
-            .get_icon_cycle(&clean_id)
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| crate::db::AppIconCycle::new(&clean_id, &item.owner, &item.repo));
-        cycle.is_cataloged = true;
-        if cycle.l1_url != icon_trimmed {
-            cycle.cache_file = String::new();
-        }
-        cycle.l1_url = icon_trimmed.to_string();
-        cycle.selected_url = icon_trimmed.to_string();
-        cycle.level = 1;
-        cycle.pinned = false;
-        let _ = db.upsert_icon_cycle(&cycle);
-
-        let _ = db.sync_detail_icon(&clean_id, icon_trimmed);
-    }
-}
-
-fn reset_custom_app_cycle_uncataloged(db: &crate::db::Database, id: &str) {
-    let clean_id = crate::forge::canonical_lookup_id(id);
-    if let Ok(Some(mut cycle)) = db.get_icon_cycle(&clean_id) {
-        cycle.is_cataloged = false;
-        cycle.l1_url = String::new();
-        cycle.cache_file = String::new();
-        let _ = db.upsert_icon_cycle(&cycle);
-    }
 }
 
 /// 草稿列表（默认仅未归档；`include_archived=true` 含转正归档行）。
@@ -345,35 +298,15 @@ pub fn save_custom_app(
     state: State<'_, AppState>,
     item: CatalogItem,
 ) -> crate::AppResult<CustomAppEntry> {
-    let canonical = crate::db::custom_apps::validate_custom_item(
-        &item,
-        ValidateMode::DraftLenient,
-        &crate::db::custom_apps::resolve_license_gate(),
-    )
-    .map_err(crate::AppError::new)?;
-    let mut normalized = item;
-    normalized.id = canonical;
-    normalized.is_verified = false;
     let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db.upsert_custom_app_payload(&normalized)?;
-    if crate::db::custom_apps::is_local_library_status(&entry.status) {
-        sync_custom_app_cache_and_cycle(&db, &entry.item);
-    }
-    sync_catalog_overlay(&state, &db);
-    Ok(entry)
+    state.catalog.save_custom_draft(&db, item)
 }
 
 /// 删除指定草稿或收录条目（返回是否命中）。
 #[tauri::command]
 pub fn delete_custom_app(state: State<'_, AppState>, id: String) -> crate::AppResult<bool> {
-    let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    let hit = db.delete_custom_app(&key)?;
-    if hit {
-        reset_custom_app_cycle_uncataloged(&db, &key);
-    }
-    sync_catalog_overlay(&state, &db);
-    Ok(hit)
+    state.catalog.delete_custom_app(&db, &id)
 }
 
 /// 将草稿标记为本地已收录（严格校验，`is_verified` 保持 `false`）。
@@ -382,14 +315,8 @@ pub fn collect_local_app(
     state: State<'_, AppState>,
     id: String,
 ) -> crate::AppResult<CustomAppEntry> {
-    let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db.mark_custom_app_collected(&key)?;
-    sync_custom_app_cache_and_cycle(&db, &entry.item);
-    // 已收录条目由目录视图承接，清理单仓富卡旧缓存。
-    let _ = db.purge_cataloged_repo_cards();
-    sync_catalog_overlay(&state, &db);
-    Ok(entry)
+    state.catalog.collect_local_app(&db, &id)
 }
 
 /// 将本地已收录条目退回草稿（仅未归档的已收录行可退回）。
@@ -398,12 +325,8 @@ pub fn revert_collected_to_draft(
     state: State<'_, AppState>,
     id: String,
 ) -> crate::AppResult<CustomAppEntry> {
-    let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db.revert_collected_to_draft(&key)?;
-    reset_custom_app_cycle_uncataloged(&db, &key);
-    sync_catalog_overlay(&state, &db);
-    Ok(entry)
+    state.catalog.revert_collected_to_draft(&db, &id)
 }
 
 /// 撤回已提交标记：`submitted` → `collected` 并清空 `pr_url`。
@@ -412,11 +335,8 @@ pub fn withdraw_submitted(
     state: State<'_, AppState>,
     id: String,
 ) -> crate::AppResult<CustomAppEntry> {
-    let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db.withdraw_submitted(&key)?;
-    sync_catalog_overlay(&state, &db);
-    Ok(entry)
+    state.catalog.withdraw_submitted(&db, &id)
 }
 
 /// 标记为已提交并记录 `pr_url`（仅允许 `collected` 行，已归档或已提交行拒绝）。
@@ -426,15 +346,8 @@ pub fn mark_submitted(
     id: String,
     pr_url: String,
 ) -> crate::AppResult<CustomAppEntry> {
-    let key = crate::forge::canonical_lookup_id(&id);
     let db = state.db().map_err(crate::AppError::from)?;
-    let entry = db
-        .get_custom_app(&key)?
-        .ok_or_else(|| crate::AppError::new(format!("草稿不存在: {}", key)))?;
-    ensure_collected_for_pr(&entry).map_err(crate::AppError::new)?;
-    let entry = db.mark_custom_app_submitted(&key, &pr_url)?;
-    sync_catalog_overlay(&state, &db);
-    Ok(entry)
+    state.catalog.mark_submitted(&db, &id, &pr_url)
 }
 
 /// 校验并加载待生成 Issue 预填的已收录条目。
@@ -496,7 +409,7 @@ pub fn get_license_allowlist() -> LicenseAllowlist {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::custom_apps::CUSTOM_APP_STATUS_COLLECTED;
+    use crate::db::custom_apps::{CUSTOM_APP_STATUS_COLLECTED, CUSTOM_APP_STATUS_SUBMITTED};
     use std::collections::HashMap;
 
     fn entry(id: &str) -> CustomAppEntry {

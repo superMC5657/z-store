@@ -394,12 +394,10 @@ pub fn run() {
                 });
             let saved_mirror = db.get_setting("active_mirror").ok().flatten();
 
-            // 首次启动且 catalog_apps 为空时从 catalog.json 播种写入；此后目录权威完全归 SQLite catalog_apps 维护。
-            let _ = crate::repositories::CatalogRepository::seed_from_config_if_empty(&db);
-
+            // 空库播种 catalog.json、装载远端精选与本地库 overlay、校准收录标记（零网络）；
+            // 此后目录权威归 SQLite catalog_apps 维护。
             let catalog = CatalogService::new_empty();
-            // 启动即从 SQLite catalog_apps + custom_apps 装载远端精选与本地收录 overlay（零网络）。
-            catalog.sync_from_db(&db);
+            catalog.initialize_from_db(&db);
             let mut mirror = MirrorManager::new();
             if let Some(ref m_id) = saved_mirror {
                 mirror.apply_initial_mirror(m_id);
@@ -448,8 +446,6 @@ pub fn run() {
             for warn_msg in crate::config::take_startup_warnings() {
                 log::warn!(target: "app", "{}", warn_msg);
             }
-            // 收藏/关注收录标记回填：存量行按内存目录一次性校准（零网络）。
-            crate::commands::backfill_cataloged_flags(app.state::<AppState>().inner());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 use tauri::Emitter;

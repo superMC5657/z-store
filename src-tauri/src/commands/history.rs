@@ -18,36 +18,6 @@ pub fn get_favorite_entries(state: State<'_, AppState>) -> crate::AppResult<Vec<
     Ok(db.get_favorite_entries()?)
 }
 
-/// 回填失败单行 warn：只记操作、行 id 与首行原因。
-fn log_backfill_warn(op: &str, id: Option<&str>, reason: impl std::fmt::Display) {
-    let mut ev = crate::z_log::WideEvent::new("app", op);
-    ev.field_opt("id", id).field(
-        "reason",
-        crate::log_support::short_reason(&reason.to_string()),
-    );
-    ev.warn();
-}
-
-/// 收录标记全量回填（启动 + 清单同步/本地收录变更后）：收藏/关注逐行按数据库目录校准，零网络；
-/// 最佳努力，不阻塞调用方（失败记 warn 日志，由下次启动/同步重试）。
-pub(crate) fn backfill_cataloged_flags(state: &AppState) {
-    let db = match state.db() {
-        Ok(db) => db,
-        Err(e) => {
-            log_backfill_warn("backfill cataloged flags skipped", None, &e);
-            return;
-        }
-    };
-    backfill_cataloged_flags_in(&db);
-}
-
-/// `backfill_cataloged_flags` 的持锁版本：调用方已持有 `db` 锁时复用同一临界区。
-pub(crate) fn backfill_cataloged_flags_in(db: &crate::db::Database) {
-    if let Err(e) = crate::repositories::CatalogRepository::backfill_cataloged_flags(db) {
-        log_backfill_warn("backfill cataloged flags failed", None, &e);
-    }
-}
-
 #[tauri::command(rename_all = "camelCase")]
 pub fn toggle_favorite(state: State<'_, AppState>, app_id: String) -> crate::AppResult<bool> {
     let app_id = super::require_app_id(&app_id)?;
