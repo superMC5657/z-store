@@ -5,7 +5,7 @@
 - 关联：ADR-0003（SQLite 持久化与 ETag 缓存）、ADR-0007（可配 TTL 缓存）、ADR-0010（规范应用标识）、ADR-0014（趋势榜 L2）、ADR-0015（统一图标获取与搜索对齐；本 ADR 修订其 §4、§5）、ADR-0019（资产面手动缓存；本 ADR 补充其 §2）、ADR-0025（动态系统代理）
 - 落地计划：`.scratch/richcard-cache-and-pipeline-convergence/`
 - 修订：§2.3 的富卡池准入（三态均入池并落盘 `repo_card_cache`）、§2.4 的分页桶形态（只存有序 id + L2 `search_list_cache`）与 §2.5 的 Star 快照信封（`v: 2` 按页 id 索引）由 ADR-0027 取代。
-- 实现：`src-tauri/src/github/search.rs`、`src-tauri/src/github/developer_starred.rs`、`src-tauri/src/github/http.rs`、`src-tauri/src/commands/catalog_search.rs`、`src-tauri/src/commands/forge.rs`、`src-tauri/src/commands/network.rs`、`src-tauri/src/db/cache.rs`、`src-tauri/src/db/etag.rs`、`src-tauri/src/oauth/mod.rs`、`src/services/repoEnrichCache.ts`、`src/services/trends/enrich.ts`、`src/services/search/searchListCache.ts`、`src/services/search/onlineRows.ts`、`src/services/starred/starredCache.ts`、`src/app/hooks/usePlatformBackfill.ts`、`src/app/hooks/useSearchState.ts`、`src/views/FavoritesView/StarredFeed.tsx`
+- 实现：`src-tauri/src/github/search.rs`、`src-tauri/src/github/developer_starred.rs`、`src-tauri/src/github/http.rs`、`src-tauri/src/repositories/card_hydrator.rs`、`src-tauri/src/commands/catalog_search.rs`、`src-tauri/src/commands/forge.rs`、`src-tauri/src/commands/network.rs`、`src-tauri/src/db/cache.rs`、`src-tauri/src/db/etag.rs`、`src-tauri/src/oauth/mod.rs`、`src/services/repoEnrichCache.ts`、`src/services/trends/enrich.ts`、`src/services/search/searchListCache.ts`、`src/services/search/onlineRows.ts`、`src/services/starred/starredCache.ts`、`src/app/hooks/usePlatformBackfill.ts`、`src/app/hooks/useSearchState.ts`、`src/views/FavoritesView/useStarredFeed.ts`
 
 ## 1. 背景
 
@@ -23,9 +23,9 @@
 
 ### 2.2 后端组卡收敛
 
-- 搜索命中精选收录库（含本地收录）的行投影精选元数据（中文简介、官方图标、分类、预置平台），保留更大的远端 Star/Fork，用户轮换过的确认图标优先；未收录行走 `backfill_uncataloged_card`。
-- 单仓直查与趋势 enrich 共用 `resolve_local_enrich_hit`（非强刷先查收录库 / 详情缓存 / 仓库 ETag 载荷）与 `backfill_uncataloged_card`。
-- `backfill_uncataloged_card` 在 `app_details` 未提供平台或真实版本时，零网络读取 `api_etag_cache` 中 `get_platforms_lite` 落下的 `releases/latest` 载荷（原大小写与小写端点各查一次），推导平台并取 `tag_name`。重启后三链路都能复原已知平台与版本。
+- 搜索命中精选收录库（含本地收录）的行投影精选元数据（中文简介、官方图标、分类、预置平台），保留更大的远端 Star/Fork，用户轮换过的确认图标优先；未收录行走 `repositories/card_hydrator.rs` 统一水合与写透。
+- 单仓直查与趋势 enrich 共用 `card_hydrator::write_through` 与 `card_hydrator::RemoteSnapshot::local_hit`（非强刷先查收录库 / 详情缓存 / 单仓富卡 / 仓库 ETag 载荷，再批量落盘与同步确认图标）。
+- `card_hydrator` 在 `app_details` 未提供平台或真实版本时，零网络读取 `api_etag_cache` 中 `get_platforms_lite` 落下的 `releases/latest` 载荷（原大小写与小写端点各查一次），推导平台并取 `tag_name`。重启后三链路都能复原已知平台与版本。
 - 趋势 `enrich_trend_repos` 的批量直查 `probe_icons = false`，首包只取仓库元数据；图标只由后台 `fetch_icons_stream(Trend)` 探一次，且只为未收录、无确认图标的仓入队。
 
 ### 2.3 三链路共享单仓富卡池（Repo Enrich Cache）

@@ -18,12 +18,12 @@ import { normalizeId } from './normalizeId';
 /* ------------------------------------------------------------------ */
 
 /** 富卡池 TTL：12h（坐标元数据日内几乎不变，与 DOFORCE 快照同口径）。 */
-export const TREND_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+export const REPO_ENRICH_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 /** 富卡池至多 600 条（与 iconStore 同容量）。 */
-export const TREND_ENRICH_CACHE_MAX_ENTRIES = 600;
+export const REPO_ENRICH_CACHE_MAX_ENTRIES = 600;
 
 /** 已确认 Other 标记 TTL；到期后重验，具平台到达时自动覆盖。 */
-const CONFIRMED_OTHER_TTL_MS = TREND_ENRICH_CACHE_TTL_MS;
+const CONFIRMED_OTHER_TTL_MS = REPO_ENRICH_CACHE_TTL_MS;
 /** 已确认 Other 标记至多 600 条，FIFO 裁剪。 */
 const CONFIRMED_OTHER_MAX_ENTRIES = 600;
 
@@ -144,7 +144,7 @@ function putCard(key: string, timestamp: number, incoming: AppSummary): void {
   if (cur) cardPool.delete(k);
   cardPool.set(k, { timestamp: ts, data });
   if (hasConcretePlatforms(data.platforms)) confirmedOtherPool.delete(k);
-  while (cardPool.size > TREND_ENRICH_CACHE_MAX_ENTRIES) {
+  while (cardPool.size > REPO_ENRICH_CACHE_MAX_ENTRIES) {
     const oldest = cardPool.keys().next().value as string | undefined;
     if (oldest === undefined || oldest === k) break;
     cardPool.delete(oldest);
@@ -157,13 +157,13 @@ export function peekRepoCardEntry(key: string): AppSummary | undefined {
   return k ? cardPool.get(k)?.data : undefined;
 }
 
-/** 单键写入卡片表（供趋势 enrich 批处理写透；收录卡由调用方跳过）。 */
+/** 单键写入卡片表（供批处理写透；收录卡由调用方跳过）。 */
 export function putRepoCard(key: string, data: AppSummary, timestamp = Date.now()): void {
   putCard(key, timestamp, data);
 }
 
 /** 标记单键为已确认 Other（已具平台则跳过）。 */
-export function markTrendConfirmedOther(key: string): void {
+export function markRepoConfirmedOther(key: string): void {
   const k = normalizeId(key);
   if (!k) return;
   const cur = cardPool.get(k);
@@ -172,34 +172,34 @@ export function markTrendConfirmedOther(key: string): void {
 }
 
 /** 批量标记已确认 Other（空键/已具平台逐项跳过）。 */
-export function markTrendConfirmedOthers(keys: readonly string[]): void {
+export function markRepoConfirmedOthers(keys: readonly string[]): void {
   if (!keys) return;
   for (const raw of keys) {
-    if (typeof raw === 'string') markTrendConfirmedOther(raw);
+    if (typeof raw === 'string') markRepoConfirmedOther(raw);
   }
 }
 
-/** 与 `markTrendConfirmedOthers` 同义（容忍空入参），时间戳取 now。 */
+/** 与 `markRepoConfirmedOthers` 同义（容忍空入参），时间戳取 now。 */
 export function markConfirmedOthersFreshNow(keys?: readonly string[] | null): void {
-  if (keys) markTrendConfirmedOthers(keys);
+  if (keys) markRepoConfirmedOthers(keys);
 }
 
 /** 移除单键已确认标记。 */
-export function unmarkTrendConfirmedOther(key: string): void {
+export function unmarkRepoConfirmedOther(key: string): void {
   const k = normalizeId(key);
   if (k) confirmedOtherPool.delete(k);
 }
 
 /** 批量移除已确认标记。 */
-export function unmarkTrendConfirmedOthers(keys: readonly string[]): void {
+export function unmarkRepoConfirmedOthers(keys: readonly string[]): void {
   if (!keys) return;
   for (const raw of keys) {
-    if (typeof raw === 'string') unmarkTrendConfirmedOther(raw);
+    if (typeof raw === 'string') unmarkRepoConfirmedOther(raw);
   }
 }
 
 /** 该键是否为新鲜（12h 内）已确认 Other；已到达具平台条目时同步清理标记。 */
-export function isTrendConfirmedOtherFresh(key: string): boolean {
+export function isRepoConfirmedOtherFresh(key: string): boolean {
   const k = normalizeId(key);
   if (!k) return false;
   const cur = cardPool.get(k);
@@ -216,8 +216,8 @@ export function isTrendConfirmedOtherFresh(key: string): boolean {
   return true;
 }
 
-/** 导出新鲜已确认 Other 键；传入 repos 时仅返回属本榜的键。 */
-export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
+/** 导出新鲜已确认 Other 键；传入 repos 时仅返回属该序列的键。 */
+export function snapshotRepoConfirmedOthers(repos?: TrendRepo[]): string[] {
   const now = Date.now();
   const fresh: string[] = [];
   for (const [k, ts] of confirmedOtherPool) {
@@ -238,22 +238,22 @@ export function snapshotTrendConfirmedOthers(repos?: TrendRepo[]): string[] {
   return fresh.filter((k) => wanted.has(k));
 }
 
-/** 仅供测试/榜单切换：清空已确认 Other 标记。 */
-export function clearTrendConfirmedOtherCache(): void {
+/** 仅供测试/列表切换：清空已确认 Other 标记。 */
+export function clearRepoConfirmedOtherCache(): void {
   confirmedOtherPool.clear();
 }
 
 /** 清空卡片表与已确认 Other 表。 */
-export function clearTrendEnrichCache(): void {
+export function clearRepoEnrichCache(): void {
   cardPool.clear();
   confirmedOtherPool.clear();
 }
 
-/** 切榜 sweep 过期条目（不加 timer）。 */
-export function sweepExpiredTrendEnrichCache(): void {
+/** 切表顺手 sweep 过期条目（不加 timer）。 */
+export function sweepExpiredRepoEnrichCache(): void {
   const now = Date.now();
   for (const [k, v] of cardPool) {
-    if (!isFresh(v.timestamp, now, TREND_ENRICH_CACHE_TTL_MS)) cardPool.delete(k);
+    if (!isFresh(v.timestamp, now, REPO_ENRICH_CACHE_TTL_MS)) cardPool.delete(k);
   }
   for (const [k, ts] of confirmedOtherPool) {
     if (!isFresh(ts, now, CONFIRMED_OTHER_TTL_MS)) confirmedOtherPool.delete(k);
@@ -261,7 +261,7 @@ export function sweepExpiredTrendEnrichCache(): void {
 }
 
 /** 按键驱逐卡片与已确认 Other 标记。 */
-export function evictTrendEnrichKeys(keys: Iterable<string>): void {
+export function evictRepoEnrichKeys(keys: Iterable<string>): void {
   for (const raw of keys) {
     const k = normalizeId(raw);
     if (!k) continue;
@@ -271,7 +271,7 @@ export function evictTrendEnrichKeys(keys: Iterable<string>): void {
 }
 
 /** 批量回填未收录富卡（`data:` 图标先注入 iconStore 缓冲并在池内剥空；收录卡与 stale 跳过）。 */
-export function putTrendEnrichMemory(
+export function putRepoEnrichMemory(
   map?: Record<string, AppSummary> | Map<string, AppSummary> | null,
   opts?: { timestamp?: number },
 ): void {
@@ -304,11 +304,11 @@ export function peekFreshRepoCard(key: string, now = Date.now()): AppSummary | u
   if (!k) return undefined;
   const hit = cardPool.get(k);
   if (!hit || readLoose(hit.data, 'is_stale') === true) return undefined;
-  return isFresh(hit.timestamp, now, TREND_ENRICH_CACHE_TTL_MS) ? hit.data : undefined;
+  return isFresh(hit.timestamp, now, REPO_ENRICH_CACHE_TTL_MS) ? hit.data : undefined;
 }
 
 /** 读新鲜且平台已落定的富卡：具平台，或空平台且已确认 Other。 */
-export function peekFreshTrendEnrich(key: string, now = Date.now()): AppSummary | undefined {
+export function peekFreshSettledRepoCard(key: string, now = Date.now()): AppSummary | undefined {
   const hit = peekFreshRepoCard(key, now);
   if (!hit) return undefined;
   if (hasConcretePlatforms(hit.platforms)) return hit;
@@ -323,7 +323,7 @@ export function takeFreshEnrichEntry(key: string, now = Date.now(), force = fals
   if (!hit) return false;
   const elapsed = now - hit.timestamp;
   if (!hasConcretePlatforms(hit.data.platforms)) {
-    if (elapsed >= 0 && elapsed < TREND_ENRICH_CACHE_TTL_MS) return true;
+    if (elapsed >= 0 && elapsed < REPO_ENRICH_CACHE_TTL_MS) return true;
     cardPool.delete(key);
     return false;
   }
@@ -331,18 +331,18 @@ export function takeFreshEnrichEntry(key: string, now = Date.now(), force = fals
     cardPool.delete(key);
     return false;
   }
-  return elapsed < TREND_ENRICH_CACHE_TTL_MS;
+  return elapsed < REPO_ENRICH_CACHE_TTL_MS;
 }
 
 /** 导出未过期且已落定的富卡快照（具平台或已确认 Other，跳过 `data:` 图标）。 */
-export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, AppSummary> {
+export function snapshotSettledRepoCards(repos?: TrendRepo[]): Record<string, AppSummary> {
   const now = Date.now();
   const out: Record<string, AppSummary> = {};
-  const confirmed = new Set(snapshotTrendConfirmedOthers());
+  const confirmed = new Set(snapshotRepoConfirmedOthers());
   const usable = (hit: { timestamp: number; data: AppSummary } | undefined): boolean =>
     !!hit &&
     readLoose(hit.data, 'is_stale') !== true &&
-    isFresh(hit.timestamp, now, TREND_ENRICH_CACHE_TTL_MS) &&
+    isFresh(hit.timestamp, now, REPO_ENRICH_CACHE_TTL_MS) &&
     !isDataIcon(hit.data.icon);
   if (repos && repos.length > 0) {
     for (const r of repos) {
@@ -368,8 +368,8 @@ export function snapshotTrendEnrichCache(repos?: TrendRepo[]): Record<string, Ap
   return out;
 }
 
-/** 导出榜单可展示的 12h 内非 stale 卡片快照（三态，跳过 `data:` 图标）。 */
-export function snapshotTrendRepoCards(repos: readonly TrendRepo[]): Record<string, AppSummary> {
+/** 导出给定仓库集合中可展示的 12h 内非 stale 卡片快照（三态，跳过 `data:` 图标）。 */
+export function snapshotRepoCardsForRepos(repos: readonly TrendRepo[]): Record<string, AppSummary> {
   const now = Date.now();
   const out: Record<string, AppSummary> = {};
   for (const r of repos ?? []) {
@@ -379,7 +379,7 @@ export function snapshotTrendRepoCards(repos: readonly TrendRepo[]): Record<stri
     if (!targetKey) continue;
     const hit = (ck ? cardPool.get(ck) : undefined) ?? (idKey ? cardPool.get(idKey) : undefined);
     if (!hit || readLoose(hit.data, 'is_stale') === true) continue;
-    if (!isFresh(hit.timestamp, now, TREND_ENRICH_CACHE_TTL_MS)) continue;
+    if (!isFresh(hit.timestamp, now, REPO_ENRICH_CACHE_TTL_MS)) continue;
     if (isDataIcon(hit.data.icon)) continue;
     out[targetKey] = hit.data;
   }
@@ -541,7 +541,7 @@ function rowKeys(
 
 /** 读池内新鲜（12h 内）且平台已落定的富卡。 */
 export function readSharedRepoEnrich(idOrCoord: string): AppSummary | undefined {
-  return peekFreshTrendEnrich(idOrCoord);
+  return peekFreshSettledRepoCard(idOrCoord);
 }
 
 /** 该仓库平台是否已落定（具平台或已确认 Other）。 */
@@ -551,7 +551,7 @@ export function hasSettledRepoPlatforms(idOrCoord: string): boolean {
 
 /** 该仓库是否已在任一视图被确认为 Other（无可安装资产）。 */
 export function isSharedRepoConfirmedOther(idOrCoord: string): boolean {
-  return isTrendConfirmedOtherFresh(idOrCoord);
+  return isRepoConfirmedOtherFresh(idOrCoord);
 }
 
 type HealableRow = {
@@ -627,7 +627,7 @@ export function recordSharedRepoCards(rows: readonly AppSummary[]): void {
     const key = normalizeId(row.id);
     if (key) out.set(key, row);
   }
-  if (out.size > 0) putTrendEnrichMemory(out);
+  if (out.size > 0) putRepoEnrichMemory(out);
 }
 
 /** 写回具平台信息（优先取 `patched`），并撤销对应仓库的已确认 Other 标记。 */
@@ -651,13 +651,13 @@ export function recordSharedRepoPlatforms(
     if (!platforms) continue;
     out.set(key, { ...row, platforms: [...platforms] });
   }
-  if (out.size > 0) putTrendEnrichMemory(out);
+  if (out.size > 0) putRepoEnrichMemory(out);
 }
 
 /** 写回已确认 Other（已具平台的仓库跳过）。 */
 export function recordSharedConfirmedOthers(ids: readonly string[]): void {
   if (!ids || ids.length === 0) return;
-  markTrendConfirmedOthers(ids);
+  markRepoConfirmedOthers(ids);
 }
 
 /** 本会话见到的私有仓库规范 id（登出时据此清池）。 */
@@ -675,7 +675,7 @@ export function recordSharedPrivateRepos(ids: readonly string[]): void {
 /** 登出：从共享池清除全部私有仓库富卡与其已确认 Other 标记。 */
 export function clearPrivateSharedRepoCards(): void {
   if (privateRepoIds.size === 0) return;
-  evictTrendEnrichKeys(privateRepoIds);
+  evictRepoEnrichKeys(privateRepoIds);
   privateRepoIds.clear();
 }
 
@@ -787,13 +787,13 @@ export function upsertRepoCardFromDetail(
   if (isDataIcon(merged.icon)) merged.icon = '';
   const at = Date.now();
   for (const k of keys) putCard(k, at, merged);
-  const concrete = hasConcretePlatforms(detail.platforms);
-  if (!concrete) markTrendConfirmedOthers(keys);
+  const concrete = hasConcretePlatforms(merged.platforms);
+  if (!concrete) markRepoConfirmedOthers(keys);
   const heal: RepoCardHeal = {
     keys,
     summary: merged,
     dirtyFields: diffRichSummary(prev ?? emptyRichBaseline(), merged),
-    ...(concrete ? { platforms: [...detail.platforms] } : { confirmedOther: true }),
+    ...(concrete ? { platforms: [...merged.platforms] } : { confirmedOther: true }),
   };
   for (const fn of [...healListeners]) {
     try {
@@ -872,7 +872,7 @@ export async function hydrateCardsByIds(
     if (pooled) {
       byId.set(id, resolveIconWithBuffer(undefined, pooled));
       freshCardIds.add(id);
-      if (!hasConcretePlatforms(pooled.platforms) && isTrendConfirmedOtherFresh(id)) confirmedOther.add(id);
+      if (!hasConcretePlatforms(pooled.platforms) && isRepoConfirmedOtherFresh(id)) confirmedOther.add(id);
       continue;
     }
     missing.push(id);
@@ -901,8 +901,8 @@ export async function hydrateCardsByIds(
         confirmedOther.add(id);
       }
       const updatedAt = Number(card.updated_at);
-      if (Number.isFinite(updatedAt) && updatedAt > 0 && isFresh(updatedAt * 1000, now, TREND_ENRICH_CACHE_TTL_MS)) {
-        putTrendEnrichMemory(new Map([[id, summary]]), { timestamp: updatedAt * 1000 });
+      if (Number.isFinite(updatedAt) && updatedAt > 0 && isFresh(updatedAt * 1000, now, REPO_ENRICH_CACHE_TTL_MS)) {
+        putRepoEnrichMemory(new Map([[id, summary]]), { timestamp: updatedAt * 1000 });
         freshCardIds.add(id);
       }
       byId.set(id, resolveIconWithBuffer(undefined, summary));

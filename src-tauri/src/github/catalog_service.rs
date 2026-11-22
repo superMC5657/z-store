@@ -682,6 +682,25 @@ impl CatalogService {
         }
     }
 
+    /// 将非空平台补写进目录持久化（精选库与活跃本地库），任一落库成功即同步刷新内存目录。
+    pub fn backfill_platforms(&self, db: &crate::db::Database, id: &str, platforms: &[String]) {
+        if platforms.is_empty() {
+            return;
+        }
+        let Some(key) = crate::forge::canonical_app_id(id) else {
+            return;
+        };
+        let cat_updated = db
+            .update_catalog_app_platforms(&key, platforms)
+            .unwrap_or(false);
+        let custom_updated = db
+            .update_custom_app_platforms(&key, platforms)
+            .unwrap_or(false);
+        if cat_updated || custom_updated {
+            self.update_catalog_item_platforms(&key, platforms);
+        }
+    }
+
     /// 清单拉取（不开启镜像回退）：返回 `(items, etag)`，`items == None` 即未变更。
     pub async fn fetch_remote_catalog(
         &self,
@@ -714,7 +733,7 @@ impl CatalogService {
     }
 
     /// HTTP 清单拉取：经共享无令牌清单传输（[`crate::forge::http::fetch_manifest_with_mirror_fallback`]）；
-    /// 镜像响应须通过严格结构校验才采纳，镜像侧 ETag 不落库（下次同步仍以官方源为准）。
+    /// 非 304 响应只做单次 JSON 解析，镜像通道额外执行严格结构校验，镜像侧 ETag 不落库。
     pub(crate) async fn fetch_http_catalog(
         &self,
         url: &str,
@@ -730,10 +749,13 @@ impl CatalogService {
                 max_bytes: MAX_CATALOG_BYTES,
                 label: "收录清单",
             },
-            |body| {
-                let items: Vec<CatalogItem> = serde_json::from_slice(body)
+            |body, source| {
+                let items: Vec<CatalogItem> = serde_json::from_slice(&body)
                     .map_err(|e| format!("解析收录清单 JSON 失败: {e}"))?;
-                validate_mirrored_catalog(&items)
+                if source == crate::forge::http::ManifestSource::Mirror {
+                    validate_mirrored_catalog(&items)?;
+                }
+                Ok(items)
             },
         )
         .await?;
@@ -742,15 +764,8 @@ impl CatalogService {
         } else {
             CatalogVia::Direct
         };
-        let items = match fetched.body {
-            None => None,
-            Some(body) => Some(
-                serde_json::from_slice::<Vec<CatalogItem>>(&body)
-                    .map_err(|e| format!("解析收录清单 JSON 失败: {e}"))?,
-            ),
-        };
         Ok(RemoteCatalogFetch {
-            items,
+            items: fetched.payload,
             etag: fetched.etag,
             via,
         })
@@ -2373,5 +2388,68 @@ mod persistence_tests {
         let entry = svc.withdraw_submitted(&db, "o/app").unwrap();
         assert!(entry.pr_url.is_none());
         assert!(svc.is_cataloged("o/app"));
+    }
+
+    #[test]
+    fn backfill_platforms_updates_empty_db_and_memory_and_keeps_populated() {
+        let db = Database::open_in_memory().unwrap();
+        let svc = CatalogService::new_empty();
+        let mut remote = item("o/remote");
+        remote.platforms.clear();
+        let mut local = item("o/local");
+        local.platforms.clear();
+        let mut populated = item("o/populated");
+        populated.platforms = vec!["macos".to_string()];
+
+        db.seed_catalog_apps_if_empty(&[remote, populated]).unwrap();
+        db.upsert_custom_app_payload(&local).unwrap();
+        db.mark_custom_app_collected("o/local").unwrap();
+        svc.initialize_from_db(&db);
+
+        svc.backfill_platforms(&db, "o/remote", &[]);
+        assert!(svc
+            .get_remote_catalog_item("o/remote")
+            .unwrap()
+            .platforms
+            .is_empty());
+
+        svc.backfill_platforms(&db, "O/Remote", &["linux".to_string()]);
+        assert_eq!(
+            svc.get_remote_catalog_item("o/remote").unwrap().platforms,
+            vec!["linux".to_string()]
+        );
+        assert_eq!(
+            db.get_catalog_app("o/remote").unwrap().unwrap().platforms,
+            vec!["linux".to_string()]
+        );
+
+        svc.backfill_platforms(&db, "o/local", &["windows".to_string()]);
+        assert_eq!(
+            svc.get_collected_item("o/local").unwrap().platforms,
+            vec!["windows".to_string()]
+        );
+        assert_eq!(
+            db.get_custom_app("o/local")
+                .unwrap()
+                .unwrap()
+                .item
+                .platforms,
+            vec!["windows".to_string()]
+        );
+
+        svc.backfill_platforms(&db, "o/populated", &["linux".to_string()]);
+        assert_eq!(
+            svc.get_remote_catalog_item("o/populated")
+                .unwrap()
+                .platforms,
+            vec!["macos".to_string()]
+        );
+        assert_eq!(
+            db.get_catalog_app("o/populated")
+                .unwrap()
+                .unwrap()
+                .platforms,
+            vec!["macos".to_string()]
+        );
     }
 }

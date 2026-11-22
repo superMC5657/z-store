@@ -32,7 +32,7 @@
 ### 2.2 连接池按签名热重建（D5 隔离不变）
 
 - `proxy::ClientSlot` 以「代理签名 + 构建参数」为键缓存单个 `reqwest::Client`：键不变复用连接池，变化即原子重建，构建失败不污染槽位。
-- API 池（`forge::http::new_api_client` / 不可失败版 `api_client`，`crate::shared_http_client` 同池，缺省 ZStore UA）、图标/CDN 池（`new_icon_client`，有限重定向，无 Token）、清单池（`CatalogService::http_client`，无 Token，pool 10）、趋势直连池（`trend_direct_client`，整体超时 5s，无 Token）各占一个槽位，池种类由 `PoolKind` 显式决定；`AppState` 不持有启动期 Client。构建失败时经 `proxy::fallback_client` 兜底，仍按快照挂代理，不回落 reqwest 自行读取 OS 代理。
+- API 池（`forge::http::new_api_client` / 不可失败版 `api_client`，`crate::shared_http_client` 同池，缺省 ZStore UA）、图标/CDN 池（`new_icon_client`，有限重定向，无 Token）、清单池（`forge::http::manifest_client`，无 Token，pool 10）、趋势直连池（`trend_direct_client`，整体超时 5s，无 Token）各占一个槽位，池种类由 `PoolKind` 显式决定；`AppState` 不持有启动期 Client。构建失败时经 `proxy::fallback_client` 兜底，仍按快照挂代理，不回落 reqwest 自行读取 OS 代理。
 - 安装包下载池 `DOWNLOAD_CLIENTS` 以含直连豁免 host 的代理签名为键，上限 8，超限只驱逐最久未用的一条。
 
 ### 2.3 镜像与系统代理正交：只豁免实际生效的镜像 host

@@ -610,31 +610,13 @@ export const App: React.FC = () => {
 
             {currentView === 'installed' && (
               <InstalledView
+                myApps={myApps}
                 focusUpdates={focusMyAppsUpdates}
                 onFocusConsumed={() => setFocusMyAppsUpdates(false)}
-                installedApps={myApps.filteredInstalledApps}
                 apps={catalogPlatformFilteredApps}
-                uninstallingAppIds={uninstallingAppIds}
-                updates={myApps.filteredUpdates}
-                isChecking={myApps.isCheckingUpdates}
-                checkProgress={myApps.updateCheckProgress}
-                onCheckUpdates={myApps.checkUpdatesAndRefresh}
-                onApplyUpdate={myApps.handleApplyUpdate}
-                onBatchUpdateAll={myApps.handleBatchUpdateAll}
-                onSkipVersion={handleSkipVersion}
-                onLaunch={handleLaunchApp}
-                onUninstall={handleUninstallApp}
-                onUnmanage={handleUnmanageApp}
                 onScanSystemApps={handleScanSystemApps}
-                updateRules={updateRules}
                 updateRulesCount={updateRules.length + activeDismissedWatches.length}
-                onToggleRuleFrozen={handleToggleRuleFrozen}
-                onToggleRuleHidden={handleToggleRuleHidden}
                 onOpenRules={() => setIsRulesModalOpen(true)}
-                loadError={myApps.installLoadError}
-                onRetryLoad={myApps.loadInstalledApps}
-                totalInstalledCount={installedApps.length}
-                installedPlatformRows={myApps.installedPlatformRows}
               />
             )}
 

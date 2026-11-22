@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendsResult } from '../../types';
+import type { AppSummary, TrendBoardId, TrendsResult } from '../../types';
 import { tauriApi } from '../../services/api';
 import { createTrendBoardSession, type DisplayTrendItem } from '../../services/trends';
 import { unionConfirmedSets } from '../../lib/platformFilter';
@@ -11,7 +11,6 @@ interface UseTrendEnrichmentParams {
   rawItems: ReadonlyArray<DisplayTrendItem>;
   getDisplayItems: () => ReadonlyArray<DisplayTrendItem>;
   activeBoard: TrendBoardId;
-  trendFetchOpts: FetchTrendsOptions;
   boardReady: boolean;
   refreshEnrichForceRef: React.MutableRefObject<boolean>;
   globalConfirmed?: ReadonlySet<string>;
@@ -23,7 +22,6 @@ export function useTrendEnrichment({
   rawItems,
   getDisplayItems,
   activeBoard,
-  trendFetchOpts,
   boardReady,
   refreshEnrichForceRef,
   globalConfirmed,
@@ -48,8 +46,8 @@ export function useTrendEnrichment({
   }, [session]);
 
   useEffect(() => {
-    session.syncBoard({ trendResult, activeBoard, trendFetchOpts });
-  }, [session, trendResult, activeBoard, trendFetchOpts]);
+    session.syncBoard({ trendResult, activeBoard });
+  }, [session, trendResult, activeBoard]);
 
   useEffect(() => {
     session.resetLoadingBoard(activeBoard, trendResult);
@@ -59,7 +57,6 @@ export function useTrendEnrichment({
     session.syncEnrichment({
       trendResult,
       activeBoard,
-      trendFetchOpts,
       displayItems: getDisplayItemsRef.current(),
       boardReady,
       consumeForceEnrich: () => {
@@ -68,7 +65,7 @@ export function useTrendEnrichment({
         return force;
       },
     });
-  }, [session, trendResult, activeBoard, trendFetchOpts, boardReady, refreshEnrichForceRef]);
+  }, [session, trendResult, activeBoard, boardReady, refreshEnrichForceRef]);
 
   const combinedConfirmed = useMemo(
     () => unionConfirmedSets(globalConfirmed, mirror.confirmedOtherIds),
@@ -91,7 +88,6 @@ export function useTrendEnrichment({
     globalConfirmed,
     combinedConfirmed,
     activeBoard,
-    trendFetchOpts,
   ]);
 
   useEffect(() => {
@@ -108,7 +104,6 @@ export function useTrendEnrichment({
     globalConfirmed,
     combinedConfirmed,
     activeBoard,
-    trendFetchOpts,
   ]);
 
   return {

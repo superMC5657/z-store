@@ -416,20 +416,13 @@ pub(crate) async fn preflight_submission(
     let cfg = crate::config::get_project_config();
     let source_url = cfg.launchpad.default_source_url.trim().to_string();
     let already_in_catalog = state.catalog.is_cataloged(&canonical_id);
-    let github_token = state.active_github_token();
-    let (already_in_launchpad, host_token) = {
+    let (already_in_launchpad, github_token, host_token) = {
         let db = state.db()?;
         let in_lp = super::feed::is_id_in_snapshot(&db, &source_url, &canonical_id);
-        let tok = if coord.forge == crate::forge::ForgeType::GitHub {
-            github_token.clone()
-        } else {
-            db.get_host_token(&coord.host)
-                .ok()
-                .flatten()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        };
-        (in_lp, tok)
+        let host_tok =
+            crate::oauth::resolve_host_token(&db, coord.forge, &coord.host, &state.github_token);
+        let gh_tok = crate::oauth::resolve_github_token(&db, &state.github_token);
+        (in_lp, gh_tok, host_tok)
     };
 
     let timeout_secs = cfg.network.api_timeout_seconds;

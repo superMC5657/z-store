@@ -1,6 +1,6 @@
 //! 开源广场（Launchpad）领域：清单解析与分流、清单装载与快照降级（`feed`）、讨论脉冲同步
 //! （`pulse`）、讨论读写写透（`discussion`）与投稿只读预检（`preflight`）。数据独立存于广场
-//! 缓存表与未收录富卡缓存，不写入收录目录（ADR-0029）。
+//! 缓存表与单仓富卡派生缓存（`repo_card_cache`），不写入收录目录（ADR-0029）。
 
 pub(crate) mod discussion;
 pub(crate) mod feed;

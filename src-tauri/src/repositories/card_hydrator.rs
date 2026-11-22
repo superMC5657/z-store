@@ -537,7 +537,7 @@ pub(crate) fn resolve_collection_apps_sync(
 /// 满 12h 后进入条件请求发 `If-None-Match`（`304` 零配额 `touch_etag` 续期）。
 pub(crate) const ENRICH_ETAG_SOFT_TTL_SECS: i64 = 12 * 3600;
 
-/// 一批行的本地回填快照：已解析确认图标 + `app_icon_cycles` + `repo_card_cache` + `app_details` 摘要
+/// 一批行的本地水合快照：已解析确认图标 + `app_icon_cycles` + `repo_card_cache` + `app_details` 摘要
 /// + `api_etag_cache`。加载阶段每表常数次分片查询；回填计算阶段零 SQL、零磁盘。
 #[derive(Default)]
 pub(crate) struct BackfillCtx {
@@ -729,7 +729,7 @@ async fn prefetch_backfill(
     ctx
 }
 
-/// 从本地快照回填未收录卡片（图标、富卡缓存、详情缓存与 Release 载荷）；需写入时返回待落库的 `AppIconCycle`。
+/// 从本地快照回填未收录卡片（图标、单仓富卡派生缓存、详情缓存与 Release 载荷）；需写入时返回待落库的 `AppIconCycle`。
 fn backfill_uncataloged_card_in(
     ctx: &BackfillCtx,
     item: &mut AppSummary,

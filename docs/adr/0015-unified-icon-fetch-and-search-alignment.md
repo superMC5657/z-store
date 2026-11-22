@@ -22,7 +22,7 @@
 ## 3. 动态分支与确认过滤
 
 - 慢路径 Trees 分支动态解析，复用 `icons/probe.rs::resolve_probe_branches`（GET 取 `default_branch`，请求失败、超时或字段为空时回退 `vec!["HEAD"]`，同源于 `icons/fetch.rs::probe_l3_trees` 与 `detail_fetch.rs`）。
-- 确认图标（DB落盘即M2，经 `via`=m2）经 DB 短锁预解析回填（`icons/mod.rs::resolve_confirmed_icon_from_db`，锁即取即放，fetch 内零查询零直连；当 `cache_file` 为空但 `icons/` 下已有对应 URL 哈希文件时自动自愈关联并返回 `data:` URI）；前端 `enrichTrendReposCore` 与 `putTrendEnrichMemory` 收到非空确认图标（含 `data:`）时同步调用 `admitIconHit({ via: 'm2' })` 写入 M1 `iconStore` 缓冲，并将 `icon` 剥空为 `''` 后把完整富卡存入 `trendEnrichCache` 与 L2 `trend_board_cache`。
+- 确认图标（DB落盘即M2，经 `via`=m2）经 DB 短锁预解析回填（`icons/mod.rs::resolve_confirmed_icon_from_db`，锁即取即放，fetch 内零查询零直连；当 `cache_file` 为空但 `icons/` 下已有对应 URL 哈希文件时自动自愈关联并返回 `data:` URI）；前端 `enrichTrendReposCore` 与 `putTrendEnrichMemory` 收到非空确认图标（含 `data:`）时同步调用 `admitIconHit({ via: 'm2' })` 写入 M1 `iconStore` 缓冲，并将 `icon` 剥空为 `''` 后把完整富卡存入 `Repo Enrich Cache`（`services/repoEnrichCache.ts`）与 L2 `trend_board_cache`。
 - level纯L(1=L1官方,2=L2品牌库,3=L3仓库,4=L4 README)；缓存只用M(M1=前端内存，M2=DB落盘)，与level正交；level:4=L4。
 
 ## 4. 搜缓存（key/TTL/容量）

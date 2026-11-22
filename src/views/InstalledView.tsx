@@ -30,6 +30,7 @@ import {
 import { EmptyState } from '../components/EmptyState';
 import { EMPTY_IDS, FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
 import { useAppContextProps, type AppContextProps } from '../app/AppContext';
+import type { MyAppsState } from '../app/hooks/useMyAppsState';
 import type { PlatformId } from '../lib/platformFilter';
 import { selectPlatformCounts, type InstalledPlatformRow } from '../app/selectors';
 import {
@@ -67,11 +68,19 @@ import { DEFAULT_ICON_BG } from '../styles/tokens';
 const ChangelogDrawer = lazyNamed(() => import('./InstalledView/ChangelogDrawer'), 'ChangelogDrawer');
 const CollectionShareModal = lazyNamed(() => import('../components/CollectionShareModal'), 'CollectionShareModal');
 
+const EMPTY_INSTALLED: InstalledApp[] = [];
+const EMPTY_APPS: AppSummary[] = [];
+const EMPTY_UPDATES: UpdateItem[] = [];
+const EMPTY_RULES: UpdateRule[] = [];
+const NOOP = () => {};
+
 interface InstalledViewProps extends AppContextProps {
+  /** 「我的应用」状态域整包注入；各平级属性仍可单独覆盖（供独立渲染与单测使用）。 */
+  myApps?: MyAppsState;
   /** 一次性落点请求：为 true 时切到「有更新」签并清空搜索，随后调用 onFocusConsumed。 */
   focusUpdates?: boolean;
   onFocusConsumed?: () => void;
-  installedApps: InstalledApp[];
+  installedApps?: InstalledApp[];
   apps?: AppSummary[];
   uninstallingAppIds?: Set<string>;
   /** 可用更新快照（读库或手动检查结果）；命中的已装行就地呈现版本差与更新动作。 */
@@ -84,8 +93,8 @@ interface InstalledViewProps extends AppContextProps {
   /** 批量更新：参数为当前「有更新」口径下的全部目标（不含被平台筛选或隐藏规则排除的项）。 */
   onBatchUpdateAll?: (targets: UpdateItem[]) => Promise<void>;
   onSkipVersion?: (id: string, version: string) => Promise<void>;
-  onLaunch: (id: string) => void;
-  onUninstall: (id: string) => void;
+  onLaunch?: (id: string) => void;
+  onUninstall?: (id: string) => void;
   onUnmanage?: (id: string) => void;
   onScanSystemApps?: () => void;
   updateRules?: UpdateRule[];
@@ -107,36 +116,56 @@ interface InstalledViewProps extends AppContextProps {
 
 export const InstalledView: React.FC<InstalledViewProps> = (props) => {
   const {
+    myApps,
     focusUpdates = false,
     onFocusConsumed,
-    installedApps,
-    apps = [],
-    uninstallingAppIds,
-    updates = [],
-    isChecking = false,
-    checkProgress,
-    onCheckUpdates,
-    onApplyUpdate,
-    onBatchUpdateAll,
-    onSkipVersion,
+    installedApps: rawInstalledApps,
+    apps = EMPTY_APPS,
+    uninstallingAppIds: rawUninstallingAppIds,
+    updates: rawUpdates,
+    isChecking: rawIsChecking,
+    checkProgress: rawCheckProgress,
+    onCheckUpdates: rawOnCheckUpdates,
+    onApplyUpdate: rawOnApplyUpdate,
+    onBatchUpdateAll: rawOnBatchUpdateAll,
+    onSkipVersion: rawOnSkipVersion,
     onOpenDetail,
-    onLaunch,
-    onUninstall,
-    onUnmanage,
+    onLaunch: rawOnLaunch,
+    onUninstall: rawOnUninstall,
+    onUnmanage: rawOnUnmanage,
     onScanSystemApps,
-    updateRules = [],
+    updateRules: rawUpdateRules,
     updateRulesCount,
-    onToggleRuleFrozen,
-    onToggleRuleHidden,
+    onToggleRuleFrozen: rawOnToggleRuleFrozen,
+    onToggleRuleHidden: rawOnToggleRuleHidden,
     onOpenRules,
-    loadError = null,
-    onRetryLoad,
-    totalInstalledCount,
-    installedPlatformRows,
+    loadError: rawLoadError,
+    onRetryLoad: rawOnRetryLoad,
+    totalInstalledCount: rawTotalInstalledCount,
+    installedPlatformRows: rawInstalledPlatformRows,
     platformResolvedOtherIds = EMPTY_IDS,
     onResetPlatformFilter,
     onDisplayPlatformCounts,
   } = useAppContextProps(props);
+  const installedApps = rawInstalledApps ?? myApps?.filteredInstalledApps ?? EMPTY_INSTALLED;
+  const uninstallingAppIds = rawUninstallingAppIds ?? myApps?.uninstallingAppIds;
+  const updates = rawUpdates ?? myApps?.filteredUpdates ?? EMPTY_UPDATES;
+  const isChecking = rawIsChecking ?? myApps?.isCheckingUpdates ?? false;
+  const checkProgress = rawCheckProgress !== undefined ? rawCheckProgress : myApps?.updateCheckProgress;
+  const onCheckUpdates = rawOnCheckUpdates ?? myApps?.checkUpdatesAndRefresh;
+  const onApplyUpdate = rawOnApplyUpdate ?? myApps?.handleApplyUpdate;
+  const onBatchUpdateAll = rawOnBatchUpdateAll ?? myApps?.handleBatchUpdateAll;
+  const onSkipVersion = rawOnSkipVersion ?? myApps?.handleSkipVersion;
+  const onLaunch = rawOnLaunch ?? myApps?.handleLaunchApp ?? NOOP;
+  const onUninstall = rawOnUninstall ?? myApps?.handleUninstallApp ?? NOOP;
+  const onUnmanage = rawOnUnmanage ?? myApps?.handleUnmanageApp;
+  const updateRules = rawUpdateRules ?? myApps?.updateRules ?? EMPTY_RULES;
+  const onToggleRuleFrozen = rawOnToggleRuleFrozen ?? myApps?.handleToggleRuleFrozen;
+  const onToggleRuleHidden = rawOnToggleRuleHidden ?? myApps?.handleToggleRuleHidden;
+  const loadError = rawLoadError !== undefined ? rawLoadError : (myApps?.installLoadError ?? null);
+  const onRetryLoad = rawOnRetryLoad ?? myApps?.loadInstalledApps;
+  const totalInstalledCount = rawTotalInstalledCount ?? myApps?.installedApps.length;
+  const installedPlatformRows = rawInstalledPlatformRows ?? myApps?.installedPlatformRows;
   const { t, i18n } = useTranslation();
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);

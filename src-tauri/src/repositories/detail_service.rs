@@ -103,32 +103,11 @@ fn project_from_cache(state: &AppState, clean_id: &str, ttl_gated: bool) -> Opti
     let detail =
         DetailRepository::project_detail(&db, &state.catalog, clean_id, ttl_seconds, !ttl_gated)?;
     if ttl_gated && detail.is_stale != Some(true) {
-        backfill_catalog_platforms(state, &db, clean_id, &detail.core.platforms);
-    }
-    Some(detail)
-}
-
-/// 将非空平台补写进目录库（精选库与活跃本地库），任一落库成功即同步刷新内存目录。
-fn backfill_catalog_platforms(
-    state: &AppState,
-    db: &crate::db::Database,
-    clean_id: &str,
-    platforms: &[String],
-) {
-    if platforms.is_empty() {
-        return;
-    }
-    let cat_updated = db
-        .update_catalog_app_platforms(clean_id, platforms)
-        .unwrap_or(false);
-    let custom_updated = db
-        .update_custom_app_platforms(clean_id, platforms)
-        .unwrap_or(false);
-    if cat_updated || custom_updated {
         state
             .catalog
-            .update_catalog_item_platforms(clean_id, platforms);
+            .backfill_platforms(&db, clean_id, &detail.core.platforms);
     }
+    Some(detail)
 }
 
 /// 详情失败的统一降级：有旧行即返回 stale 投影，否则透传错误。
@@ -780,7 +759,7 @@ fn write_back_lite_platforms(
     platforms: &[String],
     tag: Option<&str>,
 ) {
-    backfill_catalog_platforms(state, db, clean_id, platforms);
+    state.catalog.backfill_platforms(db, clean_id, platforms);
     if state.catalog.is_cataloged(clean_id) {
         return;
     }

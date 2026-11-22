@@ -51,10 +51,17 @@ pub(crate) fn is_id_in_snapshot(db: &Database, source_url: &str, canonical_id: &
     })
 }
 
-/// 镜像载荷校验：版本与全量规范标识严格校验。
-fn validate_mirrored_manifest(body: &[u8]) -> Result<(), String> {
-    let text = std::str::from_utf8(body).map_err(|_| "开源广场清单不是合法 UTF-8".to_string())?;
-    validate_manifest_strict(&parse_manifest(text)?)
+/// 清单解析与镜像严格校验（UTF-8 + JSON 结构，仅镜像通道追加严格规范校验）。
+fn parse_and_validate_manifest(
+    body: Vec<u8>,
+    source: crate::forge::http::ManifestSource,
+) -> Result<RawLaunchpadManifest, String> {
+    let text = String::from_utf8(body).map_err(|_| "开源广场清单不是合法 UTF-8".to_string())?;
+    let manifest = parse_manifest(&text)?;
+    if source == crate::forge::http::ManifestSource::Mirror {
+        validate_manifest_strict(&manifest)?;
+    }
+    Ok(manifest)
 }
 
 /// 拉取并落盘广场清单（ETag 条件请求；首跳可重试失败经镜像回退一次；失败回退本地快照并置 `is_stale`）。
@@ -99,7 +106,7 @@ pub(crate) async fn load_launchpad_manifest(
             max_bytes: crate::db::launchpad::LAUNCHPAD_FEED_CACHE_MAX_BYTES,
             label: "开源广场清单",
         },
-        validate_mirrored_manifest,
+        parse_and_validate_manifest,
     )
     .await
     {
@@ -107,7 +114,7 @@ pub(crate) async fn load_launchpad_manifest(
         Err(e) => return fallback(e),
     };
 
-    let Some(body) = fetched.body else {
+    let Some(raw_manifest) = fetched.payload else {
         let Some(manifest) = snapshot
             .as_ref()
             .and_then(|(payload, _)| parse_snapshot(payload))
@@ -126,13 +133,7 @@ pub(crate) async fn load_launchpad_manifest(
         });
     };
 
-    let Ok(text) = String::from_utf8(body) else {
-        return fallback("开源广场清单不是合法 UTF-8".to_string());
-    };
-    let manifest = match parse_manifest(&text) {
-        Ok(m) => sanitize_manifest(m),
-        Err(e) => return fallback(e),
-    };
+    let manifest = sanitize_manifest(raw_manifest);
     let payload = match serde_json::to_string(&manifest) {
         Ok(p) => p,
         Err(e) => return fallback(e.to_string()),

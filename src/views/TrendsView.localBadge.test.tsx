@@ -32,7 +32,6 @@ function mockBoard(repos: TrendRepo[]): void {
     handleRetry: vi.fn(),
     handleRefresh: vi.fn(),
     isRefreshing: false,
-    trendFetchOpts: {},
     refreshEnrichForceRef: { current: false },
   } as unknown as ReturnType<typeof useTrendBoard>);
 }

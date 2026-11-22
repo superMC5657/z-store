@@ -6,7 +6,7 @@ import {
   createTrendBoardSession,
   putTrendEnrichMemory,
 } from '../trends';
-import { snapshotTrendEnrichCache, upsertRepoCardFromDetail } from '../repoEnrichCache';
+import { snapshotSettledRepoCards, upsertRepoCardFromDetail } from '../repoEnrichCache';
 import { CMD, tauriApi } from '../api';
 import * as clientModule from '../api/client';
 import type { AppDetail, AppSummary } from '../../types';
@@ -41,7 +41,6 @@ function startSessionWithRepos(
       stale: false,
     },
     activeBoard: 'weekly',
-    trendFetchOpts: {},
   });
   return session;
 }
@@ -135,7 +134,7 @@ describe('详情补丁别名与跨榜隔离', () => {
       const before = session.getSnapshot().enrichedApps;
       expect(upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', stars: 999 }, { is_stale: true }))).toBeNull();
       expect(session.getSnapshot().enrichedApps).toBe(before);
-      expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
+      expect(snapshotSettledRepoCards()).not.toHaveProperty('acme/atlas');
     } finally {
       session.dispose();
     }
@@ -153,7 +152,28 @@ describe('详情补丁平台落定与预 enrich 行合成', () => {
     try {
       upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', platforms: ['linux'] }));
       expect(session.getSnapshot().enrichedApps['acme/atlas']?.platforms).toEqual(['linux']);
-      expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['linux']);
+      expect(snapshotSettledRepoCards()['acme/atlas']?.platforms).toEqual(['linux']);
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it('空平台详情确认 Other 同步至榜单镜像、随后具平台移除，且已有具平台行不被回退确认', () => {
+    const session = startSessionWithRepos(
+      { 'acme/solid': makeEnrichedApp({ id: 'acme/solid', platforms: ['windows'] }) },
+      ['acme/atlas', 'acme/solid'],
+    );
+    try {
+      upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', platforms: [] }));
+      expect(session.getSnapshot().confirmedOtherIds.has('acme/atlas')).toBe(true);
+
+      upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', platforms: ['linux'] }));
+      expect(session.getSnapshot().confirmedOtherIds.has('acme/atlas')).toBe(false);
+      expect(session.getSnapshot().enrichedApps['acme/atlas']?.platforms).toEqual(['linux']);
+
+      upsertRepoCardFromDetail(detailFrom({ id: 'acme/solid', platforms: [] }));
+      expect(session.getSnapshot().confirmedOtherIds.has('acme/solid')).toBe(false);
+      expect(session.getSnapshot().enrichedApps['acme/solid']?.platforms).toEqual(['windows']);
     } finally {
       session.dispose();
     }
@@ -219,11 +239,10 @@ describe('createTrendBoardSession 生命周期与会话隔离', () => {
     const session = createTrendBoardSession();
     try {
       session.start();
-      session.syncBoard({ trendResult, activeBoard: 'weekly', trendFetchOpts: {} });
+      session.syncBoard({ trendResult, activeBoard: 'weekly' });
       session.syncEnrichment({
         trendResult,
         activeBoard: 'weekly',
-        trendFetchOpts: {},
         displayItems: [
           { type: 'uncataloged', repo: repoAtlas },
           { type: 'uncataloged', repo: repoBeacon },
@@ -238,11 +257,10 @@ describe('createTrendBoardSession 生命周期与会话隔离', () => {
       enrichSpy.mockResolvedValueOnce([fullBeacon]);
 
       session.start();
-      session.syncBoard({ trendResult, activeBoard: 'weekly', trendFetchOpts: {} });
+      session.syncBoard({ trendResult, activeBoard: 'weekly' });
       session.syncEnrichment({
         trendResult,
         activeBoard: 'weekly',
-        trendFetchOpts: {},
         displayItems: [
           { type: 'uncataloged', repo: repoAtlas },
           { type: 'uncataloged', repo: repoBeacon },
@@ -285,7 +303,7 @@ describe('createTrendBoardSession 生命周期与会话隔离', () => {
     });
     session.start();
     const trendResult = { status: 'ok' as const, repos: [repoA], stale: false };
-    session.syncBoard({ trendResult, activeBoard: 'daily', trendFetchOpts: {} });
+    session.syncBoard({ trendResult, activeBoard: 'daily' });
     session.syncLiteVerify({
       trendResult,
       rawItems: [{ type: 'uncataloged', repo: repoA }],

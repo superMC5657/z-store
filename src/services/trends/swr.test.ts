@@ -39,11 +39,10 @@ function mockColdStart(boardPayload: string, cards: Record<string, HydratedRepoC
 async function hydrateSession(result: TrendsResult) {
   const session = createTrendBoardSession();
   session.start();
-  session.syncBoard({ trendResult: result, activeBoard: 'weekly', trendFetchOpts: {} });
+  session.syncBoard({ trendResult: result, activeBoard: 'weekly' });
   session.syncEnrichment({
     trendResult: result,
     activeBoard: 'weekly',
-    trendFetchOpts: {},
     displayItems: result.repos.map((repo) => ({ type: 'uncataloged' as const, repo })),
     boardReady: true,
     consumeForceEnrich: () => false,

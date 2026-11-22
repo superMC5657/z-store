@@ -7,7 +7,6 @@ import {
   subscribeBoardHydrated,
 } from '../../services/trends';
 import type {
-  FetchTrendsOptions,
   TrendBoardId,
   TrendsErrorKind,
   TrendsResult,
@@ -67,8 +66,6 @@ export function persistTrendBoard(board: TrendBoardId): void {
   }
 }
 
-const EMPTY_FETCH_OPTS: FetchTrendsOptions = {};
-
 export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 从 localStorage 同步恢复上次选中的榜单，确保首绘不闪切
   const [board, setBoardState] = useState<TrendBoardId>(() => {
@@ -98,9 +95,6 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const errorKind: TrendsErrorKind | undefined =
     trendResult?.status === 'error' ? (trendResult.errorKind ?? 'unavailable') : undefined;
 
-  // 抓取参数（代理由后端动态系统代理接管，前端不再携带镜像前缀；挂载即抓）。
-  const trendFetchOpts: FetchTrendsOptions = EMPTY_FETCH_OPTS;
-
   // 一榜一源：board / 重试任一变化均触发重抓。
   // 就绪订阅单 emit 源单订阅（L1/L2/网络三路径统一 emit，不双订）。
   useEffect(() => {
@@ -116,7 +110,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     // 现状：读盘前未就绪，View 裸行直展不拦榜（门信号仅供升级判定）。
     setBoardReady(false);
 
-    fetchTrendsResult(activeBoard, trendFetchOpts)
+    fetchTrendsResult(activeBoard)
       .then((res) => {
         if (!isMounted) return;
         setTrendResult(res);
@@ -133,22 +127,19 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     return () => {
       isMounted = false;
     };
-  }, [activeBoard, retryCount, trendFetchOpts]);
+  }, [activeBoard, retryCount]);
 
   const handleRetry = () => setRetryCount((c) => c + 1);
 
   // 手动刷新：直抓远端覆盖当前榜单（刷新期间保留旧榜，seq 守卫丢弃过期落定）
   const activeBoardRef = useRef(activeBoard);
   activeBoardRef.current = activeBoard;
-  const trendFetchOptsRef = useRef(trendFetchOpts);
-  trendFetchOptsRef.current = trendFetchOpts;
   const handleRefresh = useCallback(() => {
     const seq = refreshSeqRef.current + 1;
     refreshSeqRef.current = seq;
     const boardAtClick = activeBoardRef.current;
-    const optsAtClick = trendFetchOptsRef.current;
     setIsRefreshing(true);
-    fetchTrendsResult(boardAtClick, { ...optsAtClick, forceRefresh: true })
+    fetchTrendsResult(boardAtClick, { forceRefresh: true })
       .then((res) => {
         if (seq !== refreshSeqRef.current) return;
         if (activeBoardRef.current !== boardAtClick) return;
@@ -198,7 +189,6 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     handleRetry,
     isRefreshing,
     handleRefresh,
-    trendFetchOpts,
     refreshEnrichForceRef,
   };
 }

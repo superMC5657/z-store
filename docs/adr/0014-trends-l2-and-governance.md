@@ -23,7 +23,7 @@
 
 ## 4. 内存有界
 
-- `trendsCache` 200 条写时 FIFO 删最旧；`trendEnrichCache` 500 条经单一 `put` 入口裁剪；`doforceShared` 单槽（O(1），注释声明）。
+- `trendsCache` 200 条写时 FIFO 删最旧；`Repo Enrich Cache`（`services/repoEnrichCache.ts`，600 条，经 `putCard` 单入口写入裁剪）；`doforceShared` 单槽（O(1），注释声明）。
 
 ## 5. 两级字节上限 + dataURI 禁入
 

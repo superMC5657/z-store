@@ -125,6 +125,13 @@ describe('useMyAppsState：已装列表加载', () => {
     await waitFor(() => expect(result.current.managedLoaded).toBe(true));
     expect(result.current.installLoadError).toContain('boom');
   });
+
+  it('直接以 installed 视图挂载时并发单飞，仅触发一次 getInstalledApps', async () => {
+    const { result } = renderMyApps('installed');
+    await waitFor(() => expect(result.current.managedLoaded).toBe(true));
+    expect(mocks.getInstalledApps).toHaveBeenCalledTimes(1);
+    expect(result.current.installedApps).toHaveLength(2);
+  });
 });
 
 describe('useMyAppsState：卸载与更新项同域', () => {

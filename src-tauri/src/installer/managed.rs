@@ -174,7 +174,7 @@ pub async fn load_installed_apps(state: &AppState) -> AppResult<Vec<InstalledApp
     }
     // 只读扫描不删除数据库记录，幽灵应用仅在返回视图中隐藏。
     if !refresh.ghost_app_ids.is_empty() {
-        let mut ev = crate::z_log::WideEvent::new("scanner", "ghosts hidden");
+        let mut ev = crate::z_log::WideEvent::new("installer", "ghosts hidden");
         ev.field("count", refresh.ghost_app_ids.len());
         ev.warn();
     }

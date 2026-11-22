@@ -21,7 +21,7 @@
 2. **按需 API 动态拉取与 ETag 协商保鲜**：
    - 详情按 TTL + ETag 按需拉取，根据清单坐标请求上游 API 获取最新版本与构建资产；
    - 引入 **ETag 协商机制（`If-None-Match`）**：上游未发布新版本时返回 `304 Not Modified`，不消耗 API 配额并延长保鲜期；上游发布新版本时返回 `200 OK` 并更新数据库；
-   - **更新发现与详情 TTL 解耦，按资产面/非资产面分治**：资产面（已安装应用、更新中心、收藏）仅手动触发网络——`fetch_app_latest_version_lightweight` 与 `check_for_updates` 默认只读本地（更新快照 → 详情缓存 → 收录库默认版本），仅显式手动刷新（`forceRefresh=true`）走 ETag 轻量探查并写 `update_results`，`get_cached_updates` 恒为 DB 快照读；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用（互补边界见 ADR-0019）。断网/限流失败时降级读取本地已有缓存。
+   - **更新发现与详情 TTL 解耦，按资产面/非资产面分治**：资产面（已安装应用、更新中心、收藏）仅手动触发网络——`detail_service::resolve_latest_release_lightweight` 与 `check_for_updates` 默认只读本地（更新快照 → 详情缓存 → 收录库默认版本），仅显式手动刷新（`forceRefresh=true`）走 ETag 轻量探查并写 `update_results`，`get_cached_updates` 恒为 DB 快照读；非资产面（搜索/趋势/平台推导/图标/首页）默认自动拉取并经 ETag 条件请求复用（互补边界见 ADR-0019）。断网/限流失败时降级读取本地已有缓存。
 
 3. **详情缓存保鲜期（TTL）**：
    - 详情 TTL 基线 60 分钟，由 `src-tauri/config.toml` 控制，设置页不暴露；

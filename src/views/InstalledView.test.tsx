@@ -521,3 +521,59 @@ describe('InstalledView share collection entry', () => {
     expect(md).not.toContain('https://github.com/gitea:');
   });
 });
+
+describe('InstalledView myApps domain prop contract', () => {
+  it('reads installed list, updates, rules, actions, load error, and platform total from myApps without flat overrides', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const handleLaunchApp = vi.fn();
+    const checkUpdatesAndRefresh = vi.fn(async () => {});
+    const loadInstalledApps = vi.fn(async () => {});
+
+    const myApps = {
+      filteredInstalledApps: [INSTALLED_LIST[0]],
+      uninstallingAppIds: new Set<string>(),
+      filteredUpdates: UPDATES,
+      isCheckingUpdates: false,
+      updateCheckProgress: null,
+      checkUpdatesAndRefresh,
+      handleApplyUpdate: vi.fn(async () => {}),
+      handleBatchUpdateAll: vi.fn(async () => {}),
+      handleSkipVersion: vi.fn(async () => {}),
+      handleLaunchApp,
+      handleUninstallApp: vi.fn(async () => {}),
+      handleUnmanageApp: vi.fn(async () => {}),
+      updateRules: RULES,
+      handleToggleRuleFrozen: vi.fn(async () => {}),
+      handleToggleRuleHidden: vi.fn(async () => {}),
+      installLoadError: null,
+      loadInstalledApps,
+      installedApps: INSTALLED_LIST,
+      installedPlatformRows: [],
+    } as unknown as Parameters<typeof InstalledView>[0]['myApps'];
+
+    render(<InstalledView myApps={myApps} apps={[makeApp({ id: 'neovim/neovim', name: 'Neovim' })]} />);
+
+    expect(screen.getByText('Neovim')).toBeTruthy();
+    expect(screen.getByText('v0.13.0')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    fireEvent.click(screen.getByText('启动'));
+    expect(handleLaunchApp).toHaveBeenCalledWith('neovim/neovim');
+    fireEvent.click(screen.getByRole('button', { name: '检查更新' }));
+    expect(checkUpdatesAndRefresh).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    render(
+      <InstalledView
+        myApps={{
+          ...myApps!,
+          filteredInstalledApps: [],
+          installedApps: [],
+          installLoadError: 'domain err',
+        }}
+      />,
+    );
+    expect(screen.getByText(/domain err/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试加载' }));
+    expect(loadInstalledApps).toHaveBeenCalledTimes(1);
+  });
+});

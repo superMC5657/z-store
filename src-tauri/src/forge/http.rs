@@ -366,12 +366,24 @@ pub struct ManifestRequest<'a> {
     pub label: &'a str,
 }
 
-/// 清单同步结果：`body == None` 表示 `304 Not Modified`；镜像结果恒不带 ETag。
+/// 清单响应的来源通道（供解析与校验回调区分直连与加速镜像）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManifestSource {
+    Direct,
+    Mirror,
+}
+
+/// 清单同步结果：`payload == None` 表示 `304 Not Modified`；镜像结果恒不带 ETag。
 #[derive(Debug)]
-pub struct ManifestFetch {
-    pub body: Option<Vec<u8>>,
+pub struct ManifestFetch<T> {
+    pub payload: Option<T>,
     pub etag: Option<String>,
     pub via_mirror: bool,
+}
+
+struct RawManifestFetch {
+    body: Option<Vec<u8>>,
+    etag: Option<String>,
 }
 
 struct ManifestFetchError {
@@ -394,7 +406,7 @@ async fn fetch_manifest_once(
     url: &str,
     cached_etag: Option<&str>,
     req: &ManifestRequest<'_>,
-) -> Result<ManifestFetch, ManifestFetchError> {
+) -> Result<RawManifestFetch, ManifestFetchError> {
     let label = req.label;
     let fail = |message: String, retryable: bool| ManifestFetchError { message, retryable };
     let mut builder = client
@@ -409,10 +421,9 @@ async fn fetch_manifest_once(
     })?;
     let status = resp.status();
     if status == reqwest::StatusCode::NOT_MODIFIED {
-        return Ok(ManifestFetch {
+        return Ok(RawManifestFetch {
             body: None,
             etag: None,
-            via_mirror: false,
         });
     }
     if !status.is_success() {
@@ -436,23 +447,39 @@ async fn fetch_manifest_once(
             ),
             BodyReadError::Transport(e) => fail(format!("读取{label}失败: {e}"), true),
         })?;
-    Ok(ManifestFetch {
+    Ok(RawManifestFetch {
         body: Some(body),
         etag,
-        via_mirror: false,
     })
 }
 
 /// 无令牌清单同步：首跳经 `primary` 发条件请求（`304` 即未变更）；首跳可重试失败且给出
-/// `mirror_prefix` 时经镜像池无条件重试一次，镜像载荷须通过 `validate_mirror` 才采纳，
-/// 失败文案以「首跳原因；镜像原因」拼接。不可重试失败或无镜像时返回首跳原因。
-pub async fn fetch_manifest_with_mirror_fallback(
+/// `mirror_prefix` 时经镜像池无条件重试一次。非 `304` 响应经 `parse` 单次解析（镜像通道额外
+/// 执行严格结构校验），失败文案以「首跳原因；镜像原因」拼接。
+pub async fn fetch_manifest_with_mirror_fallback<T>(
     primary: &reqwest::Client,
     req: ManifestRequest<'_>,
-    validate_mirror: impl FnOnce(&[u8]) -> Result<(), String>,
-) -> Result<ManifestFetch, String> {
+    parse: impl FnOnce(Vec<u8>, ManifestSource) -> Result<T, String>,
+) -> Result<ManifestFetch<T>, String> {
     let primary_err = match fetch_manifest_once(primary, req.url, req.cached_etag, &req).await {
-        Ok(fetched) => return Ok(fetched),
+        Ok(RawManifestFetch { body: None, .. }) => {
+            return Ok(ManifestFetch {
+                payload: None,
+                etag: None,
+                via_mirror: false,
+            });
+        }
+        Ok(RawManifestFetch {
+            body: Some(body),
+            etag,
+        }) => {
+            let payload = parse(body, ManifestSource::Direct)?;
+            return Ok(ManifestFetch {
+                payload: Some(payload),
+                etag,
+                via_mirror: false,
+            });
+        }
         Err(ManifestFetchError {
             message,
             retryable: true,
@@ -471,9 +498,10 @@ pub async fn fetch_manifest_with_mirror_fallback(
         let Some(body) = fetched.body else {
             return Err("镜像清单校验失败: 未发条件请求却返回 304".to_string());
         };
-        validate_mirror(&body).map_err(|reason| format!("镜像清单校验失败: {reason}"))?;
+        let payload = parse(body, ManifestSource::Mirror)
+            .map_err(|reason| format!("镜像清单校验失败: {reason}"))?;
         Ok(ManifestFetch {
-            body: Some(body),
+            payload: Some(payload),
             etag: None,
             via_mirror: true,
         })
@@ -631,5 +659,124 @@ mod tests {
             super::read_body_capped(get().await.unwrap(), 63).await,
             Err(super::BodyReadError::TooLarge)
         ));
+    }
+
+    #[tokio::test]
+    async fn manifest_fetch_parses_once_on_direct_200_and_skips_on_304() {
+        let primary = crate::test_support::serve(|req| {
+            if req.to_ascii_lowercase().contains("if-none-match") {
+                crate::test_support::Reply::status("304 Not Modified")
+            } else {
+                crate::test_support::Reply::ok("{\"n\":7}").header("ETag", "W/\"v1\"")
+            }
+        })
+        .await;
+        let client = reqwest::Client::new();
+        let url = format!("{}/manifest.json", primary.base);
+
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_ref = calls.clone();
+        let direct = super::fetch_manifest_with_mirror_fallback(
+            &client,
+            super::ManifestRequest {
+                url: &url,
+                cached_etag: None,
+                mirror_prefix: None,
+                max_bytes: 1024,
+                label: "清单",
+            },
+            move |body, source| {
+                calls_ref.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(source, super::ManifestSource::Direct);
+                let val: serde_json::Value =
+                    serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+                Ok(val["n"].as_u64().unwrap())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(direct.payload, Some(7));
+        assert_eq!(direct.etag.as_deref(), Some("W/\"v1\""));
+        assert!(!direct.via_mirror);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let not_modified = super::fetch_manifest_with_mirror_fallback(
+            &client,
+            super::ManifestRequest {
+                url: &url,
+                cached_etag: Some("W/\"v1\""),
+                mirror_prefix: None,
+                max_bytes: 1024,
+                label: "清单",
+            },
+            |_, _| -> Result<u64, String> {
+                panic!("304 must not invoke parse");
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(not_modified.payload, None);
+        assert!(!not_modified.via_mirror);
+    }
+
+    #[tokio::test]
+    async fn manifest_fetch_parses_once_on_mirror_fallback_and_formats_validation_error() {
+        let primary = crate::test_support::serve(|_| {
+            crate::test_support::Reply::status("503 Service Unavailable")
+        })
+        .await;
+        let mirror = crate::test_support::serve(|_| {
+            crate::test_support::Reply::ok("{\"n\":42}").header("ETag", "W/\"m\"")
+        })
+        .await;
+        let client = reqwest::Client::new();
+        let url = format!("{}/manifest.json", primary.base);
+
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_ref = calls.clone();
+        let fetched = super::fetch_manifest_with_mirror_fallback(
+            &client,
+            super::ManifestRequest {
+                url: &url,
+                cached_etag: None,
+                mirror_prefix: Some(&mirror.base),
+                max_bytes: 1024,
+                label: "清单",
+            },
+            move |body, source| {
+                calls_ref.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(source, super::ManifestSource::Mirror);
+                let val: serde_json::Value =
+                    serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+                Ok(val["n"].as_u64().unwrap())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(fetched.payload, Some(42));
+        assert!(fetched.via_mirror);
+        assert_eq!(fetched.etag, None);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let err = super::fetch_manifest_with_mirror_fallback(
+            &client,
+            super::ManifestRequest {
+                url: &url,
+                cached_etag: None,
+                mirror_prefix: Some(&mirror.base),
+                max_bytes: 1024,
+                label: "清单",
+            },
+            |_, source| -> Result<u64, String> {
+                assert_eq!(source, super::ManifestSource::Mirror);
+                Err("结构非法".to_string())
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.contains("503") && err.contains("；镜像清单校验失败: 结构非法"),
+            "{err}"
+        );
     }
 }

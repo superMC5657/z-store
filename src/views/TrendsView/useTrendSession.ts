@@ -38,7 +38,7 @@ export function useTrendSession({
   initialBoard = 'weekly',
 }: UseTrendSessionParams) {
   const board = useTrendBoard(initialBoard);
-  const { trendResult, activeBoard, trendFetchOpts, boardReady, refreshEnrichForceRef } = board;
+  const { trendResult, activeBoard, boardReady, refreshEnrichForceRef } = board;
 
   // 与本地收录交叉匹配：有则完整卡片，无则名 + 星数。
   const rawDisplayItems = useMemo<DisplayTrendItem[]>(() => {
@@ -65,7 +65,6 @@ export function useTrendSession({
     rawItems: rawDisplayItems,
     getDisplayItems: () => displayItemsRef.current,
     activeBoard,
-    trendFetchOpts,
     boardReady,
     refreshEnrichForceRef,
     globalConfirmed: platformResolvedOtherIds,

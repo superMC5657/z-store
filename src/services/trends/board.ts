@@ -924,13 +924,11 @@ export interface TrendBoardSession {
   syncBoard(params: {
     trendResult: TrendsResult | null;
     activeBoard: TrendBoardId;
-    trendFetchOpts: FetchTrendsOptions;
   }): void;
   resetLoadingBoard(activeBoard: TrendBoardId, trendResult: TrendsResult | null): void;
   syncEnrichment(params: {
     trendResult: TrendsResult | null;
     activeBoard: TrendBoardId;
-    trendFetchOpts: FetchTrendsOptions;
     displayItems: ReadonlyArray<DisplayTrendItem>;
     boardReady: boolean;
     consumeForceEnrich: () => boolean;
@@ -1065,13 +1063,40 @@ export function createTrendBoardSession(
     })();
   }
 
-  /** 订阅详情落定补丁：仅更新榜单镜像（富卡池已由 `upsertRepoCardFromDetail` 写入）。 */
+  /** 订阅详情落定补丁：仅更新榜单镜像与已确认 Other 镜像（富卡池已由 `upsertRepoCardFromDetail` 写入）。 */
   function attachHealBus(): () => void {
     return subscribeRepoCardHeals((heal) => {
       const repoKeys = boardRepoKeys(currentTrendResult?.repos);
       updateEnrichedApps((prev) => applyRepoCardHealToMirror(prev, heal, repoKeys));
       if (heal.platforms && heal.platforms.length > 0) {
         updateConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, heal.keys));
+      } else if (heal.confirmedOther) {
+        const keySet = new Set(heal.keys.map((k) => k.trim().toLowerCase()).filter((k) => k.length > 0));
+        const candidates = new Set<string>();
+        let hasBoardConcrete = false;
+        for (const k of keySet) {
+          if (repoKeys.has(k) || Boolean(enrichedApps[k])) candidates.add(k);
+        }
+        for (const [mirrorKey, row] of Object.entries(enrichedApps)) {
+          const nk = mirrorKey.trim().toLowerCase();
+          const alias = String(row?.id ?? '').trim().toLowerCase();
+          if (!keySet.has(nk) && (alias === '' || !keySet.has(alias))) continue;
+          if (row?.platforms && row.platforms.length > 0) {
+            hasBoardConcrete = true;
+            break;
+          }
+          if (nk) candidates.add(nk);
+          if (alias) candidates.add(alias);
+        }
+        if (!hasBoardConcrete) {
+          const toConfirm = [...candidates].filter((k) => {
+            const row = enrichedApps[k];
+            return !(row?.platforms && row.platforms.length > 0);
+          });
+          if (toConfirm.length > 0) {
+            updateConfirmedOtherIds((prev) => addConfirmedMirror(prev, toConfirm));
+          }
+        }
       }
     });
   }

@@ -353,6 +353,18 @@ describe('upsertRepoCardFromDetail', () => {
     upsertRepoCardFromDetail(detail('acme/atlas', { platforms: [] }));
     expect(isSharedRepoConfirmedOther('acme/atlas')).toBe(false);
     expect(readSharedRepoEnrich('acme/atlas')?.platforms).toEqual(['linux']);
+
+    const monotonicHeals: RepoCardHeal[] = [];
+    const stopMonotonic = subscribeRepoCardHeals((h) => monotonicHeals.push(h));
+    try {
+      upsertRepoCardFromDetail(detail('acme/atlas', { platforms: [] }));
+      expect(monotonicHeals).toHaveLength(1);
+      expect(monotonicHeals[0].platforms).toEqual(['linux']);
+      expect(monotonicHeals[0].confirmedOther).toBeUndefined();
+      expect(isSharedRepoConfirmedOther('acme/atlas')).toBe(false);
+    } finally {
+      stopMonotonic();
+    }
   });
 
   it('is_stale 详情不写池、不扇出', () => {

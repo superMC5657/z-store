@@ -216,7 +216,6 @@ export function useDetailCacheSync({
     // stale 离线详情不具权威性，不触发平台确认或治愈
     const isStaleDetail = Boolean(detail.is_stale);
     const detailPlatforms = !isStaleDetail && detail.platforms && detail.platforms.length > 0 ? detail.platforms : undefined;
-    const detailConfirmedEmpty = !isStaleDetail && !detailPlatforms;
 
     const patchSummary = (app: AppSummary): AppSummary => {
       const isTarget =
@@ -310,8 +309,10 @@ export function useDetailCacheSync({
     const heal = isStaleDetail
       ? null
       : upsertRepoCardFromDetail(detail, { prevLookup: findById, aliases: [idClean] });
+    const resolvedConcrete = Boolean(detailPlatforms || (heal?.platforms && heal.platforms.length > 0));
+    const resolvedConfirmedEmpty = !isStaleDetail && !resolvedConcrete;
     // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
-    if (detailConfirmedEmpty) {
+    if (resolvedConfirmedEmpty) {
       const keys = new Set<string>([idClean, detail.id.toLowerCase()]);
       setPlatformResolvedOtherIds((prev) => {
         let changed = false;
@@ -325,8 +326,8 @@ export function useDetailCacheSync({
         return changed ? next : prev;
       });
     }
-    // 详情带回真实平台：解除已确认 other
-    if (detailPlatforms) {
+    // 详情或池内已有真实平台：解除已确认 other
+    if (resolvedConcrete) {
       const healKeys = new Set<string>([idClean, detail.id.toLowerCase(), ...(heal?.keys ?? [])]);
       setPlatformResolvedOtherIds((prev) => {
         if (![...healKeys].some((k) => prev.has(k))) return prev;

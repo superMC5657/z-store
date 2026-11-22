@@ -217,16 +217,27 @@ export function useInstallState({
     showToast(t('toast.unmanage_success', { name: appName }), 'info');
   };
 
-  // 加载已装列表（进入「我的应用」触发，亦作错误重试与检查更新重读入口）
-  const loadInstalledApps = useCallback(async () => {
-    try {
-      const freshInstalled = await tauriApi.getInstalledApps();
-      setInstalledApps(freshInstalled);
-      setInstallLoadError(null);
-    } catch (err) {
-      setInstallLoadError(String(err));
-    }
-  }, []);
+  // 加载已装列表（进入「我的应用」触发，亦作错误重试与检查更新重读入口）；并发挂载单飞复用。
+  const inflightLoadRef = useRef<Promise<void> | null>(null);
+  const loadInstalledApps = useCallback(() => {
+    if (inflightLoadRef.current) return inflightLoadRef.current;
+    const promise = (async () => {
+      try {
+        const freshInstalled = await tauriApi.getInstalledApps();
+        setInstalledApps(freshInstalled);
+        setInstallLoadError(null);
+      } catch (err) {
+        setInstallLoadError(String(err));
+      }
+    })();
+    inflightLoadRef.current = promise;
+    void promise.finally(() => {
+      if (inflightLoadRef.current === promise) {
+        inflightLoadRef.current = null;
+      }
+    });
+    return promise;
+  }, [setInstalledApps]);
 
   useEffect(() => {
     if (currentView === 'installed') {
