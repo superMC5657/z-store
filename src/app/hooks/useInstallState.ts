@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, ViewType } from '../../types';
 import { tauriApi, UNVERIFIED_ASSET_MARKER } from '../../services/api';
@@ -20,6 +20,8 @@ interface UseInstallStateParams {
   t: TFunction;
   /** 卸载或取消管理成功后回调（入参为调用方传入的原始 id），供调用方清理该应用的残留更新项。 */
   onAppRemoved?: (id: string) => void;
+  /** 由上层状态域持有的已装列表（`useMyAppsState` 与更新域共享同一份）；缺省用内部状态。 */
+  installedState?: [InstalledApp[], Dispatch<SetStateAction<InstalledApp[]>>];
 }
 
 export function useInstallState({
@@ -28,8 +30,10 @@ export function useInstallState({
   showToast,
   t,
   onAppRemoved,
+  installedState,
 }: UseInstallStateParams) {
-  const [installedApps, setInstalledApps] = useState<InstalledApp[]>([]);
+  const ownInstalledState = useState<InstalledApp[]>([]);
+  const [installedApps, setInstalledApps] = installedState ?? ownInstalledState;
   const [installingAppIds, setInstallingAppIds] = useState<Set<string>>(new Set());
   const [uninstallingAppIds, setUninstallingAppIds] = useState<Set<string>>(new Set());
   // 已装列表初始加载错误（null = 无错误/未加载）：与空列表区分呈现，供 InstalledView 出重试

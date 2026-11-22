@@ -1,6 +1,6 @@
 # Issue 08: 纯化 `selectors.ts`，下沉 `Bi-dimensional Filter` 与 `My Apps` 状态域，收敛列表 SWR Hook
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 05, 07
 
 ## Summary

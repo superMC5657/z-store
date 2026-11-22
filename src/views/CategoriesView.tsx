@@ -252,6 +252,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = (props) => {
   }, [selectedCategory, platformSource, platformResolvedOtherIds]);
 
   useReportPlatformCounts(categoryPlatformCounts, onDisplayPlatformCounts, {
+    view: 'categories',
     reportNull: true,
     resetOnUnmount: true,
   });

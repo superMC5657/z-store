@@ -97,7 +97,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
     () => (feed ? selectPlatformCounts(allEntries.map((e) => e.summary), platformResolvedOtherIds) : null),
     [feed, allEntries, platformResolvedOtherIds],
   );
-  useReportPlatformCounts(platformCounts, onDisplayPlatformCounts);
+  useReportPlatformCounts(platformCounts, onDisplayPlatformCounts, { view: 'launchpad' });
 
   const matches = useCallback(
     (e: LaunchpadEntry) =>

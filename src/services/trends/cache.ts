@@ -4,6 +4,7 @@ import { isTauri, tauriInvoke } from '../api/client';
 import { normalizeId } from '../normalizeId';
 import { zlogWarn } from '../../lib/z-log';
 import { clearTrendEnrichCache } from './enrich';
+import { createSerializedKeyWriter } from '../../lib/serializedKeyWriter';
 
 export const CACHE_TTL_MS = 5 * 60 * 1000; // 默认内存缓存回落（未知榜；daily/weekly/monthly/new 均为显式分档见 trendsBoardTtlMs；仅成功结果写入；rising/healthy 除外，见下）
 /** doforce 源数据共享缓存 TTL。 */
@@ -264,8 +265,8 @@ export async function getDbTrendCache(
   }
 }
 
-/** 按榜单 key 串行的写盘链（同 key 后写覆盖先写，跨 key 互不阻塞）。 */
-const boardSaveChains = new Map<string, Promise<void>>();
+/** 按榜单 key 串行写盘（同 key 后写覆盖先写，跨 key 互不阻塞）。 */
+const writeBoardSerialized = createSerializedKeyWriter();
 
 /** 榜缓存 L2 写：仅在抓榜成功时写入 `{ v: 2, items }` 排行索引，超 32 KiB 跳过。 */
 export function saveDbTrendCache(key: string, board: string, repos: readonly TrendRepo[]): Promise<void> {
@@ -278,22 +279,14 @@ export function saveDbTrendCache(key: string, board: string, repos: readonly Tre
     zlogWarn(`[trends] persist skipped reason=payload-too-large key=${key} bytes=${utf8ByteLength(payloadJson)}`);
     return Promise.resolve();
   }
-  const task = (boardSaveChains.get(key) ?? Promise.resolve())
-    .catch(() => undefined)
-    .then(() => tauriInvoke(CMD.saveTrendBoardCache, { cacheKey: key, board, payloadJson }))
-    .then(
-      () => undefined,
-      (err: unknown) => {
-        const reason = err instanceof Error ? err.message : String(err);
-        zlogWarn(`[trends] persist save failed key=${key} reason=${reason.slice(0, 160)}`);
-      },
-    );
-  boardSaveChains.set(key, task);
-  const cleanup = (): void => {
-    if (boardSaveChains.get(key) === task) boardSaveChains.delete(key);
-  };
-  void task.then(cleanup, cleanup);
-  return task;
+  return writeBoardSerialized(
+    key,
+    () => tauriInvoke(CMD.saveTrendBoardCache, { cacheKey: key, board, payloadJson }),
+    (err) => {
+      const reason = err instanceof Error ? err.message : String(err);
+      zlogWarn(`[trends] persist save failed key=${key} reason=${reason.slice(0, 160)}`);
+    },
+  );
 }
 
 /** 判断图标是否为 `data:` 内联 URI（仅用于展示，不写入持久富卡池）。 */

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type MutableRefObject } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, Navigate, ViewType } from '../../types';
 import { tauriApi, ONLINE_SEARCH_PER_PAGE } from '../../services/api';
@@ -30,6 +30,8 @@ interface UseSearchStateParams {
     'setApps' | 'fullCatalogAppsRef' | 'onlineApps' | 'setOnlineApps' | 'onlineAppsRef'
   >;
   lazyBackfillPlatforms: (summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void;
+  /** 搜索世代（平台回填据此丢弃过期批次）；缺省用内部 ref。 */
+  searchSeqRef?: MutableRefObject<number>;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
 }
@@ -94,6 +96,7 @@ export function useSearchState({
   navigate,
   catalogLists,
   lazyBackfillPlatforms,
+  searchSeqRef: sharedSearchSeqRef,
   showToast,
   t,
 }: UseSearchStateParams) {
@@ -109,7 +112,8 @@ export function useSearchState({
   const localCompletedQueryRef = useRef<string | null>(null);
   const localInFlightQueryRef = useRef<string | null>(null);
   const [isSearchingLocal, setIsSearchingLocal] = useState(false);
-  const searchSeqRef = useRef(0);
+  const ownSearchSeqRef = useRef(0);
+  const searchSeqRef = sharedSearchSeqRef ?? ownSearchSeqRef;
   const currentSearchIdRef = useRef<string>('');
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
   const isSearchingOnlineRef = useRef(false);

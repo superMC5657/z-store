@@ -123,6 +123,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
     return null;
   }, [activeTab, allFavRows, allWatchRows, platformResolvedOtherIds]);
   useReportPlatformCounts(tabPlatformCounts, onDisplayPlatformCounts, {
+    view: 'favorites',
     resetOnUnmount: true,
   });
 

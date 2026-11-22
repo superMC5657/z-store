@@ -15,27 +15,20 @@ import { TrendsView } from './views/TrendsView';
 import { LaunchpadView } from './views/LaunchpadView';
 import { CategoriesView } from './views/CategoriesView';
 import { InstalledView } from './views/InstalledView';
-import { buildRulesMap, buildUpdatesMap, selectUpdatableInstalled } from './views/manage/manageModel';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
 import { Search } from 'lucide-react';
-import { AppDetailViewModel, AppSummary, CollectionModalData, OAuthUser, ViewType, createNavigate } from './types';
+import { AppDetailViewModel, CollectionModalData, OAuthUser, ViewType, createNavigate } from './types';
 import { maskRecentViews } from './services/recentViewsMask';
 import { tauriApi } from './services/api';
-import {
-  PLATFORM_FILTER_STORAGE_KEY,
-  isPlatformLoading,
-  loadSelectedPlatforms,
-  togglePlatformSet,
-  type PlatformId,
-} from './lib/platformFilter';
+import { isPlatformLoading } from './lib/platformFilter';
 import { normalizeId } from './services/normalizeId';
 
 import { InstallConfirmDialog } from './app/InstallConfirmDialog';
 import { useCatalogLists } from './app/hooks/useCatalogLists';
-import { usePlatformBackfill } from './app/hooks/usePlatformBackfill';
+import { usePlatformFilter, useSidebarPlatformCounts } from './app/hooks/usePlatformFilter';
 import { useSearchState } from './app/hooks/useSearchState';
-import { useInstallState } from './app/hooks/useInstallState';
+import { useMyAppsState } from './app/hooks/useMyAppsState';
 import { useDeepLink } from './app/hooks/useDeepLink';
 import { useCustomApps } from './app/hooks/useCustomApps';
 import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
@@ -43,7 +36,6 @@ import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
 import { useAppSelectors, selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
-import { useUpdatesState } from './app/hooks/useUpdatesState';
 import { useWatchState } from './app/hooks/useWatchState';
 import { useViewScrollMemory } from './app/hooks/useViewScrollMemory';
 import { AppContextProvider, type AppActions, type LibraryState } from './app/AppContext';
@@ -110,9 +102,6 @@ export const App: React.FC = () => {
     handleToggleLanguage,
     handleUpdateSetting,
   } = useAppSettings();
-  // 设备平台全局过滤：App 级别多选平台状态，默认选中全部 6 种 PLATFORM_IDS（含虚拟 other），
-  // 仅持久化至 localStorage——刻意不接入 tauriApi.getSettings()/UserDataBackup（仅为本地界面偏好，非备份数据）。
-  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<PlatformId>>(() => loadSelectedPlatforms());
   // OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
   // 登出/换账号即清内存里的 `@me:` 私有 Star 缓存，不论收藏页是否挂载。
@@ -143,50 +132,17 @@ export const App: React.FC = () => {
   const customAppsStore = useCustomApps();
   const { customApps, customAppEntries, customIds, localLibrarySummaries } = customAppsStore;
 
-  // 卸载/取消管理成功即剔除该应用的残留更新项（ID 归一比较）。
-  const installedAppRemovedRef = useRef<(id: string) => void>(() => {});
-  const handleInstalledAppRemoved = useCallback((id: string) => {
-    installedAppRemovedRef.current(id);
-  }, []);
-
-  // 安装管理
+  // 设备平台过滤域：全局平台勾选、已确认 other、列表平台懒回填、搜索世代与视图级侧栏分布槽位
+  const platformFilter = usePlatformFilter({ currentView, catalogLists });
   const {
-    installedApps,
-    setInstalledApps,
-    installingAppIds,
-    uninstallingAppIds,
-    installLoadError,
-    loadInstalledApps,
-    handleInstallApp,
-    handleBatchInstallApp,
-    handleQuickInstall,
-    handleLaunchApp,
-    handleUnmanageApp,
-    handleUninstallApp,
-    unverifiedInstallPrompt,
-    dismissUnverifiedInstall,
-    confirmUnverifiedInstall,
-  } = useInstallState({
-    currentView,
-    apps,
-    showToast,
-    t,
-    onAppRemoved: handleInstalledAppRemoved,
-  });
-
-  // 安装请求收口：以选项对象承接弹窗上下文（确认无校验资产后原样重试），避免位置参数膨胀。
-  const handleInstallRequest = useCallback(
-    (request: InstallAppRequest) =>
-      handleInstallApp(request.id, request.assetName, request.customInstallDir, request.allowUnverified),
-    [handleInstallApp],
-  );
-
-  // 平台回填与搜索解耦
-  const lazyBackfillRef = useRef<(summaries: AppSummary[], seq: number, forceRefresh?: boolean) => void>(() => {});
+    selectedPlatforms,
+    platformResolvedOtherIds,
+    setPlatformResolvedOtherIds,
+    confirmPlatformOtherIds,
+  } = platformFilter;
 
   const {
     searchQuery,
-    searchSeqRef,
     currentSearchIdRef,
     isSearchingLocal,
     isSearchingOnline,
@@ -202,7 +158,8 @@ export const App: React.FC = () => {
     currentView,
     navigate,
     catalogLists,
-    lazyBackfillPlatforms: (summaries, seq, forceRefresh) => lazyBackfillRef.current(summaries, seq, forceRefresh),
+    lazyBackfillPlatforms: platformFilter.lazyBackfillPlatforms,
+    searchSeqRef: platformFilter.searchSeqRef,
     showToast,
     t,
   });
@@ -211,17 +168,6 @@ export const App: React.FC = () => {
   const contentRef = useRef<HTMLElement>(null);
   const isHomeSearching = currentView === 'home' && searchQuery.trim() !== '';
   useViewScrollMemory(contentRef, isHomeSearching ? null : currentView);
-
-  const {
-    platformResolvedOtherIds,
-    setPlatformResolvedOtherIds,
-    confirmPlatformOtherIds,
-    lazyBackfillPlatforms,
-  } = usePlatformBackfill({
-    catalogLists,
-    searchSeqRef,
-  });
-  lazyBackfillRef.current = lazyBackfillPlatforms;
 
   // 合并后全量（含本地，远端优先去重语义不动）：收藏 join/详情标注/趋势/Star 共用此未裁剪全量口径，
   // 本地行保留 source='local'/status 供黄标判定。
@@ -287,10 +233,8 @@ export const App: React.FC = () => {
       currentSearchIdRef,
       hasActiveQuery: () => Boolean(searchQueryRef.current.trim()),
     },
-    currentView,
     localApps: resolvedLocalApps,
     library: {
-      setInstalledApps,
       setFavoriteIds,
       setOAuthUser,
       applyPersistedSettings,
@@ -298,32 +242,7 @@ export const App: React.FC = () => {
     notify: { showToast, t },
   });
 
-  // 更新与规则域
-  const {
-    updates,
-    updateRules,
-    isCheckingUpdates,
-    updateCheckProgress,
-    handleInstalledAppRemoved: removeUpdatesForApp,
-    refreshUpdatesSnapshotFromDb,
-    handleApplyUpdate,
-    handleSkipVersion,
-    handleClearRuleSkip,
-    handleToggleRuleFrozen,
-    handleToggleRuleHidden,
-    handleBatchUpdateAll,
-    handleCheckUpdates,
-  } = useUpdatesState({
-    catalogLists,
-    setInstalledApps,
-    searchQuery,
-    currentView,
-    showToast,
-    t,
-  });
-  installedAppRemovedRef.current = removeUpdatesForApp;
-
-  // 派生选择器
+  // 派生选择器（纯计算）
   const {
     catalogPlatformFilteredApps,
     fullMergedCatalogApps,
@@ -334,22 +253,9 @@ export const App: React.FC = () => {
     favoritesViewApps,
     platformFilteredFavoriteCount,
     pendingFilteredCount,
-    filteredInstalledApps,
-    filteredUpdates,
-    installedPlatformRows,
-    countVisibleUpdatable,
-    handleResetPlatformFilter,
-    handleInstalledPlatformCounts,
-    handleTrendsPlatformCounts,
-    handleLaunchpadPlatformCounts,
-    handlePendingPlatformCounts,
-    handleLatestPlatformCounts,
-    handleCategoryPlatformCounts,
-    handleStarredPlatformCounts,
-    sidebarPlatformCounts,
-    installedIds,
-    managedIds,
-    managedLoaded,
+    platformCounts,
+    searchPlatformCounts,
+    appsById,
     stagedDeepLinkDetail,
     stagedDeepLinkSummary,
     stagedDeepLinkSha256,
@@ -358,10 +264,7 @@ export const App: React.FC = () => {
     onlineApps,
     isOnlineResults: isOnlineResultSet,
     uncatalogedExtraApps,
-    installedApps,
-    updates,
     selectedPlatforms,
-    setSelectedPlatforms,
     platformResolvedOtherIds,
     selectedApp,
     recentlyViewedApps,
@@ -374,31 +277,50 @@ export const App: React.FC = () => {
     pendingEntries: customAppEntries,
   });
 
-  // 侧栏「我的应用」角标：与页内「有更新」筛选签同一口径（selectUpdatableInstalled）
-  const updatableInstalledCount = useMemo(
-    () =>
-      selectUpdatableInstalled(filteredInstalledApps, buildRulesMap(updateRules), buildUpdatesMap(filteredUpdates))
-        .length,
-    [filteredInstalledApps, updateRules, filteredUpdates],
+  const sidebarPlatformCounts = useSidebarPlatformCounts({
+    currentView,
+    viewPlatformCounts: platformFilter.viewPlatformCounts,
+    searchCounts: searchPlatformCounts,
+    catalogCounts: platformCounts,
+  });
+
+  // 「我的应用」状态域：已装、安装/卸载、更新与规则、检查进度、无校验确认与平台过滤后的已装/更新视图
+  const myApps = useMyAppsState({
+    currentView,
+    catalogLists,
+    searchQuery,
+    appsById,
+    selectedPlatforms,
+    platformResolvedOtherIds,
+    showToast,
+    t,
+  });
+  const {
+    installedApps,
+    installedIds,
+    managedIds,
+    managedLoaded,
+    installingAppIds,
+    uninstallingAppIds,
+    handleInstallApp,
+    handleBatchInstallApp,
+    handleQuickInstall,
+    handleLaunchApp,
+    handleUnmanageApp,
+    handleUninstallApp,
+    updateRules,
+    handleSkipVersion,
+    handleClearRuleSkip,
+    handleToggleRuleFrozen,
+    handleToggleRuleHidden,
+  } = myApps;
+
+  // 安装请求收口：以选项对象承接弹窗上下文（确认无校验资产后原样重试），避免位置参数膨胀。
+  const handleInstallRequest = useCallback(
+    (request: InstallAppRequest) =>
+      handleInstallApp(request.id, request.assetName, request.customInstallDir, request.allowUnverified),
+    [handleInstallApp],
   );
-
-  // 规则管理按 app_id 查可用更新（不过平台筛选：规则行本身不受平台筛选影响）
-  const allUpdatesById = useMemo(() => buildUpdatesMap(updates), [updates]);
-
-  // 「我的应用」检查更新：联网检查的同时重读本地已装列表（零网络），页面只保留这一个刷新入口。
-  const handleCheckUpdatesAndRefresh = async () => {
-    void loadInstalledApps();
-    await handleCheckUpdates(countVisibleUpdatable);
-  };
-
-  // 平台选择变更时回写至 localStorage
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([...selectedPlatforms]));
-    } catch {
-      // 忽略：无痕模式/配额满/存储抛错时保持内存选择状态
-    }
-  }, [selectedPlatforms]);
 
   const handleClearRecentViews = () => {
     maskRecentViews(recentlyViewedApps);
@@ -437,11 +359,6 @@ export const App: React.FC = () => {
     return true;
   }, [showToast, t]);
 
-  // 设备平台切换：空选择为有效状态（页面渲染空筛选引导），在函数式 updater 内计算以保证连续点击顺序生效。
-  const handleTogglePlatform = useCallback((id: PlatformId) => {
-    setSelectedPlatforms((prev) => togglePlatformSet(prev, id));
-  }, []);
-
   // 扫描系统已安装的开源应用
   const handleScanSystemApps = () => {
     setIsImportModalOpen(true);
@@ -449,15 +366,7 @@ export const App: React.FC = () => {
 
   const handleImportSuccess = async (count: number) => {
     showToast(t('toast.batch_import_success', { count }), 'success');
-    try {
-      const loadedInstalled = await tauriApi.getInstalledApps();
-      setInstalledApps(loadedInstalled);
-    } catch {
-      /* Toast 提示后刷新静默失败 */
-    }
-
-    // 导入成功后刷新已安装列表，并后台复核更新（DB-only 合成读，不阻塞界面交互）
-    refreshUpdatesSnapshotFromDb();
+    await myApps.refreshAfterImport();
   };
 
   // 镜像切换失败向上抛，由设置页统一 toast `settings.proxy_save_failed`（单点呈现，App 侧不弹）；
@@ -526,7 +435,7 @@ export const App: React.FC = () => {
       onQuickInstall: handleQuickInstall,
       onToggleFavorite: handleToggleFavorite,
       onToggleWatch: handleToggleWatch,
-      onResetPlatformFilter: handleResetPlatformFilter,
+      onResetPlatformFilter: platformFilter.resetPlatformFilter,
       onOpenDeveloper: setSelectedDeveloper,
       onOpenAccount: handleOpenAccountSettings,
     }),
@@ -535,7 +444,7 @@ export const App: React.FC = () => {
       handleQuickInstall,
       handleToggleFavorite,
       handleToggleWatch,
-      handleResetPlatformFilter,
+      platformFilter.resetPlatformFilter,
       handleOpenAccountSettings,
     ],
   );
@@ -565,19 +474,23 @@ export const App: React.FC = () => {
         <Sidebar
           currentView={currentView}
           onSelectView={navigate}
-          updatesCount={updatableInstalledCount}
+          updatesCount={myApps.updatableInstalledCount}
           favoritesCount={platformFilteredFavoriteCount}
           onOpenAccount={handleOpenAccountSettings}
           isCollapsed={isSidebarCollapsed}
           selectedPlatforms={selectedPlatforms}
-          onTogglePlatform={handleTogglePlatform}
-          onResetPlatforms={handleResetPlatformFilter}
+          onTogglePlatform={platformFilter.togglePlatform}
+          onResetPlatforms={platformFilter.resetPlatformFilter}
           platformCounts={sidebarPlatformCounts}
           pendingCount={pendingFilteredCount}
         />
 
         {/* 主内容显示区域 */}
-        <AppContextProvider library={library} actions={appActions}>
+        <AppContextProvider
+          library={library}
+          actions={appActions}
+          reportPlatformCounts={platformFilter.reportViewPlatformCounts}
+        >
           <main ref={contentRef} className="content-area">
             {currentView === 'home' && (
               // 搜索双段空态：本地段与在线段都为空时才走整页空态（保留在线搜索入口）；
@@ -647,7 +560,6 @@ export const App: React.FC = () => {
               <TrendsView
                 apps={catalogPlatformFilteredApps}
                 allApps={mergedAppsForJoins}
-                onDisplayPlatformCounts={handleTrendsPlatformCounts}
               />
             )}
 
@@ -655,7 +567,6 @@ export const App: React.FC = () => {
               <LaunchpadView
                 focusAppId={launchpadFocusId}
                 onFocusConsumed={clearLaunchpadFocus}
-                onDisplayPlatformCounts={handleLaunchpadPlatformCounts}
               />
             )}
 
@@ -664,7 +575,6 @@ export const App: React.FC = () => {
                 apps={catalogPlatformFilteredApps}
                 onNavigateCategories={() => navigate('categories')}
                 allApps={fullMergedCatalogApps}
-                onDisplayPlatformCounts={handleLatestPlatformCounts}
               />
             )}
 
@@ -673,7 +583,6 @@ export const App: React.FC = () => {
                 apps={catalogPlatformFilteredApps}
                 initialCategory={categoryFocus}
                 allApps={fullMergedCatalogApps}
-                onDisplayPlatformCounts={handleCategoryPlatformCounts}
               />
             )}
 
@@ -682,7 +591,6 @@ export const App: React.FC = () => {
                 <PendingView
                   customApps={customAppsStore}
                   onNotify={(message, type) => showToast(message, type ?? 'info')}
-                  onDisplayPlatformCounts={handlePendingPlatformCounts}
                 />
               </React.Suspense>
             )}
@@ -692,7 +600,6 @@ export const App: React.FC = () => {
                 apps={favoritesViewApps}
                 allApps={allFavoritesPoolApps}
                 onConfirmPlatformOtherIds={confirmPlatformOtherIds}
-                onDisplayPlatformCounts={handleStarredPlatformCounts}
                 catalogApps={mergedAppsForJoins}
                 onLoadUncatalogedDetail={loadUncatalogedDetail}
                 watchNotifications={watchNotifications}
@@ -705,15 +612,15 @@ export const App: React.FC = () => {
               <InstalledView
                 focusUpdates={focusMyAppsUpdates}
                 onFocusConsumed={() => setFocusMyAppsUpdates(false)}
-                installedApps={filteredInstalledApps}
+                installedApps={myApps.filteredInstalledApps}
                 apps={catalogPlatformFilteredApps}
                 uninstallingAppIds={uninstallingAppIds}
-                updates={filteredUpdates}
-                isChecking={isCheckingUpdates}
-                checkProgress={updateCheckProgress}
-                onCheckUpdates={handleCheckUpdatesAndRefresh}
-                onApplyUpdate={handleApplyUpdate}
-                onBatchUpdateAll={handleBatchUpdateAll}
+                updates={myApps.filteredUpdates}
+                isChecking={myApps.isCheckingUpdates}
+                checkProgress={myApps.updateCheckProgress}
+                onCheckUpdates={myApps.checkUpdatesAndRefresh}
+                onApplyUpdate={myApps.handleApplyUpdate}
+                onBatchUpdateAll={myApps.handleBatchUpdateAll}
                 onSkipVersion={handleSkipVersion}
                 onLaunch={handleLaunchApp}
                 onUninstall={handleUninstallApp}
@@ -724,11 +631,10 @@ export const App: React.FC = () => {
                 onToggleRuleFrozen={handleToggleRuleFrozen}
                 onToggleRuleHidden={handleToggleRuleHidden}
                 onOpenRules={() => setIsRulesModalOpen(true)}
-                loadError={installLoadError}
-                onRetryLoad={loadInstalledApps}
+                loadError={myApps.installLoadError}
+                onRetryLoad={myApps.loadInstalledApps}
                 totalInstalledCount={installedApps.length}
-                installedPlatformRows={installedPlatformRows}
-                onDisplayPlatformCounts={handleInstalledPlatformCounts}
+                installedPlatformRows={myApps.installedPlatformRows}
               />
             )}
 
@@ -777,17 +683,17 @@ export const App: React.FC = () => {
       )}
 
       {/* 无校验资产警示弹窗（后端默认拒绝安装，仅显式确认后放行） */}
-      {unverifiedInstallPrompt !== null && (
+      {myApps.unverifiedInstallPrompt !== null && (
         <InstallConfirmDialog
           intro={t('install_confirm.unverified_intro')}
-          appName={unverifiedInstallPrompt.id}
-          repoLine={unverifiedInstallPrompt.id}
+          appName={myApps.unverifiedInstallPrompt.id}
+          repoLine={myApps.unverifiedInstallPrompt.id}
           source={t('install_confirm.unverified_source')}
           onCancel={() => {
-            dismissUnverifiedInstall();
+            myApps.dismissUnverifiedInstall();
             showToast(t('toast.unverified_install_cancelled'), 'info');
           }}
-          onConfirm={confirmUnverifiedInstall}
+          onConfirm={myApps.confirmUnverifiedInstall}
         />
       )}
 
@@ -876,7 +782,7 @@ export const App: React.FC = () => {
             updateRules={updateRules}
             installedApps={installedApps}
             apps={mergedAppsForJoins}
-            updatesById={allUpdatesById}
+            updatesById={myApps.allUpdatesById}
             onClearRuleSkip={handleClearRuleSkip}
             onToggleRuleFrozen={handleToggleRuleFrozen}
             onToggleRuleHidden={handleToggleRuleHidden}

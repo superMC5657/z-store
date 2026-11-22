@@ -1,10 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { tauriApi } from '../../services/api';
 import {
   boardGainKey,
   fetchTrendsResult,
-  normalizeProxyPrefix,
   resolveTrendBoard,
   subscribeBoardHydrated,
 } from '../../services/trends';
@@ -69,6 +67,8 @@ export function persistTrendBoard(board: TrendBoardId): void {
   }
 }
 
+const EMPTY_FETCH_OPTS: FetchTrendsOptions = {};
+
 export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   // 从 localStorage 同步恢复上次选中的榜单，确保首绘不闪切
   const [board, setBoardState] = useState<TrendBoardId>(() => {
@@ -80,10 +80,6 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const [trendResult, setTrendResult] = useState<TrendsResult | null>(null);
   // 重试计数：递增即重触发抓取 effect。
   const [retryCount, setRetryCount] = useState(0);
-  // 代理前缀：`active_mirror` 持久化在 Rust 侧设置库，前端经 getSettings 异步读；
-  // 就绪前不抓取，避免首绘闪动后重抓。
-  const [proxyPrefix, setProxyPrefix] = useState<string | undefined>(undefined);
-  const [proxyReady, setProxyReady] = useState(false);
   // 手动刷新态：与首载 isLoading 分离，刷新期间保留旧榜（SWR  stale 展），仅按钮转圈 + 禁用。
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshSeqRef = useRef(0);
@@ -102,34 +98,10 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const errorKind: TrendsErrorKind | undefined =
     trendResult?.status === 'error' ? (trendResult.errorKind ?? 'unavailable') : undefined;
 
-  // 与缓存键同源的抓取参数
-  const trendFetchOpts: FetchTrendsOptions = useMemo(
-    () => (proxyPrefix ? { proxyPrefix } : {}),
-    [proxyPrefix],
-  );
+  // 抓取参数（代理由后端动态系统代理接管，前端不再携带镜像前缀；挂载即抓）。
+  const trendFetchOpts: FetchTrendsOptions = EMPTY_FETCH_OPTS;
 
-  useEffect(() => {
-    let cancelled = false;
-    tauriApi
-      .getSettings()
-      .then((s) => {
-        if (cancelled) return;
-        // 经 trends SSOT 归一化后存入抓取参数（抓取忽略该字段）。
-        setProxyPrefix(normalizeProxyPrefix(s?.active_mirror));
-        setProxyReady(true);
-      })
-      .catch(() => {
-        // 非 Tauri 环境（浏览器预览/单测）无设置库：字段置空。
-        if (cancelled) return;
-        setProxyPrefix(undefined);
-        setProxyReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 一榜一源：board / 代理 / 重试任一变化均触发重抓。
+  // 一榜一源：board / 重试任一变化均触发重抓。
   // 就绪订阅单 emit 源单订阅（L1/L2/网络三路径统一 emit，不双订）。
   useEffect(() => {
     return subscribeBoardHydrated(() => {
@@ -139,7 +111,6 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
 
   // 挂载、切换子榜或重试时拉取榜单（SWR/缓存优先）
   useEffect(() => {
-    if (!proxyReady) return;
     let isMounted = true;
     setTrendResult(null);
     // 现状：读盘前未就绪，View 裸行直展不拦榜（门信号仅供升级判定）。
@@ -162,7 +133,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
     return () => {
       isMounted = false;
     };
-  }, [activeBoard, proxyReady, retryCount, trendFetchOpts]);
+  }, [activeBoard, retryCount, trendFetchOpts]);
 
   const handleRetry = () => setRetryCount((c) => c + 1);
 
@@ -172,7 +143,6 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
   const trendFetchOptsRef = useRef(trendFetchOpts);
   trendFetchOptsRef.current = trendFetchOpts;
   const handleRefresh = useCallback(() => {
-    if (!proxyReady) return;
     const seq = refreshSeqRef.current + 1;
     refreshSeqRef.current = seq;
     const boardAtClick = activeBoardRef.current;
@@ -195,7 +165,7 @@ export function useTrendBoard(initialBoard: TrendBoardId = 'weekly') {
       .finally(() => {
         if (seq === refreshSeqRef.current) setIsRefreshing(false);
       });
-  }, [proxyReady]);
+  }, []);
 
   // 切换即同步写盘（与榜单内容无关；非法值经 SSOT 归一 weekly）。
   const setBoard: Dispatch<SetStateAction<TrendBoardId>> = useCallback((next) => {

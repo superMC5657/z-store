@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useMemo } from 'react';
-import type { AppSummary, OAuthUser } from '../types';
+import type { AppSummary, OAuthUser, ViewType } from '../types';
+import type { PlatformCounts } from './selectors';
 
 /** 跨视图共享的库状态，由 App 统一提供、视图通过 `useAppContextProps` 读取。 */
 export interface LibraryState {
@@ -36,16 +37,37 @@ export type AppContextProps = Partial<LibraryState & AppActions>;
 
 const AppContext = createContext<AppContextProps>({});
 
+/** 视图侧栏平台分布上报通道（按视图键写入 App 级槽位）。 */
+export type PlatformCountsReporter = (view: ViewType, counts: PlatformCounts | null) => void;
+const PlatformCountsReporterContext = createContext<PlatformCountsReporter | undefined>(undefined);
+
+/** 读取侧栏平台分布上报通道；Provider 缺席（孤立组件渲染）时为 undefined。 */
+export function usePlatformCountsReporter(): PlatformCountsReporter | undefined {
+  return useContext(PlatformCountsReporterContext);
+}
+
 interface AppContextProviderProps {
   library: LibraryState;
   actions: AppActions;
+  reportPlatformCounts?: PlatformCountsReporter;
   children: React.ReactNode;
 }
 
-/** 向各视图统一提供共享库状态与动作回调。 */
-export const AppContextProvider: React.FC<AppContextProviderProps> = ({ library, actions, children }) => {
+/** 向各视图统一提供共享库状态、动作回调与侧栏平台分布上报通道。 */
+export const AppContextProvider: React.FC<AppContextProviderProps> = ({
+  library,
+  actions,
+  reportPlatformCounts,
+  children,
+}) => {
   const value = useMemo<AppContextProps>(() => ({ ...library, ...actions }), [library, actions]);
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      <PlatformCountsReporterContext.Provider value={reportPlatformCounts}>
+        {children}
+      </PlatformCountsReporterContext.Provider>
+    </AppContext.Provider>
+  );
 };
 
 /** 以上下文补齐视图 Props：显式传入的值优先，其余取自上下文。 */

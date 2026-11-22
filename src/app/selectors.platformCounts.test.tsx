@@ -1,7 +1,6 @@
 /**
  * 侧栏平台计数（含搜索态在线结果纳入、行别名去重与平台并集）测试。
  */
-import React from 'react';
 import { describe, expect, it, afterEach } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import {
@@ -9,10 +8,24 @@ import {
   selectPlatformCounts,
   useAppSelectors,
 } from './selectors';
+import { useSidebarPlatformCounts, useViewPlatformCountSlots } from './hooks/usePlatformFilter';
 import { PLATFORM_IDS, type PlatformId } from '../lib/platformFilter';
 import type { AppSummary } from '../types';
 
 afterEach(() => cleanup());
+
+/** 侧栏计数在 App 中的装配：纯选择器 + 视图槽位 + 侧栏决议。 */
+function useSidebarHarness(params: Parameters<typeof useAppSelectors>[0]) {
+  const selectors = useAppSelectors(params);
+  const slots = useViewPlatformCountSlots(params.currentView);
+  const sidebarPlatformCounts = useSidebarPlatformCounts({
+    currentView: params.currentView,
+    viewPlatformCounts: slots.viewPlatformCounts,
+    searchCounts: selectors.searchPlatformCounts,
+    catalogCounts: selectors.platformCounts,
+  });
+  return { ...selectors, ...slots, sidebarPlatformCounts };
+}
 
 function makeApp(id: string, platforms: string[] = [], extra: Partial<AppSummary> = {}): AppSummary {
   const [owner = 'o', repo = id] = id.split('/');
@@ -95,7 +108,7 @@ describe('mergeAppsForPlatformCounts & selectPlatformCounts', () => {
   });
 });
 
-describe('useAppSelectors sidebarPlatformCounts during search', () => {
+describe('sidebarPlatformCounts during search', () => {
   const localOnlyCounts: Record<PlatformId, number> = {
     windows: 1,
     macos: 1,
@@ -114,10 +127,7 @@ describe('useAppSelectors sidebarPlatformCounts during search', () => {
       makeApp('mobile/zcode-app', ['android', 'ios']),
     ],
     uncatalogedExtraApps: [] as AppSummary[],
-    installedApps: [],
-    updates: [],
     selectedPlatforms: new Set<PlatformId>(PLATFORM_IDS),
-    setSelectedPlatforms: (() => {}) as React.Dispatch<React.SetStateAction<Set<PlatformId>>>,
     platformResolvedOtherIds: new Set(['asgeirtj/system_prompts']),
     selectedApp: null,
     recentlyViewedApps: [],
@@ -128,7 +138,7 @@ describe('useAppSelectors sidebarPlatformCounts during search', () => {
   };
 
   it('includes deduplicated online search results on home view when searching', () => {
-    const { result } = renderHook(() => useAppSelectors(baseParams));
+    const { result } = renderHook(() => useSidebarHarness(baseParams));
     expect(result.current.sidebarPlatformCounts).toEqual({
       windows: 2,
       macos: 2,
@@ -141,7 +151,7 @@ describe('useAppSelectors sidebarPlatformCounts during search', () => {
 
   it('does not shrink sidebarPlatformCounts when platform filter excludes some platforms', () => {
     const { result } = renderHook(() =>
-      useAppSelectors({
+      useSidebarHarness({
         ...baseParams,
         selectedPlatforms: new Set<PlatformId>(['linux']),
       }),
@@ -164,7 +174,7 @@ describe('useAppSelectors sidebarPlatformCounts during search', () => {
     { label: 'searchQuery is empty', override: { searchQuery: '   ' } },
     { label: 'currentView is not home', override: { currentView: 'categories' } },
   ])('falls back to local platformCounts when $label', ({ override }) => {
-    const { result } = renderHook(() => useAppSelectors({ ...baseParams, ...override }));
+    const { result } = renderHook(() => useSidebarHarness({ ...baseParams, ...override }));
     expect(result.current.sidebarPlatformCounts).toEqual(localOnlyCounts);
   });
 });
@@ -188,10 +198,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
     fullCatalogApps: fullCatalog,
     onlineApps: [] as AppSummary[],
     uncatalogedExtraApps: [] as AppSummary[],
-    installedApps: [],
-    updates: [],
     selectedPlatforms: new Set<PlatformId>(PLATFORM_IDS),
-    setSelectedPlatforms: (() => {}) as React.Dispatch<React.SetStateAction<Set<PlatformId>>>,
     platformResolvedOtherIds: new Set<string>(),
     selectedApp: null,
     recentlyViewedApps: [],
@@ -201,7 +208,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
   };
 
   it('残留搜索词不截断目录链、收藏供给与非 home 视图侧栏计数', () => {
-    const { result } = renderHook(() => useAppSelectors(params));
+    const { result } = renderHook(() => useSidebarHarness(params));
     expect(result.current.fullMergedCatalogApps).toHaveLength(10);
     expect(result.current.catalogPlatformFilteredApps).toHaveLength(10);
     expect(result.current.favoritesViewApps).toHaveLength(10);
@@ -211,7 +218,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
   });
 
   it('home 搜索态侧栏计数为本地搜索命中分布', () => {
-    const { result } = renderHook(() => useAppSelectors({ ...params, currentView: 'home' }));
+    const { result } = renderHook(() => useSidebarHarness({ ...params, currentView: 'home' }));
     expect(result.current.sidebarPlatformCounts).toEqual({ ...fullCounts, windows: 1 });
   });
 
@@ -219,7 +226,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
     const local = { ...makeApp('me/local-only', ['macos']), status: 'collected', archived: false };
     const extra = makeApp('ghost/unlisted', []);
     const { result } = renderHook(() =>
-      useAppSelectors({ ...params, customApps: [local], uncatalogedExtraApps: [extra, makeApp('VideoLAN/VLC', [])] }),
+      useSidebarHarness({ ...params, customApps: [local], uncatalogedExtraApps: [extra, makeApp('VideoLAN/VLC', [])] }),
     );
     expect(result.current.fullMergedCatalogApps.map((a) => a.id)).toContain('me/local-only');
     expect(result.current.searchPlatformFilteredApps.map((a) => a.id)).toEqual(['videolan/vlc']);
@@ -229,7 +236,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
 
   it('platformFilteredFavoriteCount：平台过滤后命中收藏的去重条数，ID 大小写归一', () => {
     const favoriteIds = new Set(['VideoLAN/VLC', 'acme/tool-0', 'ghost/missing']);
-    const { result, rerender } = renderHook((p: typeof params & { favoriteIds: Set<string> }) => useAppSelectors(p), {
+    const { result, rerender } = renderHook((p: typeof params & { favoriteIds: Set<string> }) => useSidebarHarness(p), {
       initialProps: { ...params, favoriteIds },
     });
     expect(result.current.platformFilteredFavoriteCount).toBe(2);
@@ -244,7 +251,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
       { item: { platforms: [] }, archived: false },
       { item: { platforms: ['windows'] }, archived: true },
     ];
-    const { result, rerender } = renderHook((p: typeof params) => useAppSelectors({ ...p, pendingEntries: entries }), {
+    const { result, rerender } = renderHook((p: typeof params) => useSidebarHarness({ ...p, pendingEntries: entries }), {
       initialProps: params,
     });
     expect(result.current.pendingFilteredCount).toBe(3);
@@ -253,7 +260,7 @@ describe('useAppSelectors 全量目录基线与顶栏搜索隔离', () => {
   });
 });
 
-describe('useAppSelectors 视图级侧栏平台计数通道', () => {
+describe('视图级侧栏平台计数槽位', () => {
   const app = makeApp('acme/atlas', ['windows']);
   const latestCounts: Record<PlatformId, number> = {
     windows: 0,
@@ -268,15 +275,12 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
   const render = (currentView: View) =>
     renderHook(
       ({ view }: { view: View }) =>
-        useAppSelectors({
+        useSidebarHarness({
           apps: [app],
           fullCatalogApps: [app],
           onlineApps: [],
           uncatalogedExtraApps: [],
-          installedApps: [],
-          updates: [],
           selectedPlatforms: new Set<PlatformId>(PLATFORM_IDS),
-          setSelectedPlatforms: (() => {}) as React.Dispatch<React.SetStateAction<Set<PlatformId>>>,
           platformResolvedOtherIds: new Set<string>(),
           selectedApp: null,
           recentlyViewedApps: [],
@@ -289,24 +293,24 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
   it('当前视图上报值优先；其它视图上报不串用；非全库视图未上报时沿用上次稳定计数（不闪空），分类大厅 null 回退全库', () => {
     const { result } = render('latest');
     expect(result.current.sidebarPlatformCounts).toBeUndefined();
-    act(() => result.current.setViewPlatformCounts('pending', latestCounts));
+    act(() => result.current.reportViewPlatformCounts('pending', latestCounts));
     expect(result.current.sidebarPlatformCounts).toBeUndefined();
-    act(() => result.current.handleLatestPlatformCounts(latestCounts));
+    act(() => result.current.reportViewPlatformCounts('latest', latestCounts));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
-    act(() => result.current.handleLatestPlatformCounts(null));
+    act(() => result.current.reportViewPlatformCounts('latest', null));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
 
     const cat = render('categories');
     expect(cat.result.current.sidebarPlatformCounts).toEqual(fullCounts);
-    act(() => cat.result.current.handleCategoryPlatformCounts(latestCounts));
+    act(() => cat.result.current.reportViewPlatformCounts('categories', latestCounts));
     expect(cat.result.current.sidebarPlatformCounts).toEqual(latestCounts);
-    act(() => cat.result.current.handleCategoryPlatformCounts(null));
+    act(() => cat.result.current.reportViewPlatformCounts('categories', null));
     expect(cat.result.current.sidebarPlatformCounts).toEqual(fullCounts);
   });
 
   it('异步视图切走再切回保留上次已知分布（零闪烁）；categories 离开复位回全库', () => {
     const { result, rerender } = render('categories');
-    act(() => result.current.handleCategoryPlatformCounts(latestCounts));
+    act(() => result.current.reportViewPlatformCounts('categories', latestCounts));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
     rerender({ view: 'home' });
     expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
@@ -314,7 +318,7 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
     expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
 
     rerender({ view: 'launchpad' });
-    act(() => result.current.handleLaunchpadPlatformCounts(latestCounts));
+    act(() => result.current.reportViewPlatformCounts('launchpad', latestCounts));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
     rerender({ view: 'home' });
     expect(result.current.sidebarPlatformCounts).toEqual(fullCounts);
@@ -322,14 +326,9 @@ describe('useAppSelectors 视图级侧栏平台计数通道', () => {
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
   });
 
-  it.each<[View, 'handleTrendsPlatformCounts' | 'handlePendingPlatformCounts' | 'handleInstalledPlatformCounts' | 'handleFavoritesPlatformCounts']>([
-    ['trends', 'handleTrendsPlatformCounts'],
-    ['pending', 'handlePendingPlatformCounts'],
-    ['installed', 'handleInstalledPlatformCounts'],
-    ['favorites', 'handleFavoritesPlatformCounts'],
-  ])('%s 视图经 %s 上报', (view, handler) => {
+  it.each<View>(['trends', 'pending', 'installed', 'favorites'])('%s 视图按自身键上报', (view) => {
     const { result } = render(view);
-    act(() => result.current[handler](latestCounts));
+    act(() => result.current.reportViewPlatformCounts(view, latestCounts));
     expect(result.current.sidebarPlatformCounts).toEqual(latestCounts);
   });
 });

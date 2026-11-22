@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { TFunction } from 'i18next';
-import type { AppSummary, InstalledApp, OAuthUser, ViewType } from '../../types';
+import type { AppSummary, OAuthUser } from '../../types';
 import { tauriApi } from '../../services/api';
 import {
   ensureIconReadySubscription,
@@ -28,11 +28,9 @@ interface UseAppSubscriptionsParams {
     currentSearchIdRef: React.MutableRefObject<string>;
     hasActiveQuery?: () => boolean;
   };
-  currentView: ViewType;
   /** 本地收录合并行（含 source/status，供最近浏览黄标叠加；仅搬标记）。 */
   localApps?: readonly AppSummary[];
   library: {
-    setInstalledApps: React.Dispatch<React.SetStateAction<InstalledApp[]>>;
     setFavoriteIds: React.Dispatch<React.SetStateAction<Set<string>>>;
     setOAuthUser: React.Dispatch<React.SetStateAction<OAuthUser | null>>;
     applyPersistedSettings: (persisted: Record<string, string>) => void;
@@ -47,7 +45,6 @@ interface UseAppSubscriptionsParams {
 export function useAppSubscriptions({
   catalogLists,
   searchContext,
-  currentView,
   localApps,
   library,
   notify,
@@ -62,7 +59,7 @@ export function useAppSubscriptions({
     findById,
   } = catalogLists;
   const { currentSearchIdRef, hasActiveQuery } = searchContext;
-  const { setInstalledApps, setFavoriteIds, setOAuthUser, applyPersistedSettings } = library;
+  const { setFavoriteIds, setOAuthUser, applyPersistedSettings } = library;
 
   const applyPersistedSettingsRef = useLatestRef(applyPersistedSettings);
   const showToastRef = useLatestRef(notify.showToast);
@@ -127,7 +124,6 @@ export function useAppSubscriptions({
       })
       .catch(() => {});
 
-    tauriApi.getInstalledApps().then(setInstalledApps);
     tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
     tauriApi
       .getRecentlyViewedApps()
@@ -243,11 +239,4 @@ export function useAppSubscriptions({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // 进「我的应用」页重读已装列表（零网络）
-  useEffect(() => {
-    if (currentView !== 'installed') return;
-    tauriApi.getInstalledApps().then(setInstalledApps).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
 }

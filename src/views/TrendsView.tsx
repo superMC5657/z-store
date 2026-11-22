@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { CountBadge } from '../components/CountBadge';
 import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,7 @@ import { RefreshCw, TrendingUp, WifiOff } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { WatchEyeIcon } from '../components/icons/PlatformIcons';
 import { SegmentedControl } from '../components/SegmentedControl';
-import { useTrendBoard } from './TrendsView/useTrendBoard';
+import { useTrendSession, type DisplayTrendItem } from './TrendsView/useTrendSession';
 import { tauriApi } from '../services/api';
 import {
   FilterEmptyState,
@@ -18,17 +18,12 @@ import {
   resolvePlatformReset,
 } from './ViewShell';
 import { useAppContextProps } from '../app/AppContext';
-import {
-  TREND_BOARD_IDS,
-  formatStars,
-  matchCatalogApp,
-} from '../services/trends';
+import { TREND_BOARD_IDS, formatStars } from '../services/trends';
 import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
 import { normalizeId } from '../services/normalizeId';
 import type {
   AppSummary,
   TrendBoardId,
-  TrendRepo,
   TrendsErrorKind,
 } from '../types';
 import {
@@ -45,10 +40,8 @@ import {
   PLATFORM_IDS,
   isPlatformLoading,
   matchPlatformSet,
-  matchPlatformSetWithLoading,
   type PlatformId,
 } from '../lib/platformFilter';
-import { useTrendEnrichment, type DisplayTrendItem } from './TrendsView/useTrendEnrichment';
 
 /** 趋势榜视图：展示榜单切换、平台筛选、目录匹配及未收录仓库富卡。 */
 interface TrendsViewProps extends ViewAppActions {
@@ -80,13 +73,6 @@ const ERROR_DESC_KEY: Record<TrendsErrorKind, TrendsErrorDescKey> = {
   unavailable: 'trends.error_unavailable',
 };
 
-/** 读取后端 `starsGained`：缺失或非正数返回 undefined（不渲染徽标）。 */
-function getStarsGained(repo: TrendRepo): number | undefined {
-  const n = repo.starsGained;
-  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return undefined;
-  return Math.round(n);
-}
-
 export const TrendsView: React.FC<TrendsViewProps> = (props) => {
   const {
     apps,
@@ -108,22 +94,23 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
     localApps,
   } = useAppContextProps(props);
   const { t } = useTranslation();
+  const matchingBase = allApps ?? apps;
   const {
     setBoard,
     activeBoard,
     trendResult,
     gainKey,
     isLoading,
-    boardReady,
     errorKind,
     handleRetry,
     isRefreshing,
     handleRefresh,
-    trendFetchOpts,
-    refreshEnrichForceRef,
-  } = useTrendBoard('weekly');
+    rawDisplayItems,
+    displayItems,
+    enrichedApps,
+    combinedConfirmed,
+  } = useTrendSession({ matchingBase, selectedPlatforms, platformResolvedOtherIds });
 
-  const matchingBase = allApps ?? apps;
   const trendLocalLookup = useMemo(() => {
     const inferred = (matchingBase ?? []).filter(
       (m) => (m as { source?: unknown }).source === 'local',
@@ -133,72 +120,11 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
 
   const { isMovingIn: isTrendMovingIn, handleMoveIn: handleTrendMoveIn } = useMoveInToDraft();
 
-  // 与本地 catalog 预过滤后的 apps 交叉匹配：有则完整卡片，无则名 + 星数。
-  const rawDisplayItems = useMemo<DisplayTrendItem[]>(() => {
-    if (trendResult === null || trendResult.status === 'error') return [];
-
-    const repos = trendResult.repos;
-
-    if (repos.length === 0) return [];
-
-    const matchedAppIds = new Set<string>();
-    const items: DisplayTrendItem[] = [];
-
-    repos.forEach((trend) => {
-      const matched = matchCatalogApp(trend, matchingBase);
-      const gain = getStarsGained(trend);
-      if (matched && !matchedAppIds.has(matched.id)) {
-        matchedAppIds.add(matched.id);
-        items.push({
-          type: 'catalog',
-          app: matched,
-          gain,
-        });
-        return;
-      }
-      items.push({
-        type: 'uncataloged',
-        repo: trend,
-        gain,
-      });
-    });
-
-    return items;
-  }, [trendResult, matchingBase]);
-
-  // 富卡生命周期与镜像编排（SWR/DB 图标回填/enrich/lite/settle/治愈/图标流/写透）收口单一控制器。
-  const displayItemsRef = useRef<DisplayTrendItem[]>([]);
-  const { enrichedApps, combinedConfirmed } = useTrendEnrichment({
-    trendResult,
-    rawItems: rawDisplayItems,
-    getDisplayItems: () => displayItemsRef.current,
-    activeBoard,
-    trendFetchOpts,
-    boardReady,
-    refreshEnrichForceRef,
-    globalConfirmed: platformResolvedOtherIds,
-  });
-
   // enrich 合并处显式标注 is_cataloged（显式优先于 category 兜底；未命中=false 即显示按钮）。
   const annotatedEnrichedApps = useMemo(
     () => annotateEnrichMirrorCataloged(enrichedApps, matchingBase, localApps),
     [enrichedApps, matchingBase, localApps],
   );
-
-  // 全局设备平台过滤接入榜单行（含未收录行）：加载中行恒可见，落定后再走 matchPlatformSet。
-  const displayItems = useMemo<DisplayTrendItem[]>(() => {
-    if (!selectedPlatforms) return rawDisplayItems;
-    return rawDisplayItems.filter((item) => {
-      if (item.type === 'catalog') {
-        return matchPlatformSetWithLoading(item.app, selectedPlatforms, platformResolvedOtherIds ?? new Set<string>());
-      }
-      const key = item.repo.id.toLowerCase();
-      const enriched = enrichedApps[key];
-      if (isEnrichedRowLoading(key, enriched, combinedConfirmed)) return true;
-      return matchPlatformSet(enriched ?? { platforms: [] }, selectedPlatforms);
-    });
-  }, [rawDisplayItems, selectedPlatforms, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
-  displayItemsRef.current = displayItems;
 
   // 榜单平台分布：取平台过滤前的行，各平台计数不随当前勾选变化（加载中行暂不计数，落定后单次更新；榜单尚未返回前不上报假 0）。
   const displayPlatformCounts = useMemo<Record<PlatformId, number> | null>(() => {
@@ -224,7 +150,7 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
     return counts;
   }, [trendResult, rawDisplayItems, enrichedApps, platformResolvedOtherIds, combinedConfirmed]);
 
-  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts);
+  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts, { view: 'trends' });
 
   const gainTextFor = (gain?: number): string | undefined => {
     if (!gain || gain <= 0) return undefined;

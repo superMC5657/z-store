@@ -3,6 +3,7 @@ import { tauriApi } from '../api';
 import { utf8ByteLength } from '../trends';
 import { normalizeId } from '../normalizeId';
 import { recordSharedRepoCards } from '../repoEnrichCache';
+import { createSerializedKeyWriter } from '../../lib/serializedKeyWriter';
 
 /**
  * 分页列表缓存（L1 内存按命名空间分桶存 id 索引 + 共享卡片表；L2 SQLite 存 `search_list_cache` 快照）。
@@ -404,8 +405,8 @@ export async function readDbSearchListCache(
   };
 }
 
-/** 同键 L2 写入串行链（后写覆盖先写，避免乱序落盘）。 */
-const dbWriteChains = new Map<string, Promise<void>>();
+/** 同键 L2 写入串行（后写覆盖先写，避免乱序落盘）。 */
+const writeDbSerialized = createSerializedKeyWriter();
 
 /** 写 L2 快照 `{ v: 2, ids, hasMore }`：空 id 或超 32 KiB 跳过；失败静默（下次搜索重写）。 */
 export function saveDbSearchListCache(
@@ -424,14 +425,7 @@ export function saveDbSearchListCache(
   const envelope: SearchListIndexEnvelope = { v: 2, ids: clean, hasMore: hasMore === true };
   const payloadJson = JSON.stringify(envelope);
   if (utf8ByteLength(payloadJson) > SEARCH_LIST_DB_MAX_BYTES) return Promise.resolve();
-  const prev = dbWriteChains.get(cacheKey) ?? Promise.resolve();
-  const next = prev
-    .catch(() => undefined)
-    .then(() => tauriApi.saveSearchListCache(cacheKey, normQuery, payloadJson, hasPrivate))
-    .catch(() => undefined)
-    .finally(() => {
-      if (dbWriteChains.get(cacheKey) === next) dbWriteChains.delete(cacheKey);
-    });
-  dbWriteChains.set(cacheKey, next);
-  return next;
+  return writeDbSerialized(cacheKey, () =>
+    tauriApi.saveSearchListCache(cacheKey, normQuery, payloadJson, hasPrivate),
+  );
 }

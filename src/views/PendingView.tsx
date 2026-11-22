@@ -194,7 +194,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     return out;
   }, [entries, activeGroup]);
 
-  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts);
+  useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts, { view: 'pending' });
 
   const editingEntry = useMemo(() => {
     const found = entries.find((e) => e.id === selectedId) ?? null;

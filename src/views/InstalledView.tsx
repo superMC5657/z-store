@@ -248,6 +248,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
   }, [installedPlatformRows, rulesByAppId, platformResolvedOtherIds]);
 
   useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts, {
+    view: 'installed',
     resetOnUnmount: true,
   });
 

@@ -1,20 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+/**
+ * 纯派生选择器：目录合并、平台过滤、侧栏默认计数与行标注。
+ * 不持有状态、不发起副作用；`useAppSelectors` 只用 `useMemo` 缓存派生结果。
+ */
+import { useMemo } from 'react';
 import type {
   AppDetailViewModel,
   AppSummary,
   InstalledApp,
   UpdateItem,
-  UpdateRule,
   ViewType,
 } from '../types';
-import { healSummaryPlaceholders, hydrateCardsByIds } from '../services/repoEnrichCache';
-import { detectHostOs } from '../utils/appHelper';
-import {
-  buildRulesMap,
-  buildUpdatesMap,
-  inferInstalledFallbackPlatforms,
-  selectUpdatableInstalled,
-} from '../views/manage/manageModel';
+import { healSummaryPlaceholders } from '../services/repoEnrichCache';
+import { inferInstalledFallbackPlatforms } from '../views/manage/manageModel';
 import {
   PLATFORM_IDS,
   isPlatformLoading,
@@ -25,8 +22,7 @@ import {
 } from '../lib/platformFilter';
 import { normalizeId } from '../services/normalizeId';
 import { filterMaskedRecentViews } from '../services/recentViewsMask';
-import { isCollectedStatus } from '../services/custom';
-import { DEFAULT_ICON_BG } from '../styles/tokens';
+import { isCollectedStatus, itemToSummary, type DraftItem, type DraftStatus } from '../services/custom';
 // 平台加载中判定与落定超时常量从 lib/platformFilter 重导出
 export {
   LOADING_SETTLE_MS,
@@ -38,10 +34,7 @@ interface UseAppSelectorsParams {
   onlineApps: AppSummary[];
   isOnlineResults?: boolean;
   uncatalogedExtraApps: AppSummary[];
-  installedApps: InstalledApp[];
-  updates: UpdateItem[];
   selectedPlatforms: Set<PlatformId>;
-  setSelectedPlatforms: React.Dispatch<React.SetStateAction<Set<PlatformId>>>;
   platformResolvedOtherIds: Set<string>;
   selectedApp: AppDetailViewModel | null;
   recentlyViewedApps: AppSummary[];
@@ -263,7 +256,7 @@ function buildAppsById(apps: AppSummary[]): Map<string, AppSummary> {
 }
 
 /** 构建包含原始 id 与 `normalizeId` 归一 id 的已安装集合。 */
-function buildInstalledIdSet(installedApps: InstalledApp[]): Set<string> {
+export function buildInstalledIdSet(installedApps: InstalledApp[]): Set<string> {
   const set = new Set<string>();
   for (const a of installedApps) {
     set.add(a.app_id);
@@ -385,55 +378,6 @@ function markLocalSource<T extends AppSummary>(app: T): MergedAppRow {
   return { ...app, source: 'local', is_cataloged: true };
 }
 
-/** 草稿 payload 转收录行摘要（default_version 落 latest_version，forge 补 github）。 */
-function customItemToSummary(item: {
-  id: string;
-  name?: unknown;
-  owner?: unknown;
-  repo?: unknown;
-  icon?: unknown;
-  icon_bg?: unknown;
-  description?: unknown;
-  description_en?: unknown;
-  category?: unknown;
-  category_name?: unknown;
-  default_version?: unknown;
-  latest_version?: unknown;
-  license?: unknown;
-  stars?: unknown;
-  forks?: unknown;
-  homepage?: unknown;
-  platforms?: unknown;
-}): AppSummary {
-  const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
-  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const platforms = Array.isArray(item.platforms)
-    ? (item.platforms as unknown[]).filter((p): p is string => typeof p === 'string')
-    : [];
-  const homepage = typeof item.homepage === 'string' ? item.homepage : null;
-  return {
-    id: str(item.id),
-    name: str(item.name),
-    description_en: typeof item.description_en === 'string' ? item.description_en : undefined,
-    owner: str(item.owner),
-    repo: str(item.repo),
-    icon: str(item.icon),
-    icon_bg: str(item.icon_bg, DEFAULT_ICON_BG),
-    description: str(item.description),
-    stars: num(item.stars),
-    forks: num(item.forks),
-    license: str(item.license),
-    latest_version: str(item.default_version ?? item.latest_version, 'v0.1.0'),
-    category: str(item.category, 'dev'),
-    category_name: str(item.category_name ?? item.category, 'dev'),
-    is_verified: false,
-    forge: 'github',
-    forge_host: 'github.com',
-    homepage,
-    platforms: [...platforms],
-  };
-}
-
 /** 判定应用是否在各文本字段中匹配搜索词。 */
 function appMatchesQuery(app: AppSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -492,12 +436,12 @@ export function selectMergedCatalogApps(
     let status: unknown;
     let archived: unknown;
     if ('item' in (c as Record<string, unknown>) && (c as { item?: unknown }).item) {
-      const entry = c as { item: Parameters<typeof customItemToSummary>[0]; status?: unknown; archived?: unknown };
+      const entry = c as { item: DraftItem; status?: unknown; archived?: unknown };
       status = entry.status;
       archived = entry.archived;
       if (!isLocalLibraryStatus(status) || archived) continue;
       if (!entry.item || typeof entry.item.id !== 'string' || !entry.item.id) continue;
-      base = customItemToSummary(entry.item);
+      base = itemToSummary(entry.item, status as DraftStatus);
     } else {
       const row = c as AppSummary & { status?: unknown; archived?: unknown };
       status = (row as { status?: unknown }).status;
@@ -867,10 +811,7 @@ export function useAppSelectors({
   onlineApps,
   isOnlineResults = false,
   uncatalogedExtraApps,
-  installedApps,
-  updates,
   selectedPlatforms,
-  setSelectedPlatforms,
   platformResolvedOtherIds,
   selectedApp,
   recentlyViewedApps,
@@ -961,147 +902,6 @@ export function useAppSelectors({
     [fullMergedCatalogApps, platformResolvedOtherIds]
   );
 
-  // 目录 id（小写）→ AppSummary 索引，供已安装/更新列表 O(1) 查表，避免每行 apps.find 全扫
-  const appsById = useMemo(() => buildAppsById(fullMergedCatalogApps), [fullMergedCatalogApps]);
-
-  // 不在全量目录内的已装应用（被隐藏的收录应用、未收录已装）经零网络批量水合补齐卡片平台。
-  const [installedHydratedById, setInstalledHydratedById] = useState<ReadonlyMap<string, AppSummary>>(
-    () => new Map(),
-  );
-  const uncatalogedInstalledKey = useMemo(() => {
-    const ids: string[] = [];
-    for (const inst of installedApps) {
-      const k = normalizeId(inst.app_id);
-      if (k && !appsById.has(k)) ids.push(k);
-    }
-    return ids.sort().join('\n');
-  }, [installedApps, appsById]);
-  useEffect(() => {
-    if (!uncatalogedInstalledKey) return;
-    let cancelled = false;
-    hydrateCardsByIds(uncatalogedInstalledKey.split('\n'), { uncatalogedOnly: true })
-      .then((res) => {
-        if (!cancelled) setInstalledHydratedById(res.byId);
-      })
-      .catch(() => {
-        // 水合失败时按安装方式兜底
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [uncatalogedInstalledKey]);
-
-  const installedPlatformRows = useMemo(
-    () => resolveInstalledPlatformRows(installedApps, appsById, installedHydratedById, detectHostOs()),
-    [installedApps, appsById, installedHydratedById],
-  );
-
-  const filteredInstalledApps = useMemo(
-    () =>
-      selectPlatformFilteredInstalled(installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds),
-    [installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds],
-  );
-
-  const filteredUpdates = useMemo(
-    () => selectPlatformFilteredUpdates(updates, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds),
-    [updates, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds],
-  );
-
-  // 检查更新 Toast 口径：与「有更新」签同一可更新集（平台过滤 + 跳过隐藏/锁定）。
-  // 经 ref 读取最新已装平台行，联网检查期间已装列表刷新也按最新口径计数。
-  const updatableCountInputsRef = useRef({ installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds });
-  updatableCountInputsRef.current = { installedApps, installedPlatformRows, selectedPlatforms, platformResolvedOtherIds };
-  const countVisibleUpdatable = useCallback((freshUpdates: UpdateItem[], rules: UpdateRule[]) => {
-    const cur = updatableCountInputsRef.current;
-    const platformUpdates = selectPlatformFilteredUpdates(
-      freshUpdates,
-      cur.installedPlatformRows,
-      cur.selectedPlatforms,
-      cur.platformResolvedOtherIds,
-    );
-    const platformInstalled = selectPlatformFilteredInstalled(
-      cur.installedApps,
-      cur.installedPlatformRows,
-      cur.selectedPlatforms,
-      cur.platformResolvedOtherIds,
-    );
-    return selectUpdatableInstalled(platformInstalled, buildRulesMap(rules), buildUpdatesMap(platformUpdates)).length;
-  }, []);
-
-  const handleResetPlatformFilter = useCallback(() => {
-    setSelectedPlatforms(new Set<PlatformId>(PLATFORM_IDS));
-  }, [setSelectedPlatforms]);
-
-  // 视图级侧栏平台计数通道：各视图上报分布，null 表示回退全库；首次进入异步视图前保留上次稳定计数防闪烁
-  const VIEW_SCOPED_PLATFORM_VIEWS: ReadonlySet<ViewType> = new Set<ViewType>([
-    'trends',
-    'launchpad',
-    'latest',
-    'pending',
-    'installed',
-    'favorites',
-  ]);
-  const [viewPlatformCounts, setViewPlatformCountsState] = useState<
-    Partial<Record<ViewType, PlatformCounts | null>>
-  >({});
-  const setViewPlatformCounts = useCallback((view: ViewType, counts: PlatformCounts | null) => {
-    setViewPlatformCountsState((prev) => {
-      if (counts === null) {
-        if (VIEW_SCOPED_PLATFORM_VIEWS.has(view)) {
-          if (!(view in prev)) return prev;
-          const next = { ...prev };
-          delete next[view];
-          return next;
-        }
-        if (prev[view] === null) return prev;
-        return { ...prev, [view]: null };
-      }
-      if (prev[view] === counts) return prev;
-      return { ...prev, [view]: counts };
-    });
-  }, []);
-  const prevViewRef = useRef(currentView);
-  useLayoutEffect(() => {
-    const left = prevViewRef.current;
-    prevViewRef.current = currentView;
-    if (left !== currentView && left === 'categories') {
-      setViewPlatformCountsState((prev) => {
-        if (!('categories' in prev)) return prev;
-        const next = { ...prev };
-        delete next.categories;
-        return next;
-      });
-    }
-  }, [currentView]);
-  const handleLatestPlatformCounts = useCallback(
-    (counts: PlatformCounts | null) => setViewPlatformCounts('latest', counts),
-    [setViewPlatformCounts],
-  );
-  const handleCategoryPlatformCounts = useCallback(
-    (counts: PlatformCounts | null) => setViewPlatformCounts('categories', counts),
-    [setViewPlatformCounts],
-  );
-  const handleTrendsPlatformCounts = useCallback(
-    (counts: PlatformCounts | null) => setViewPlatformCounts('trends', counts),
-    [setViewPlatformCounts],
-  );
-  const handleLaunchpadPlatformCounts = useCallback(
-    (counts: PlatformCounts | null) => setViewPlatformCounts('launchpad', counts),
-    [setViewPlatformCounts],
-  );
-  const handlePendingPlatformCounts = useCallback(
-    (counts: PlatformCounts | null) => setViewPlatformCounts('pending', counts),
-    [setViewPlatformCounts],
-  );
-  const handleInstalledPlatformCounts = useCallback(
-    (counts: PlatformCounts | null) => setViewPlatformCounts('installed', counts),
-    [setViewPlatformCounts],
-  );
-  const handleFavoritesPlatformCounts = useCallback(
-    (counts: PlatformCounts | null) => setViewPlatformCounts('favorites', counts),
-    [setViewPlatformCounts],
-  );
-
   // home 搜索态：本地搜索命中（有在线结果时 ∪ 在线结果，按行别名去重）的分布；非 home 搜索态为 null。
   const isHomeSearch = currentView === 'home' && trimmedQuery.length > 0;
   const hasActiveOnlineSearch = isHomeSearch && isOnlineResults && annotatedOnlineApps.length > 0;
@@ -1114,37 +914,9 @@ export function useAppSelectors({
       platformResolvedOtherIds,
     );
   }, [isHomeSearch, hasActiveOnlineSearch, searchMergedApps, annotatedOnlineApps, platformResolvedOtherIds]);
-  // 优先级：当前视图上报值 >（全库作用域或显式回退 null 时：home 搜索态分布 > 全库分布）> 上次稳定计数。
-  const reportedPlatformCounts = viewPlatformCounts[currentView];
-  const resolvedPlatformCounts: PlatformCounts | undefined =
-    reportedPlatformCounts !== undefined
-      ? reportedPlatformCounts ?? searchPlatformCounts ?? platformCounts
-      : VIEW_SCOPED_PLATFORM_VIEWS.has(currentView)
-        ? undefined
-        : searchPlatformCounts ?? platformCounts;
-  const lastStablePlatformCountsRef = useRef<PlatformCounts | undefined>(undefined);
-  if (resolvedPlatformCounts !== undefined) {
-    lastStablePlatformCountsRef.current = resolvedPlatformCounts;
-  }
-  const sidebarPlatformCounts: PlatformCounts | undefined =
-    resolvedPlatformCounts ?? lastStablePlatformCountsRef.current;
 
-  // 已安装 id 集（大小写归一）：安装态与「受管」判定共用同一集合，一处计算两处消费。
-  const installedIds = useMemo(() => buildInstalledIdSet(installedApps), [installedApps]);
-
-  const managedIds = installedIds;
-
-  // `installedApps` 初始为空数组，列表加载完成后产生新引用；8s 超时防止中性占位永久悬挂
-  const initialInstalledRef = useRef(installedApps);
-  const [managedLoaded, setManagedLoaded] = useState(false);
-  useEffect(() => {
-    if (installedApps !== initialInstalledRef.current) setManagedLoaded(true);
-  }, [installedApps]);
-  useEffect(() => {
-    if (managedLoaded) return;
-    const t = setTimeout(() => setManagedLoaded(true), 8000);
-    return () => clearTimeout(t);
-  }, [managedLoaded]);
+  // 目录 id（小写）→ AppSummary 索引，供已安装/更新列表 O(1) 查表，避免每行 apps.find 全扫
+  const appsById = useMemo(() => buildAppsById(fullMergedCatalogApps), [fullMergedCatalogApps]);
 
   // 深链安装确认弹窗：呈现应用名称、仓库/来源以及 SHA-256（优先使用已加载详情，兜底使用列表快照）。
   const stagedDeepLinkDetail =
@@ -1174,27 +946,9 @@ export function useAppSelectors({
     platformFilteredFavoriteCount,
     pendingFilteredCount,
     platformCounts,
+    searchPlatformCounts,
     appsById,
     showCustom,
-    filteredInstalledApps,
-    filteredUpdates,
-    installedPlatformRows,
-    countVisibleUpdatable,
-    handleResetPlatformFilter,
-    setViewPlatformCounts,
-    handleLatestPlatformCounts,
-    handleCategoryPlatformCounts,
-    handleTrendsPlatformCounts,
-    handleLaunchpadPlatformCounts,
-    handlePendingPlatformCounts,
-    handleInstalledPlatformCounts,
-    handleFavoritesPlatformCounts,
-    /** `handleFavoritesPlatformCounts` 的别名槽位。 */
-    handleStarredPlatformCounts: handleFavoritesPlatformCounts,
-    sidebarPlatformCounts,
-    installedIds,
-    managedIds,
-    managedLoaded,
     stagedDeepLinkDetail,
     stagedDeepLinkSummary,
     stagedDeepLinkSha256,

@@ -5,6 +5,7 @@
 import { tauriApi } from '../api';
 import { normalizeId } from '../normalizeId';
 import { utf8ByteLength } from '../trends';
+import { createSerializedKeyWriter } from '../../lib/serializedKeyWriter';
 
 export const STARRED_OPTS_STORAGE_KEY = 'zstore.starred.opts';
 /** 快照新鲜期：12h（与趋势榜 L2 同口径）。 */
@@ -143,7 +144,7 @@ export async function readDbStarredCache(
   return { envelope, cachedAt: cachedAtMs, isFresh };
 }
 
-const saveChains = new Map<string, Promise<void>>();
+const writeSerialized = createSerializedKeyWriter();
 
 /** 写快照：同键串行（后写不被先写覆盖），失败静默。 */
 export function saveDbStarredCache(
@@ -156,14 +157,5 @@ export function saveDbStarredCache(
   if (!key || !scope) return Promise.resolve();
   const json = buildStarredEnvelopeJson(envelope);
   if (!json) return Promise.resolve();
-  const prev = saveChains.get(key) ?? Promise.resolve();
-  const next = prev
-    .catch(() => undefined)
-    .then(() => tauriApi.saveStarredFeedCache(key, scope, json))
-    .catch(() => undefined);
-  saveChains.set(key, next);
-  void next.finally(() => {
-    if (saveChains.get(key) === next) saveChains.delete(key);
-  });
-  return next;
+  return writeSerialized(key, () => tauriApi.saveStarredFeedCache(key, scope, json));
 }
