@@ -30,7 +30,7 @@
 
 ### 2.3 三链路共享单仓富卡池（Repo Enrich Cache）
 
-- `services/repoEnrichCache.ts` 是跨视图读写口，底层与趋势 `trendEnrichCache` / `trendConfirmedOtherCache` 为同一存储（12h TTL、600 条 FIFO）。池里只放具平台摘要与已确认 Other；未确认的空平台永不入池；`data:` 图标与收录态标注（`source` / `status` / `is_cataloged`）在池入口剥离。
+- `services/repoEnrichCache.ts` 是跨视图读写口，自身持有 M1 卡片表与已确认 Other 表（12h TTL、600 条 FIFO），`services/trends/enrich.ts` 仅重导出供趋势域沿用。池里只放具平台摘要与已确认 Other；未确认的空平台永不入池；`data:` 图标与收录态标注（`source` / `status` / `is_cataloged`）在池入口剥离。
 - 读：`assembleOnlineRowsWithIcons` 组装搜索与 Star 行时，缺平台的行从池里回填平台（占位版本同时换成真实版本）；`executeLiteBackfillBatch` 对池中已确认 Other 的未收录行（非强刷）直接落定，不发 `get_platforms_lite`。
 - 写：平台回填拿到具平台或确认空平台后写回池（只写未收录行）；搜索结果中已带平台的行（收录投影、`releases/latest` 回填）同样写回。趋势榜沿用原写口，三视图互相预热。
 - 列表顺序与分页缓存仍按视图隔离，只共享单仓派生字段。
@@ -45,7 +45,7 @@
 - SQLite `starred_feed_cache(cache_key, owner_scope, payload_json, payload_bytes, cached_at)` 纯透存信封 `{ v: 1, rows, pages, hasMore, emptyPages?, confirmedOther? }`：前端截至 3 页 / 60 条、剥离 `data:` 与收录标注、256KB 预检逐级降级；后端单条 512KiB 硬拒绝，启动清扫 7 天以上的行并只保留最近 15 个目标。
 - 新鲜度由前端判定：12h 内新鲜，更旧的仅作离线兜底与 SWR 首绘。`localStorage['zstore.starred.opts']` 只记查询模式与公开用户名。
 - `StarredFeed`：进入视图先从分页缓存恢复最近一次查询，没有则读快照零网络直展并用 `get_confirmed_icons_batch` 补本地图标，不自动联网；切换目标先查分页缓存（新鲜直出，否则先展示再同步第 1 页），再查快照（12h 内直出，更旧先展示再同步）；对当前目标点同步时旧卡片留在屏上，第 1 页带强刷位经条件请求更新。与 GitHub 同步过的目标，结果、页数与平台落定变化后防抖 800ms 写透快照（未经网络的快照不续期）。
-- 隐私：`owner_scope` 以 `@me:` 开头的快照随 `oauth::clear_oauth_session` 与 `/user/` ETag 一并删除；前端登出或换账号时清掉内存中的 `@me:` 分页缓存与查询记录。
+- 隐私：`owner_scope` 以 `@me:` 开头的快照随会话吊销唯一入口 `oauth::revoke_oauth_session`（手动登出与 401 失效共用）在无 `github.com` 主机令牌兜底时删除，`/user/` ETag 恒删除；前端登出或换账号时清掉内存中的 `@me:` 分页缓存与查询记录。
 
 ## 3. 后果
 

@@ -1574,7 +1574,7 @@ fn test_stream_merge_keeps_existing_slots_for_unpinned() {
     };
     db.upsert_icon_cycle(&before).unwrap();
 
-    // 与 `save_and_emit` 同口径：读旧行 → `merge_detail_icon` → 落库。
+    // 与流式命中落库 `icons::lanes::record_stream_hit` 同口径：读旧行 → `merge_detail_icon` → 落库。
     let mut loaded = db.get_icon_cycle(app_id).unwrap().unwrap();
     let keep_cataloged = loaded.is_cataloged;
     let was_pinned = crate::icons::merge_detail_icon(&mut loaded, 2, l2, keep_cataloged, 2000);

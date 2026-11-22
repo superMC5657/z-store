@@ -219,7 +219,10 @@ fn preflight_asset(name: &str, size_bytes: u64) -> crate::models::ReleaseAsset {
     }
 }
 
-fn preflight_release(tag: &str, assets: Vec<crate::models::ReleaseAsset>) -> crate::forge::ForgeReleaseInfo {
+fn preflight_release(
+    tag: &str,
+    assets: Vec<crate::models::ReleaseAsset>,
+) -> crate::forge::ForgeReleaseInfo {
     crate::forge::ForgeReleaseInfo {
         tag_name: tag.to_string(),
         name: Some(tag.to_string()),
@@ -286,10 +289,7 @@ fn preflight_accepts_mit_with_valid_assets_and_icon() {
 fn preflight_blocks_noassertion_and_non_osi_licenses() {
     let (coord, id) = preflight_coord("acme/prop");
     let allowed = crate::config::LicenseGateConfig::default().allowed;
-    let release = preflight_release(
-        "v1.0.0",
-        vec![preflight_asset("app-setup.exe", 5_000_000)],
-    );
+    let release = preflight_release("v1.0.0", vec![preflight_asset("app-setup.exe", 5_000_000)]);
 
     for bad_license in [Some("NOASSERTION"), Some("BUSL-1.1"), None] {
         let repo = preflight_repo(bad_license);
@@ -371,10 +371,7 @@ fn preflight_blocks_missing_or_source_only_releases() {
 fn preflight_blocks_invalid_custom_icon_scheme_and_warns_on_duplicates() {
     let (coord, id) = preflight_coord("acme/hyper-term");
     let repo = preflight_repo(Some("MIT"));
-    let release = preflight_release(
-        "v1.0.0",
-        vec![preflight_asset("app-setup.exe", 5_000_000)],
-    );
+    let release = preflight_release("v1.0.0", vec![preflight_asset("app-setup.exe", 5_000_000)]);
     let allowed = crate::config::LicenseGateConfig::default().allowed;
 
     let bad_icon = evaluate_launchpad_preflight(LaunchpadPreflightInput {

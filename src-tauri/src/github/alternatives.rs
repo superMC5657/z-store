@@ -8,8 +8,7 @@ use std::sync::OnceLock;
 
 use super::models::CatalogItem;
 
-const BUILTIN_ALTERNATIVES_JSON: &str =
-    include_str!("../../../src/data/builtin-alternatives.json");
+const BUILTIN_ALTERNATIVES_JSON: &str = include_str!("../../../src/data/builtin-alternatives.json");
 
 fn builtin_map() -> &'static HashMap<String, Vec<String>> {
     static MAP: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
@@ -35,11 +34,11 @@ pub fn builtin_alternatives_for(canonical_id: &str) -> &'static [String] {
 pub fn resolved_alternatives_for(explicit: &[String], canonical_id: &str) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut out: Vec<String> = Vec::new();
-    for raw in explicit
-        .iter()
-        .map(String::as_str)
-        .chain(builtin_alternatives_for(canonical_id).iter().map(String::as_str))
-    {
+    for raw in explicit.iter().map(String::as_str).chain(
+        builtin_alternatives_for(canonical_id)
+            .iter()
+            .map(String::as_str),
+    ) {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
             continue;

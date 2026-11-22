@@ -5,7 +5,7 @@
 - 关联：ADR-0006（多托管源 `ForgeProvider`）、ADR-0009（独立生态清单仓库）、ADR-0010（规范应用标识）、ADR-0018（开源协议门禁）、ADR-0020（OAuth 令牌边界）、ADR-0025（动态系统代理与资产缓存收敛；本 ADR 受控扩展其镜像回退范围）、ADR-0027（单仓富卡独立缓存表）
 - 修订：§2.2 的置顶边界已调整为允许 Launchpad 顶部 `Spotlight` 赞助位接入经审核的开发者向商业赞助与广告，仍与 `catalog_apps` / 推荐算法物理隔离且保持客户端零埋点。
 - 落地计划：`.scratch/feature-launchpad/`、`.scratch/feature-launchpad-preflight-and-badges/`
-- 实现：`src-tauri/src/launchpad/`、`src-tauri/src/commands/launchpad.rs`、`src-tauri/src/github/discussions.rs`、`src-tauri/src/db/launchpad.rs`、`src-tauri/src/deeplink.rs`、`src-tauri/config.toml`、`src/views/LaunchpadView.tsx`、`src/views/LaunchpadView/`、`src/components/ShareBadgeModal.tsx`、`src/services/api/launchpad.ts`、`src/demo/handlers/launchpad.ts`；独立数据仓：`superMC5657/z-store-launchpad`（本地 `z:\web_workplace\z-store-launchpad`）
+- 实现：`src-tauri/src/launchpad/`、`src-tauri/src/commands/launchpad.rs`、`src-tauri/src/github/discussions.rs`、`src-tauri/src/db/launchpad.rs`、`src-tauri/src/forge/http.rs`（共享无令牌清单传输）、`src-tauri/src/icons/lanes.rs`（广场补图世代通道）、`src-tauri/src/deeplink.rs`、`src-tauri/config.toml`、`src/views/LaunchpadView.tsx`、`src/views/LaunchpadView/`、`src/components/ShareBadgeModal.tsx`、`src/services/api/launchpad.ts`、`src/demo/handlers/launchpad.ts`；独立数据仓：`superMC5657/z-store-launchpad`（本地 `z:\web_workplace\z-store-launchpad`）
 
 ## 1. 背景
 
@@ -39,7 +39,7 @@
 
 ### 2.4 镜像回退的受控扩展
 
-ADR-0025 仅允许 `catalog.default_source_url` 经镜像回退。`launchpad.default_source_url` 同为公开、无鉴权的静态清单，纳入同一规则：直连（含系统代理）首跳遭遇传输错误、429 或 5xx，且用户启用了非 `direct` 的 `MirrorNode` 时，经镜像重试一次；镜像不发条件请求、不携带任何令牌，响应必须通过版本与全量规范标识校验才落库，镜像侧 ETag 不落库。
+ADR-0025 仅允许 `catalog.default_source_url` 经镜像回退。`launchpad.default_source_url` 同为公开、无鉴权的静态清单，纳入同一规则：直连（含系统代理）首跳遭遇传输错误、429 或 5xx，且用户启用了非 `direct` 的 `MirrorNode` 时，经镜像重试一次；镜像不发条件请求、不携带任何令牌，响应必须通过版本与全量规范标识校验才落库，镜像侧 ETag 不落库。精选目录与广场清单共用 `forge/http.rs` 的无令牌清单传输（清单池 `manifest_client` + `fetch_manifest_with_mirror_fallback`），广场领域不经 `CatalogService` 借用连接池或拉取逻辑。
 
 ### 2.5 应用内只读投稿预检向导与 README 单色徽章分享器
 

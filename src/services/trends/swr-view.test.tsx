@@ -547,7 +547,7 @@ describe('重挂图标自愈：SWR 空图标经 DB-only 回填，不走网络', 
     expect(fetchIconSpy).not.toHaveBeenCalled();
   });
 
-  it('单仓 enrich 返回 null 时同榜不连环重入调用 enrichTrendRepos（保护后端 BOARD_GEN 与流式探测）', async () => {
+  it('单仓 enrich 返回 null 时同榜不连环重入调用 enrichTrendRepos（保护后端趋势通道世代与流式探测）', async () => {
     vi.spyOn(tauriApi, 'fetchTrendsText').mockImplementation(async (url: string) => {
       if (String(url).includes('github.com/trending')) return trendingHtmlFixture();
       throw new Error(`unexpected url: ${url}`);

@@ -3007,9 +3007,7 @@ mod tests {
         let seed_toks = similarity_tokens(&seed, None);
         let reasons = explain_similarity_reasons(&seed, &seed_toks, &cand, &idf, None);
         assert!(
-            !reasons
-                .iter()
-                .any(|r| matches!(r, Reason::Category { .. })),
+            !reasons.iter().any(|r| matches!(r, Reason::Category { .. })),
             "跨分类候选不得产出同分类理由: {reasons:?}"
         );
     }

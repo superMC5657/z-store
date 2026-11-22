@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CountBadge } from '../components/CountBadge';
 import { useReportPlatformCounts } from '../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
@@ -141,6 +141,22 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
   const [confirmingUninstallId, setConfirmingUninstallId] = useState<string | null>(null);
   const [confirmingUnmanageId, setConfirmingUnmanageId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const resetTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = resetTimersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
+  /** 二次确认与「已复制」态的自动复位；卸载时清理未触发的定时器。 */
+  const resetLater = (reset: () => void, ms: number) => {
+    const timer = setTimeout(() => {
+      resetTimersRef.current.delete(timer);
+      reset();
+    }, ms);
+    resetTimersRef.current.add(timer);
+  };
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<InstalledFilterTabId>(focusUpdates ? 'updatable' : 'all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -282,9 +298,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     } else {
       setConfirmingUninstallId(id);
       setConfirmingUnmanageId(null);
-      setTimeout(() => {
-        setConfirmingUninstallId((prev) => (prev === id ? null : prev));
-      }, 4000);
+      resetLater(() => setConfirmingUninstallId((prev) => (prev === id ? null : prev)), 4000);
     }
   };
 
@@ -299,9 +313,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     } else {
       setConfirmingUnmanageId(id);
       setConfirmingUninstallId(null);
-      setTimeout(() => {
-        setConfirmingUnmanageId((prev) => (prev === id ? null : prev));
-      }, 4000);
+      resetLater(() => setConfirmingUnmanageId((prev) => (prev === id ? null : prev)), 4000);
     }
   };
 
@@ -309,9 +321,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     const ok = await copyTextToClipboard(path);
     if (!ok) return;
     setCopiedId(id);
-    setTimeout(() => {
-      setCopiedId((prev) => (prev === id ? null : prev));
-    }, 2000);
+    resetLater(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000);
   };
 
   const filterTabs: ManageFilterTab<InstalledFilterTabId>[] = [

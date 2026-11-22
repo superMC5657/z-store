@@ -483,7 +483,7 @@ impl Database {
             .filter(|e| is_local_library_status(&e.status) && !e.archived))
     }
 
-    /// 在调用方已开启的事务内执行转正归档（供 `CatalogRepository` 组合事务复用）。
+    /// 在调用方已开启的事务内执行转正归档（供 `CatalogService::apply_remote_manifest` 组合事务复用）。
     pub(crate) fn retire_custom_apps_in_tx(&self, remote_ids: &[String]) -> Result<Vec<String>> {
         let mut remote_set = std::collections::HashSet::new();
         for raw in remote_ids {

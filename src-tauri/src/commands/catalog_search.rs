@@ -588,7 +588,7 @@ async fn fetch_enrich_batch(
     .await
 }
 
-/// 批量丰富趋势榜未收录仓库卡片，并在后台流式补齐缺失图标（每次调用推进 `BOARD_GEN`）。
+/// 批量丰富趋势榜未收录仓库卡片，并在后台流式补齐缺失图标（每次调用推进趋势通道世代 `IconLane::Trend`）。
 /// 最多处理前 40 项，单仓失败返回 `None` 以保持位置对齐。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn enrich_trend_repos(

@@ -4,7 +4,7 @@
 - 日期：2026-11-15
 - 关联：ADR-0003（SQLite 持久化与 ETag 缓存）、ADR-0007（可配 TTL 缓存）、ADR-0010（规范应用标识）、ADR-0014（趋势榜 L2；本 ADR 修订其 §1、§5、§8 的信封与写盘口径）、ADR-0015（统一图标获取；本 ADR 修订其 §4）、ADR-0017（本地自维护 overlay）、ADR-0019（资产面手动缓存）、ADR-0026（本 ADR 修订其 §2.3–§2.5）
 - 落地计划：`.scratch/unified-repo-card-and-index-caches/`
-- 实现：`src-tauri/src/db/repo_cards.rs`、`src-tauri/src/db/cache.rs`、`src-tauri/src/db/schema.rs`、`src-tauri/src/oauth/mod.rs`、`src-tauri/src/lib.rs`、`src-tauri/src/commands/catalog_search.rs`、`src-tauri/src/commands/catalog_detail.rs`、`src-tauri/src/commands/forge.rs`、`src-tauri/src/commands/trends_cache.rs`、`src-tauri/src/repositories/detail_repo.rs`、`src/services/repoEnrichCache.ts`、`src/services/trends/enrich.ts`、`src/services/trends/cache.ts`、`src/services/trends/board.ts`、`src/services/search/searchListCache.ts`、`src/services/starred/starredCache.ts`、`src/app/hooks/useSearchState.ts`、`src/views/FavoritesView/StarredFeed.tsx`
+- 实现：`src-tauri/src/db/repo_cards.rs`、`src-tauri/src/db/cache.rs`、`src-tauri/src/db/schema.rs`、`src-tauri/src/oauth/mod.rs`、`src-tauri/src/lib.rs`、`src-tauri/src/commands/catalog_search.rs`、`src-tauri/src/commands/catalog_detail.rs`、`src-tauri/src/commands/forge.rs`、`src-tauri/src/commands/trends_cache.rs`、`src-tauri/src/repositories/detail_repo.rs`、`src-tauri/src/repositories/detail_service.rs`、`src-tauri/src/repositories/card_hydrator.rs`、`src-tauri/src/github/catalog_service.rs`、`src-tauri/src/icons/lanes.rs`、`src-tauri/src/launchpad/feed.rs`、`src/services/repoEnrichCache.ts`、`src/services/trends/enrich.ts`、`src/services/trends/cache.ts`、`src/services/trends/board.ts`、`src/services/search/searchListCache.ts`、`src/services/starred/starredCache.ts`、`src/app/hooks/useSearchState.ts`、`src/views/FavoritesView/useStarredFeed.ts`
 
 ## 1. 背景
 
@@ -23,14 +23,14 @@
 - 写入口（`db/repo_cards.rs`）统一执行：
   - 表内无收录态标注列；读出时 `is_verified = false`、收录标注缺席，由 `CatalogService::stamp_summary` 按当前目录盖章；
   - `data:`、README 正文大图与非 `http(s)` 图标剥空；本地确认图标只在读出时经 `resolve_confirmed_icon_from_db` 叠加；
-  - 已收录（远端精选或未归档 `collected` / `local_collected` / `submitted` 本地库）的 `id` 跳过写入；`sync_catalog` 落库、`collect_local_app` 与启动清扫执行 `purge_cataloged_repo_cards`；
+  - 已收录（远端精选或未归档 `collected` / `local_collected` / `submitted` 本地库）的 `id` 跳过写入；`CatalogService` 的启动装载（`initialize_from_db`）、远端清单覆盖（`apply_remote_manifest`，同事务）、本地库收录（`collect_local_app`）与本地库态草稿重存（`save_custom_draft`），以及启动清扫执行 `purge_cataloged_repo_cards`；
   - 非破坏合并：空值与占位（占位简介、`latest` / `...` 版本、`unknown` / `NOASSERTION` 协议、`external` 分类、空主页、空图标、0 星）不覆盖已有实值；
   - 平台三态单调：具体平台 > 已确认 Other > 未知。具体平台到达即清零 `confirmed_other`；空平台（无论是否确认）不降级具体平台；未知空平台保留原平台与确认标记。
 - `get_platforms_lite` 的非 stale 决议经 `patch_repo_card_platforms` 写回平台、真实 tag 或确认 Other（已知存在的仓库在 `releases/latest` 返回 404 即零发布，确认 Other）；无行时预写 `updated_at = 0` 的平台壳，批量水合不可见，完整元数据到达时继承平台与版本。离线、限流与 5xx 不写。
 - `get_platforms_lite` 非强刷时，详情 TTL 未命中再查本表：12h 内已具平台或已确认 Other 即零网络返回。
 - 完整卡片写入点：在线搜索（关键词 / GitHub 直查 / 多源直查，stale 回退不写）、趋势 `enrich_trend_repos`（远端成功与详情 / 载荷本地命中；本表自身命中与失败回退不写，避免伪造新鲜度）、Star 列表（非 stale 页）、详情落库 `persist_detail_bundle`（同事务，平台为空即确认 Other）。流式补图与详情图标轮换同步本表 `icon`（L5 切空显式清空）。
 - 容量 2000 行，按 `last_accessed_at` LRU；批量水合命中即刷新访问时间。
-- `is_private` 取自仓库 JSON 的 `private` / `visibility == "private"`；部分写入保留原值。`oauth::clear_oauth_session` 与无主机令牌兜底的 401 失效通道删除 `is_private = 1` 行。
+- `is_private` 取自仓库 JSON 的 `private` / `visibility == "private"`；部分写入保留原值。会话吊销唯一入口 `oauth::revoke_oauth_session`（手动登出与 401 失效共用）在无 `github.com` 主机令牌兜底时删除 `is_private = 1` 行。
 - 收藏 / 关注 / 最近浏览的未收录回填（`cached_detail_summary`）在 `app_details` 无行时回退本表。
 
 ### 2.2 三张瘦 id 索引快照表（`v: 2`）

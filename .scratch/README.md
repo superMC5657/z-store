@@ -57,7 +57,7 @@
 | **#37** | Phase 8: 发现深化与生态工具 | [`feature-launchpad-preflight-and-badges`](./feature-launchpad-preflight-and-badges/spec.md) | 开源广场应用内投稿预检向导与 README 徽章生成器 | 2026-11-20 | — | ADR-0018, 0029 | 4 / 4 Resolved |
 | **#38** | Phase 8: 发现深化与生态工具 | [`feature-shareable-collections`](./feature-shareable-collections/spec.md) | 可分享应用合集深链（`zstore://collection`）与批量预览安装 | 2026-11-20 | — | ADR-0001, 0004, 0010 | 4 / 4 Resolved |
 | **#39** | Phase 8: 发现深化与生态工具 | [`feature-similar-and-alternatives`](./feature-similar-and-alternatives/spec.md) | 商业软件「开源平替」搜索增强与详情页「相似开源项目」推荐 | 2026-11-20 | `f41772f` | ADR-0023, 0024, 0030 | 4 / 4 Resolved |
-| **#40** | Phase 8: 发现深化与生态工具 | [`module-deepening-v2`](./module-deepening-v2/spec.md) | 全栈深模块收敛与命令层去编排化二期（`AppDetail` / `CardHydrator` / `Launchpad` / `DemoStore`） | 2026-11-22 | — | ADR-0004, 0006, 0015, 0017, 0027, 0029 | 0 / 9 Ready |
+| **#40** | Phase 8: 发现深化与生态工具 | [`module-deepening-v2`](./module-deepening-v2/spec.md) | 全栈深模块收敛与命令层去编排化二期（`AppDetail` / `CardHydrator` / `Launchpad` / `DemoStore`） | 2026-11-22 | — | ADR-0004, 0006, 0015, 0017, 0027, 0029 | 9 / 9 Resolved |
 
 ---
 
@@ -231,7 +231,7 @@
 - **定位**：商业软件「开源平替」搜索增强与详情页「相似开源项目」推荐（4 / 4 Resolved），引入 `alternatives` 元数据映射与检索评分增强，并复用 `CatalogIdf` 与 `seed_similarity_with_idf` 实现详情页零网络相似应用推荐（[ADR-0030](../docs/adr/0030-similar-apps-and-alternatives-search.md)）。
 
 #### #40 · `module-deepening-v2`
-- **定位**：全栈深模块收敛与命令层去编排化二期（0 / 9 Ready），围绕 `AppDetail` 跨 `ForgeProvider` 统一决议与多源 `Checksum Manifest`、后端 `CardHydrator` 与 `icons/` 四路世代流、`CatalogService` 吸收 `CatalogRepository`、前后端 `Launchpad` 领域收口与无令牌清单同步传输、前端 `Repo Enrich Cache` 治愈总线、`selectors.ts` 纯化及 `DemoStore` 契约对齐拆解 9 张可并行执行工单。
+- **定位**：全栈深模块收敛与命令层去编排化二期（9 / 9 Resolved），把领域编排从 `commands/*` 下沉到深模块：`CatalogService` 独占精选目录与本地库事务、`installer/managed.rs` 与 `oauth::revoke_oauth_session` 分别收口已纳管应用生命周期与会话清理、`repositories/detail_service.rs` 统一 `AppDetail` / 轻量 Release 跨 `ForgeProvider` 决议与多源 `Checksum Manifest`、`repositories/card_hydrator.rs` 收敛富卡水合与写透、`icons/lanes.rs` 持有四路 `IconFetch` 世代通道、`launchpad/` 与 `forge/http.rs` 共享无令牌清单传输；前端由 `repoEnrichCache.ts` 统一富卡池与详情治愈扇出、`iconStore` 统一 L5 轮换准入、`selectors.ts` 纯化并拆出 `usePlatformFilter` / `useMyAppsState` / `useStarredFeed` / `useTrendSession`，`DemoStore` 对齐 `Local Library` / `Launchpad` 详情与隐藏规则。
 
 ---
 

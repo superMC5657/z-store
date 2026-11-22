@@ -44,7 +44,7 @@
 | **规范应用标识** | `Canonical App Id` | 全系统唯一应用标识，统一为小写 `owner/repo`（GitHub）、`forge:owner/repo` 或 `forge:host/owner/repo`；所有入站标识均须经 `canonical_app_id()` 归一化。详见 ADR-0010。 | 随机 UUID、应用别名 ID |
 | **统一图标获取** | `IconFetch` | 后端流式图标补探核心（`src-tauri/src/icons/fetch.rs`），供搜索、趋势、Star 列表与开源广场共用；只做探测与调度、不触 DB，命中通过 `zstore://icon-ready` 发射并由前端 `iconStore` 统一收口。 | 图标管道、补图核心 |
 | **搜索列表缓存** | `Search List Cache` | 在线搜索与 Star 列表的分页有序 id 索引（前端内存 + 在线搜索 SQLite `search_list_cache`），与卡片数据分离存储、按 id 共享水合；登出时清除私有快照。见 ADR-0027。 | 搜索缓存、结果缓存 |
-| **单仓富卡派生缓存** | `Repo Enrich Cache` | 趋势、在线搜索与 Star 列表共享的未收录应用轻量富卡池（SQLite `repo_card_cache` + 前端内存镜像），与 `catalog_apps` / `custom_apps` 物理隔离；统一存储三态平台与非 `data:` 图标，供列表批量水合。见 ADR-0027。 | 平台缓存、富卡缓存 |
+| **单仓富卡派生缓存** | `Repo Enrich Cache` | 趋势、在线搜索、Star 列表、开源广场与应用详情共享的未收录应用轻量富卡池（SQLite `repo_card_cache` + 前端内存镜像 `src/services/repoEnrichCache.ts`），与 `catalog_apps` / `custom_apps` 物理隔离；统一存储三态平台与非 `data:` 图标，供列表批量水合。见 ADR-0027。 | 平台缓存、富卡缓存 |
 | **Star 列表快照缓存** | `Starred Feed Cache` | 星标页「Star 同步」的 SQLite 瘦索引快照（`starred_feed_cache`），按页有序保存 id 并配合 `repo_card_cache` 批量水合；`@me:` 私有快照随登出清除。见 ADR-0027。 | Star 缓存、收藏快照 |
 | **待收录草稿** | `Draft` | 暂存于本地 `custom_apps` 表、尚未提交至独立生态清单仓库的收录候选条目（`status=draft`）；待收录页分草稿 / 待提交 / 已提交 / 已归档四个平级 Tab，侧栏角标为未归档三组之和。 | 草稿箱、未提交应用 |
 | **自维护** | `Maintained` | 用户在本地自维护的收录条目（`custom_apps` 未归档行），经 overlay 合并进入目录视图并以 `source=local` 标识，远端命中后自动转正归档。 | 本地条目、自定义应用 |
@@ -84,10 +84,12 @@
    - 开源广场（Launchpad）的普通上架流仅面向符合 OSI 协议与可安装门槛的开源新品；顶部置顶推荐（`Spotlight`）支持经审核的开发者向商业赞助，恒带单色 `.status-tag` 标识，与 `catalog_apps` 和推荐算法物理隔离，客户端保持零行为埋点（见 ADR-0029）。
 2. **D2 零服务器成本与解耦清单同步 (Serverless Direct API & Decoupled Manifest Sync)**:
    - 客户端从 `superMC5657/z-store-catalog` 增量同步精选应用元数据，本地内置 `catalog.json` 作种子与离线兜底（ADR-0009）。
-   - 开源广场清单仅在进入广场视图或广场深链时按需拉取（无令牌 ETag 条件请求，官方源首跳失败可经镜像校验重试），清单快照与讨论脉冲落在隔离缓存表（`launchpad_feed_cache` / `launchpad_discussion_cache`），永不写入 `catalog_apps` / `custom_apps`；讨论区已登录走 GraphQL，未登录走匿名 REST 只读降级（ADR-0029）。
+   - 开源广场清单仅在进入广场视图或广场深链时按需拉取（经 `src-tauri/src/forge/http.rs` 与精选目录共用的无令牌清单传输：ETag 条件请求，官方源首跳失败可经镜像校验重试），清单快照与讨论脉冲落在隔离缓存表（`launchpad_feed_cache` / `launchpad_discussion_cache`），永不写入 `catalog_apps` / `custom_apps`；讨论区已登录走 GraphQL，未登录走匿名 REST 只读降级（ADR-0029）。
    - 应用详情与构建资产通过 `ForgeProvider` 直连各代码源官方 API 获取，不设中心化聚合后端。
-   - 后端 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）结合仓储层（`src-tauri/src/repositories/`）统一持有远端精选目录（`catalog_apps`）与本地收录 overlay（`custom_apps`），并负责检索、坐标解析、列表投影及在 `AppSummary` / `AppDetail` 上权威盖章 `source` 与 `is_cataloged`。
-   - 本地 SQLite (`z_store.db`) 维护 TTL 与 HTTP ETag 304 条件请求缓存（ADR-0007）；趋势榜、Star 列表与在线搜索的 SQLite 列表快照仅存有序 id 索引，未收录应用的卡片与平台由 `repo_card_cache` 跨重启承接（表结构以 `db/schema.rs::init_schema` 为准）；账号私有快照与凭据相关 ETag 随登出清除（ADR-0026、ADR-0027）。
+   - 后端 `CatalogService`（`src-tauri/src/github/catalog_service.rs`）统一持有远端精选目录（`catalog_apps`）与本地收录 overlay（`custom_apps`）：目录覆盖与本地库变更在其内部完成 SQLite 事务、内存索引刷新、`is_cataloged` 回填、图标槽收录标记与已收录富卡清理，并负责检索、坐标解析、列表投影及在 `AppSummary` / `AppDetail` 上权威盖章 `source` 与 `is_cataloged`。
+   - 仓储层（`src-tauri/src/repositories/`）承载应用详情决议（`detail_service.rs`：完整详情、平台轻量回填与轻量 Release 的唯一编排点，内含 `Cache TTL`、ETag 条件请求、多源 `ForgeProvider` 拉取与 `Checksum Manifest` 填充）、详情同事务落盘（`DetailRepository`，`detail_repo.rs`）与单仓富卡批量水合及远端载荷写透（`CardHydrator`，`card_hydrator.rs`）；命令层只做参数校验与返回映射。
+   - 已纳管应用生命周期（盘点自愈、启动路径、`update_results` 判定快照对齐）收口于 `src-tauri/src/installer/managed.rs`；OAuth 手动登出与 401 失效共用 `oauth::revoke_oauth_session` 单一清理入口。
+   - 本地 SQLite (`z_store.db`) 维护 TTL 与 HTTP ETag 304 条件请求缓存（ADR-0007）；趋势榜、Star 列表与在线搜索的 SQLite 列表快照仅存有序 id 索引，未收录应用的卡片与平台由 `repo_card_cache` 跨重启承接（表结构以 `db/schema.rs::init_schema` 为准）；账号私有快照与凭据相关 ETag 随登出或 401 失效经 `oauth::revoke_oauth_session` 清除（ADR-0026、ADR-0027）。
    - 网络层运行期动态读取操作系统代理（Windows 注册表 / GNOME / macOS），按代理签名复用并热重建连接池，传输失败时自动重探（ADR-0025）；下载加速镜像仅重写资产下载 URL（官方默认清单为唯一非安装包回退例外），校验清单 `checksums.txt` 绝不经镜像。
    - 本地状态（已安装记录、设置、主机速率、令牌 `host_tokens`、更新规则、关注、仓库信号与足迹）均保存在本地 SQLite，令牌威胁模型见 ADR-0020；文档不记具体实现数值与阈值，以配置和源码常量为准。
    - 后端命令注册表以 `src-tauri/src/lib.rs` 为准；前端统一通过 CMD 表与 `tauriInvoke` 派发，视图层禁止直调 `invoke`，请求键命名遵守 `AGENTS.md`。
@@ -98,7 +100,7 @@
    - 仅星级收藏、榜单排名、本地收录徽标（`verified-badge-local`，仅未验证时叠加）与告警/错误使用语义色点缀；文字型状态标记统一使用 `.status-tag`。
    - 侧栏账号胶囊与设置中心 6 组结构见词汇表与 ADR-0008。
 5. **D5 多池隔离与按代理签名复用 (Isolated Pooled Clients)**:
-   - API 请求、图标/CDN 下载、清单同步、安装包下载与趋势直连使用物理隔离的 `reqwest::Client` 池；图标/CDN 池、清单池与趋势直连池绝不携带认证 Token（ADR-0012）。
+   - API 请求、图标/CDN 下载、清单同步、安装包下载与趋势直连使用物理隔离的 `reqwest::Client` 池；图标/CDN 池、清单池与趋势直连池绝不携带认证 Token（ADR-0012）；清单池由精选目录与开源广场共用（`forge/http.rs::manifest_client`）。
    - 各类长生命周期池均以系统代理签名为键复用与原子热重建，镜像下载通道按需将镜像 host 加入 per-client `no_proxy` 豁免（ADR-0025）。
 6. **D6 有限并发 (Bounded Concurrency)**:
    - 明星榜、更新检查、SimpleIcons 验图、趋势 enrich 与 `IconFetch` 均受有界并发池约束，按原序或世代受控回填，避免突发请求打爆配额或连接数（ADR-0015）。
@@ -110,6 +112,6 @@
    - 趋势抓榜经共享 API 池抓取（doforce 走直连优先、失败经系统代理回退并截断响应体积），结合分档内存与 SQLite 瘦索引快照（`trend_board_cache` 只存排行 id 索引），卡片数据由 `repo_card_cache` 水合，缺失仓由有限批量 enrich 与后台流式 `IconFetch` 补齐（ADR-0014、ADR-0025、ADR-0027）。
    - 精选页展示后端一次组装的推荐货架（`get_featured_page`，ADR-0023）与最近浏览区块；`get_home_feed` 提供固定 `balanced` 排序与日期种子的分页目录接口（ADR-0013）。
 10. **D10 统一图标与列表富卡管道 (Unified Icon & Rich-Card Pipeline)**:
-    - 后端统一图标补探核心 `fetch_icons_stream` 服务于搜索、趋势、Star 列表与开源广场，各通道持有独立世代计数器互不干扰，命中统一经 `zstore://icon-ready` 发射（level 1–5 与 `via: live | m2` 正交，详见 ADR-0015）。
+    - 后端统一图标补探核心 `fetch_icons_stream` 服务于搜索、趋势、Star 列表与开源广场，四路通道（搜索 / 趋势 / Star 列表 / 开源广场）由 `src-tauri/src/icons/lanes.rs` 的 `IconLane` 持有独立世代计数器互不干扰，命中落库与发射前各做一次世代检查，统一经 `zstore://icon-ready` 发射（level 1–5 与 `via: live | m2` 正交，详见 ADR-0015）。
     - 前端图标写入收口于 `src/services/iconStore.ts`（`useAppSubscriptions` 单一订阅 `zstore://icon-ready` 后按通道门控并扇出列表与镜像）；真实 Tauri 运行时下未缓存图标与正文插图/头像经后端单飞落盘后以 `data:` 渲染，避免前后端双发（ADR-0025）。
-    - `Search List Cache` 与 `Repo Enrich Cache` 协同维护有序分页 id 索引与共享富卡池（`data:` 图标进 M1 缓冲，持久化层只存远端 URL 并在读出时叠加确认图标）；详情页走全层级（L1–L4）图标探测。
+    - `Search List Cache` 与 `Repo Enrich Cache` 协同维护有序分页 id 索引与共享富卡池（`data:` 图标进 M1 缓冲，持久化层只存远端 URL 并在读出时叠加确认图标；详情落定经 `upsertRepoCardFromDetail` 单点合入并向订阅方扇出）；详情页走全层级（L1–L4）图标探测。

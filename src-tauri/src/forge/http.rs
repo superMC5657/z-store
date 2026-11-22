@@ -417,7 +417,10 @@ async fn fetch_manifest_once(
     }
     if !status.is_success() {
         let retryable = status.as_u16() == 429 || status.is_server_error();
-        return Err(fail(format!("同步{label}失败，HTTP 状态码: {status}"), retryable));
+        return Err(fail(
+            format!("同步{label}失败，HTTP 状态码: {status}"),
+            retryable,
+        ));
     }
     let etag = resp
         .headers()
@@ -427,9 +430,10 @@ async fn fetch_manifest_once(
     let body = read_body_capped(resp, req.max_bytes)
         .await
         .map_err(|e| match e {
-            BodyReadError::TooLarge => {
-                fail(format!("{label}超过 {} 上限", human_size(req.max_bytes)), false)
-            }
+            BodyReadError::TooLarge => fail(
+                format!("{label}超过 {} 上限", human_size(req.max_bytes)),
+                false,
+            ),
             BodyReadError::Transport(e) => fail(format!("读取{label}失败: {e}"), true),
         })?;
     Ok(ManifestFetch {

@@ -1,6 +1,6 @@
 # Feature Spec: 全栈深模块收敛与命令层去编排化二期（Module Deepening v2）
 
-> 状态：Ready（`01`–`09` 全部为 `ready-for-agent`）
+> 状态：Resolved（`01`–`09` 全部为 `resolved`）
 > 关联契约：`CONTEXT.md`（领域词汇与架构原则 D1–D10）、`AGENTS.md`（IPC 命名约定与 `<CountBadge>` 规范）、`docs/agents/domain.md`、`docs/agents/issue-tracker.md`、`docs/agents/triage-labels.md`、ADR-0003/0004/0006/0007/0009/0010/0014/0015/0017/0018/0019/0020/0022/0025/0026/0027/0028/0029/0030。
 > 设计方法：`codebase-design`（Deep Modules、Interface as Test Surface、Deletion Test、Two-Adapter Seam Discipline、Replace-Don't-Layer Testing）。
 
@@ -44,15 +44,15 @@
 
 | 编号 | 工单文件 | 对应审查候选 | 作用域摘要 | 状态 | 阻塞依赖 (`Blocked by`) |
 | :---: | :--- | :---: | :--- | :---: | :---: |
-| **01** | [`01-backend-catalog-overlay-authority.md`](./issues/01-backend-catalog-overlay-authority.md) | Candidate #4 | 删除 `CatalogRepository`，将 `Curated Catalog` 与 `Local Library` 事务、内存索引、图标槽及富卡清理收口至 `CatalogService` | `ready-for-agent` | `none` |
-| **02** | [`02-backend-managed-apps-and-session-authority.md`](./issues/02-backend-managed-apps-and-session-authority.md) | Candidate #7 | 下沉 `InstalledApp` / `Update Rule` / `update_results` 生命周期至 `installer/`，统一 `oauth/` 登出与 401 失效清理 | `ready-for-agent` | `01` |
-| **03** | [`03-backend-app-detail-and-forge-unification.md`](./issues/03-backend-app-detail-and-forge-unification.md) | Candidate #1 | 统一 `ForgeProvider` D7 重试与多源 `Checksum Manifest` 提取，将 `AppDetail` 与轻量 Release 决议收敛为单一深模块 | `ready-for-agent` | `01, 02` |
-| **04** | [`04-backend-card-hydrator-and-iconfetch-lanes.md`](./issues/04-backend-card-hydrator-and-iconfetch-lanes.md) | Candidate #2 | 收敛单仓富卡批量水合与写透模块 `CardHydrator`，将四路 `IconFetch` 世代计数器与发射协调迁入 `icons/` | `ready-for-agent` | `03` |
-| **05** | [`05-launchpad-domain-and-shared-manifest-transport.md`](./issues/05-launchpad-domain-and-shared-manifest-transport.md) | Candidate #5 | 抽离共享无令牌清单同步传输，前后端双向加深 `Launchpad` 领域模块并消除跨目录/跨弹窗泄漏 | `ready-for-agent` | `04, 06` |
-| **06** | [`06-frontend-repo-enrich-heal-and-icon-cycle-admission.md`](./issues/06-frontend-repo-enrich-heal-and-icon-cycle-admission.md) | Candidate #3 | 归位前端 `Repo Enrich Cache` M1 存储与订阅扇出，废除 `window` 治愈事件双跳，统一 `iconStore` L5 轮换准入 | `ready-for-agent` | `none` |
-| **07** | [`07-frontend-demo-store-and-pending-seam-cleanup.md`](./issues/07-frontend-demo-store-and-pending-seam-cleanup.md) | Candidate #8 | 收敛 `DemoStore` 补齐 `Local Library` / `Launchpad` 详情与隐藏规则，移除 `PendingView` 测试影子状态机 | `ready-for-agent` | `06` |
-| **08** | [`08-frontend-app-shell-selectors-and-richcard-swr-hooks.md`](./issues/08-frontend-app-shell-selectors-and-richcard-swr-hooks.md) | Candidate #6 | 纯化 `selectors.ts`，下沉 `usePlatformFilter` 与 `useMyAppsState`，提取 `useStarredFeed` 与 `useTrendSession` | `ready-for-agent` | `05, 07` |
-| **09** | [`09-docs-context-and-full-regression-gates.md`](./issues/09-docs-context-and-full-regression-gates.md) | 全局收口 | 同步 `CONTEXT.md`、关联 ADR 实现索引与 `.scratch/README.md`，执行全栈回归与构建门禁 | `ready-for-agent` | `05, 08` |
+| **01** | [`01-backend-catalog-overlay-authority.md`](./issues/01-backend-catalog-overlay-authority.md) | Candidate #4 | 删除 `CatalogRepository`，将 `Curated Catalog` 与 `Local Library` 事务、内存索引、图标槽及富卡清理收口至 `CatalogService` | `resolved` | `none` |
+| **02** | [`02-backend-managed-apps-and-session-authority.md`](./issues/02-backend-managed-apps-and-session-authority.md) | Candidate #7 | 下沉 `InstalledApp` / `Update Rule` / `update_results` 生命周期至 `installer/`，统一 `oauth/` 登出与 401 失效清理 | `resolved` | `01` |
+| **03** | [`03-backend-app-detail-and-forge-unification.md`](./issues/03-backend-app-detail-and-forge-unification.md) | Candidate #1 | 统一 `ForgeProvider` D7 重试与多源 `Checksum Manifest` 提取，将 `AppDetail` 与轻量 Release 决议收敛为单一深模块 | `resolved` | `01, 02` |
+| **04** | [`04-backend-card-hydrator-and-iconfetch-lanes.md`](./issues/04-backend-card-hydrator-and-iconfetch-lanes.md) | Candidate #2 | 收敛单仓富卡批量水合与写透模块 `CardHydrator`，将四路 `IconFetch` 世代计数器与发射协调迁入 `icons/` | `resolved` | `03` |
+| **05** | [`05-launchpad-domain-and-shared-manifest-transport.md`](./issues/05-launchpad-domain-and-shared-manifest-transport.md) | Candidate #5 | 抽离共享无令牌清单同步传输，前后端双向加深 `Launchpad` 领域模块并消除跨目录/跨弹窗泄漏 | `resolved` | `04, 06` |
+| **06** | [`06-frontend-repo-enrich-heal-and-icon-cycle-admission.md`](./issues/06-frontend-repo-enrich-heal-and-icon-cycle-admission.md) | Candidate #3 | 归位前端 `Repo Enrich Cache` M1 存储与订阅扇出，废除 `window` 治愈事件双跳，统一 `iconStore` L5 轮换准入 | `resolved` | `none` |
+| **07** | [`07-frontend-demo-store-and-pending-seam-cleanup.md`](./issues/07-frontend-demo-store-and-pending-seam-cleanup.md) | Candidate #8 | 收敛 `DemoStore` 补齐 `Local Library` / `Launchpad` 详情与隐藏规则，移除 `PendingView` 测试影子状态机 | `resolved` | `06` |
+| **08** | [`08-frontend-app-shell-selectors-and-richcard-swr-hooks.md`](./issues/08-frontend-app-shell-selectors-and-richcard-swr-hooks.md) | Candidate #6 | 纯化 `selectors.ts`，下沉 `usePlatformFilter` 与 `useMyAppsState`，提取 `useStarredFeed` 与 `useTrendSession` | `resolved` | `05, 07` |
+| **09** | [`09-docs-context-and-full-regression-gates.md`](./issues/09-docs-context-and-full-regression-gates.md) | 全局收口 | 同步 `CONTEXT.md`、关联 ADR 实现索引与 `.scratch/README.md`，执行全栈回归与构建门禁 | `resolved` | `05, 08` |
 
 ### 并行执行波次（零文件冲突）
 

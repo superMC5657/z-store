@@ -1,6 +1,6 @@
 # Issue 09: 同步领域文档（`CONTEXT.md` / ADR 实现指针 / 索引）与全栈回归验收
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 05, 08
 
 ## Summary
@@ -36,6 +36,6 @@ Blocked by: 05, 08
 
 ## Acceptance Criteria
 
-- [ ] `CONTEXT.md` 与关联 ADR 中的文件路径引用均真实存在于当前代码库（无已删除的 `catalog_repo.rs` 等悬空路径），且文档风格符合 `AGENTS.md`（描述现状，不记变更历史）。
-- [ ] `.scratch/README.md` 与 `.scratch/module-deepening-v2/spec.md` 状态全部对齐。
-- [ ] `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`pnpm test`、`pnpm build` 全部零警告、零失败通过。
+- [x] `CONTEXT.md` 与关联 ADR 中的文件路径引用均真实存在于当前代码库（无已删除的 `catalog_repo.rs` 等悬空路径），且文档风格符合 `AGENTS.md`（描述现状，不记变更历史）。
+- [x] `.scratch/README.md` 与 `.scratch/module-deepening-v2/spec.md` 状态全部对齐。
+- [x] `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`pnpm test`、`pnpm build` 全部零警告、零失败通过。
