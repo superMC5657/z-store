@@ -1,5 +1,4 @@
 import type { AppSummary } from '../../types';
-import { summaries } from '../fixtures';
 import { rankFeed, type FeedStrategy } from '../../services/feed';
 
 export type InvokeArgs = Record<string, unknown>;
@@ -54,12 +53,12 @@ export function warnUnknownArgs(
   }
 }
 
-export function rankSummariesForFeed(seed: number, strategy?: unknown): AppSummary[] {
+export function rankSummariesForFeed(pool: AppSummary[], seed: number, strategy?: unknown): AppSummary[] {
   // 打分/排序经 `services/feed.ts rankFeed` 唯一口（后端 `rank_feed` 为准；
   // demo/搜索本地路径保持确定性：同 seed 同序，tie 按 id 升序）。
   const safeSeed = Number.isFinite(seed) ? Math.floor(seed) : 0;
   const normalized = String(strategy ?? 'balanced').trim().toLowerCase();
   const active: FeedStrategy =
     normalized === 'stars' ? 'stars' : normalized === 'fresh' ? 'fresh' : 'balanced';
-  return rankFeed(summaries, safeSeed, active);
+  return rankFeed(pool, safeSeed, active);
 }

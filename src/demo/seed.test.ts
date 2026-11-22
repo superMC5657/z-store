@@ -1,7 +1,7 @@
 /** 验证演示种子与 catalog.json、更新规则及待收录校验规则的自洽性。 */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildDemoUpdates, findSummary, summaries } from './fixtures';
-import { getInstalledApps, hydrate, LS, lsGet } from './demoState';
+import { demoStore, hydrateDemoStore, LS, lsGet, resetDemoStore } from './demoState';
 import {
   buildSeedCustomApps,
   buildSeedUpdateRules,
@@ -15,9 +15,10 @@ import type { DraftEntryWire } from '../services/custom';
 
 const NOW = 1_800_000_000;
 
+const getInstalledApps = () => demoStore().installed;
+
 beforeEach(() => {
-  window.localStorage.clear();
-  hydrate();
+  resetDemoStore();
 });
 
 describe('demo seed ↔ catalog.json', () => {
@@ -38,7 +39,7 @@ describe('demo seed ↔ catalog.json', () => {
   it('first visit persists the seeds; an emptied list stays empty', () => {
     expect((lsGet<unknown[]>(LS.installed, [])).length).toBe(getInstalledApps().length);
     window.localStorage.setItem(LS.installed, '[]');
-    hydrate();
+    hydrateDemoStore();
     expect(getInstalledApps()).toEqual([]);
   });
 });

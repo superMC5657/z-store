@@ -15,6 +15,8 @@ interface InlineConfirmButtonProps {
   className?: string;
   size?: 'md' | 'compact' | 'sm';
   style?: React.CSSProperties;
+  /** 同时挂在触发与确认按钮上，二次点击可用同一选择器命中。 */
+  testId?: string;
 }
 
 export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
@@ -30,6 +32,7 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
   className = '',
   size,
   style,
+  testId,
 }) => {
   const { t } = useTranslation();
   const effectiveCancelTitle = cancelTitle ?? t('common.cancel');
@@ -60,6 +63,7 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
           type="button"
           className={`btn-fluent ${resolvedConfirmVariant} ${sizeClass} ${className}`.trim()}
           style={style}
+          data-testid={testId}
           onClick={async (e) => {
             e.stopPropagation();
             setIsConfirming(false);
@@ -97,6 +101,7 @@ export const InlineConfirmButton: React.FC<InlineConfirmButtonProps> = ({
       disabled={disabled}
       title={title}
       style={style}
+      data-testid={testId}
     >
       {children}
     </button>

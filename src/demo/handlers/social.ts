@@ -8,23 +8,21 @@ import type {
   WatchedAppEntry,
   WatchUpdatedPayload,
 } from '../../types';
-import { summaries, findSummary } from '../fixtures';
-import { getFavSet, getStarSet, getWatchSet, LS, lsGet, lsSet, persistSets } from '../demoState';
-import type { SeedWatchNotifications } from '../seed';
+import { summaries } from '../fixtures';
+import { demoStore, isCatalogedId, persistDemo } from '../demoState';
 import { argNum, argStr, nowSecs, warnUnknownArgs, type InvokeArgs } from './common';
-import { clearDemoPrivateSearchListCache } from './catalog';
 
+/** 与后端 `user_favorites ORDER BY favorited_at DESC` 同序：最近收藏在前，未收录项照常保留。 */
 export function handleGetFavorites(): string[] {
-  const favSet = getFavSet();
-  return summaries.filter((s) => favSet.has(s.id.toLowerCase())).map((s) => s.id);
+  return [...demoStore().favorites].reverse();
 }
 
-// demo 同形收藏记录：收录快照命中即已收录（`findSummary` 归一口径），附当前秒级时间戳。
+// demo 同形收藏记录：精选目录或本地库命中即已收录，附当前秒级时间戳。
 export function handleGetFavoriteEntries(): FavoriteEntry[] {
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   return handleGetFavorites().map((id) => ({
     app_id: id,
-    is_cataloged: findSummary(id) !== undefined,
+    is_cataloged: isCatalogedId(id),
     favorited_at: now,
   }));
 }
@@ -32,50 +30,41 @@ export function handleGetFavoriteEntries(): FavoriteEntry[] {
 export function handleToggleFavorite(a: InvokeArgs): boolean {
   const id = argStr(a, 'appId').toLowerCase();
   if (!id) return false;
-  const favSet = getFavSet();
+  const favSet = demoStore().favorites;
   if (favSet.has(id)) favSet.delete(id);
   else favSet.add(id);
-  persistSets();
+  persistDemo('favorites');
   return favSet.has(id);
 }
 
 export function handleGetWatchedApps(): WatchedAppEntry[] {
-  return [...getWatchSet()].map((id) => ({ app_id: id, is_cataloged: findSummary(id) !== undefined }));
+  return [...demoStore().watched].map((id) => ({ app_id: id, is_cataloged: isCatalogedId(id) }));
 }
 
 export function handleWatchApp(a: InvokeArgs): boolean {
   const id = argStr(a, 'appId').toLowerCase();
   if (id) {
-    getWatchSet().add(id);
-    persistSets();
+    demoStore().watched.add(id);
+    persistDemo('watched');
   }
   return true;
 }
 
 export function handleUnwatchApp(a: InvokeArgs): boolean {
   const id = argStr(a, 'appId').toLowerCase();
-  getWatchSet().delete(id);
-  persistSets();
+  demoStore().watched.delete(id);
+  persistDemo('watched');
   return true;
 }
 
 // 关注提醒挂载在关注项上，取消关注后过滤不返回。
 
-let watchNotes: SeedWatchNotifications | null = null;
-
-function loadWatchNotes(): SeedWatchNotifications {
-  if (!watchNotes) {
-    const stored = lsGet<Partial<SeedWatchNotifications> | null>(LS.watchNotifications, null);
-    watchNotes = {
-      pending: Array.isArray(stored?.pending) ? stored.pending : [],
-      dismissed: Array.isArray(stored?.dismissed) ? stored.dismissed : [],
-    };
-  }
-  return watchNotes;
+function loadWatchNotes() {
+  return demoStore().watchNotifications;
 }
 
 function isWatched(appId: string): boolean {
-  return getWatchSet().has(appId.toLowerCase());
+  return demoStore().watched.has(appId.toLowerCase());
 }
 
 export function handleGetWatchNotifications(): WatchUpdatedPayload[] {
@@ -108,7 +97,7 @@ export function handleDismissWatchNotification(a: InvokeArgs): boolean {
     ...notes.dismissed.filter((n) => n.app_id.toLowerCase() !== id),
     { app_id: hit.app_id, version: hit.version, dismissed_at: nowSecs() },
   ];
-  lsSet(LS.watchNotifications, notes);
+  persistDemo('watchNotifications');
   return true;
 }
 
@@ -120,34 +109,29 @@ export function handleRestoreWatchNotification(a: InvokeArgs): boolean {
   if (!hit) return false;
   notes.dismissed = notes.dismissed.filter((n) => n !== hit);
   notes.pending = [{ app_id: hit.app_id, version: hit.version }, ...notes.pending];
-  lsSet(LS.watchNotifications, notes);
+  persistDemo('watchNotifications');
   return true;
-}
-
-/** 测试用：丢弃内存缓存，下次读取重新从 localStorage 载入。 */
-export function resetWatchNotificationsCache(): void {
-  watchNotes = null;
 }
 
 export function handleStarApp(a: InvokeArgs): StarAppResult {
   const id = argStr(a, 'appId').toLowerCase();
   if (id) {
-    getStarSet().add(id);
-    persistSets();
+    demoStore().starred.add(id);
+    persistDemo('starred');
   }
   return { starred: true, in_list: true };
 }
 
 export function handleUnstarApp(a: InvokeArgs): boolean {
   const id = argStr(a, 'appId').toLowerCase();
-  getStarSet().delete(id);
-  persistSets();
+  demoStore().starred.delete(id);
+  persistDemo('starred');
   return true;
 }
 
 export function handleFetchStarredStatus(a: InvokeArgs): boolean {
   const id = argStr(a, 'appId').toLowerCase();
-  return getStarSet().has(id);
+  return demoStore().starred.has(id);
 }
 
 export function handleGetDeveloperProfile(a: InvokeArgs): DeveloperProfile {
@@ -177,13 +161,12 @@ export function handleListGithubStarred(a: InvokeArgs): StarredPageResult {
   };
 }
 
-/** demo Star 同步快照：内存态透存（刷新页面即清空），与后端 64 KiB 上限同口径。 */
-const demoStarredFeedCache = new Map<string, StarredFeedCacheEntry & { owner_scope: string }>();
+/** demo Star 同步快照：会话态透存（刷新页面即清空），与后端 64 KiB 上限同口径。 */
 const DEMO_STARRED_FEED_MAX_BYTES = 64 * 1024;
 
 export function handleGetStarredFeedCache(a: InvokeArgs): StarredFeedCacheEntry | null {
   const key = argStr(a, 'cacheKey').trim();
-  const row = key ? demoStarredFeedCache.get(key) : undefined;
+  const row = key ? demoStore().starredFeedCache.get(key) : undefined;
   return row ? { payload_json: row.payload_json, cached_at: row.cached_at } : null;
 }
 
@@ -195,7 +178,7 @@ export function handleSaveStarredFeedCache(a: InvokeArgs): null {
   if (new TextEncoder().encode(payload).length > DEMO_STARRED_FEED_MAX_BYTES) {
     throw new Error('starred_feed_payload_too_large');
   }
-  demoStarredFeedCache.set(key, {
+  demoStore().starredFeedCache.set(key, {
     payload_json: payload,
     cached_at: Math.floor(Date.now() / 1000),
     owner_scope: scope,
@@ -207,11 +190,15 @@ export function handleGetOAuthUser(): null {
   return null;
 }
 
+/** 登出：清除 `@me:` 作用域的 Star 快照与含私有仓库的搜索列表快照。 */
 export function handleOAuthLogout(): boolean {
-  for (const [key, row] of demoStarredFeedCache) {
-    if (row.owner_scope.startsWith('@me:')) demoStarredFeedCache.delete(key);
+  const store = demoStore();
+  for (const [key, row] of store.starredFeedCache) {
+    if (row.owner_scope.startsWith('@me:')) store.starredFeedCache.delete(key);
   }
-  clearDemoPrivateSearchListCache();
+  for (const [key, row] of store.searchListCache) {
+    if (row.has_private) store.searchListCache.delete(key);
+  }
   return true;
 }
 

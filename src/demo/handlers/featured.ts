@@ -1,23 +1,23 @@
 import type { AppSummary, FeaturedPage, FeaturedPick, FeaturedShelf, ProfileState } from '../../types';
-import { summaries } from '../fixtures';
+import { demoStore, visibleCatalogSummaries } from '../demoState';
 import { argNum, argStr, warnUnknownArgs, type InvokeArgs } from './common';
 
-// 演示站内存态：刷新页面即重置。
-const dismissed = new Set<string>();
-const dismissedCategories = new Set<string>();
+// 负反馈与兴趣种子为 `DemoStore.featured` 会话态：刷新页面即重置。
+function featured() {
+  return demoStore().featured;
+}
 
 /** 分类未被「少推这类」。 */
 function isLiveCategory(category: string): boolean {
-  return !dismissedCategories.has(category.toLowerCase());
+  return !featured().dismissedCategories.has(category.toLowerCase());
 }
-let interestSeeds: string[] = [];
 
 /** 演示站可经 `?featured=cold|off|warm` 切换画像状态，缺省 `rich`。 */
 function demoProfileState(): ProfileState {
   try {
     const v = new URLSearchParams(window.location.search).get('featured');
     if (v === 'cold' || v === 'off' || v === 'warm' || v === 'rich') {
-      return v === 'cold' && interestSeeds.length > 0 ? 'warm' : v;
+      return v === 'cold' && featured().interestSeeds.length > 0 ? 'warm' : v;
     }
   } catch {
     // 非浏览器环境回退默认
@@ -38,8 +38,9 @@ export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
   const state = demoProfileState();
   const personalized = state === 'warm' || state === 'rich';
 
-  const pool = summaries
-    .filter((s) => (!allowed || allowed.has(s.id.toLowerCase())) && !dismissed.has(s.id.toLowerCase()))
+  const { dismissedApps, interestSeeds } = featured();
+  const pool = visibleCatalogSummaries()
+    .filter((s) => (!allowed || allowed.has(s.id.toLowerCase())) && !dismissedApps.has(s.id.toLowerCase()))
     .slice()
     .sort((x, y) => y.stars - x.stars || x.id.localeCompare(y.id));
   // 日期种子轮换：按种子把池子转一个偏移，同一天稳定。
@@ -147,7 +148,7 @@ export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
 
 export function handleSaveInterestSeeds(a: InvokeArgs): null {
   const raw = a['categories'];
-  interestSeeds = Array.isArray(raw) ? raw.map((x) => String(x)) : [];
+  featured().interestSeeds = Array.isArray(raw) ? raw.map((x) => String(x)) : [];
   return null;
 }
 
@@ -155,18 +156,20 @@ export function handleDismissFeatured(a: InvokeArgs): null {
   warnUnknownArgs(['target', 'scope', 'appId'], a, 'handleDismissFeatured');
   const target = argStr(a, 'target').toLowerCase();
   const scope = argStr(a, 'scope');
-  if (scope === 'app') dismissed.add(target);
+  const { dismissedApps, dismissedCategories } = featured();
+  if (scope === 'app') dismissedApps.add(target);
   if (scope === 'category') {
     dismissedCategories.add(target);
     const appId = argStr(a, 'appId').toLowerCase();
-    if (appId) dismissed.add(appId);
+    if (appId) dismissedApps.add(appId);
   }
   return null;
 }
 
 export function handleClearFeedFeedback(): number {
-  const n = dismissed.size + dismissedCategories.size;
-  dismissed.clear();
+  const { dismissedApps, dismissedCategories } = featured();
+  const n = dismissedApps.size + dismissedCategories.size;
+  dismissedApps.clear();
   dismissedCategories.clear();
   return n;
 }

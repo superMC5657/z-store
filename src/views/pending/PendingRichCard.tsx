@@ -3,6 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Archive, Link2, PackageCheck, Send, Trash2, Undo2 } from 'lucide-react';
 import { AppCard } from '../../components/AppCard';
+import { InlineConfirmButton } from '../../components/InlineConfirmButton';
 import type { AppSummary } from '../../types';
 import {
   errorText,
@@ -29,13 +30,12 @@ interface PendingRichCardProps {
   hasSubmitErrors: boolean;
   hasLicenseSubmitError: boolean;
   revertingId: string | null;
-  confirmRevertId: string | null;
+  /** 二次确认后执行（确认态由 `InlineConfirmButton` 持有）。 */
   onRevertToDraft: (id: string) => void;
   withdrawingId: string | null;
-  confirmWithdrawId: string | null;
-  /** 撤下入口开关：缺席即不渲染该动作（预览模式无后端写入）。 */
-  onWithdrawSubmitted?: (id: string) => void;
-  confirmDeleteId: string | null;
+  /** 二次确认后执行。 */
+  onWithdrawSubmitted: (id: string) => void;
+  /** 二次确认后执行。 */
   onDelete: (id: string) => void;
   onDuplicate: () => void;
 }
@@ -52,12 +52,9 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
   hasSubmitErrors,
   hasLicenseSubmitError,
   revertingId,
-  confirmRevertId,
   onRevertToDraft,
   withdrawingId,
-  confirmWithdrawId,
   onWithdrawSubmitted,
-  confirmDeleteId,
   onDelete,
   onDuplicate,
 }) => {
@@ -127,58 +124,50 @@ export const PendingRichCard: React.FC<PendingRichCardProps> = ({
       {/* 富卡底部：collected=提交 Issue 主/退回次，submitted=Issue 链接+删除，archived=只读+复制为新草稿 */}
       <div className="pending-editor-footer">
         <div className="pending-editor-footer-actions">
-          {onWithdrawSubmitted && isSubmittedEntry(entry) && (
-            <button
-              type="button"
-              className="btn-fluent btn-secondary btn-sm"
-              data-testid="pending-withdraw-submitted"
+          {!entry.archived && isSubmittedEntry(entry) && (
+            <InlineConfirmButton
+              size="sm"
+              testId="pending-withdraw-submitted"
+              confirmVariant="warning"
               disabled={withdrawingId === entry.id}
-              onClick={() => void onWithdrawSubmitted(entry.id)}
+              onConfirm={() => onWithdrawSubmitted(entry.id)}
+              confirmText={t('pending.confirm_withdraw')}
               title={t('pending.withdraw_hint', { id: entry.id })}
             >
               <Undo2 size={13} strokeWidth={1.5} aria-hidden="true" />
               <span>
-                {withdrawingId === entry.id
-                  ? t('pending.withdrawing')
-                  : confirmWithdrawId === entry.id
-                    ? t('pending.confirm_withdraw')
-                    : t('pending.withdraw_submitted')}
+                {withdrawingId === entry.id ? t('pending.withdrawing') : t('pending.withdraw_submitted')}
               </span>
-            </button>
+            </InlineConfirmButton>
           )}
           {!entry.archived && isSubmittedEntry(entry) && (
-            <button
-              type="button"
-              className="btn-fluent btn-secondary btn-sm"
-              data-testid="pending-delete"
-              onClick={() => void onDelete(entry.id)}
+            <InlineConfirmButton
+              size="sm"
+              testId="pending-delete"
+              onConfirm={() => onDelete(entry.id)}
+              confirmText={t('pending.confirm_delete')}
               title={t('pending.delete_hint')}
               style={{ marginLeft: 'auto' }}
             >
               <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
-              <span>
-                {confirmDeleteId === entry.id ? t('pending.confirm_delete') : t('pending.delete')}
-              </span>
-            </button>
+              <span>{t('pending.delete')}</span>
+            </InlineConfirmButton>
           )}
           {!entry.archived && isPendingCollectedStatus(entry.status) && (
             <>
-              <button
-                type="button"
-                className="btn-fluent btn-secondary btn-sm"
-                data-testid="pending-revert-to-draft"
+              <InlineConfirmButton
+                size="sm"
+                testId="pending-revert-to-draft"
+                confirmVariant="warning"
                 disabled={revertingId === entry.id}
-                onClick={() => void onRevertToDraft(entry.id)}
+                onConfirm={() => onRevertToDraft(entry.id)}
+                confirmText={t('pending.confirm_revert')}
                 title={t('pending.revert_hint', { id: entry.id })}
                 style={{ marginLeft: 'auto' }}
               >
                 <Archive size={13} strokeWidth={1.5} aria-hidden="true" />
-                <span>
-                  {confirmRevertId === entry.id
-                    ? t('pending.confirm_revert')
-                    : t('pending.revert_to_draft')}
-                </span>
-              </button>
+                <span>{t('pending.revert_to_draft')}</span>
+              </InlineConfirmButton>
               <button
                 type="button"
                 className="btn-fluent btn-primary btn-sm"

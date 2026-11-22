@@ -1,11 +1,11 @@
 // 只引类型：services/custom 的运行时依赖 services/api，提前求值会抢在 mock 安装前判定 isTauri。
 import type { DraftEntryWire, DraftItemWire, DraftStatus } from '../../services/custom';
-import { LS, lsGet, lsSet } from '../demoState';
+import { demoStore, persistDemo } from '../demoState';
 import { argStr, nowSecs, warnUnknownArgs, type InvokeArgs } from './common';
 import backendConfigToml from '../../../src-tauri/config.toml?raw';
 
 /**
- * 「待收录」草稿域 mock：读写 `LS.customApps`，模拟状态流转门禁、列表排序与 Issue 预填生成。
+ * 「待收录」草稿域 mock：读写 `DemoStore.customApps`，模拟状态流转门禁、列表排序与 Issue 预填生成。
  */
 
 /** 与后端 `CATALOG_REPO_ISSUES_URL` 同值。 */
@@ -16,18 +16,12 @@ function isCollectedStatus(status: string): boolean {
   return status === 'collected' || status === 'local_collected';
 }
 
-let entries: DraftEntryWire[] | null = null;
-
 function load(): DraftEntryWire[] {
-  if (!entries) {
-    const stored = lsGet<unknown>(LS.customApps, []);
-    entries = Array.isArray(stored) ? (stored as DraftEntryWire[]) : [];
-  }
-  return entries;
+  return demoStore().customApps;
 }
 
 function persist(): void {
-  if (entries) lsSet(LS.customApps, entries);
+  persistDemo('customApps');
 }
 
 function find(id: string): DraftEntryWire {
@@ -241,9 +235,4 @@ const LICENSE_GATE = parseLicenseGate(backendConfigToml);
 
 export function handleGetLicenseAllowlist(): { enabled: boolean; allowed: string[] } {
   return { enabled: LICENSE_GATE.enabled, allowed: [...LICENSE_GATE.allowed] };
-}
-
-/** 测试用：丢弃内存缓存，下次读取重新从 localStorage 载入。 */
-export function resetCustomAppsCache(): void {
-  entries = null;
 }

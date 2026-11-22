@@ -8,9 +8,9 @@ import {
   demoRunCallback,
   demoTransformCallback,
   demoUnregisterCallback,
+  demoStore,
   demoUnregisterListener,
-  getDemoSettingsSaved,
-  hydrate,
+  hydrateDemoStore,
   LIST_FALLBACK,
   warnOnce,
 } from './demoState';
@@ -202,7 +202,7 @@ export function resolveDemoDisplayDefaults(): {
   let theme: AppSettings['theme'] | undefined;
   let language: AppSettings['language'] | undefined;
   try {
-    const saved = getDemoSettingsSaved();
+    const saved = demoStore().settings;
     if (saved['ui_scale'] && ALLOWED_UI_SCALES.has(saved['ui_scale'])) {
       ui_scale = saved['ui_scale'] as AppSettings['ui_scale'];
     }
@@ -495,7 +495,7 @@ export function installDemoMock(): void {
     // 忽略异常
   }
 
-  hydrate();
+  hydrateDemoStore();
 
   if (
     DEMO_DISPLAY_DEFAULTS_MARKER !==

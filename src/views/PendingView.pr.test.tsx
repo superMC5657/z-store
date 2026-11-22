@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 import {
   PENDING_EMPTY_DRAFT,
   type CustomDraftEntry,
 } from './pending/draftModel';
-import { PendingView } from './PendingView';
-import { PREFILL_URL_LENGTH_LIMIT } from './pending/submitPrefillFlow';
+import { renderPending } from './pending/pendingTestHarness';
+import { PREFILL_URL_LENGTH_LIMIT, runSubmitPrefillFlow } from './pending/submitPrefillFlow';
 import { buildCustomDraftItemFromSummary } from '../services/custom';
 import { tauriApi } from '../services/api';
 import * as clientModule from '../services/api/client';
@@ -72,14 +72,11 @@ describe('PendingView one-click Issue submit', () => {
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
     const onMarkSubmitted = vi.fn().mockResolvedValue(undefined);
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onMarkSubmitted={onMarkSubmitted}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl, markCustomSubmitted: onMarkSubmitted },
+    });
     // 已收录未提交归 collected 分组：先切 tab 再选中
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     // 选中草稿进入编辑态
@@ -103,14 +100,11 @@ describe('PendingView one-click Issue submit', () => {
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
     const onMarkSubmitted = vi.fn().mockResolvedValue(undefined);
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onMarkSubmitted={onMarkSubmitted}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl, markCustomSubmitted: onMarkSubmitted },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -124,18 +118,17 @@ describe('PendingView one-click Issue submit', () => {
     await waitFor(() => expect(onMarkSubmitted).toHaveBeenCalledWith('o/a', 'https://github.com/o/r/pull/42'));
   });
 
-  it('没有后端 provider（预览模式）时提示不可提交，且不打开任何链接', async () => {
+  it('演示站模式（无 Issue 预填）时提示不可提交，且不打开任何链接', async () => {
     await i18n.changeLanguage('zh-CN');
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
     const onNotify = vi.fn();
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      demoMode: true,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -154,14 +147,12 @@ describe('PendingView one-click Issue submit', () => {
 
   it('renders the submitted Issue link as a back-jump anchor', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        onGetLicenseAllowlist={gateProvider}
-        initialEntries={[
+    await renderPending({
+      gate: gateProvider,
+      entries: [
           draftEntry({ id: 'o/b', status: 'submitted', pr_url: 'https://github.com/x/y/pull/1' }),
-        ]}
-      />,
-    );
+        ],
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     const link = screen.getByText('https://github.com/x/y/pull/1').closest('a');
     expect(link?.getAttribute('href')).toBe('https://github.com/x/y/pull/1');
@@ -170,12 +161,10 @@ describe('PendingView one-click Issue submit', () => {
 
   it('switches one-click Issue copy between Chinese and English (collected only)', async () => {
     await i18n.changeLanguage('en-US');
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     expect(screen.getByText('Submit Issue')).toBeTruthy();
@@ -183,7 +172,10 @@ describe('PendingView one-click Issue submit', () => {
 
   it('draft has no submit Issue button (must collect locally first)', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} onGetLicenseAllowlist={gateProvider} />);
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText('o/a'));
     expect(screen.queryByTestId('pending-submit-pr')).toBeNull();
     const collectBtn = screen.getByTestId('pending-collect-local');
@@ -197,12 +189,10 @@ describe('PendingView one-click Issue submit', () => {
 describe('PendingView revert collected to draft (secondary + double-confirm)', () => {
   it('collected shows revert secondary + submit primary (submit stays rightmost)', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     const revertBtn = screen.getByTestId('pending-revert-to-draft');
@@ -219,13 +209,11 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
   it('revert needs double-confirm and stays in collected locally with toast', async () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     const revertBtn = screen.getByTestId('pending-revert-to-draft');
@@ -250,16 +238,14 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
   it('revert with multiple collected rows falls to next row and stays in collected', async () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
-    render(
-      <PendingView
-        initialEntries={[
+    await renderPending({
+      entries: [
           draftEntry({ id: 'o/a', status: 'collected' }),
           draftEntry({ id: 'o/b', status: 'collected' }),
-        ]}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+        ],
+      onNotify: onNotify,
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
@@ -279,31 +265,27 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
   it('revert delegates to onRevertToDraft when wired and stays in collected', async () => {
     await i18n.changeLanguage('zh-CN');
     const onRevertToDraft = vi.fn().mockResolvedValue(undefined);
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onRevertToDraft={onRevertToDraft}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      gate: gateProvider,
+      api: { revertCollectedApp: onRevertToDraft },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     await waitFor(() => expect(onRevertToDraft).toHaveBeenCalledWith('o/a'));
-    // 受控退回同样不跳 Tab：停留本地收录（选中清空由父级刷新后生效，此处不断言列表，守住不自动切草稿）
+    // 退回不跳 Tab：停留本地收录（守住不自动切草稿）
     expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull();
     expect(screen.getByText('选择或新建草稿')).toBeTruthy();
   });
 
   it('archived stays readonly with no collect/submit/revert', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'arch/one', archived: true })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'arch/one', archived: true })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText('已归档'));
     fireEvent.click(screen.getByText('arch/one'));
     expect(screen.queryByTestId('pending-collect-local')).toBeNull();
@@ -411,15 +393,12 @@ describe('move-in placeholder license (draft-lenient, submit-strict)', () => {
 
     const placeholder = draftEntry({ id: 'o/a', status: 'collected' });
     placeholder.item.license = 'OpenSource';
-    render(
-      <PendingView
-        initialEntries={[placeholder]}
-        onGetPrUrl={onGetPrUrl}
-        onMarkSubmitted={onMarkSubmitted}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [placeholder],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl, markCustomSubmitted: onMarkSubmitted },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     // 富卡分支：只展 AppCard 黄标，无参数表单输入
@@ -455,14 +434,11 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
     const onMarkSubmitted = vi.fn().mockResolvedValue(undefined);
     const onNotify = vi.fn();
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onMarkSubmitted={onMarkSubmitted}
-        onNotify={onNotify}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      api: { getCustomAppPrUrl: onGetPrUrl, markCustomSubmitted: onMarkSubmitted },
+    });
     // 故意不传 onGetLicenseAllowlist：非 Tauri 单测环境默认拉取失败，
     // 提交必须提示重试且不开页不标记，绝不回退写死名单。
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
@@ -483,12 +459,10 @@ describe('ADR-0018 backend-sourced license allowlist (fail-safe without a baked-
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a' })]}
-        onNotify={onNotify}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+      onNotify: onNotify,
+    });
     // 故意不传 onGetLicenseAllowlist：暂存档不查名单，身份对齐即放行。
     // 空态提示为唯一新建入口（页头不含新建按钮）。
     fireEvent.click(screen.getByText('新建草稿'));
@@ -517,12 +491,10 @@ describe('PendingView top tabs sync activeGroup and submitted', () => {
       draftEntry({ id: 'o/draft' }),
       draftEntry({ id: 'o/col', status: 'collected' }),
     ];
-    render(
-      <PendingView
-        initialEntries={entries}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: entries,
+      gate: gateProvider,
+    });
     // 草稿分组选中草稿：展表单 + 收录主按钮
     fireEvent.click(screen.getByText('o/draft'));
     expect(screen.getByTestId('pending-collect-local')).toBeTruthy();
@@ -542,14 +514,12 @@ describe('PendingView top tabs sync activeGroup and submitted', () => {
 
   it('submitted shows rich Issue link without duplicate submit or manual mark', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        initialEntries={[
+    await renderPending({
+      entries: [
           draftEntry({ id: 'o/sub', status: 'submitted', pr_url: 'https://github.com/x/y/pull/9' }),
-        ]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+        ],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     // 已提交仅展 Issue 链接（列表与详情各一次，同文案双节点），无重复提交/退回/收录
@@ -571,14 +541,12 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -594,14 +562,12 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockRejectedValue(new Error('gate rejected: license_osi'));
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -629,14 +595,12 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -668,14 +632,12 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(BATCH_URL);
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -697,14 +659,12 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const onNotify = vi.fn();
     const onGetPrUrl = vi.fn().mockResolvedValue(longUrl);
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -726,15 +686,12 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const onGetPrUrl = vi.fn().mockResolvedValue(longUrl);
     const onGetPrPayload = vi.fn().mockResolvedValue(payload);
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onGetPrPayload={onGetPrPayload}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl, getCustomAppPrPayload: onGetPrPayload },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('提交 Issue'));
@@ -756,30 +713,19 @@ describe('PendingView prefill open via tauriApi (hijack/open-fail/long-url)', ()
     const longUrl = `https://example.com/new?body=${'z'.repeat(PREFILL_URL_LENGTH_LIMIT + 50)}`;
     const openSpy = vi.spyOn(tauriApi, 'openUrl').mockResolvedValue(undefined);
     const writeSpy = stubClipboard();
-    const onNotify = vi.fn();
-    const onGetPrUrl = vi.fn().mockResolvedValue(longUrl);
+    const notify = vi.fn();
 
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onGetPrUrl={onGetPrUrl}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
+    // 视图经 useCustomApps 恒成对提供 URL / 载荷获取；只有 URL 的退化路径在流程层验证。
+    await runSubmitPrefillFlow(
+      { t: i18n.t.bind(i18n), notify },
+      { loadUrl: async () => longUrl, loadPayload: undefined, failLabel: 'o/a' },
     );
-    fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
-    fireEvent.click(screen.getByText('o/a'));
-    fireEvent.click(screen.getByText('提交 Issue'));
 
-    await waitFor(() => expect(writeSpy).toHaveBeenCalledWith(longUrl));
+    expect(writeSpy).toHaveBeenCalledWith(longUrl);
     // 保留超长告警，另加“已复制链接”提示
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('建议分批提交'), 'warning'),
-    );
-    await waitFor(() =>
-      expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('已复制 Issue 预填链接'), 'info'),
-    );
-    expect(onNotify).not.toHaveBeenCalledWith(expect.stringContaining('已复制提交载荷'), 'success');
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('建议分批提交'), 'warning');
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('已复制 Issue 预填链接'), 'info');
+    expect(notify).not.toHaveBeenCalledWith(expect.stringContaining('已复制提交载荷'), 'success');
     // 仍尝试打开
     expect(openSpy).toHaveBeenCalledWith(longUrl);
   });

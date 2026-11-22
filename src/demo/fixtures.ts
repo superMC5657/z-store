@@ -82,6 +82,7 @@ export function findSummary(id: string): AppSummary | undefined {
 export function toDetail(s: AppSummary): AppDetail {
   const version = s.latest_version;
   const tag = version.startsWith('v') ? version : `v${version}`;
+  const releaseBase = `https://${s.forge_host || 'github.com'}/${s.owner}/${s.repo}/releases/download/${tag}`;
   return {
     id: s.id,
     name: s.name,
@@ -101,7 +102,7 @@ export function toDetail(s: AppSummary): AppDetail {
     releases: [
       {
         name: `${s.repo}-${version}-windows-x64.msi`,
-        download_url: `https://github.com/${s.id}/releases/download/${tag}/${s.repo}-${version}-windows-x64.msi`,
+        download_url: `${releaseBase}/${s.repo}-${version}-windows-x64.msi`,
         size_bytes: 32 * 1024 * 1024,
         sha256: 'demo',
         os: 'windows',
@@ -110,7 +111,7 @@ export function toDetail(s: AppSummary): AppDetail {
       },
       {
         name: `${s.repo}-${version}-macos-universal.dmg`,
-        download_url: `https://github.com/${s.id}/releases/download/${tag}/${s.repo}-${version}-macos-universal.dmg`,
+        download_url: `${releaseBase}/${s.repo}-${version}-macos-universal.dmg`,
         size_bytes: 28 * 1024 * 1024,
         sha256: 'demo',
         os: 'macos',
@@ -119,7 +120,7 @@ export function toDetail(s: AppSummary): AppDetail {
       },
       {
         name: `${s.repo}-${version}-linux-x86_64.AppImage`,
-        download_url: `https://github.com/${s.id}/releases/download/${tag}/${s.repo}-${version}-linux-x86_64.AppImage`,
+        download_url: `${releaseBase}/${s.repo}-${version}-linux-x86_64.AppImage`,
         size_bytes: 36 * 1024 * 1024,
         sha256: 'demo',
         os: 'linux',

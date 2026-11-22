@@ -3,8 +3,6 @@ import { TitleBar } from './components/TitleBar';
 // ResizeHandles is only loaded in Tauri desktop environment; in test/web environments
 // it is skipped to avoid evaluating Tauri internals or failing on mock contracts.
 const isTauriEnv = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-/** Live demo has no backend persistence or system browser; omit Issue providers so PendingView shows the desktop-only hint. */
-const DEMO_MODE = Boolean(import.meta.env.VITE_DEMO);
 const ResizeHandles = isTauriEnv
   ? React.lazy(() => import('./components/ResizeHandles').then((m) => ({ default: m.ResizeHandles })))
   : () => null;
@@ -43,7 +41,7 @@ import { useCustomApps } from './app/hooks/useCustomApps';
 import { useDetailCacheSync } from './app/hooks/useDetailCacheSync';
 import { useUncatalogedJoin } from './app/favoritesUncataloged';
 import { useAppSubscriptions } from './app/hooks/useAppSubscriptions';
-import { useAppSelectors, rowAliasKeys, selectMergedCatalogApps } from './app/selectors';
+import { useAppSelectors, selectMergedCatalogApps } from './app/selectors';
 import { isInstalled as selectIsInstalled, isManaged as selectIsManaged } from './app/selectors';
 import { useUpdatesState } from './app/hooks/useUpdatesState';
 import { useWatchState } from './app/hooks/useWatchState';
@@ -142,48 +140,8 @@ export const App: React.FC = () => {
   useEffect(() => whenIdle(() => void AppDetailModal.preload().catch(() => undefined)), []);
 
   // 待收录草稿域
-  const {
-    customApps,
-    customAppEntries,
-    localLibrarySummaries,
-    handleSaveCustomApp,
-    handleDeleteCustomApp,
-    handleMarkCustomSubmitted,
-    handleCollectLocalApp,
-    handleWithdrawSubmitted,
-    handleRevertCollectedApp,
-  } = useCustomApps();
-
-  // 移入收录入口抑制集：后端 customApps 全量 id + 本地乐观移入 id（归一小写），
-  // 即 `selectMergedCatalogApps` 会命中 custom 行的 id 集合；富卡内部入口据此隐藏已存在项。
-  // customApps 懒加载（进待收录页才拉），乐观集保证移入当刻即隐藏，不依赖后端往返。
-  const [movedInIds, setMovedInIds] = useState<Set<string>>(() => new Set<string>());
-  useEffect(() => {
-    const onMoved = (e: Event) => {
-      const id = (e as CustomEvent<{ id?: unknown }>).detail?.id;
-      const keys = rowAliasKeys({ id });
-      if (keys.length === 0) return;
-      setMovedInIds((prev) => {
-        if (keys.every((k) => prev.has(k))) return prev;
-        const next = new Set(prev);
-        for (const k of keys) next.add(k);
-        return next;
-      });
-    };
-    window.addEventListener('zstore:custom-apps-changed', onMoved);
-    return () => {
-      window.removeEventListener('zstore:custom-apps-changed', onMoved);
-    };
-  }, []);
-  const customIds = useMemo(() => {
-    const out = new Set<string>(movedInIds);
-    for (const e of customApps ?? []) {
-      for (const k of rowAliasKeys({ id: e.id, owner: e.item?.owner, repo: e.item?.repo })) {
-        out.add(k);
-      }
-    }
-    return out;
-  }, [customApps, movedInIds]);
+  const customAppsStore = useCustomApps();
+  const { customApps, customAppEntries, customIds, localLibrarySummaries } = customAppsStore;
 
   // 卸载/取消管理成功即剔除该应用的残留更新项（ID 归一比较）。
   const installedAppRemovedRef = useRef<(id: string) => void>(() => {});
@@ -722,15 +680,7 @@ export const App: React.FC = () => {
             {currentView === 'pending' && (
               <React.Suspense fallback={null}>
                 <PendingView
-                  entries={customAppEntries}
-                  onSave={(draft) => handleSaveCustomApp(draft)}
-                  onDelete={(id) => handleDeleteCustomApp(id)}
-                  onMarkSubmitted={(id, prUrl) => handleMarkCustomSubmitted(id, prUrl)}
-                  onCollectLocal={(id) => handleCollectLocalApp(id)}
-                  onRevertToDraft={(id) => handleRevertCollectedApp(id)}
-                  onWithdrawSubmitted={(id) => handleWithdrawSubmitted(id)}
-                  onGetPrUrl={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrUrl(id)}
-                  onGetPrPayload={DEMO_MODE ? undefined : (id) => tauriApi.getCustomAppPrPayload(id)}
+                  customApps={customAppsStore}
                   onNotify={(message, type) => showToast(message, type ?? 'info')}
                   onDisplayPlatformCounts={handlePendingPlatformCounts}
                 />

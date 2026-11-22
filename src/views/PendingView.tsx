@@ -7,12 +7,9 @@ import '../styles/components-pending.css';
 import { Archive, FilePlus2, Inbox, PackageCheck, PencilLine, Send } from 'lucide-react';
 import { FilterEmptyState, ViewShell, resolvePlatformReset } from './ViewShell';
 import { useAppContextProps, type AppContextProps } from '../app/AppContext';
+import type { CustomAppsStore } from '../app/hooks/useCustomApps';
 import { PLATFORM_IDS, matchPlatformSet, type PlatformId } from '../lib/platformFilter';
-import type { DraftItem } from '../services/custom';
-import {
-  getLicenseAllowlist,
-  type LicenseAllowlistResult,
-} from '../services/api/catalog';
+import type { LicenseAllowlistResult } from '../services/api/catalog';
 import {
   getPendingSectionPrefs,
   setPendingSectionPrefs,
@@ -20,52 +17,40 @@ import {
 import {
   PENDING_EMPTY_DRAFT,
   PENDING_GROUP_ORDER,
-  canonicalDraftId,
   entryGroup,
   isPendingCollectedStatus,
-  parseIdentifiersText,
   pendingDraftToAppSummary,
-  splitCsv,
-  stringifyIdentifiers,
-  validatePendingDraft,
   type CustomDraftEntry,
-  type LicenseAllowlistInput,
   type PendingDraftErrors,
   type PendingGroupId,
 } from './pending/draftModel';
 import { runSubmitPrefillFlow } from './pending/submitPrefillFlow';
+import { usePendingDraftEditor } from './pending/usePendingDraftEditor';
 import type { ShowToast } from '../types';
 import { PendingListColumn } from './pending/PendingListColumn';
 import { PendingRichCard } from './pending/PendingRichCard';
 import { PendingPreviewLane } from './pending/PendingPreviewLane';
 import { PendingDraftForm } from './pending/PendingDraftForm';
-import { scrollBehavior } from '../lib/motion';
 
-/** 待收录页：协调草稿编辑、本地收录、Issue 提交与各分组 Tab 的受控/非受控状态。 */
+/** 待收录页：协调草稿编辑、本地收录、Issue 提交与各分组 Tab；草稿状态与写入全部经 `useCustomApps`。 */
+
+/** 视图依赖的草稿域接口（`useCustomApps` 返回值的子集）。 */
+export type PendingCustomApps = Pick<
+  CustomAppsStore,
+  | 'customAppEntries'
+  | 'handleSaveCustomApp'
+  | 'handleDeleteCustomApp'
+  | 'handleMarkCustomSubmitted'
+  | 'handleCollectLocalApp'
+  | 'handleRevertCollectedApp'
+  | 'handleWithdrawSubmitted'
+  | 'loadLicenseGate'
+  | 'getPrUrl'
+  | 'getPrPayload'
+>;
 
 interface PendingViewProps extends AppContextProps {
-  /** 受控草稿列表（缺席时走内部本地态）。 */
-  entries?: CustomDraftEntry[];
-  /** 初始草稿（非受控模式种子，故事/单测用）。 */
-  initialEntries?: CustomDraftEntry[];
-  /** 保存回调（缺席时仅更新本地态）。 */
-  onSave?: (item: DraftItem) => void | Promise<void>;
-  /** 删除回调（二次确认由本组件完成，后端直接删）。 */
-  onDelete?: (id: string) => void | Promise<void>;
-  /** 标记已提交回调（缺席时仅翻本地态）。 */
-  onMarkSubmitted?: (id: string, prUrl: string) => void | Promise<void>;
-  /** 收录进本地回调（缺席时本地翻 collected 态；App 接入后透传 tauriApi.collectLocalApp）。 */
-  onCollectLocal?: (id: string) => void | Promise<void>;
-  /** 退回草稿回调（collected 退回 draft；App 透传 tauriApi.revertCollectedApp 落盘，失败抛错由本组件 toast）。 */
-  onRevertToDraft?: (id: string) => void | Promise<void>;
-  /** 撤回已提交状态回调（submitted → collected）；缺席时不渲染该动作。 */
-  onWithdrawSubmitted?: (id: string) => void | Promise<void>;
-  /** 单条预填 URL 提供方；缺席时触发预览模式只读提示。 */
-  onGetPrUrl?: (id: string) => Promise<string>;
-  /** 单条提交载荷提供方（后端产出的 JSON 文本，预填链接超长时原样复制）。 */
-  onGetPrPayload?: (id: string) => Promise<string>;
-  /** 许可名单提供方（默认走 `getLicenseAllowlist`）；加载失败不回退写死名单。 */
-  onGetLicenseAllowlist?: () => Promise<LicenseAllowlistResult>;
+  customApps: PendingCustomApps;
   /** 轻提示通道（缺席时静默）。 */
   onNotify?: ShowToast;
   /** 全局设备平台筛选（缺席时视为全选，独立渲染/单测不受过滤）。 */
@@ -77,6 +62,7 @@ interface PendingViewProps extends AppContextProps {
 }
 
 const ALL_PLATFORMS: ReadonlySet<string> = new Set<string>(PLATFORM_IDS);
+const NO_ENTRIES: CustomDraftEntry[] = [];
 
 /** 顶层四个互斥 Tab 的组图标（顺序见 PENDING_GROUP_ORDER）。 */
 const GROUP_ICON: Record<PendingGroupId, typeof Inbox> = {
@@ -94,63 +80,20 @@ function entryMatchesPlatforms(e: CustomDraftEntry, selected: ReadonlySet<string
   return matchPlatformSet({ platforms: [...(e.item.platforms ?? [])] }, selected);
 }
 
-/** 归一草稿表单与文本态字段（id 由非空 owner/repo 自动按小写派生，否则保留已有 id）。 */
-function buildNormalizedFormItem(
-  f: DraftItem,
-  aliasesRaw: string,
-  platformsRaw: string,
-  identifiersRaw: string,
-): DraftItem {
-  const owner = f.owner.trim();
-  const repo = f.repo.trim();
-  const id = owner && repo ? canonicalDraftId(owner, repo) : f.id.trim();
-  const category = f.category.trim();
-  return {
-    ...f,
-    id,
-    name: f.name.trim(),
-    owner,
-    repo,
-    description: f.description.trim(),
-    description_en: f.description_en.trim(),
-    category,
-    category_name: f.category_name.trim() || category,
-    license: f.license.trim(),
-    homepage: f.homepage.trim(),
-    icon: f.icon.trim(),
-    icon_bg: f.icon_bg.trim(),
-    default_version: f.default_version.trim() || 'v0.1.0',
-    aliases: splitCsv(aliasesRaw),
-    platforms: splitCsv(platformsRaw.toLowerCase()),
-    // 草稿即 catalog.json 单个应用 JSON：模板无 publishers/install_dirs/search_subdirs 时不出现，恒 []。
-    publishers: [],
-    install_dirs: [],
-    search_subdirs: [],
-    identifiers: parseIdentifiersText(identifiersRaw),
-  };
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export const PendingView: React.FC<PendingViewProps> = (props) => {
   const {
-    entries: controlledEntries,
-    initialEntries = [],
-    onSave,
-    onDelete,
-    onMarkSubmitted,
-    onCollectLocal,
-    onRevertToDraft,
-    onWithdrawSubmitted,
-    onGetPrUrl,
-    onGetPrPayload,
-    onGetLicenseAllowlist,
+    customApps,
     onNotify,
     selectedPlatforms = ALL_PLATFORMS,
     onResetPlatformFilter,
     onDisplayPlatformCounts,
   } = useAppContextProps(props);
   const { t } = useTranslation();
-  const [localEntries, setLocalEntries] = useState<CustomDraftEntry[]>(initialEntries);
-  const entries = controlledEntries ?? localEntries;
+  const entries = customApps.customAppEntries ?? NO_ENTRIES;
   const [activeGroup, setActiveGroupState] = useState<PendingGroupId>('draft');
   // 智能默认落点只在首次拿到非空条目且用户/操作流尚未定过 Tab 时生效一次。
   const userPickedGroupRef = useRef(false);
@@ -161,34 +104,21 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
   }, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [prUrlInput, setPrUrlInput] = useState('');
-  const [formErrors, setFormErrors] = useState<PendingDraftErrors>({});
-  // 单卡提交/收录忙态：提交中 id + 收录中 id（避免重复提交）。
+  // 单卡忙态（避免重复提交）。
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [collectingId, setCollectingId] = useState<string | null>(null);
-  const [confirmRevertId, setConfirmRevertId] = useState<string | null>(null);
   const [revertingId, setRevertingId] = useState<string | null>(null);
-  const [confirmWithdrawId, setConfirmWithdrawId] = useState<string | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [previewExpanded, setPreviewExpanded] = useState(true);
 
-  // 切换顶层 Tab 时清空跨分组选中与二次确认状态
-  const handleGroupChange = (group: PendingGroupId) => {
-    if (group === activeGroup) return;
-    setActiveGroup(group);
-    setSelectedId(null);
-    setIsCreating(false);
-    setConfirmDeleteId(null);
-    setConfirmRevertId(null);
-    setConfirmWithdrawId(null);
-    setPrUrlInput('');
-    setFormErrors({});
-  };
+  // 后端许可名单快照（逐框校验用；提交/收录前另经 ensureLicenseGate 取真实门禁）。
+  const [licenseGateSnapshot, setLicenseGateSnapshot] = useState<LicenseAllowlistResult | null>(null);
+  const editor = usePendingDraftEditor(t, licenseGateSnapshot);
+  const { loadIntoForm, clearErrors } = editor;
 
   // 表单 B/C 分节的展开/收起偏好（localStorage 持久化）
   const [openSections, setOpenSections] = useState(() => getPendingSectionPrefs());
-
   const toggleSection = (key: 'supplemental' | 'runtime') => {
     setOpenSections((prev) => {
       const next = { ...prev, [key]: !prev[key] };
@@ -197,77 +127,31 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     });
   };
 
-  // 后端许可名单快照（用于提交前严格校验与内联提示；加载失败不回退写死名单）
-  const [licenseGateSnapshot, setLicenseGateSnapshot] = useState<LicenseAllowlistResult | null>(null);
-  const licenseGateRequestRef = useRef<Promise<LicenseAllowlistResult | null> | null>(null);
-  const loadLicenseGate = useCallback((): Promise<LicenseAllowlistResult | null> => {
-    if (licenseGateRequestRef.current) return licenseGateRequestRef.current;
-    const provider = onGetLicenseAllowlist ?? getLicenseAllowlist;
-    const request = (async (): Promise<LicenseAllowlistResult | null> => {
-      try {
-        const raw = await provider();
-        const allowed = Array.isArray(raw?.allowed)
-          ? raw.allowed.filter((s): s is string => typeof s === 'string')
-          : [];
-        // 门禁开 + 空名单视为无效快照（等价加载失败，不拿空名单误拦提交；下次可重试）。
-        if (raw?.enabled !== false && allowed.length === 0) {
-          licenseGateRequestRef.current = null;
-          return null;
-        }
-        return { enabled: raw?.enabled !== false, allowed };
-      } catch {
-        // 加载失败：允许下次提交时重试。
-        licenseGateRequestRef.current = null;
-        return null;
-      }
-    })();
-    licenseGateRequestRef.current = request;
-    return request;
-  }, [onGetLicenseAllowlist]);
-
+  const { loadLicenseGate } = customApps;
   // 启动预取（提交时大概率已就绪；失败静默，提交时再提示重试）。
-  // 快照同步给逐框校验：就绪即存快照，不每键 IPC。
   useEffect(() => {
     void loadLicenseGate().then((g) => {
       if (g) setLicenseGateSnapshot(g);
     });
   }, [loadLicenseGate]);
 
-  // 提交/预填前确保名单就绪：拿不到则提示重试并返回 null（调用方中止，不开页不标记）。
-  const ensureLicenseGate = useCallback(async (): Promise<LicenseAllowlistResult | null> => {
+  // 提交/收录前确保名单就绪：拿不到则提示重试并返回 null（调用方中止，不开页不标记）。
+  const ensureLicenseGate = async (): Promise<LicenseAllowlistResult | null> => {
     const gate = await loadLicenseGate();
-    if (!gate) {
-      onNotify?.(t('pending.pr.allowlist_load_failed'), 'warning');
-    } else {
-      setLicenseGateSnapshot(gate);
-    }
+    if (!gate) onNotify?.(t('pending.pr.allowlist_load_failed'), 'warning');
+    else setLicenseGateSnapshot(gate);
     return gate;
-  }, [loadLicenseGate, onNotify, t]);
+  };
 
-  // 表单态（新建或选中行载入；identifier/platforms 等以文本态编辑，保存时归一）。
-  const [form, setForm] = useState<DraftItem>(PENDING_EMPTY_DRAFT);
-  const [aliasesText, setAliasesText] = useState('');
-  const [platformsText, setPlatformsText] = useState('windows');
-  const [identifiersText, setIdentifiersText] = useState('');
-
-  // 逐框校验快照口径：已预取快照即用严格校验，未就绪按 disabled 暂不标 osi/gate（仍保留 required）。
-  const effectiveGate: LicenseAllowlistInput = useMemo(
-    () => licenseGateSnapshot ?? { enabled: false, allowed: [] },
-    [licenseGateSnapshot],
-  );
-
-  // 当前表单归一后的 submit 档 live 校验（文本态字段归一后参验，不新增阻塞项）。
-  const liveSubmitItem = useMemo(
-    () => buildNormalizedFormItem(form, aliasesText, platformsText, identifiersText),
-    [form, aliasesText, platformsText, identifiersText],
-  );
-
-  const liveSubmitErrors = useMemo(
-    () => validatePendingDraft(liveSubmitItem, 'submit', effectiveGate),
-    [liveSubmitItem, effectiveGate],
-  );
-  const hasSubmitErrors = Object.keys(liveSubmitErrors).length > 0;
-  const hasLicenseSubmitError = Boolean(liveSubmitErrors.license);
+  // 切换顶层 Tab 时清空跨分组选中
+  const handleGroupChange = (group: PendingGroupId) => {
+    if (group === activeGroup) return;
+    setActiveGroup(group);
+    setSelectedId(null);
+    setIsCreating(false);
+    setPrUrlInput('');
+    clearErrors();
+  };
 
   // rawCounts：不看平台筛选的分组条数（判定「被平台筛空」与兜底落点）；
   // counts：按全局设备平台筛选后的条数，即 Tab 角标，等于切入该 Tab 后左栏条目数。
@@ -312,10 +196,6 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
 
   useReportPlatformCounts(displayPlatformCounts, onDisplayPlatformCounts);
 
-  const previewPlatforms = useMemo(() => {
-    return splitCsv(platformsText.toLowerCase());
-  }, [platformsText]);
-
   const editingEntry = useMemo(() => {
     const found = entries.find((e) => e.id === selectedId) ?? null;
     // 跨 Tab 选中重置兜底：选中行不在当前 Tab 时视为无选中，走空态提示。
@@ -323,14 +203,6 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     if (found && !isCreating && entryGroup(found) !== activeGroup) return null;
     return found;
   }, [entries, selectedId, activeGroup, isCreating]);
-
-  const loadIntoForm = (item: DraftItem) => {
-    setForm({ ...item });
-    setAliasesText(item.aliases.join(', '));
-    setPlatformsText(item.platforms.join(', '));
-    setIdentifiersText(stringifyIdentifiers(item.identifiers));
-    setFormErrors({});
-  };
 
   const handleStartCreate = () => {
     // 新建草稿归 draft 分组：切 Tab 即进草稿态，避免在库内/归档展开错配表单。
@@ -345,85 +217,8 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     if (!found) return;
     setIsCreating(false);
     setSelectedId(id);
-    setConfirmDeleteId(null);
-    setConfirmWithdrawId(null);
     setPrUrlInput(found.pr_url ?? '');
     loadIntoForm(found.item);
-  };
-
-  const setField = <K extends keyof DraftItem>(key: K, value: DraftItem[K]) => {
-    const prev = form;
-    const next = { ...prev, [key]: value };
-    if (key === 'owner' || key === 'repo') {
-      const owner = key === 'owner' ? String(value) : prev.owner;
-      const repo = key === 'repo' ? String(value) : prev.repo;
-      next.id = owner.trim() && repo.trim() ? canonicalDraftId(owner, repo) : '';
-    }
-    if (key === 'category') {
-      const cat = String(value);
-      if (cat) {
-        next.category_name = t(`categories.cat_${cat}_name`, { defaultValue: cat });
-      }
-    }
-    setForm(next);
-    // 逐框即时校验：对归一后表单跑 submit 档（license 用快照，不每键 IPC）。
-    const nextItem = buildNormalizedFormItem(next, aliasesText, platformsText, identifiersText);
-    setFormErrors(validatePendingDraft(nextItem, 'submit', effectiveGate));
-  };
-
-  // 文本态字段变更：仅归一后参验，不新增阻塞项；仍刷新 submit 档内联。
-  const handleTextFieldChange = (
-    key: 'aliases' | 'platforms' | 'identifiers',
-    value: string,
-  ) => {
-    if (key === 'aliases') setAliasesText(value);
-    else if (key === 'platforms') setPlatformsText(value);
-    else setIdentifiersText(value);
-    const nextAliases = key === 'aliases' ? value : aliasesText;
-    const nextPlatforms = key === 'platforms' ? value : platformsText;
-    const nextIdentifiers = key === 'identifiers' ? value : identifiersText;
-    const nextItem = buildNormalizedFormItem(form, nextAliases, nextPlatforms, nextIdentifiers);
-    setFormErrors(validatePendingDraft(nextItem, 'submit', effectiveGate));
-  };
-
-  // 通用失焦校验：对归一后表单跑 submit 档，合并进内联（不 toast）。
-  const handleFieldBlur = () => {
-    setFormErrors(validatePendingDraft(collectFormItem(), 'submit', effectiveGate));
-  };
-
-  const collectFormItem = (): DraftItem =>
-    buildNormalizedFormItem(form, aliasesText, platformsText, identifiersText);
-
-  // 首错定位：按表单顺序找首个错误 key，滚动到复用的 .pending-field-error 内联槽位并聚焦输入。
-  const focusFirstError = (errors: PendingDraftErrors) => {
-    const order: Array<keyof PendingDraftErrors> = [
-      'owner',
-      'repo',
-      'id',
-      'name',
-      'description',
-      'category',
-      'license',
-      'homepage',
-    ];
-    const first = order.find((k) => errors[k]);
-    if (!first) return;
-    window.setTimeout(() => {
-      const el = document.querySelector(`[data-testid="pending-error-${first}"]`);
-      if (!el) return;
-      try {
-        (el as HTMLElement).scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
-      } catch {
-        /* jsdom 无滚动实现时忽略 */
-      }
-      const box = (el as HTMLElement).closest('label, div');
-      const input = box?.querySelector('input, textarea') as HTMLElement | null;
-      try {
-        input?.focus?.();
-      } catch {
-        /* 忽略 */
-      }
-    }, 0);
   };
 
   const handleDuplicateDraft = () => {
@@ -432,64 +227,30 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     setActiveGroup('draft');
     setIsCreating(true);
     setSelectedId(null);
-    setConfirmDeleteId(null);
     setPrUrlInput('');
-    const duplicatedItem: DraftItem = {
-      ...editingEntry.item,
-      id: '', // 清空 id，修改 owner/repo 时自动联动新 id
-    };
-    loadIntoForm(duplicatedItem);
-    onNotify?.(
-      t('pending.duplicated_hint'),
-      'info',
-    );
+    // 清空 id，修改 owner/repo 时自动联动新 id
+    loadIntoForm({ ...editingEntry.item, id: '' });
+    onNotify?.(t('pending.duplicated_hint'), 'info');
   };
 
   const handleSave = async () => {
-    const item = collectFormItem();
-    // 暂存档（DraftLenient）：仅校验身份，不卡 license/homepage/不完整字段；
-    // 名单加载失败同样放行暂存（本就不查名单）。
-    const errors = validatePendingDraft(item, 'draft');
-    setFormErrors(errors);
-    if (Object.keys(errors).length > 0) {
+    // 暂存档（DraftLenient）：仅校验身份，不卡 license/homepage/不完整字段；名单加载失败同样放行暂存。
+    const { item, ok } = editor.validateForSave();
+    if (!ok) {
       onNotify?.(t('pending.fix_errors'), 'warning');
       return;
     }
     // 复制/手输撞已存在 id：warning 提示并中断，不静默建第二条（也不静默覆盖）。
     if (isCreating && entries.some((e) => e.id === item.id)) {
-      onNotify?.(
-        t('pending.duplicate_conflict_hint', {
-          id: item.id,
-        }),
-        'warning',
-      );
+      onNotify?.(t('pending.duplicate_conflict_hint', { id: item.id }), 'warning');
       return;
     }
-    if (onSave) {
-      try {
-        await onSave(item);
-      } catch (e) {
-        // 落盘失败：toast 报错并停留编辑态（表单内容保留可重试），成功后的出表单/选中/切组均不执行
-        onNotify?.(
-          t('pending.save_failed', {
-            id: item.id,
-            error: e instanceof Error ? e.message : String(e),
-          }),
-          'error',
-        );
-        return;
-      }
-    } else {
-      setLocalEntries((prev) => {
-        const now = Math.floor(Date.now() / 1000);
-        const idx = prev.findIndex((e) => e.id === item.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = { ...next[idx], id: item.id, item, updated_at: now };
-          return next;
-        }
-        return [...prev, { id: item.id, item, status: 'draft', pr_url: null, archived: false, updated_at: now }];
-      });
+    try {
+      await customApps.handleSaveCustomApp(item);
+    } catch (e) {
+      // 落盘失败：停留编辑态（表单内容保留可重试）
+      onNotify?.(t('pending.save_failed', { id: item.id, error: errorMessage(e) }), 'error');
+      return;
     }
     setIsCreating(false);
     setSelectedId(item.id);
@@ -499,32 +260,12 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirmDeleteId !== id) {
-      setConfirmDeleteId(id);
-      window.setTimeout(() => {
-        setConfirmDeleteId((prev) => (prev === id ? null : prev));
-      }, 4000);
+    try {
+      await customApps.handleDeleteCustomApp(id);
+    } catch (e) {
+      onNotify?.(t('pending.delete_failed', { id, error: errorMessage(e) }), 'error');
       return;
     }
-    if (onDelete) {
-      try {
-        await onDelete(id);
-      } catch (e) {
-        // 删除失败：toast 报错并解除二次确认态（行保持原状），成功后的清选中不执行
-        onNotify?.(
-          t('pending.delete_failed', {
-            id,
-            error: e instanceof Error ? e.message : String(e),
-          }),
-          'error',
-        );
-        setConfirmDeleteId(null);
-        return;
-      }
-    } else {
-      setLocalEntries((prev) => prev.filter((e) => e.id !== id));
-    }
-    setConfirmDeleteId(null);
     if (selectedId === id) {
       setSelectedId(null);
       setIsCreating(false);
@@ -538,76 +279,28 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
       onNotify?.(t('pending.errors.pr_url_scheme'), 'warning');
       return;
     }
-    if (onMarkSubmitted) {
-      try {
-        await onMarkSubmitted(id, url);
-      } catch (e) {
-        // 落盘失败：toast 报错并停留原分组（不切已提交），成功后的切换与提示均不执行
-        onNotify?.(
-          t('pending.mark_submitted_failed', {
-            id,
-            error: e instanceof Error ? e.message : String(e),
-          }),
-          'error',
-        );
-        return;
-      }
-    } else {
-      flipLocalSubmitted(id, url);
+    try {
+      await customApps.handleMarkCustomSubmitted(id, url);
+    } catch (e) {
+      // 落盘失败：停留原分组（不切已提交）
+      onNotify?.(t('pending.mark_submitted_failed', { id, error: errorMessage(e) }), 'error');
+      return;
     }
     // 手动标记后切到已提交：富卡仅展 Issue 链接，禁止重复提交。
     setActiveGroup('submitted');
     onNotify?.(t('pending.marked_submitted', { id }), 'success');
   };
 
-  const flipLocalSubmitted = (id: string, url: string) => {
-    setLocalEntries((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, status: 'submitted' as const, pr_url: url } : e)),
-    );
-  };
-
-  const flipLocalCollected = (id: string, item?: DraftItem) => {
-    const now = Math.floor(Date.now() / 1000);
-    setLocalEntries((prev) =>
-      prev.map((e) =>
-        e.id === id
-          ? { ...e, ...(item ? { item, updated_at: now } : {}), status: 'collected' as const }
-          : e,
-      ),
-    );
-  };
-
-  const flipLocalReverted = (id: string) => {
-    setLocalEntries((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, status: 'draft' as const } : e)),
-    );
-    setConfirmRevertId((prev) => (prev === id ? null : prev));
-  };
-
-  // 待提交退回草稿：二次确认后执行，退回后仍留在待提交 Tab 并聚焦下一条
+  // 待提交退回草稿（已二次确认）：退回后仍留在待提交 Tab 并聚焦下一条
   const handleRevertToDraft = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || revertingId === id) return;
-    if (target.archived) return;
-    if (!isPendingCollectedStatus(target.status)) return;
-    if (confirmRevertId !== id) {
-      setConfirmRevertId(id);
-      window.setTimeout(() => {
-        setConfirmRevertId((prev) => (prev === id ? null : prev));
-      }, 4000);
-      return;
-    }
+    if (target.archived || !isPendingCollectedStatus(target.status)) return;
     setRevertingId(id);
     try {
-      if (onRevertToDraft) {
-        await onRevertToDraft(id);
-      } else {
-        flipLocalReverted(id);
-      }
+      await customApps.handleRevertCollectedApp(id);
       // 退回后停留 collected：不切 Tab；选中落到下一条同组行，无剩余则清空回空态。
-      const collectedOrder = entries.filter(
-        (e) => !e.archived && isPendingCollectedStatus(e.status),
-      );
+      const collectedOrder = entries.filter((e) => !e.archived && isPendingCollectedStatus(e.status));
       const idx = collectedOrder.findIndex((e) => e.id === id);
       const remaining = collectedOrder.filter((e) => e.id !== id);
       const next =
@@ -616,56 +309,34 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
           : (remaining[Math.min(Math.max(idx, 0), remaining.length - 1)] ?? remaining[0] ?? null);
       setSelectedId(next ? next.id : null);
       setIsCreating(false);
-      if (next) {
-        setPrUrlInput(next.pr_url ?? '');
-        loadIntoForm(next.item);
-      } else {
-        setPrUrlInput('');
-        setFormErrors({});
-      }
+      setPrUrlInput(next?.pr_url ?? '');
+      if (next) loadIntoForm(next.item);
+      else clearErrors();
       onNotify?.(t('pending.reverted', { id }), 'info');
     } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e);
-      onNotify?.(
-        t('pending.revert_failed', {
-          id,
-          error: detail,
-        }),
-        'error',
-      );
+      onNotify?.(t('pending.revert_failed', { id, error: errorMessage(e) }), 'error');
     } finally {
       setRevertingId(null);
-      setConfirmRevertId(null);
     }
   };
 
-  // 标记为未提交（submitted → collected）：二次确认后清空选中并等待父级刷新
+  // 标记为未提交（已二次确认，submitted → collected）：清空选中，条目随重拉进入待提交 Tab
   const handleWithdrawSubmitted = async (id: string) => {
     const target = entries.find((e) => e.id === id);
     if (!target || withdrawingId === id) return;
     if (target.archived || target.status !== 'submitted') return;
-    if (!onWithdrawSubmitted) return;
-    if (confirmWithdrawId !== id) {
-      setConfirmWithdrawId(id);
-      window.setTimeout(() => {
-        setConfirmWithdrawId((prev) => (prev === id ? null : prev));
-      }, 4000);
-      return;
-    }
     setWithdrawingId(id);
     try {
-      await onWithdrawSubmitted(id);
-      // 撤下后行离开已提交：选中清空（父级刷新后条目进入待提交 Tab）。
+      await customApps.handleWithdrawSubmitted(id);
       setSelectedId(null);
       setIsCreating(false);
       setPrUrlInput('');
-      setFormErrors({});
+      clearErrors();
       onNotify?.(t('pending.withdrawn', { id }), 'success');
     } catch (e) {
-      onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+      onNotify?.(errorMessage(e), 'error');
     } finally {
       setWithdrawingId(null);
-      setConfirmWithdrawId(null);
     }
   };
 
@@ -675,10 +346,7 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     if (!target || collectingId === id) return;
     if (target.archived) return;
     if (target.status === 'submitted') {
-      onNotify?.(
-        t('pending.errors.already_submitted', { id }),
-        'warning',
-      );
+      onNotify?.(t('pending.errors.already_submitted', { id }), 'warning');
       return;
     }
     if (isPendingCollectedStatus(target.status)) {
@@ -687,32 +355,20 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     }
     const gate = await ensureLicenseGate();
     if (!gate) return;
-    const item = collectFormItem();
-    // 点击校验当前表单归一结果（可点：错即内联 + 定位首错，不 toast）
-    const strictErrors = validatePendingDraft(item, 'submit', gate);
-    if (Object.keys(strictErrors).length > 0) {
-      setFormErrors(strictErrors);
-      focusFirstError(strictErrors);
-      return;
-    }
+    // 点击校验当前表单归一结果（错即内联 + 定位首错，不 toast）
+    const { item, ok } = editor.validateForSubmit(gate);
+    if (!ok) return;
     setCollectingId(id);
     try {
       // 收录前先把当前表单最新修改落盘。
-      if (onSave) {
-        await onSave(item);
-      }
-      if (onCollectLocal) {
-        await onCollectLocal(id);
-      }
-      if (!controlledEntries) {
-        flipLocalCollected(id, item);
-      }
+      await customApps.handleSaveCustomApp(item);
+      await customApps.handleCollectLocalApp(id);
       loadIntoForm(item);
       // 收录后切到待提交，右侧切富卡。
       setActiveGroup('to_submit');
       onNotify?.(t('pending.collected', { id }), 'success');
     } catch (e) {
-      onNotify?.(e instanceof Error ? e.message : String(e), 'error');
+      onNotify?.(errorMessage(e), 'error');
     } finally {
       setCollectingId(null);
     }
@@ -729,20 +385,15 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     }
     const gate = await ensureLicenseGate();
     if (!gate) return;
-    // 点击校验当前表单归一结果（可点：错即内联 + 定位首错，不 toast）
-    const strictErrors = validatePendingDraft(collectFormItem(), 'submit', gate);
-    if (Object.keys(strictErrors).length > 0) {
-      setFormErrors(strictErrors);
-      focusFirstError(strictErrors);
-      return;
-    }
+    if (!editor.validateForSubmit(gate).ok) return;
     setSubmittingId(id);
     try {
+      const { getPrUrl, getPrPayload } = customApps;
       await runSubmitPrefillFlow(
         { t, notify: (message, type) => onNotify?.(message, type) },
         {
-          loadUrl: onGetPrUrl ? () => onGetPrUrl(id) : undefined,
-          loadPayload: onGetPrPayload ? () => onGetPrPayload(id) : undefined,
+          loadUrl: getPrUrl ? () => getPrUrl(id) : undefined,
+          loadPayload: getPrPayload ? () => getPrPayload(id) : undefined,
           failLabel: target.id,
         },
       );
@@ -753,25 +404,18 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
   };
 
   const showEditor = isCreating || editingEntry !== null;
-  // 富卡分支：collected/submitted/archived 非新建一律富卡展示，仅 draft（含新建）走表单。
-  // 仅 draft（含新建）走表单。archived 富卡只读 + 复制为新草稿。
-  const isRichCollectedView =
-    !isCreating &&
-    editingEntry !== null &&
-    entryGroup(editingEntry) !== 'draft';
+  // 富卡分支：collected/submitted/archived 非新建一律富卡展示，仅 draft（含新建）走表单；archived 富卡只读 + 复制为新草稿。
+  const isRichCollectedView = !isCreating && editingEntry !== null && entryGroup(editingEntry) !== 'draft';
   const richCardApp = useMemo(() => {
     if (!editingEntry) return null;
     return pendingDraftToAppSummary(editingEntry.item, editingEntry.status, editingEntry.archived);
   }, [editingEntry]);
-  // 富卡态内联口径：live（快照）与提交尝试（formErrors，真实门禁）合并展示，
-  // 门禁未就绪时 live 按 disabled 暂不标，提交后以 formErrors 为准。
+  // 富卡态内联口径：live（快照）与提交尝试（formErrors，真实门禁）合并展示；已归档只读不展。
+  const { liveSubmitErrors, formErrors } = editor;
   const richInlineErrors: PendingDraftErrors = useMemo(() => {
-    if (!isRichCollectedView) return {};
-    // 已归档只读不做提交拦阻，不展内联错误。
-    if (editingEntry?.archived) return {};
+    if (!isRichCollectedView || editingEntry?.archived) return {};
     return { ...liveSubmitErrors, ...formErrors };
   }, [isRichCollectedView, liveSubmitErrors, formErrors, editingEntry]);
-  const expectedId = form.owner.trim() && form.repo.trim() ? canonicalDraftId(form.owner, form.repo) : '';
 
   return (
     <ViewShell viewClass="pending-view">
@@ -857,17 +501,12 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
                 onMarkSubmitted={handleMarkSubmitted}
                 submittingId={submittingId}
                 onSubmitPr={(id) => void handleSubmitPr(id)}
-                hasSubmitErrors={hasSubmitErrors}
-                hasLicenseSubmitError={hasLicenseSubmitError}
+                hasSubmitErrors={editor.hasSubmitErrors}
+                hasLicenseSubmitError={editor.hasLicenseSubmitError}
                 revertingId={revertingId}
-                confirmRevertId={confirmRevertId}
                 onRevertToDraft={(id) => void handleRevertToDraft(id)}
                 withdrawingId={withdrawingId}
-                confirmWithdrawId={confirmWithdrawId}
-                onWithdrawSubmitted={
-                  onWithdrawSubmitted ? (id) => void handleWithdrawSubmitted(id) : undefined
-                }
-                confirmDeleteId={confirmDeleteId}
+                onWithdrawSubmitted={(id) => void handleWithdrawSubmitted(id)}
                 onDelete={(id) => void handleDelete(id)}
                 onDuplicate={handleDuplicateDraft}
               />
@@ -875,33 +514,32 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
               <>
                 {/* 实时卡片预览窗口（Draft Visual / Post-inclusion preview lane） */}
                 <PendingPreviewLane
-                  form={form}
-                  previewPlatforms={previewPlatforms}
-                  expectedId={expectedId}
+                  form={editor.form}
+                  previewPlatforms={editor.previewPlatforms}
+                  expectedId={editor.expectedId}
                   expanded={previewExpanded}
                   onToggle={() => setPreviewExpanded((prev) => !prev)}
                 />
 
                 <PendingDraftForm
-                  form={form}
-                  onField={setField}
-                  onTextField={handleTextFieldChange}
-                  onFieldBlur={handleFieldBlur}
+                  form={editor.form}
+                  onField={editor.setField}
+                  onTextField={editor.setTextField}
+                  onFieldBlur={editor.onFieldBlur}
                   formErrors={formErrors}
-                  aliasesText={aliasesText}
-                  platformsText={platformsText}
-                  identifiersText={identifiersText}
+                  aliasesText={editor.aliasesText}
+                  platformsText={editor.platformsText}
+                  identifiersText={editor.identifiersText}
                   isCreating={isCreating}
                   editing={editingEntry}
                   openSections={openSections}
                   onToggleSection={toggleSection}
                   onSave={handleSave}
-                  confirmDeleteId={confirmDeleteId}
-                  onDelete={handleDelete}
+                  onDelete={(id) => void handleDelete(id)}
                   collectingId={collectingId}
                   onCollectLocal={(id) => void handleCollectLocal(id)}
-                  hasSubmitErrors={hasSubmitErrors}
-                  hasLicenseSubmitError={hasLicenseSubmitError}
+                  hasSubmitErrors={editor.hasSubmitErrors}
+                  hasLicenseSubmitError={editor.hasLicenseSubmitError}
                 />
               </>
             )}
@@ -911,3 +549,4 @@ export const PendingView: React.FC<PendingViewProps> = (props) => {
     </ViewShell>
   );
 };
+

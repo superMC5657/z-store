@@ -1,6 +1,6 @@
 # Issue 07: 收敛 `DemoStore` 双 Adapter 契约并移除 `PendingView` 测试专用影子状态机
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 06
 
 ## Summary

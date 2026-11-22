@@ -5,13 +5,24 @@ import type {
   UpdateItem,
   UpdateRule,
 } from '../../types';
-import { buildDemoUpdates, findSummary, summaryToInstalled } from '../fixtures';
-import { emitDemoEvent, getInstalledApps, LS, lsGet, lsSet, setInstalledApps } from '../demoState';
+import { buildDemoUpdates, summaryToInstalled } from '../fixtures';
+import { demoStore, emitDemoEvent, persistDemo, resolveAnyAppSummary } from '../demoState';
 import { argStr, delay, nowSecs, warnUnknownArgs, type InvokeArgs } from './common';
 
+function setInstalled(list: InstalledApp[]): void {
+  demoStore().installed = list;
+  persistDemo('installed');
+}
+
+function withoutApp(appId: string): InstalledApp[] {
+  const key = appId.toLowerCase();
+  return demoStore().installed.filter((i) => i.app_id.toLowerCase() !== key);
+}
+
+/** 任意可解析卡片（精选、本地库、开源广场、趋势或合法坐标）都可安装。 */
 export async function handleInstallApp(a: InvokeArgs): Promise<InstalledApp> {
   const appId = argStr(a, 'appId');
-  const hit = findSummary(appId);
+  const hit = resolveAnyAppSummary(appId);
   if (!hit) throw new Error(`demo: unknown app "${appId}"`);
   const total = 20 * 1024 * 1024;
   for (let step = 1; step <= 5; step += 1) {
@@ -41,9 +52,7 @@ export async function handleInstallApp(a: InvokeArgs): Promise<InstalledApp> {
         ? String(a['assetName'])
         : `${hit.repo}-${hit.latest_version}-windows-x64.msi`,
   };
-  const list = [...getInstalledApps().filter((i) => i.app_id.toLowerCase() !== hit.id.toLowerCase()), installed];
-  setInstalledApps(list);
-  lsSet(LS.installed, list);
+  setInstalled([...withoutApp(hit.id), installed]);
   return installed;
 }
 
@@ -60,18 +69,12 @@ export function handleDownloadAsset(a: InvokeArgs): DownloadAssetResult {
 }
 
 export function handleUninstallApp(a: InvokeArgs): boolean {
-  const appId = argStr(a, 'appId').toLowerCase();
-  const list = getInstalledApps().filter((i) => i.app_id.toLowerCase() !== appId);
-  setInstalledApps(list);
-  lsSet(LS.installed, list);
+  setInstalled(withoutApp(argStr(a, 'appId')));
   return true;
 }
 
 export function handleUnmanageApp(a: InvokeArgs): boolean {
-  const appId = argStr(a, 'appId').toLowerCase();
-  const list = getInstalledApps().filter((i) => i.app_id.toLowerCase() !== appId);
-  setInstalledApps(list);
-  lsSet(LS.installed, list);
+  setInstalled(withoutApp(argStr(a, 'appId')));
   return true;
 }
 
@@ -88,36 +91,27 @@ export function handleShowFileInFolder(): boolean {
 }
 
 export function handleGetInstalledApps(): InstalledApp[] {
-  return [...getInstalledApps()];
+  return [...demoStore().installed];
 }
 
 export function handleCheckForUpdates(): UpdateItem[] {
-  return buildDemoUpdates(getInstalledApps(), loadRules());
+  return buildDemoUpdates(demoStore().installed, loadRules());
 }
 
 // 缓存快照（DB 同形）：首读时冻结当前已安装集合对应的更新行，此后安装/卸载
 // 不改变快照内容；与 live 的 check_for_updates（每次按现状重算）语义区分。
-let cachedUpdatesSnapshot: UpdateItem[] | null = null;
-
 export function handleGetCachedUpdates(): UpdateItem[] {
-  if (!cachedUpdatesSnapshot) {
-    cachedUpdatesSnapshot = buildDemoUpdates([...getInstalledApps()], loadRules());
+  const store = demoStore();
+  if (!store.cachedUpdates) {
+    store.cachedUpdates = buildDemoUpdates([...store.installed], loadRules());
   }
-  return cachedUpdatesSnapshot.map((u) => ({ ...u }));
+  return store.cachedUpdates.map((u) => ({ ...u }));
 }
 
-// -- 更新规则（对齐 `db/rules.rs`）：读写 `LS.updateRules`（种子见 seed.ts）------
-
-let rules: UpdateRule[] | null = null;
+// -- 更新规则（对齐 `db/rules.rs`）：读写 `DemoStore.updateRules`（种子见 seed.ts）------
 
 function loadRules(): UpdateRule[] {
-  if (!rules) {
-    const stored = lsGet<unknown>(LS.updateRules, []);
-    rules = Array.isArray(stored)
-      ? (stored as UpdateRule[]).filter((r) => typeof r?.app_id === 'string')
-      : [];
-  }
-  return rules;
+  return demoStore().updateRules;
 }
 
 function isEmptyRule(r: UpdateRule): boolean {
@@ -135,8 +129,8 @@ function upsertRule(appId: string, patch: Partial<Pick<UpdateRule, 'is_frozen' |
     list.push(rule);
   }
   Object.assign(rule, patch, { updated_at: nowSecs() });
-  rules = list.filter((r) => !isEmptyRule(r));
-  lsSet(LS.updateRules, rules);
+  demoStore().updateRules = list.filter((r) => !isEmptyRule(r));
+  persistDemo('updateRules');
 }
 
 export function handleGetUpdateRules(): UpdateRule[] {
@@ -168,12 +162,6 @@ export function handleSetAppHidden(a: InvokeArgs): boolean {
   warnUnknownArgs(['appId', 'isHidden'], a, 'handleSetAppHidden');
   upsertRule(argStr(a, 'appId'), { is_hidden: a['isHidden'] === true });
   return true;
-}
-
-/** 测试用：丢弃内存缓存，下次读取重新从 localStorage 载入。 */
-export function resetUpdateRulesCache(): void {
-  rules = null;
-  cachedUpdatesSnapshot = null;
 }
 
 export function handleSelectFolder(): null {

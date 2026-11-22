@@ -12,6 +12,7 @@ import {
   Sliders,
   Trash2,
 } from 'lucide-react';
+import { InlineConfirmButton } from '../../components/InlineConfirmButton';
 import {
   PENDING_OFFICIAL_CATEGORIES,
   errorText,
@@ -38,7 +39,7 @@ interface PendingDraftFormProps {
   openSections: { supplemental: boolean; runtime: boolean };
   onToggleSection: (key: 'supplemental' | 'runtime') => void;
   onSave: () => void;
-  confirmDeleteId: string | null;
+  /** 二次确认后执行（确认态由 `InlineConfirmButton` 持有）。 */
   onDelete: (id: string) => void;
   collectingId: string | null;
   onCollectLocal: (id: string) => void;
@@ -79,7 +80,6 @@ type FormFooterProps = Pick<
   PendingDraftFormProps,
   | 'isCreating'
   | 'editing'
-  | 'confirmDeleteId'
   | 'onDelete'
   | 'collectingId'
   | 'onCollectLocal'
@@ -132,7 +132,6 @@ export const PendingDraftForm: React.FC<PendingDraftFormProps> = (props) => {
       <FormFooter
         isCreating={props.isCreating}
         editing={props.editing}
-        confirmDeleteId={props.confirmDeleteId}
         onDelete={props.onDelete}
         collectingId={props.collectingId}
         onCollectLocal={props.onCollectLocal}
@@ -536,7 +535,7 @@ function RuntimeSection({
 
 /** 固定卡片底部 Footer：保存/删除/移入本地收录。 */
 function FormFooter({
-  isCreating, editing, confirmDeleteId, onDelete, collectingId,
+  isCreating, editing, onDelete, collectingId,
   onCollectLocal, hasSubmitErrors, hasLicenseSubmitError, onSave,
 }: FormFooterProps) {
   const { t } = useTranslation();
@@ -551,17 +550,16 @@ function FormFooter({
           {t('pending.save')}
         </button>
         {!isCreating && editing && (
-          <button
-            type="button"
-            className="btn-fluent btn-secondary btn-sm"
-            onClick={() => onDelete(editing.id)}
+          <InlineConfirmButton
+            size="sm"
+            testId="pending-delete"
+            onConfirm={() => onDelete(editing.id)}
+            confirmText={t('pending.confirm_delete')}
             title={t('pending.delete_hint')}
           >
             <Trash2 size={13} strokeWidth={1.5} aria-hidden="true" />
-            <span>
-              {confirmDeleteId === editing.id ? t('pending.confirm_delete') : t('pending.delete')}
-            </span>
-          </button>
+            <span>{t('pending.delete')}</span>
+          </InlineConfirmButton>
         )}
         {!isCreating && editing && editing.status === 'draft' && (
           <button

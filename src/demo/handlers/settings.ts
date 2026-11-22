@@ -4,7 +4,7 @@ import type {
   ProxyTestResult,
 } from '../../types';
 import { demoTrendsTextForUrl } from '../fixtures';
-import { getDemoSettingsSaved, LS, lsSet } from '../demoState';
+import { demoStore, persistDemo } from '../demoState';
 import { parseCollectionDeepLink } from '../../utils/collectionShare';
 import { argStr, type InvokeArgs } from './common';
 
@@ -31,9 +31,8 @@ export function handleSaveSetting(a: InvokeArgs): boolean {
   const key = argStr(a, 'key');
   const value = a['value'];
   if (key && typeof value !== 'undefined') {
-    const saved = getDemoSettingsSaved();
-    saved[key] = String(value);
-    lsSet(LS.settings, saved);
+    demoStore().settings[key] = String(value);
+    persistDemo('settings');
   }
   return true;
 }

@@ -1,6 +1,6 @@
 /** 测试演示站待收录、更新规则与关注提醒有状态 handler 的门禁与持久化。 */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { getWatchSet, hydrate } from '../demoState';
+import { demoStore, hydrateDemoStore, resetDemoStore } from '../demoState';
 import {
   handleCollectLocalApp,
   handleGetCustomAppPrPayload,
@@ -11,7 +11,6 @@ import {
   handleRevertCollectedApp,
   handleWithdrawSubmitted,
   parseLicenseGate,
-  resetCustomAppsCache,
 } from './customApps';
 import { handleImportMatchedApps, handleScanAndMatchLocalApps } from './catalog';
 import {
@@ -20,7 +19,6 @@ import {
   handleSetAppFrozen,
   handleSetAppHidden,
   handleSetAppSkipVersion,
-  resetUpdateRulesCache,
 } from './installer';
 import {
   handleDismissWatchNotification,
@@ -28,15 +26,10 @@ import {
   handleGetWatchNotifications,
   handleRestoreWatchNotification,
   handleUnwatchApp,
-  resetWatchNotificationsCache,
 } from './social';
 
 beforeEach(() => {
-  window.localStorage.clear();
-  hydrate();
-  resetCustomAppsCache();
-  resetUpdateRulesCache();
-  resetWatchNotificationsCache();
+  resetDemoStore();
 });
 
 describe('custom apps mock', () => {
@@ -75,7 +68,7 @@ describe('custom apps mock', () => {
     const back = handleWithdrawSubmitted({ id: collected.id });
     expect(back.status).toBe('collected');
     expect(back.pr_url).toBeNull();
-    resetCustomAppsCache();
+    hydrateDemoStore();
     expect(handleListCustomApps({}).find((e) => e.id === collected.id)?.status).toBe('collected');
   });
 
@@ -108,7 +101,7 @@ describe('update rules mock', () => {
 
   it('persists changes and sorts newest first', () => {
     handleSetAppHidden({ appId: 'rustdesk/rustdesk', isHidden: true });
-    resetUpdateRulesCache();
+    hydrateDemoStore();
     expect(handleGetUpdateRules()[0].app_id).toBe('rustdesk/rustdesk');
     expect(rule('rustdesk/rustdesk')?.is_hidden).toBe(true);
   });
@@ -142,7 +135,7 @@ describe('watch notifications mock', () => {
 
   it('unwatching an app hides its notifications', () => {
     const [first] = handleGetWatchNotifications();
-    expect(getWatchSet().has(first.app_id)).toBe(true);
+    expect(demoStore().watched.has(first.app_id)).toBe(true);
     handleUnwatchApp({ appId: first.app_id });
     expect(handleGetWatchNotifications().some((n) => n.app_id === first.app_id)).toBe(false);
   });

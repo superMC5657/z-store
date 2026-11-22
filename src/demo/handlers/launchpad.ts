@@ -10,7 +10,8 @@ import type {
   LaunchpadReactionGroup,
   LaunchpadUpvoteResult,
 } from '../../types';
-import { getStarSet } from '../demoState';
+import { canonicalAppId } from '../../services/normalizeId';
+import { demoStore } from '../demoState';
 import { argNum, argStr, DAY_SECS, nowSecs, warnUnknownArgs, type InvokeArgs } from './common';
 
 const DISCUSSIONS_REPO = 'superMC5657/z-store-launchpad';
@@ -150,14 +151,22 @@ function toEntry(seed: DemoSeed, pinned: boolean, order: number): LaunchpadEntry
   };
 }
 
-// 内存态：顶帖、表情回应与评论交互在会话内可见。
-const upvoteState = new Map<number, { count: number; mine: boolean }>();
-const commentState = new Map<number, LaunchpadDiscussionComment[]>();
-const postReactionState = new Map<number, LaunchpadReactionGroup[]>();
-let commentSeq = 0;
+// 顶帖、表情回应与评论交互为 `DemoStore.launchpad` 会话态。
+function live() {
+  return demoStore().launchpad;
+}
 
 function allSeeds(): DemoSeed[] {
   return [...SPOTLIGHT, ...RECENT];
+}
+
+/** 开源广场清单条目的卡片摘要（未收录），供详情、安装与富卡解析使用。 */
+export function findLaunchpadSummary(id: string): AppSummary | undefined {
+  const key = canonicalAppId(id) ?? id.trim().toLowerCase();
+  const spotlight = SPOTLIGHT.findIndex((s) => s.id.toLowerCase() === key);
+  if (spotlight >= 0) return toEntry(SPOTLIGHT[spotlight], true, spotlight).summary;
+  const recent = RECENT.findIndex((s) => s.id.toLowerCase() === key);
+  return recent >= 0 ? toEntry(RECENT[recent], false, recent).summary : undefined;
 }
 
 function seedByNumber(n: number): DemoSeed | undefined {
@@ -165,11 +174,11 @@ function seedByNumber(n: number): DemoSeed | undefined {
 }
 
 function upvotes(seed: DemoSeed): { count: number; mine: boolean } {
-  return upvoteState.get(seed.number) ?? { count: seed.upvotes, mine: false };
+  return live().upvotes.get(seed.number) ?? { count: seed.upvotes, mine: false };
 }
 
 function demoComments(seed: DemoSeed): LaunchpadDiscussionComment[] {
-  const existing = commentState.get(seed.number);
+  const existing = live().comments.get(seed.number);
   if (existing) return existing;
   const coord = seed.id.includes(':') ? seed.id.split(':')[1] : seed.id;
   const owner = coord.split('/')[0];
@@ -216,7 +225,7 @@ function demoComments(seed: DemoSeed): LaunchpadDiscussionComment[] {
       replies: [],
     },
   ];
-  commentState.set(seed.number, initial);
+  live().comments.set(seed.number, initial);
   return initial;
 }
 
@@ -230,9 +239,9 @@ function countCommentsWithReplies(list: LaunchpadDiscussionComment[]): number {
 function withLiveState(entry: LaunchpadEntry): LaunchpadEntry {
   const seed = seedByNumber(entry.discussion_number);
   if (!seed) return entry;
-  const starred = getStarSet().has(entry.summary.id.toLowerCase());
+  const starred = demoStore().starred.has(entry.summary.id.toLowerCase());
   const votes = upvotes(seed);
-  const existing = commentState.get(seed.number);
+  const existing = live().comments.get(seed.number);
   const extraComments = existing ? Math.max(0, countCommentsWithReplies(existing) - DEMO_SEED_COMMENTS) : 0;
   return {
     ...entry,
@@ -306,7 +315,7 @@ export function handleGetLaunchpadDiscussion(a: InvokeArgs): LaunchpadDiscussion
     comments_total: seed.comments + Math.max(0, countCommentsWithReplies(comments) - DEMO_SEED_COMMENTS),
     has_next_page: false,
     end_cursor: null,
-    reaction_groups: postReactionState.get(seed.number) ?? [],
+    reaction_groups: live().postReactions.get(seed.number) ?? [],
     comments,
     is_stale: false,
   };
@@ -320,7 +329,7 @@ export function handleAddLaunchpadComment(a: InvokeArgs): LaunchpadDiscussionCom
   if (!seed) throw new Error('讨论不存在');
   if (!body) throw new Error('评论内容不能为空');
   const comment: LaunchpadDiscussionComment = {
-    id: `DC_demo_new_${++commentSeq}`,
+    id: `DC_demo_new_${++live().commentSeq}`,
     body,
     created_at: new Date().toISOString(),
     author_association: 'NONE',
@@ -333,7 +342,7 @@ export function handleAddLaunchpadComment(a: InvokeArgs): LaunchpadDiscussionCom
   const replyTo = argStr(a, 'replyToId');
   const parent = replyTo ? list.find((c) => c.id === replyTo) : undefined;
   if (parent) parent.replies = [...parent.replies, comment];
-  else commentState.set(seed.number, [...list, comment]);
+  else live().comments.set(seed.number, [...list, comment]);
   return comment;
 }
 
@@ -348,7 +357,7 @@ export function handleToggleLaunchpadUpvote(a: InvokeArgs): LaunchpadUpvoteResul
     count: Math.max(0, current.count + (want === current.mine ? 0 : want ? 1 : -1)),
     mine: want,
   };
-  upvoteState.set(seed.number, next);
+  live().upvotes.set(seed.number, next);
   return {
     subject_id: argStr(a, 'subjectId') || `D_demo_${seed.number}`,
     upvote_count: next.count,
@@ -419,8 +428,8 @@ export function handleToggleLaunchpadReaction(a: InvokeArgs): LaunchpadReactionG
   const content = argStr(a, 'content').toUpperCase() as LaunchpadReactionContent;
   const currentlyReacted = a.currentlyReacted === true;
   if (subjectId === `D_demo_${seed.number}`) {
-    const next = toggleReactionList(postReactionState.get(seed.number), content, currentlyReacted);
-    postReactionState.set(seed.number, next);
+    const next = toggleReactionList(live().postReactions.get(seed.number), content, currentlyReacted);
+    live().postReactions.set(seed.number, next);
     return next;
   }
   const target = findCommentDeep(demoComments(seed), subjectId);

@@ -12,7 +12,6 @@ import {
   type SimilarAppItem,
   type SimilarAppsResponse,
   type SyncCatalogResult,
-  type UpdateRule,
 } from '../../types';
 import type { AppIconCycleResult, PlatformsLiteResult, ReadmeVariantsResult } from '../../services/api';
 import { resolveAlternatives } from '../alternatives';
@@ -23,24 +22,16 @@ import {
   summaries,
   toDetail,
 } from '../fixtures';
-import { canonicalAppId, parseCanonicalCoord } from '../../services/normalizeId';
-import { DEFAULT_ICON_BG } from '../../styles/tokens';
+import { canonicalAppId } from '../../services/normalizeId';
 import {
-  getDemoSettingsSaved,
-  getInstalledApps,
-  getRecentIds,
-  getRecentViewTimes,
-  getSearchHistory,
-  iconLevel,
-  LS,
-  lsGet,
-  lsSet,
-  setRecentIds,
-  setRecentViewTime,
-  setInstalledApps,
-  setSearchHistory,
+  demoStore,
+  findCatalogedSummary,
+  persistDemo,
+  placeholderSummary,
+  resolveAnyAppSummary,
+  visibleCatalogSummaries,
 } from '../demoState';
-import { argNum, argStr, warnUnknownArgs, type InvokeArgs, rankSummariesForFeed } from './common';
+import { argNum, argStr, nowSecs, warnUnknownArgs, type InvokeArgs, rankSummariesForFeed } from './common';
 
 function demoSearchScore(s: AppSummary, q: string): number {
   const nameLower = s.name.toLowerCase();
@@ -60,6 +51,7 @@ function demoSearchScore(s: AppSummary, q: string): number {
 
 export function handleSearchApps(a: InvokeArgs): AppSummary[] {
   const q = argStr(a, 'query').trim().toLowerCase();
+  const summaries = visibleCatalogSummaries();
   let matched: AppSummary[];
   if (!q) {
     matched = [...summaries].sort((x, y) => y.stars - x.stars);
@@ -93,13 +85,13 @@ export function handleGetHomeFeed(a: InvokeArgs): {
   const limit = Math.min(100, Math.max(1, Math.floor(argNum(a, 'limit') ?? 20)));
   const offset = Math.max(0, Math.floor(argNum(a, 'offset') ?? 0));
   const seed = Math.floor(argNum(a, 'seed') ?? 0);
-  const ranked = rankSummariesForFeed(seed, a['strategy']);
+  const ranked = rankSummariesForFeed(visibleCatalogSummaries(), seed, a['strategy']);
   const items = ranked.slice(offset, offset + limit);
   return { items, total: ranked.length, has_more: offset + items.length < ranked.length };
 }
 
 export function handleGetAffinityProfileSummary(): AffinityProfileSummary {
-  const saved = getDemoSettingsSaved();
+  const saved = demoStore().settings;
   const on = (key: string) => saved[key] !== 'false' && saved[key] !== '0';
   const localEnabled = on('enable_local_affinity');
   const githubEnabled = on('enable_github_affinity');
@@ -173,7 +165,7 @@ export function handleEnrichTrendRepos(a: InvokeArgs): (AppSummary | null)[] {
 
 export function handleGetPlatformsLite(a: InvokeArgs): PlatformsLiteResult {
   const id = argStr(a, 'id');
-  const hit = findSummary(id);
+  const hit = findCatalogedSummary(id);
   if (hit) {
     return {
       id: hit.id,
@@ -197,7 +189,7 @@ export function handleGetConfirmedIconsBatch(a: InvokeArgs): (string | null)[] {
   return ids.map((raw) => {
     const id = typeof raw === 'string' ? raw : '';
     const slash = id.indexOf('/');
-    const icon = findSummary(id)?.icon
+    const icon = findCatalogedSummary(id)?.icon
       ?? (slash > 0 ? findExternalTrend(id.slice(0, slash), id.slice(slash + 1))?.icon : undefined);
     return icon ? icon : null;
   });
@@ -209,10 +201,11 @@ export function handleFetchOrCacheAssetUrl(a: InvokeArgs): string {
   return argStr(a, 'url');
 }
 
+/** 精选、本地库、开源广场、趋势卡片与任意合法坐标都能打开详情；仅无法解析的 id 报错。 */
 export function handleGetAppDetails(a: InvokeArgs): AppDetail {
   warnUnknownArgs(['id', 'forceRefresh'], a, 'handleGetAppDetails');
   const id = argStr(a, 'id');
-  const hit = findSummary(id);
+  const hit = resolveAnyAppSummary(id);
   if (!hit) throw new Error(`demo: unknown app "${id}"`);
   return toDetail(hit);
 }
@@ -223,29 +216,28 @@ export function handleGetCachedAppDetailsBatch(a: InvokeArgs): (AppSummary | nul
   const raw = a['ids'];
   const ids: unknown[] = Array.isArray(raw) ? raw : [];
   return ids.map((id) =>
-    typeof id === 'string' && id.trim() !== '' ? findSummary(id) ?? null : null,
+    typeof id === 'string' && id.trim() !== '' ? findCatalogedSummary(id) ?? null : null,
   );
 }
 
-/** demo 单仓富卡批量水合：仅从内置 fixtures 投影（DB-only 同语义，与入参一一对齐）。 */
+/** demo 单仓富卡批量水合：只投影已知卡片（不合成占位，DB-only 同语义，与入参一一对齐）。 */
 export function handleGetRepoCardsBatch(a: InvokeArgs): (HydratedRepoCard | null)[] {
   const raw = a['ids'];
   const ids: unknown[] = Array.isArray(raw) ? raw : [];
-  const now = Math.floor(Date.now() / 1000);
+  const now = nowSecs();
   return ids.map((id) => {
     if (typeof id !== 'string' || id.trim() === '') return null;
-    const summary = findSummary(id);
+    const summary = resolveAnyAppSummary(id, { placeholder: false });
     return summary ? { summary, confirmed_other: false, updated_at: now } : null;
   });
 }
 
-/** demo 在线搜索列表快照：内存态透存（刷新页面即清空），与后端 64 KiB 上限同口径。 */
-const demoSearchListCache = new Map<string, SearchListCacheEntry & { has_private: boolean }>();
+/** demo 在线搜索列表快照：会话态透存（刷新页面即清空），与后端 64 KiB 上限同口径。 */
 const DEMO_SEARCH_LIST_MAX_BYTES = 64 * 1024;
 
 export function handleGetSearchListCache(a: InvokeArgs): SearchListCacheEntry | null {
   const key = argStr(a, 'cacheKey').trim();
-  const row = key ? demoSearchListCache.get(key) : undefined;
+  const row = key ? demoStore().searchListCache.get(key) : undefined;
   return row
     ? { payload_json: row.payload_json, cached_at: row.cached_at, has_private: row.has_private }
     : null;
@@ -259,7 +251,7 @@ export function handleSaveSearchListCache(a: InvokeArgs): null {
   if (new TextEncoder().encode(payload).length > DEMO_SEARCH_LIST_MAX_BYTES) {
     throw new Error('search_list_payload_too_large');
   }
-  demoSearchListCache.set(key, {
+  demoStore().searchListCache.set(key, {
     payload_json: payload,
     cached_at: Math.floor(Date.now() / 1000),
     has_private: a['hasPrivate'] === true,
@@ -267,16 +259,9 @@ export function handleSaveSearchListCache(a: InvokeArgs): null {
   return null;
 }
 
-/** 登出：清除含私有仓库的 demo 搜索列表快照。 */
-export function clearDemoPrivateSearchListCache(): void {
-  for (const [key, row] of demoSearchListCache) {
-    if (row.has_private) demoSearchListCache.delete(key);
-  }
-}
-
 export function handleGetReadmeVariants(a: InvokeArgs): ReadmeVariantsResult {
   const id = argStr(a, 'appId');
-  const hit = findSummary(id);
+  const hit = resolveAnyAppSummary(id, { placeholder: false });
   const name = hit?.name ?? id;
   const zh = `# ${name}\n\n${hit?.description ?? ''}\n\n> Live-demo bundle: full README unavailable offline.`;
   const en = `# ${name}\n\n${hit?.description_en ?? hit?.description ?? ''}\n\n> Live-demo bundle.`;
@@ -290,9 +275,10 @@ export function handleGetReadmeVariants(a: InvokeArgs): ReadmeVariantsResult {
 
 export function handleGetAppIconCycle(a: InvokeArgs, cmd: string): AppIconCycleResult | null {
   const id = argStr(a, 'appId');
-  const hit = findSummary(id);
+  const hit = findCatalogedSummary(id);
   if (!hit) return null;
   const key = hit.id.toLowerCase();
+  const { iconLevel } = demoStore();
   const level = cmd === 'cycle_app_icon' ? (iconLevel.get(key) ?? 0) + 1 : (iconLevel.get(key) ?? 0);
   if (cmd === 'cycle_app_icon') iconLevel.set(key, level);
   return {
@@ -311,7 +297,7 @@ export function handleGetOrFetchIcon(a: InvokeArgs): string {
   const remote = argStr(a, 'remoteUrl');
   if (remote) return remote;
   const appId = argStr(a, 'appId');
-  return findSummary(appId)?.icon ?? '';
+  return findCatalogedSummary(appId)?.icon ?? '';
 }
 
 type FilteredFeedPage = {
@@ -357,7 +343,7 @@ export function handleGetCategoryApps(a: InvokeArgs): FilteredFeedPage {
   warnUnknownArgs(['category', 'page', 'perPage', 'allowedIds'], a, 'handleGetCategoryApps');
   const category = argStr(a, 'category').toLowerCase();
   if (!category) return { items: [], total: 0, has_more: false, matched_ids: [] };
-  const matched = summaries.filter((s) => s.category.toLowerCase() === category);
+  const matched = visibleCatalogSummaries().filter((s) => s.category.toLowerCase() === category);
   return paginateWithAllowedIds(matched, a);
 }
 
@@ -381,7 +367,8 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): FilteredFeedPage {
         ? Math.floor(rawSince)
         : undefined);
 
-  let matched = [...summaries];
+  const catalog = visibleCatalogSummaries();
+  let matched = [...catalog];
   if (maxDays !== undefined || minDays > 0) {
     const today = new Date();
     const currentDays = Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000);
@@ -394,7 +381,7 @@ export function handleGetLatestCatalogApps(a: InvokeArgs): FilteredFeedPage {
     };
 
     let baseDays = currentDays;
-    const maxItemDays = summaries.reduce<number | null>((acc, s) => {
+    const maxItemDays = catalog.reduce<number | null>((acc, s) => {
       const d = parseItemDays(s.added_at);
       if (d === null) return acc;
       return acc === null || d > acc ? d : acc;
@@ -506,7 +493,7 @@ const DEMO_SCAN_SAMPLES: readonly DemoScanSample[] = [
 
 /** 排除已纳管应用，每个置信度档位最多返回两条扫描匹配。 */
 export function handleScanAndMatchLocalApps(): AppMatchResult[] {
-  const managed = new Set(getInstalledApps().map((i) => i.app_id.toLowerCase()));
+  const managed = new Set(demoStore().installed.map((i) => i.app_id.toLowerCase()));
   const perTier: Record<string, number> = {};
   const out: AppMatchResult[] = [];
   for (const sample of DEMO_SCAN_SAMPLES) {
@@ -547,8 +534,8 @@ export function handleImportMatchedApps(a: InvokeArgs): number {
   warnUnknownArgs(['apps'], a, 'handleImportMatchedApps');
   const raw = a['apps'];
   const requests = Array.isArray(raw) ? (raw as ImportAppRequest[]) : [];
-  const list = [...getInstalledApps()];
-  const now = Math.floor(Date.now() / 1000);
+  const list = [...demoStore().installed];
+  const now = nowSecs();
   let imported = 0;
   for (const req of requests) {
     if (typeof req?.app_id !== 'string') continue;
@@ -570,37 +557,34 @@ export function handleImportMatchedApps(a: InvokeArgs): number {
     });
     imported += 1;
   }
-  setInstalledApps(list);
-  lsSet(LS.installed, list);
+  demoStore().installed = list;
+  persistDemo('installed');
   return imported;
+}
+
+function setSearchHistory(list: string[]): null {
+  demoStore().searchHistory = list;
+  persistDemo('searchHistory');
+  return null;
 }
 
 export function handleRecordSearchQuery(a: InvokeArgs): null {
   const q = argStr(a, 'query').trim();
-  if (q) {
-    const list = [q, ...getSearchHistory().filter((x) => x !== q)].slice(0, 20);
-    setSearchHistory(list);
-    lsSet(LS.searchHistory, list);
-  }
+  if (q) setSearchHistory([q, ...demoStore().searchHistory.filter((x) => x !== q)].slice(0, 20));
   return null;
 }
 
 export function handleGetSearchHistory(): string[] {
-  return [...getSearchHistory()];
+  return [...demoStore().searchHistory];
 }
 
 export function handleClearSearchHistory(): null {
-  setSearchHistory([]);
-  lsSet(LS.searchHistory, []);
-  return null;
+  return setSearchHistory([]);
 }
 
 export function handleRemoveSearchQuery(a: InvokeArgs): null {
   const q = argStr(a, 'query');
-  const list = getSearchHistory().filter((x) => x !== q);
-  setSearchHistory(list);
-  lsSet(LS.searchHistory, list);
-  return null;
+  return setSearchHistory(demoStore().searchHistory.filter((x) => x !== q));
 }
 
 const DEMO_VIEW_DEBOUNCE_SECS = 30;
@@ -609,25 +593,25 @@ const DEMO_RECENT_VIEW_LIMIT = 30;
 export function handleRecordAppView(a: InvokeArgs): null {
   const id = argStr(a, 'appId').toLowerCase();
   if (id) {
-    const now = Math.floor(Date.now() / 1000);
-    const prev = getRecentViewTimes()[id];
+    const store = demoStore();
+    const now = nowSecs();
+    const prev = store.recentViewTimes[id];
     if (prev !== undefined && now >= prev && now - prev < DEMO_VIEW_DEBOUNCE_SECS) {
       return null;
     }
-    setRecentViewTime(id, now);
-    lsSet(LS.recentViewTimes, getRecentViewTimes());
-    const list = [id, ...getRecentIds().filter((x) => x !== id)].slice(0, DEMO_RECENT_VIEW_LIMIT);
-    setRecentIds(list);
-    lsSet(LS.recentViews, list);
+    store.recentViewTimes = { ...store.recentViewTimes, [id]: now };
+    persistDemo('recentViewTimes');
+    store.recentIds = [id, ...store.recentIds.filter((x) => x !== id)].slice(0, DEMO_RECENT_VIEW_LIMIT);
+    persistDemo('recentViews');
   }
   return null;
 }
 
 export function handleGetRecentlyViewedApps(): AppSummary[] {
   const out: AppSummary[] = [];
-  const times = getRecentViewTimes();
-  for (const id of getRecentIds()) {
-    const hit = findSummary(id);
+  const { recentIds, recentViewTimes: times } = demoStore();
+  for (const id of recentIds) {
+    const hit = resolveAnyAppSummary(id, { placeholder: false });
     if (hit) {
       out.push({
         ...hit,
@@ -646,31 +630,6 @@ export function handleSyncCatalog(): SyncCatalogResult {
   };
 }
 
-function buildDemoCollectionPlaceholder(cleanId: string): AppSummary {
-  const coord = parseCanonicalCoord(cleanId);
-  return {
-    id: coord ? coord.id : cleanId,
-    name: coord?.repo || cleanId,
-    owner: coord?.owner ?? '',
-    repo: coord?.repo ?? cleanId,
-    icon: '',
-    icon_bg: DEFAULT_ICON_BG,
-    description: '',
-    stars: 0,
-    forks: 0,
-    license: '',
-    latest_version: 'latest',
-    category: 'external',
-    category_name: '跨平台开源',
-    is_verified: false,
-    forge: coord?.forge ?? '',
-    forge_host: coord?.forge_host ?? '',
-    homepage: null,
-    platforms: [],
-    is_cataloged: false,
-  };
-}
-
 export function handleResolveCollectionApps(a: InvokeArgs): AppSummary[] {
   warnUnknownArgs(['appIds'], a, 'handleResolveCollectionApps');
   const raw = a['appIds'];
@@ -681,8 +640,8 @@ export function handleResolveCollectionApps(a: InvokeArgs): AppSummary[] {
     const cleanId = canonicalAppId(item);
     if (!cleanId || seen.has(cleanId)) continue;
     seen.add(cleanId);
-    const hit = findSummary(cleanId);
-    out.push(hit ?? buildDemoCollectionPlaceholder(cleanId));
+    const hit = findCatalogedSummary(cleanId) ?? placeholderSummary(cleanId);
+    if (hit) out.push(hit);
     if (out.length >= 30) break;
   }
   return out;
@@ -715,8 +674,8 @@ export function handleGetSimilarApps(a: InvokeArgs): SimilarAppsResponse {
 
   const rawLimit = argNum(a, 'limit');
   const limit = Math.min(8, Math.max(1, Math.floor(rawLimit ?? 4)));
-  const hit = findSummary(cleanId);
-  const coord = parseCanonicalCoord(cleanId);
+  const hit = findCatalogedSummary(cleanId);
+  const coord = placeholderSummary(cleanId);
   const seed: Pick<AppSummary, 'id' | 'name' | 'owner' | 'repo' | 'category' | 'description' | 'description_en'> = hit ?? {
     id: cleanId,
     name: argStr(a, 'name') || coord?.repo || cleanId,
@@ -729,16 +688,10 @@ export function handleGetSimilarApps(a: InvokeArgs): SimilarAppsResponse {
   const targetAlternatives = resolveAlternatives(hit?.alternatives, cleanId);
   const seedToks = demoTokens(seed);
 
-  const hiddenIds = new Set(
-    lsGet<UpdateRule[]>(LS.updateRules, [])
-      .filter((r) => r.is_hidden)
-      .map((r) => r.app_id.toLowerCase()),
-  );
-
   const scored: Array<{ rank: number; item: SimilarAppItem }> = [];
-  for (const cand of summaries) {
+  for (const cand of visibleCatalogSummaries()) {
     const candLower = cand.id.toLowerCase();
-    if (candLower === cleanId || hiddenIds.has(candLower)) continue;
+    if (candLower === cleanId) continue;
 
     const sameCat = Boolean(seed.category && cand.category.toLowerCase() === seed.category.toLowerCase());
     const sameOwner = Boolean(seed.owner && cand.owner.toLowerCase() === seed.owner.toLowerCase());

@@ -10,6 +10,12 @@ const mocks = vi.hoisted(() => ({
   collectLocalApp: vi.fn(async () => {}),
   withdrawSubmitted: vi.fn(async () => {}),
   revertCollectedApp: vi.fn(async () => {}),
+  getLicenseAllowlist: vi.fn(async (): Promise<{ enabled: boolean; allowed: string[] }> => ({
+    enabled: true,
+    allowed: ['MIT'],
+  })),
+  getCustomAppPrUrl: vi.fn(async (id: string) => `https://example.com/issues/new?title=${id}`),
+  getCustomAppPrPayload: vi.fn(async (id: string) => JSON.stringify({ id })),
 }));
 
 vi.mock('../../services/api', async () => {
@@ -22,6 +28,9 @@ vi.mock('../../services/api', async () => {
     collectLocalApp: mocks.collectLocalApp,
     withdrawSubmitted: mocks.withdrawSubmitted,
     revertCollectedApp: mocks.revertCollectedApp,
+    getLicenseAllowlist: mocks.getLicenseAllowlist,
+    getCustomAppPrUrl: mocks.getCustomAppPrUrl,
+    getCustomAppPrPayload: mocks.getCustomAppPrPayload,
   };
   return {
     ...actual,
@@ -44,6 +53,7 @@ function renderCustomApps() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.listCustomApps.mockResolvedValue([]);
+  mocks.getLicenseAllowlist.mockResolvedValue({ enabled: true, allowed: ['MIT'] });
   for (const fn of [
     mocks.saveCustomApp,
     mocks.deleteCustomApp,
@@ -150,5 +160,68 @@ describe('useCustomApps：落盘后目录同步广播', () => {
       window.removeEventListener('zstore:catalog-synced', synced);
     }
     expect(synced).not.toHaveBeenCalled();
+  });
+});
+
+describe('useCustomApps：移入抑制集 customIds', () => {
+  it('合并后端草稿 id（含 owner/repo 别名）与变更事件携带的乐观移入 id', async () => {
+    mocks.listCustomApps.mockResolvedValue([
+      {
+        id: 'acme/atlas',
+        item: { id: 'acme/atlas', owner: 'Acme', repo: 'Atlas', platforms: [] },
+        status: 'draft',
+        pr_url: null,
+        created_at: 0,
+        updated_at: 0,
+        archived: false,
+      },
+    ]);
+    const { rendered } = renderCustomApps();
+    await waitFor(() => expect(rendered.result.current.customIds.has('acme/atlas')).toBe(true));
+    expect(rendered.result.current.customIds.has('moved/one')).toBe(false);
+
+    const reloadsBefore = mocks.listCustomApps.mock.calls.length;
+    act(() => {
+      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed', { detail: { id: 'Moved/One' } }));
+    });
+    // 乐观集即刻生效，不等后端往返；事件同时触发重拉
+    expect(rendered.result.current.customIds.has('moved/one')).toBe(true);
+    await waitFor(() => expect(mocks.listCustomApps.mock.calls.length).toBeGreaterThan(reloadsBefore));
+  });
+});
+
+describe('useCustomApps：协议白名单单飞查询', () => {
+  it('并发调用共用一次请求，成功结果被缓存', async () => {
+    const { rendered } = renderCustomApps();
+    const [a, b] = await Promise.all([
+      rendered.result.current.loadLicenseGate(),
+      rendered.result.current.loadLicenseGate(),
+    ]);
+    expect(a).toEqual({ enabled: true, allowed: ['MIT'] });
+    expect(b).toBe(a);
+    await rendered.result.current.loadLicenseGate();
+    expect(mocks.getLicenseAllowlist).toHaveBeenCalledTimes(1);
+  });
+
+  it('失败或门禁开但空名单时 fail-closed 返回 null，下次重试', async () => {
+    const { rendered } = renderCustomApps();
+    mocks.getLicenseAllowlist.mockRejectedValueOnce(new Error('offline'));
+    expect(await rendered.result.current.loadLicenseGate()).toBeNull();
+    mocks.getLicenseAllowlist.mockResolvedValueOnce({ enabled: true, allowed: [] });
+    expect(await rendered.result.current.loadLicenseGate()).toBeNull();
+    expect(await rendered.result.current.loadLicenseGate()).toEqual({ enabled: true, allowed: ['MIT'] });
+    expect(mocks.getLicenseAllowlist).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('useCustomApps：Issue 预填获取', () => {
+  it('桌面端经 tauriApi 获取，演示站缺席', async () => {
+    const desktop = renderHook(() => useCustomApps({ demoMode: false }));
+    expect(await desktop.result.current.getPrUrl?.('acme/atlas')).toContain('acme/atlas');
+    expect(await desktop.result.current.getPrPayload?.('acme/atlas')).toBe('{"id":"acme/atlas"}');
+
+    const demo = renderHook(() => useCustomApps({ demoMode: true }));
+    expect(demo.result.current.getPrUrl).toBeUndefined();
+    expect(demo.result.current.getPrPayload).toBeUndefined();
   });
 });

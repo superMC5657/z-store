@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import i18n from '../i18n';
@@ -14,7 +14,7 @@ import {
   validatePendingDraft,
   type CustomDraftEntry,
 } from './pending/draftModel';
-import { PendingView } from './PendingView';
+import { entryToWire, renderPending } from './pending/pendingTestHarness';
 import { selectPendingFilteredCount } from '../app/selectors';
 import type { LicenseAllowlistResult } from '../services/api/catalog';
 import {
@@ -27,6 +27,7 @@ import {
 
 afterEach(async () => {
   cleanup();
+  vi.restoreAllMocks();
   await i18n.changeLanguage('zh-CN');
 });
 
@@ -135,7 +136,7 @@ describe('PendingView validation (backend validate_custom_item UI mirror)', () =
 describe('PendingView grouping and empty states', () => {
   it('renders empty state with create action when no drafts', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView />);
+    const { container } = await renderPending();
     expect(screen.getByText('暂无待收录草稿')).toBeTruthy();
     // 新建入口置于空态提示，页头不包含新建入口
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
@@ -151,7 +152,9 @@ describe('PendingView grouping and empty states', () => {
       draftEntry({ id: 'o/b', status: 'submitted', pr_url: 'https://github.com/x/y/pull/1' }),
       draftEntry({ id: 'o/c', archived: true }),
     ];
-    const { container } = render(<PendingView initialEntries={entries} />);
+    const { container } = await renderPending({
+      entries: entries,
+    });
     // 四个互斥顶层 Tab：草稿 / 待提交 / 已提交 / 已归档；页头无计数
     expect(container.querySelector('.pending-header .count-badge')).toBeNull();
     const tabs = Array.from(container.querySelectorAll('.segmented-item')).map((el) => el.textContent ?? '');
@@ -185,11 +188,11 @@ describe('PendingView grouping and empty states', () => {
 
   it('switches title between Chinese and English', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { unmount } = render(<PendingView />);
+    const { unmount } = await renderPending();
     expect(screen.getByText('待收录')).toBeTruthy();
     unmount();
     await i18n.changeLanguage('en-US');
-    render(<PendingView />);
+    await renderPending();
     expect(screen.getByText('Pending')).toBeTruthy();
   });
 });
@@ -215,7 +218,9 @@ describe('Sidebar pending nav (discovery group + badge slot)', () => {  it('rend
 describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校验/提交）', () => {
   it('左右分栏走 CSS 类（无内联双列），中小宽度由样式表堆叠', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />);
+    const { container } = await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+    });
     const layout = container.querySelector('.pending-layout') as HTMLElement | null;
     expect(layout).toBeTruthy();
     // 分栏列定义在样式表，行内不留 grid-template-columns。
@@ -230,7 +235,9 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
 
   it('无多列网格残留：行容器拆除，每字段独占一整行', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />);
+    const { container } = await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+    });
     fireEvent.click(screen.getByText('o/a'));
     const card = container.querySelector('.pending-editor-card') as HTMLElement | null;
     expect(card).toBeTruthy();
@@ -264,7 +271,9 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
 
   it('renders category as a styled select-fluent dropdown with 10 official categories and auto-fills category_name', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />);
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+    });
     fireEvent.click(screen.getByText('o/a'));
 
     const select = screen.getByTestId('pending-select-category') as HTMLSelectElement;
@@ -306,7 +315,9 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
   it('长 id 标题省略 + title 悬浮看全', async () => {
     await i18n.changeLanguage('zh-CN');
     const longId = 'verylongownername/verylongreponame-0123456789abcdef';
-    const { container } = render(<PendingView initialEntries={[draftEntry({ id: longId })]} />);
+    const { container } = await renderPending({
+      entries: [draftEntry({ id: longId })],
+    });
     fireEvent.click(screen.getByText(longId));
     const title = container.querySelector('.pending-editor-title') as HTMLElement | null;
     expect(title).toBeTruthy();
@@ -322,9 +333,8 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
 describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实）', () => {
   it('编辑已有草稿不展示只读仓库坐标区，标题保留 id，直入基本信息编辑', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(
-      <PendingView
-        initialEntries={[
+    const { container } = await renderPending({
+      entries: [
           {
             id: 'owner1/repo1',
             status: 'draft',
@@ -342,9 +352,8 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
               license: 'MIT',
             },
           },
-        ]}
-      />,
-    );
+        ],
+    });
     fireEvent.click(screen.getByText('owner1/repo1'));
 
     // 编辑态仅在顶部标题展示坐标，表单直接从基本信息开始
@@ -364,9 +373,8 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
 
-    render(
-      <PendingView
-        initialEntries={[
+    await renderPending({
+      entries: [
           {
             id: 'owner1/repo1',
             status: 'draft',
@@ -384,10 +392,9 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
               license: 'MIT',
             },
           },
-        ]}
-        onNotify={onNotify}
-      />,
-    );
+        ],
+      onNotify: onNotify,
+    });
     fireEvent.click(screen.getByText('已归档'));
     fireEvent.click(screen.getByText('owner1/repo1'));
 
@@ -413,11 +420,9 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
 
   it('archived 行富卡只读、无表单，仅留“复制为新草稿”可用', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'arch/one', archived: true })]}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'arch/one', archived: true })],
+    });
     fireEvent.click(screen.getByText('已归档'));
     fireEvent.click(screen.getByText('arch/one'));
 
@@ -439,11 +444,9 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
 
   it('新建态展示 owner/repo 坐标输入，编辑态自动收起坐标区且标题保留 id', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'owner1/repo1' })]}
-      />,
-    );
+    const { container } = await renderPending({
+      entries: [draftEntry({ id: 'owner1/repo1' })],
+    });
     fireEvent.click(screen.getByText('owner1/repo1'));
 
     // 编辑态不渲染坐标节，编辑器标题保留 owner1/repo1
@@ -462,7 +465,7 @@ describe('PendingView 草稿字段可改性与锁定规则（Oracle 定稿落实
 describe('PendingView 回归（自动派生 canonical id + duplicate 警告 + 旧 key 迁移）', () => {
   it('新建态输入大写 owner/repo 自动按小写 owner/repo 派生 id 并保存', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView />);
+    await renderPending();
     fireEvent.click(screen.getByText('新建草稿'));
     const [ownerInput, repoInput] = screen.getAllByPlaceholderText('rustdesk') as HTMLInputElement[];
     fireEvent.change(ownerInput, { target: { value: 'OwnerA' } });
@@ -475,12 +478,10 @@ describe('PendingView 回归（自动派生 canonical id + duplicate 警告 + �
   it('新建草稿保存已存在 id 时出 warning 且不建第二条', async () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a' })]}
-        onNotify={onNotify}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+      onNotify: onNotify,
+    });
     fireEvent.click(screen.getByText('新建草稿'));
     const [ownerInput, repoInput] = screen.getAllByPlaceholderText('rustdesk') as HTMLInputElement[];
     fireEvent.change(ownerInput, { target: { value: 'o' } });
@@ -517,14 +518,12 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
     const onCollectLocal = vi.fn().mockResolvedValue(undefined);
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a' })]}
-        onNotify={onNotify}
-        onCollectLocal={onCollectLocal}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { collectLocalApp: onCollectLocal },
+    });
     fireEvent.click(screen.getByText('o/a'));
     const collectBtn = screen.getByTestId('pending-collect-local') as HTMLButtonElement;
     // 有效态可用
@@ -556,14 +555,12 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
     const onGetPrUrl = vi.fn().mockResolvedValue('https://example.com/pr');
     const placeholder = draftEntry({ id: 'o/a', status: 'collected' });
     placeholder.item.license = 'OpenSource';
-    render(
-      <PendingView
-        initialEntries={[placeholder]}
-        onNotify={onNotify}
-        onGetPrUrl={onGetPrUrl}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [placeholder],
+      onNotify: onNotify,
+      gate: gateProvider,
+      api: { getCustomAppPrUrl: onGetPrUrl },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     // 富卡分支：复用 AppCard（黄标 local），不展示 owner/repo 参数表单
@@ -598,9 +595,9 @@ describe('PendingView 逐框内联校验（submit 档即时标错，不 toast）
 
   it('gate 未就绪时 license 暂不标错（快照口径，不每键 IPC）', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView initialEntries={[draftEntry({ id: 'o/a' })]} />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+    });
     fireEvent.click(screen.getByText('o/a'));
     // 故意不传 onGetLicenseAllowlist：非 Tauri 单测默认拉取失败，快照为空按 disabled 口径
     const licenseInput = screen.getByDisplayValue('MIT') as HTMLInputElement;
@@ -630,7 +627,10 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
 
   it('draft=表单+收录主按钮（页头无新建入口、无计数徽标）', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
+    const { container } = await renderPending({
+      entries: fourStateEntries(),
+      gate: gateProvider,
+    });
     // 页头无新建入口、无计数徽标
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(container.querySelector('.pending-header .count-badge')).toBeNull();
@@ -648,7 +648,10 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
 
   it('collected=富卡+提交主/退回次', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
+    const { container } = await renderPending({
+      entries: fourStateEntries(),
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     // 点左侧列表项进详情
     const listItem = container.querySelector('.pending-list .pending-list-item') as HTMLElement;
@@ -665,12 +668,10 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
 
   it('submitted=富卡+PR链接+删除无重复提交', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        initialEntries={fourStateEntries()}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: fourStateEntries(),
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     // 列表与详情各展一次 Issue 链接（同文案双节点），断言至少详情区展出
@@ -685,20 +686,18 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     expect(screen.queryByText('标记已提交')).toBeNull();
     // 已提交允许删除：二次确认复用删除形态（首点确认态，次点执行）
     expect(screen.getByTestId('pending-delete')).toBeTruthy();
-    // 未接线撤下回调时不渲染撤下动作（预览/单测安全）
-    expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
+    // 已提交可撤回为待提交
+    expect(screen.getByTestId('pending-withdraw-submitted')).toBeTruthy();
   });
 
-  it('submitted 删除走二次确认（本地态删后退出选中，列表不再含该行）', async () => {
+  it('submitted 删除走二次确认（删后重拉退出选中，列表不再含该行）', async () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
-    const { container } = render(
-      <PendingView
-        initialEntries={fourStateEntries()}
-        onNotify={onNotify}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    const { container } = await renderPending({
+      entries: fourStateEntries(),
+      onNotify: onNotify,
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     // 首点仅置确认态，不删行
@@ -715,16 +714,14 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
     expect(screen.getByText('选择或新建草稿')).toBeTruthy();
   });
 
-  it('submitted 删除受控时委托 onDelete 回调', async () => {
+  it('submitted 删除经 tauriApi.deleteCustomApp 落盘', async () => {
     await i18n.changeLanguage('zh-CN');
     const onDelete = vi.fn().mockResolvedValue(undefined);
-    render(
-      <PendingView
-        initialEntries={fourStateEntries()}
-        onDelete={onDelete}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: fourStateEntries(),
+      gate: gateProvider,
+      api: { deleteCustomApp: onDelete },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     fireEvent.click(screen.getByTestId('pending-delete'));
@@ -734,7 +731,10 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
 
   it('archived=富卡只读+复制为新草稿，无表单', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView initialEntries={fourStateEntries()} onGetLicenseAllowlist={gateProvider} />);
+    await renderPending({
+      entries: fourStateEntries(),
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText('已归档'));
     fireEvent.click(screen.getByText('o/arch'));
     // 富卡只读：无表单保存/输入，展黄标 + 已归档徽标 + 复制按钮
@@ -751,12 +751,10 @@ describe('PendingView 顶层三态切 Tab 联动（右侧详情/批量栏/操作
 
   it('切 Tab 跨分组选中重置：右侧回空态不展错配控件', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(
-      <PendingView
-        initialEntries={fourStateEntries()}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    const { container } = await renderPending({
+      entries: fourStateEntries(),
+      gate: gateProvider,
+    });
     // 页头无计数徽标、无新建入口
     expect(container.querySelector('.pending-header')?.textContent).not.toContain('新建草稿');
     expect(container.querySelector('.pending-header .count-badge')).toBeNull();
@@ -794,7 +792,10 @@ describe('PendingView 4 tabs 计数分区', () => {
   it('tab counts partition every entry (draft + to_submit + submitted + archived = total, no double count)', async () => {
     await i18n.changeLanguage('zh-CN');
     const entries = libraryEntries();
-    const { container } = render(<PendingView entries={entries} onGetLicenseAllowlist={gateProvider} />);
+    const { container } = await renderPending({
+      entries: entries,
+      gate: gateProvider,
+    });
     const counts = Array.from(container.querySelectorAll('.segmented-item .count-badge')).map((el) =>
       Number((el.textContent ?? '0').replace(/\D/g, '')),
     );
@@ -804,9 +805,10 @@ describe('PendingView 4 tabs 计数分区', () => {
 
   it('to-submit / submitted tabs filter rows and reset the detail selection', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container } = render(
-      <PendingView entries={libraryEntries()} onGetLicenseAllowlist={gateProvider} />,
-    );
+    const { container } = await renderPending({
+      entries: libraryEntries(),
+      gate: gateProvider,
+    });
     const listText = () => container.querySelector('.pending-list')?.textContent ?? '';
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     // 默认待提交：仅 collected 系
@@ -833,7 +835,9 @@ describe('PendingView 4 tabs 计数分区', () => {
 
   it('empty tab shows its own copy', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView entries={[draftEntry({ id: 'o/col', status: 'collected' })]} />);
+    await renderPending({
+      entries: [draftEntry({ id: 'o/col', status: 'collected' })],
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     expect(screen.getByText('暂无已提交应用')).toBeTruthy();
     expect(screen.getByText('已提交等待收录的应用显示在此。')).toBeTruthy();
@@ -851,72 +855,61 @@ describe('PendingView 标记为未提交（submitted → collected，二次确�
     return draftEntry({ id: 'o/sub', status: 'submitted', pr_url: 'https://github.com/o/r/pull/7' });
   }
 
-  async function openSubmitted(submitProps: Parameters<typeof PendingView>[0] = {}) {
-    const view = render(
-      <PendingView
-        entries={[submittedEntry()]}
-        onGetLicenseAllowlist={gateProvider}
-        {...submitProps}
-      />,
-    );
+  async function openSubmitted(options: Parameters<typeof renderPending>[0] = {}) {
+    const view = await renderPending({
+      entries: [submittedEntry()],
+      gate: gateProvider,
+      ...options,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     fireEvent.click(screen.getByText('o/sub'));
     return view;
   }
 
-  it('hides the action when no callback is wired (preview/unit safety)', async () => {
+  it('submitted rows offer withdraw alongside delete', async () => {
     await i18n.changeLanguage('zh-CN');
     await openSubmitted();
-    expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
-    // 删除仍在（submitted 行为保持）
+    expect(screen.getByTestId('pending-withdraw-submitted')).toBeTruthy();
     expect(screen.getByTestId('pending-delete')).toBeTruthy();
   });
 
-  it('double-confirms, calls the callback, and returns the row to 待提交 after parent refresh', async () => {
+  it('double-confirms, calls the backend, and the reloaded row returns to 待提交', async () => {
     await i18n.changeLanguage('zh-CN');
-    const onWithdrawSubmitted = vi.fn().mockResolvedValue(undefined);
     const onNotify = vi.fn();
-    const { rerender } = await openSubmitted({ onWithdrawSubmitted, onNotify });
+    const { backend } = await openSubmitted({ onNotify });
 
-    const btn = screen.getByTestId('pending-withdraw-submitted');
-    fireEvent.click(btn);
+    fireEvent.click(screen.getByTestId('pending-withdraw-submitted'));
     // 首点仅确认态，不调后端
     expect(screen.getByText('再次点击确认')).toBeTruthy();
-    expect(onWithdrawSubmitted).not.toHaveBeenCalled();
+    expect(backend.withdrawSubmitted).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('pending-withdraw-submitted'));
-    await waitFor(() => expect(onWithdrawSubmitted).toHaveBeenCalledWith('o/sub'));
+    await waitFor(() => expect(backend.withdrawSubmitted).toHaveBeenCalledWith('o/sub'));
     await waitFor(() =>
       expect(onNotify).toHaveBeenCalledWith(expect.stringContaining('o/sub'), 'success'),
     );
-    // 受控模式不静默本地翻态：父级刷新前行仍在
-    expect(screen.getAllByText('o/sub').length).toBeGreaterThanOrEqual(1);
 
-    // 父级刷新：同 id 回到 collected，已提交分段清空、待提交分段可重新提交
-    rerender(
-      <PendingView
-        entries={[draftEntry({ id: 'o/sub', status: 'collected', pr_url: null })]}
-        onWithdrawSubmitted={onWithdrawSubmitted}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    // 写后重拉：同 id 回到 collected，已提交分段清空、待提交分段可重新提交
+    await waitFor(() => expect(screen.getByText('暂无已提交应用')).toBeTruthy());
     expect(screen.queryByTestId('pending-withdraw-submitted')).toBeNull();
-    expect(screen.getByText('暂无已提交应用')).toBeTruthy();
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     expect(screen.getByText('o/sub')).toBeTruthy();
     fireEvent.click(screen.getByText('o/sub'));
     expect(screen.getByTestId('pending-submit-pr')).toBeTruthy();
   });
 
-  it('disables the action while running and keeps the row when the callback fails', async () => {
+  it('disables the action while running and keeps the row when the backend fails', async () => {
     await i18n.changeLanguage('zh-CN');
     let rejectWithdraw: (err: Error) => void = () => {};
-    const onWithdrawSubmitted = vi.fn(
-      () => new Promise<void>((_resolve, reject) => {
-        rejectWithdraw = reject;
-      }),
-    );
     const onNotify = vi.fn();
-    await openSubmitted({ onWithdrawSubmitted, onNotify });
+    await openSubmitted({
+      onNotify,
+      api: {
+        withdrawSubmitted: () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectWithdraw = reject;
+          }),
+      },
+    });
     fireEvent.click(screen.getByTestId('pending-withdraw-submitted'));
     fireEvent.click(screen.getByTestId('pending-withdraw-submitted'));
     await waitFor(() => expect((screen.getByTestId('pending-withdraw-submitted') as HTMLButtonElement).disabled).toBe(true));
@@ -934,13 +927,11 @@ describe('PendingView 标记为未提交（submitted → collected，二次确�
 
   it('archived rows keep the read-only card without a withdraw action', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        entries={[draftEntry({ id: 'arch/one', archived: true })]}
-        onWithdrawSubmitted={vi.fn().mockResolvedValue(undefined)}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'arch/one', archived: true })],
+      gate: gateProvider,
+      api: { withdrawSubmitted: vi.fn().mockResolvedValue(undefined) },
+    });
     fireEvent.click(screen.getByText('已归档'));
     fireEvent.click(screen.getByText('arch/one'));
     expect(screen.getByText('已转正归档')).toBeTruthy();
@@ -988,18 +979,18 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
 
   it('草稿列表项随语言切换简介、空回退另一语言', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container, unmount } = render(
-      <PendingView initialEntries={[bilingualEntry({ id: 'o/a' })]} />,
-    );
+    const { container, unmount } = await renderPending({
+      entries: [bilingualEntry({ id: 'o/a' })],
+    });
     const listTextZh = container.querySelector('.pending-list')?.textContent ?? '';
     expect(listTextZh).toContain('中文简介');
     expect(listTextZh).not.toContain('English desc');
     unmount();
 
     await i18n.changeLanguage('en-US');
-    const { container: containerEn, unmount: unmountEn } = render(
-      <PendingView initialEntries={[bilingualEntry({ id: 'o/a' })]} />,
-    );
+    const { container: containerEn, unmount: unmountEn } = await renderPending({
+      entries: [bilingualEntry({ id: 'o/a' })],
+    });
     const listTextEn = containerEn.querySelector('.pending-list')?.textContent ?? '';
     expect(listTextEn).toContain('English desc');
     expect(listTextEn).not.toContain('中文简介');
@@ -1009,9 +1000,9 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     await i18n.changeLanguage('en-US');
     const fallback = bilingualEntry({ id: 'o/b' });
     fallback.item.description_en = '   ';
-    const { container: containerFb, unmount: unmountFb } = render(
-      <PendingView initialEntries={[fallback]} />,
-    );
+    const { container: containerFb, unmount: unmountFb } = await renderPending({
+      entries: [fallback],
+    });
     expect(containerFb.querySelector('.pending-list')?.textContent ?? '').toContain('中文简介');
     unmountFb();
 
@@ -1020,28 +1011,26 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     const empty = bilingualEntry({ id: 'o/c' });
     empty.item.description = '   ';
     empty.item.description_en = '  ';
-    const { container: containerEmpty, unmount: unmountEmpty } = render(
-      <PendingView initialEntries={[empty]} />,
-    );
+    const { container: containerEmpty, unmount: unmountEmpty } = await renderPending({
+      entries: [empty],
+    });
     expect(containerEmpty.querySelector('.pending-list')?.textContent ?? '').toContain('暂无简介');
     unmountEmpty();
 
     await i18n.changeLanguage('en-US');
-    const { container: containerEmptyEn, unmount: unmountEmptyEn } = render(
-      <PendingView initialEntries={[empty]} />,
-    );
+    const { container: containerEmptyEn, unmount: unmountEmptyEn } = await renderPending({
+      entries: [empty],
+    });
     expect(containerEmptyEn.querySelector('.pending-list')?.textContent ?? '').toContain('No description');
     unmountEmptyEn();
   });
 
   it('收录后预览（表单预览 lane）随语言切换、表单两框保留可编辑', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(
-      <PendingView
-        initialEntries={[bilingualEntry({ id: 'o/a' })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [bilingualEntry({ id: 'o/a' })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText('o/a'));
     // 中文环境预览展中文
     expect(document.querySelector('.pending-preview-desc')?.textContent).toBe('中文简介');
@@ -1055,12 +1044,10 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     cleanup();
 
     await i18n.changeLanguage('en-US');
-    render(
-      <PendingView
-        initialEntries={[bilingualEntry({ id: 'o/a' })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [bilingualEntry({ id: 'o/a' })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText('o/a'));
     expect(document.querySelector('.pending-preview-desc')?.textContent).toBe('English desc');
     cleanup();
@@ -1071,24 +1058,20 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
     const empty = bilingualEntry({ id: 'o/a' });
     empty.item.description = '';
     empty.item.description_en = '   ';
-    render(
-      <PendingView
-        initialEntries={[empty]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [empty],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText('o/a'));
     expect(document.querySelector('.pending-preview-desc')?.textContent).toBe('暂无简介');
     expect(document.querySelector('.pending-preview-desc')?.classList.contains('pending-preview-empty')).toBe(true);
     cleanup();
 
     await i18n.changeLanguage('en-US');
-    render(
-      <PendingView
-        initialEntries={[empty]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [empty],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText('o/a'));
     expect(document.querySelector('.pending-preview-desc')?.textContent).toBe('No description');
     cleanup();
@@ -1096,24 +1079,20 @@ describe('PendingView 草稿简介随语言切换（列表/预览/空态复用�
 
   it('收录后富卡（AppCard）随语言切换简介', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { unmount } = render(
-      <PendingView
-        initialEntries={[bilingualEntry({ id: 'o/a', status: 'collected' })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    const { unmount } = await renderPending({
+      entries: [bilingualEntry({ id: 'o/a', status: 'collected' })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     expect(document.querySelector('.pending-editor .app-desc')?.textContent).toBe('中文简介');
     unmount();
 
     await i18n.changeLanguage('en-US');
-    render(
-      <PendingView
-        initialEntries={[bilingualEntry({ id: 'o/a', status: 'collected' })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [bilingualEntry({ id: 'o/a', status: 'collected' })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     expect(document.querySelector('.pending-editor .app-desc')?.textContent).toBe('English desc');
@@ -1151,12 +1130,10 @@ describe('PendingView 富卡 stars/forks 取真值（pendingDraftToAppSummary）
     const entry = draftEntry({ id: 'o/a', status: 'collected' });
     entry.item.stars = 12000;
     entry.item.forks = 400;
-    render(
-      <PendingView
-        initialEntries={[entry]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [entry],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     // AppCard 星标经 formatStars 渲染：12000 → 12.0k
@@ -1166,12 +1143,10 @@ describe('PendingView 富卡 stars/forks 取真值（pendingDraftToAppSummary）
   it('收录富卡（AppCard）渲染关注与收藏按钮占位，点击安全无副作用（NOOP）', async () => {
     await i18n.changeLanguage('zh-CN');
     const entry = draftEntry({ id: 'o/a', status: 'collected' });
-    render(
-      <PendingView
-        initialEntries={[entry]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [entry],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
 
@@ -1195,13 +1170,11 @@ describe('PendingView 保存类回调失败路径（Issue 05）', () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
     const onSave = vi.fn().mockRejectedValue(new Error('db offline'));
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a' })]}
-        onNotify={onNotify}
-        onSave={onSave}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+      onNotify: onNotify,
+      api: { saveCustomApp: onSave },
+    });
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.click(screen.getByText('保存草稿'));
     await waitFor(() => {
@@ -1216,13 +1189,11 @@ describe('PendingView 保存类回调失败路径（Issue 05）', () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
     const onDelete = vi.fn().mockRejectedValue(new Error('db offline'));
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a' })]}
-        onNotify={onNotify}
-        onDelete={onDelete}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a' })],
+      onNotify: onNotify,
+      api: { deleteCustomApp: onDelete },
+    });
     fireEvent.click(screen.getByText('o/a'));
     const deleteBtn = screen.getByTitle('删除本地草稿（需二次确认）');
     fireEvent.click(deleteBtn);
@@ -1240,13 +1211,11 @@ describe('PendingView 保存类回调失败路径（Issue 05）', () => {
     await i18n.changeLanguage('zh-CN');
     const onNotify = vi.fn();
     const onMarkSubmitted = vi.fn().mockRejectedValue(new Error('db offline'));
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: 'o/a', status: 'collected' })]}
-        onNotify={onNotify}
-        onMarkSubmitted={onMarkSubmitted}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: 'o/a', status: 'collected' })],
+      onNotify: onNotify,
+      api: { markCustomSubmitted: onMarkSubmitted },
+    });
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
     fireEvent.click(screen.getByText('o/a'));
     fireEvent.change(screen.getByLabelText('收录申请提交'), {
@@ -1266,11 +1235,9 @@ describe("PendingView 国际化（中英语言切换）", () => {
   it("中英文模式下正确渲染待收录页面大标题、Tab、表单分节大标题与按钮", async () => {
     // 1. 中文模式
     await i18n.changeLanguage("zh-CN");
-    const { unmount } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: "o/a" })]}
-      />,
-    );
+    const { unmount } = await renderPending({
+      entries: [draftEntry({ id: "o/a" })],
+    });
     expect(screen.getByText("待收录")).toBeTruthy();
     expect(screen.getByText("草稿")).toBeTruthy();
     expect(screen.getByText("待提交")).toBeTruthy();
@@ -1292,11 +1259,9 @@ describe("PendingView 国际化（中英语言切换）", () => {
 
     // 2. 英文模式
     await i18n.changeLanguage("en-US");
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: "o/a" })]}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: "o/a" })],
+    });
     expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByText("Drafts")).toBeTruthy();
     expect(screen.getByText("Ready to Submit")).toBeTruthy();
@@ -1324,12 +1289,10 @@ describe("PendingView 草稿编辑直点收录进本地（自动落盘最新表�
 
   it("预览栏仅展示标题、坐标摘要与展开/收起按钮，不含额外状态徽标", async () => {
     await i18n.changeLanguage("zh-CN");
-    const { container } = render(
-      <PendingView
-        initialEntries={[draftEntry({ id: "o/a" })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    const { container } = await renderPending({
+      entries: [draftEntry({ id: "o/a" })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText("o/a"));
     const previewHeader = container.querySelector(".pending-preview-header");
     expect(previewHeader).toBeTruthy();
@@ -1348,14 +1311,11 @@ describe("PendingView 草稿编辑直点收录进本地（自动落盘最新表�
     const entry = draftEntry({ id: "o/a" });
     entry.item.license = "OpenSource"; // 初始为未通过严格校验的占位协议
 
-    render(
-      <PendingView
-        initialEntries={[entry]}
-        onSave={onSave}
-        onCollectLocal={onCollectLocal}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [entry],
+      gate: gateProvider,
+      api: { saveCustomApp: onSave, collectLocalApp: onCollectLocal },
+    });
     fireEvent.click(screen.getByText("o/a"));
 
     // 用户直接修改名称、简介与协议，不点“保存草稿”，直接点“收录进本地”
@@ -1384,14 +1344,12 @@ describe("PendingView 草稿编辑直点收录进本地（自动落盘最新表�
     expect(callOrder).toEqual(["save", "collect"]);
   });
 
-  it("非受控本地态下修改参数后直接点击收录进本地：收录后富卡立即展示最新配置", async () => {
+  it("修改参数后直接点击收录进本地：先保存再收录，富卡展示最新配置", async () => {
     await i18n.changeLanguage("zh-CN");
-    render(
-      <PendingView
-        initialEntries={[draftEntry({ id: "o/a" })]}
-        onGetLicenseAllowlist={gateProvider}
-      />,
-    );
+    await renderPending({
+      entries: [draftEntry({ id: "o/a" })],
+      gate: gateProvider,
+    });
     fireEvent.click(screen.getByText("o/a"));
 
     fireEvent.change(screen.getByDisplayValue("Demo"), {
@@ -1437,7 +1395,9 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
       draftEntry({ id: 'o/b', status: 'submitted', pr_url: 'https://github.com/x/y/pull/1' }),
       draftEntry({ id: 'o/c', archived: true }),
     ];
-    const { container } = render(<PendingView entries={entries} />);
+    const { container } = await renderPending({
+      entries: entries,
+    });
     expect(tabTexts(container)).toEqual(['草稿 1', '待提交 2', '已提交 1', '已归档 1']);
     expect(container.querySelector('.pending-segment-row')).toBeNull();
     const expected: Record<string, string[]> = {
@@ -1459,17 +1419,25 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
       draftEntry({ id: 'o/lc', status: 'local_collected' }),
       draftEntry({ id: 'o/b', status: 'submitted' }),
     ];
-    const { container } = render(<PendingView entries={entries} />);
+    const { container } = await renderPending({
+      entries: entries,
+    });
     expect(screen.getByTestId('pending-tab-to_submit').getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('pending-tab-to_submit').textContent).toBe('待提交 2');
     expect(listItemIds(container)).toEqual(['o/col', 'o/lc']);
   });
 
-  it('lands on the first non-empty tab once controlled entries first arrive', async () => {
+  it('lands on the first non-empty tab once entries first arrive', async () => {
     await i18n.changeLanguage('zh-CN');
-    const { container, rerender } = render(<PendingView entries={[]} />);
-    rerender(<PendingView entries={[draftEntry({ id: 'o/b', status: 'submitted' })]} />);
-    expect(screen.getByTestId('pending-tab-submitted').getAttribute('aria-selected')).toBe('true');
+    const { container, backend } = await renderPending({
+      entries: [],
+    });
+    // 后端列表在挂载后才出现条目：经跨视图变更事件重拉
+    backend.rows.push(entryToWire(draftEntry({ id: 'o/b', status: 'submitted' })));
+    act(() => {
+      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed'));
+    });
+    await waitFor(() => expect(screen.getByTestId('pending-tab-submitted').getAttribute('aria-selected')).toBe('true'));
     expect(listItemIds(container)).toEqual(['o/b']);
   });
 
@@ -1483,13 +1451,11 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
       withPlatforms(draftEntry({ id: 'o/sub', status: 'submitted' }), ['macos']),
       withPlatforms(draftEntry({ id: 'o/arch', archived: true }), []),
     ];
-    const { container } = render(
-      <PendingView
-        entries={entries}
-        selectedPlatforms={new Set(['macos'])}
-        onResetPlatformFilter={onResetPlatformFilter}
-      />,
-    );
+    const { container } = await renderPending({
+      entries: entries,
+      selectedPlatforms: new Set(['macos']),
+      onResetPlatformFilter: onResetPlatformFilter,
+    });
     expect(tabTexts(container)).toEqual(['草稿 1', '待提交 0', '已提交 1', '已归档 0']);
     expect(listItemIds(container)).toEqual(['o/mac']);
     fireEvent.click(screen.getByTestId('pending-tab-to_submit'));
@@ -1503,7 +1469,9 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
 
   it('a truly empty tab shows its own empty copy without the platform reset', async () => {
     await i18n.changeLanguage('zh-CN');
-    render(<PendingView entries={[draftEntry({ id: 'o/col', status: 'collected' })]} />);
+    await renderPending({
+      entries: [draftEntry({ id: 'o/col', status: 'collected' })],
+    });
     fireEvent.click(screen.getByTestId('pending-tab-submitted'));
     expect(screen.getByText('暂无已提交应用')).toBeTruthy();
     expect(screen.queryByTestId('pending-platform-reset')).toBeNull();
@@ -1512,7 +1480,10 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
   it('falls back to the first raw non-empty tab when the platform filter hides everything', async () => {
     await i18n.changeLanguage('zh-CN');
     const entries = [withPlatforms(draftEntry({ id: 'o/col', status: 'collected' }), ['windows'])];
-    render(<PendingView entries={entries} selectedPlatforms={new Set(['linux'])} />);
+    await renderPending({
+      entries: entries,
+      selectedPlatforms: new Set(['linux']),
+    });
     expect(screen.getByTestId('pending-tab-to_submit').getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('pending-platform-reset')).toBeTruthy();
   });
@@ -1526,13 +1497,11 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
       withPlatforms(draftEntry({ id: 'o/lib', status: 'submitted' }), []),
       withPlatforms(draftEntry({ id: 'o/arch', archived: true }), ['linux']),
     ];
-    render(
-      <PendingView
-        entries={entries}
-        selectedPlatforms={new Set(['macos'])}
-        onDisplayPlatformCounts={onDisplayPlatformCounts}
-      />,
-    );
+    await renderPending({
+      entries: entries,
+      selectedPlatforms: new Set(['macos']),
+      onDisplayPlatformCounts: onDisplayPlatformCounts,
+    });
     fireEvent.click(screen.getByTestId('pending-tab-draft'));
     expect(onDisplayPlatformCounts).toHaveBeenLastCalledWith({
       windows: 1, macos: 0, linux: 0, ios: 0, android: 0, other: 0,
@@ -1561,7 +1530,10 @@ describe('PendingView 四个顶层 Tab + 全局设备平台筛选对齐', () => 
       withPlatforms(draftEntry({ id: 'o/s', status: 'submitted' }), ['windows', 'linux']),
       withPlatforms(draftEntry({ id: 'o/a', archived: true }), ['windows']),
     ];
-    const { container } = render(<PendingView entries={entries} selectedPlatforms={selected} />);
+    const { container } = await renderPending({
+      entries: entries,
+      selectedPlatforms: selected,
+    });
     const nums = tabTexts(container).map((s) => Number(s.replace(/\D/g, '')));
     expect(nums.slice(0, 3).reduce((a, b) => a + b, 0)).toBe(selectPendingFilteredCount(entries, selected));
     expect(nums).toEqual([1, 1, 1, 1]);
