@@ -1168,3 +1168,49 @@ function deleteBufferedIcon(key: string): void {
   iconById.delete(k);
   iconLevelById.delete(k);
 }
+
+/** 图标轮换结果（`restore_or_fetch_icon_cycle` / `cycle_app_icon`）中准入所需的字段。 */
+export interface IconCycleLike {
+  url?: unknown;
+  remote_url?: unknown;
+  level?: unknown;
+}
+
+/** 提取轮换结果 `remote_url` 的 http(s) 真值，非法或 `data:` 一律空串。 */
+export function resolveRemoteIconUrl(cycle: { remote_url?: unknown } | null | undefined): string {
+  const remote = typeof cycle?.remote_url === 'string' ? cycle.remote_url.trim() : '';
+  return isRemoteHttpIconUrl(remote) ? remote : '';
+}
+
+/** 轮换结果的可持久化 URL：`remote_url` 优先，其次 http(s) 的 `url`；`data:` 与空值为空串。 */
+export function pickCyclePersistIconUrl(cycle: IconCycleLike | null | undefined): string {
+  const remote = resolveRemoteIconUrl(cycle);
+  if (remote !== '') return remote;
+  const url = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
+  return isRemoteHttpIconUrl(url) ? url : '';
+}
+
+/**
+ * `Confirmed Icon` 轮换结果准入（ADR-0015）：
+ * - 可持久化 URL 携带轮换层级经 `admitIconHit` 写透；
+ * - 无可持久化 URL 且 `level === 5`：显式首字母徽标定格广播；
+ * - 仅有 `data:`：不写入共享层，留给调用方即时展示；
+ * - 普通空值丢弃，保留现有占位。
+ */
+export function admitIconCycleResult(
+  appId: string,
+  cycle: IconCycleLike | null | undefined,
+  opts?: { patch?: AdmitIconHitArgs['patch'] },
+): AdmitIconHitResult {
+  if (!cycle || typeof cycle !== 'object') return { accepted: false, reason: 'empty-hit' };
+  const level =
+    typeof cycle.level === 'number' && Number.isFinite(cycle.level) ? cycle.level : undefined;
+  const persist = pickCyclePersistIconUrl(cycle);
+  if (persist !== '') {
+    return admitIconHit({ id: appId, icon: persist, level, patch: opts?.patch });
+  }
+  const url = typeof cycle.url === 'string' ? cycle.url.trim() : '';
+  if (url.startsWith('data:')) return { accepted: false, reason: 'data-transient' };
+  if (level === 5) return admitIconHit({ id: appId, icon: '', level: 5, patch: opts?.patch });
+  return { accepted: false, reason: 'empty-noop' };
+}

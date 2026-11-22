@@ -13,7 +13,7 @@ import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi, type AppIconCycleResult } from '../../services/api';
 import { AppIconFrame } from '../AppIconFrame';
 import { ShareBadgeModal } from '../ShareBadgeModal';
-import { admitIconHit } from '../../services/iconStore';
+import { admitIconCycleResult, pickCyclePersistIconUrl } from '../../services/iconStore';
 import { notifyToast } from '../../useToasts';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../VerifiedBadge';
 import {
@@ -27,7 +27,6 @@ import { PlatformIcon, ForgeIcon, WatchEyeIcon } from '../icons/PlatformIcons';
 import { formatPlatformLabels } from '../../lib/platformFilter';
 import { useDetailStarVerify } from './useDetailStarVerify';
 import { IconLevelBadge, ICON_LEVEL_NAME_KEYS } from './IconLevelBadge';
-import { resolveRemoteIconUrl } from '../../services/custom';
 import { zlogWarn } from '../../lib/z-log';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -88,7 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   // 图标写透 patch（与 useDetailCacheSync 的 iconPatch 同效）：
   // Header 不直持四列表 setters，显式 patch 声明与 App 侧 `subscribeIconWrites` 扇出幂等，
-  // 实际四列表落定经扇出完成；此处传 patch 保证 `admitIconHit→patch→扇出` 同 tick 可观测（L2/L3/L4/L5 即默认）。
+  // 实际四列表落定经扇出完成；此处传 patch 保证 `admitIconCycleResult→patch→扇出` 同 tick 可观测（L2/L3/L4/L5 即默认）。
   const iconPatch = (_tid: string, _icon: string): void => {
     // 无直写：四列表经 App 扇出 `patchAppIconList` 落定（与详情同步侧 iconPatch 同体同效，幂等）。
   };
@@ -108,24 +107,14 @@ export const Header: React.FC<HeaderProps> = ({
       .then((data) => {
         if (!isMounted || !data) return;
         setIconCycle(data);
-        // data: URL 仅用于弹窗即时展示，写透全列表与缓存仅使用可持久化的远端 URL
-        const remote = resolveRemoteIconUrl(data);
-        const fallbackUrl = typeof data.url === 'string' ? data.url.trim() : '';
-        const persistUrl =
-          remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
+        // data: 仅供弹窗即时展示；可持久化 URL 与 L5 徽标经 iconStore 准入写透（同 id+url 只准入一次）
+        const persistUrl = pickCyclePersistIconUrl(data);
         const curIcon = typeof app.icon === 'string' ? app.icon.trim() : '';
-        if (persistUrl !== '' && persistUrl !== curIcon) {
-          const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
-          if (!iconSyncDispatchedRef.current.has(dedupKey)) {
-            iconSyncDispatchedRef.current.add(dedupKey);
-            admitIconHit({
-              id: app.id,
-              icon: persistUrl,
-              level: typeof data.level === 'number' ? data.level : undefined,
-              patch: iconPatch,
-            });
-          }
-        }
+        if (persistUrl !== '' && persistUrl === curIcon) return;
+        const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
+        if (iconSyncDispatchedRef.current.has(dedupKey)) return;
+        iconSyncDispatchedRef.current.add(dedupKey);
+        admitIconCycleResult(app.id, data, { patch: iconPatch });
       })
       .catch(() => {
         // 降级不崩；收录位按显式 is_cataloged 判定。
@@ -162,21 +151,10 @@ export const Header: React.FC<HeaderProps> = ({
     if (iconCycle.level === 5 || iconCycle.is_fallback) {
       return iconCycle.url || '';
     }
-    // 收录首开冷返回 {url:"", remote_url:L1实图, level:1}：空 url override 会压住
-    // AppIcon 的 app.icon/buffered 真图导致首帧 MU 徽章。取 persistUrl 口径
-    //（remote_url 优先、非 data: url 兜底）：空即 undefined 不覆盖，仅 L5 显式 ""。
+    // 收录首开冷返回 {url:"", remote_url:L1实图, level:1}：空 url 不覆盖，
+    // 让 AppIcon 回落 app.icon/缓冲真图，避免首帧首字母徽章。
     const rawUrl = typeof iconCycle.url === 'string' ? iconCycle.url.trim() : '';
-    if (rawUrl !== '') return iconCycle.url;
-    const remoteRaw =
-      typeof iconCycle.remote_url === 'string'
-        ? String(iconCycle.remote_url).trim()
-        : '';
-    const persistUrl =
-      remoteRaw !== '' ? remoteRaw : (!rawUrl.startsWith('data:') ? rawUrl : '');
-    // url=="" 且 persistUrl 有实图时返回 undefined，让 AppIcon 回落 app.icon 直显 http；
-    // persistUrl 为空同样不覆盖（回落缓冲/父 prop）。
-    if (persistUrl !== '') return undefined;
-    return undefined;
+    return rawUrl !== '' ? iconCycle.url : undefined;
   }, [iconCycle, isCataloged, app.icon]);
 
   const handleCycleIcon = async (e: React.MouseEvent) => {
@@ -188,35 +166,10 @@ export const Header: React.FC<HeaderProps> = ({
     try {
       const res = await tauriApi.cycleAppIcon(app.id);
       if (res) {
-        // 未收录手动定 Logo：选中即默认——setIconCycle+admitIconHit+patch 同 tick 即时响应；
-        // L2/L3/L4 实图转正 http 才写透，L5 空（url ''）走显式徽章写，data: 仅经 iconOverride 即时看。
+        // 未收录手动定 Logo：选中即默认。data: 经 iconOverride 即时直显，
+        // 可持久化 URL 与 L5 徽标经 iconStore 准入写透列表与镜像。
         setIconCycle(res);
-        // 轮转跟随经店内写口：L5 空（url ''）走显式徽章写（清记忆 + 列表/镜像扇出）；
-        // 实图经唯一写口缓冲预热；即时换图由 iconOverride 本地态直显，不走窗口总线。
-        // data: 永不直送 admitIconHit，只做 iconOverride（persistUrl 为空即不发）。
-        const rawCycledUrl = typeof res.url === 'string' ? res.url.trim() : '';
-        const remoteRaw =
-          typeof res.remote_url === 'string'
-            ? String(res.remote_url).trim()
-            : '';
-        const persistUrl =
-          remoteRaw !== ''
-            ? remoteRaw
-            : !rawCycledUrl.startsWith('data:') && rawCycledUrl !== ''
-              ? rawCycledUrl
-              : '';
-        if (rawCycledUrl === '') {
-          admitIconHit({ id: app.id, icon: '', level: 5, patch: iconPatch });
-        } else if (persistUrl !== '') {
-          admitIconHit({
-            id: app.id,
-            icon: persistUrl,
-            level: typeof res.level === 'number' ? res.level : undefined,
-            patch: iconPatch,
-          });
-        } else {
-          // data: 仅即时看：已 setIconCycle（iconOverride 直显），此处不调 admitIconHit、不进盘。
-        }
+        admitIconCycleResult(app.id, res, { patch: iconPatch });
         const total = res.total_levels ?? 5;
         const levelKey = ICON_LEVEL_NAME_KEYS[res.level];
         const name = levelKey ? t(levelKey) : '';

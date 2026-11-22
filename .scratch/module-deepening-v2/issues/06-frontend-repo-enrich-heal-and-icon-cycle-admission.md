@@ -1,6 +1,6 @@
 # Issue 06: 归位前端 `Repo Enrich Cache` 存储与订阅扇出并统一 `iconStore` L5 轮换准入
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: none
 
 ## Summary

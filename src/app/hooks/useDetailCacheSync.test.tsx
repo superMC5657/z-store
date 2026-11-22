@@ -8,14 +8,13 @@ import {
   writeSearchListCache,
 } from '../../services/search/searchListCache';
 import {
-  DETAIL_PLATFORMS_HEAL_EVENT,
-  DETAIL_RICHCARD_HEAL_EVENT,
   clearTrendConfirmedOtherCache,
   clearTrendEnrichCache,
   putTrendEnrichMemory,
   snapshotTrendEnrichCache,
 } from '../../services/trends';
 import { __resetIconStoreForTests, patchAppIconList } from '../../services/iconStore';
+import { subscribeRepoCardHeals, type RepoCardHeal } from '../../services/repoEnrichCache';
 
 const mocks = vi.hoisted(() => ({
   getAppDetails: vi.fn(),
@@ -364,13 +363,10 @@ describe('useDetailCacheSync：占位简介与富卡治愈', () => {
 });
 
 describe('useDetailCacheSync：平台确认/治愈与 stale 语义', () => {
-  it('非 stale 空平台：确认 other（双键入集）并派富卡事件（confirmedOther）', async () => {
+  it('非 stale 空平台：确认 other（双键入集）并扇出富卡补丁（confirmedOther）', async () => {
     const { result, params } = renderSync();
-    const richEvents: unknown[] = [];
-    const onRich = (e: Event): void => {
-      richEvents.push((e as CustomEvent).detail);
-    };
-    window.addEventListener(DETAIL_RICHCARD_HEAL_EVENT, onRich);
+    const heals: RepoCardHeal[] = [];
+    const unsubscribe = subscribeRepoCardHeals((h) => heals.push(h));
 
     try {
       act(() => {
@@ -378,21 +374,18 @@ describe('useDetailCacheSync：平台确认/治愈与 stale 语义', () => {
       });
       const confirmed = resolveSetter<Set<string>>(params.setPlatformResolvedOtherIds, new Set());
       expect(confirmed.has('acme/atlas')).toBe(true);
-      expect(richEvents.length).toBe(1);
-      expect((richEvents[0] as { confirmedOther?: boolean }).confirmedOther).toBe(true);
+      expect(heals.length).toBe(1);
+      expect(heals[0].confirmedOther).toBe(true);
     } finally {
-      window.removeEventListener(DETAIL_RICHCARD_HEAL_EVENT, onRich);
+      unsubscribe();
     }
   });
 
-  it('真实平台治愈：列表空平台行回填、other 集解除、平台治愈事件扇出', async () => {
+  it('真实平台治愈：列表空平台行回填、other 集解除、平台补丁扇出', async () => {
     const apps = [makeApp({ id: 'acme/atlas' })];
     const { result, params } = renderSync({ appsRef: { current: apps } });
-    const platformEvents: unknown[] = [];
-    const onPlatform = (e: Event): void => {
-      platformEvents.push((e as CustomEvent).detail);
-    };
-    window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatform);
+    const heals: RepoCardHeal[] = [];
+    const unsubscribe = subscribeRepoCardHeals((h) => heals.push(h));
 
     try {
       act(() => {
@@ -405,23 +398,19 @@ describe('useDetailCacheSync：平台确认/治愈与 stale 语义', () => {
       const nextOthers = resolveSetter<Set<string>>(params.setPlatformResolvedOtherIds, new Set(['acme/atlas']));
       expect(nextOthers.has('acme/atlas')).toBe(false);
 
-      expect(platformEvents.length).toBe(1);
-      const payload = platformEvents[0] as { keys: string[]; platforms: string[] };
-      expect(payload.platforms).toEqual(['windows', 'linux']);
-      expect(payload.keys).toContain('acme/atlas');
+      expect(heals.length).toBe(1);
+      expect(heals[0].platforms).toEqual(['windows', 'linux']);
+      expect(heals[0].keys).toContain('acme/atlas');
     } finally {
-      window.removeEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatform);
+      unsubscribe();
     }
   });
 
-  it('stale 离线详情：平台保持 loading（不确认 other、不派治愈事件）', async () => {
+  it('stale 离线详情：平台保持 loading（不确认 other、不扇出补丁）', async () => {
     const apps = [makeApp({ id: 'acme/atlas' })];
     const { result, params } = renderSync({ appsRef: { current: apps } });
-    const platformEvents: unknown[] = [];
-    const onPlatform = (e: Event): void => {
-      platformEvents.push((e as CustomEvent).detail);
-    };
-    window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatform);
+    const heals: RepoCardHeal[] = [];
+    const unsubscribe = subscribeRepoCardHeals((h) => heals.push(h));
 
     try {
       act(() => {
@@ -429,13 +418,13 @@ describe('useDetailCacheSync：平台确认/治愈与 stale 语义', () => {
       });
 
       expect(params.setPlatformResolvedOtherIds).not.toHaveBeenCalled();
-      expect(platformEvents.length).toBe(0);
+      expect(heals.length).toBe(0);
       // 列表平台保持空（loading 语义），但其余字段照常落定。
       const patched = applyListSetter(params.setApps, apps);
       expect(patched[0].platforms).toEqual([]);
       expect(patched[0].latest_version).toBe('1.0.0');
     } finally {
-      window.removeEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatform);
+      unsubscribe();
     }
   });
 });

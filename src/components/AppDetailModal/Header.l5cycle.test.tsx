@@ -1,4 +1,4 @@
-/** 测试详情 Header 图标轮换到 L5 空态时向 `admitIconHit` 广播清零信号并展示徽章。 */
+/** 测试详情 Header 图标轮换到 L5 空态时经 `admitIconCycleResult` 准入（徽章定格）并展示徽章。 */
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
@@ -29,7 +29,7 @@ const hooks = vi.hoisted(() => ({
     is_cataloged: false,
   })),
   fetchStarredStatus: vi.fn(async (_id: string) => false),
-  admitIconHit: vi.fn(),
+  admitIconCycleResult: vi.fn(),
 }));
 
 vi.mock('../../services/api', () => {
@@ -54,7 +54,10 @@ vi.mock('../../services/iconStore', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../../services/iconStore')>();
   return {
     ...mod,
-    admitIconHit: (...a: Parameters<typeof mod.admitIconHit>) => hooks.admitIconHit(...a),
+    admitIconCycleResult: (...a: Parameters<typeof mod.admitIconCycleResult>) => {
+      hooks.admitIconCycleResult(...a);
+      return mod.admitIconCycleResult(...a);
+    },
   };
 });
 
@@ -104,7 +107,7 @@ afterEach(() => {
 });
 
 describe('Header L5 cycle goes through the sole write', () => {
-  it('切到 L5 时调用 admitIconHit({ icon: "", level: 5 })（富卡/列表才能跟进）', async () => {
+  it('切到 L5 时把轮换结果交给 admitIconCycleResult（富卡/列表才能跟进）', async () => {
     render(
       <Header
         app={fixtureApp()}
@@ -122,10 +125,12 @@ describe('Header L5 cycle goes through the sole write', () => {
     await waitFor(() => {
       expect(hooks.cycleAppIcon).toHaveBeenCalledWith(APP_ID);
     });
-    // 核心断言：L5 必须走唯一写口。
+    // 核心断言：L5 结果必须走轮换准入入口（徽章定格由 iconStore 单测覆盖）。
     await waitFor(() => {
-      expect(hooks.admitIconHit).toHaveBeenCalledWith(
-        expect.objectContaining({ icon: '', level: 5 }),
+      expect(hooks.admitIconCycleResult).toHaveBeenCalledWith(
+        APP_ID,
+        expect.objectContaining({ url: '', level: 5 }),
+        expect.anything(),
       );
     });
   });

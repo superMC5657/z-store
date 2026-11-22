@@ -11,11 +11,11 @@ import {
   itemToSummary,
   itemToWire,
   moveInToDraft,
-  resolveRemoteIconUrl,
   type DraftEntryWire,
   type DraftItem,
   type DraftItemWire,
 } from './custom';
+import { resolveRemoteIconUrl } from './iconStore';
 
 function wireItem(extra: Partial<DraftItemWire> = {}): DraftItemWire {
   return {

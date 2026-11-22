@@ -7,7 +7,7 @@ import {
   putTrendEnrichMemory,
   isPlaceholderDescription,
   snapshotTrendEnrichCache,
-  upsertTrendEnrichRichcard,
+  upsertRepoCardFromDetail,
 } from './enrich';
 import { makeEnrichedApp } from '../../views/test-utils/trendFixture';
 import type { AppDetail } from '../../types';
@@ -78,7 +78,7 @@ describe('富卡简介占位名单', () => {
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', description: REAL_DESC }),
     });
-    const healed = upsertTrendEnrichRichcard(placeholderDetail());
+    const healed = upsertRepoCardFromDetail(placeholderDetail());
     expect(healed).not.toBeNull();
     expect(healed!.dirtyFields).not.toContain('description');
     const snap = snapshotTrendEnrichCache();

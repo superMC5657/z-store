@@ -3,8 +3,7 @@ import type { AppSummary } from '../../types';
 import { annotateIsCataloged, buildCatalogIdSet, mergeLocalLookups } from '../../app/selectors';
 import { normalizeId } from '../../services/normalizeId';
 import { tauriApi } from '../../services/api';
-import { resolveRemoteIconUrl } from '../../services/custom';
-import { admitIconHit, queueAssembledRowIcons } from '../../services/iconStore';
+import { admitIconCycleResult, queueAssembledRowIcons } from '../../services/iconStore';
 
 /** 为后端回读行叠加收录/本地标注（蓝标优先），并将星数对齐当前目录值。 */
 export function useRowAnnotator(
@@ -52,16 +51,7 @@ export function useRowIconBackfill(rows: readonly AppSummary[]): void {
       void (async () => {
         try {
           const cycle = await tauriApi.restoreOrFetchIconCycle(row.id);
-          const remote = resolveRemoteIconUrl(cycle);
-          const fallback = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
-          const persistUrl =
-            remote !== '' ? remote : !fallback.startsWith('data:') && fallback !== '' ? fallback : '';
-          if (persistUrl === '' || (!persistUrl.startsWith('http://') && !persistUrl.startsWith('https://'))) return;
-          try {
-            admitIconHit({ id: row.id, icon: persistUrl });
-          } catch {
-            // 店内写口失败不阻塞
-          }
+          admitIconCycleResult(row.id, cycle);
         } catch {
           // 单行失败不阻塞其余（下次渲染不重试，由详情进入时再治愈）
         }

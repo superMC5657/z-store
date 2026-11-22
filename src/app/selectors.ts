@@ -7,7 +7,7 @@ import type {
   UpdateRule,
   ViewType,
 } from '../types';
-import { hydrateCardsByIds } from '../services/repoEnrichCache';
+import { healSummaryPlaceholders, hydrateCardsByIds } from '../services/repoEnrichCache';
 import { detectHostOs } from '../utils/appHelper';
 import {
   buildRulesMap,
@@ -582,7 +582,7 @@ export function prepareRecentViews(
   const visible = filterMaskedRecentViews(recents);
   const baseCatalog = selectCatalogBase(fullCatalogApps, fallbackCatalogApps);
   const catalogIds = buildCatalogIdSet(baseCatalog);
-  return visible.map((r) => annotateIsCataloged(r, catalogIds, localApps));
+  return visible.map((r) => healSummaryPlaceholders(annotateIsCataloged(r, catalogIds, localApps)));
 }
 
 /** 选取未裁剪全量目录，缺席时回退当前列表。 */

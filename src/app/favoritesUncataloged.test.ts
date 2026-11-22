@@ -15,77 +15,9 @@ import {
   markFavoriteUncatalogedRow,
   needsFavoriteIconWarm,
   parseFavoriteOwnerRepo,
-  pickFavoritePersistIconUrl,
   useUncatalogedJoin,
 } from './favoritesUncataloged';
 import { selectFavoritesViewApps } from './selectors';
-
-describe('pickFavoritePersistIconUrl', () => {
-  it('remote_url 优先于 url', () => {
-    expect(
-      pickFavoritePersistIconUrl({
-        url: 'https://cdn.example.com/a.png',
-        level: 2,
-        remote_url: 'https://cdn.example.com/b.svg',
-      }),
-    ).toBe('https://cdn.example.com/b.svg');
-  });
-
-  it('remote 为空时 url（非 data:）兜底', () => {
-    expect(
-      pickFavoritePersistIconUrl({
-        url: 'https://cdn.simpleicons.org/foo',
-        level: 2,
-        remote_url: '',
-      }),
-    ).toBe('https://cdn.simpleicons.org/foo');
-  });
-
-  it('url 为 data: 即时态时永不进盘（remote 为空即置空）', () => {
-    expect(
-      pickFavoritePersistIconUrl({
-        url: 'data:image/png;base64,AAA',
-        level: 2,
-        remote_url: '',
-      }),
-    ).toBe('');
-  });
-
-  it('https 远端落盘展示', () => {
-    expect(
-      pickFavoritePersistIconUrl({
-        url: 'https://avatars.githubusercontent.com/u/123?v=4',
-        level: 2,
-        remote_url: 'https://avatars.githubusercontent.com/u/123?v=4',
-      }),
-    ).toBe('https://avatars.githubusercontent.com/u/123?v=4');
-    expect(
-      pickFavoritePersistIconUrl({
-        url: 'https://avatars.githubusercontent.com/u/123?v=4',
-        level: 2,
-      }),
-    ).toBe('https://avatars.githubusercontent.com/u/123?v=4');
-  });
-
-  it('非远端（纯标识/相对路径）置空走首字母', () => {
-    expect(pickFavoritePersistIconUrl({ url: 'not-a-url', level: 5 })).toBe('');
-    expect(pickFavoritePersistIconUrl({ url: '', level: 5, remote_url: '' })).toBe('');
-  });
-
-  it('null/undefined 输入置空', () => {
-    expect(pickFavoritePersistIconUrl(null)).toBe('');
-    expect(pickFavoritePersistIconUrl(undefined)).toBe('');
-  });
-
-  it('remote_url 单轨：无 remote_url 时 url 非 data: 兜底', () => {
-    expect(
-      pickFavoritePersistIconUrl({
-        url: 'https://cdn.example.com/tree.png',
-        level: 3,
-      }),
-    ).toBe('https://cdn.example.com/tree.png');
-  });
-});
 
 describe('needsFavoriteIconWarm', () => {
   it('空图标需查轮换', () => {

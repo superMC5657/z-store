@@ -2,6 +2,7 @@
 import type { AppSummary } from '../types';
 import { DEFAULT_ICON_BG } from '../styles/tokens';
 import { tauriApi } from './api';
+import { resolveRemoteIconUrl } from './iconStore';
 import { canonicalAppId } from './normalizeId';
 
 /** 草稿状态：`local_collected` 为存储层兼容同义值（判定与 `collected` 等同）。 */
@@ -90,14 +91,6 @@ export interface DraftEntryWire {
 /** 本地收录态判定唯一口径（`collected` 与磁盘残留 `local_collected` 同义；归档与否由调用方另判）。 */
 export function isCollectedStatus(status: unknown): boolean {
   return status === 'collected' || status === 'local_collected';
-}
-
-/** 提取 `restoreOrFetchIconCycle().remote_url` 的 http(s) 真值，非法或 `data:` 一律空串。 */
-export function resolveRemoteIconUrl(
-  cycle: { remote_url?: unknown } | null | undefined,
-): string {
-  const remote = typeof cycle?.remote_url === 'string' ? cycle.remote_url.trim() : '';
-  return /^https?:\/\//i.test(remote) ? remote : '';
 }
 
 function draftStatusFromWire(status: string): DraftStatus {

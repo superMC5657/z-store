@@ -279,7 +279,7 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
   });
 
   it('详情治愈 data: 图标不进内存，已有真实图标不受降级', async () => {
-    const { upsertTrendEnrichFromDetail } = await import('./enrich');
+    const { upsertRepoCardFromDetail } = await import('./enrich');
     markTrendConfirmedOther('acme/atlas');
     putTrendEnrichMemory({
       'acme/atlas': makeEnrichedApp({
@@ -288,7 +288,7 @@ describe('富卡落盘图标一视同仁：有/无图标重挂都直展富卡', 
         icon: 'https://simpleicons.org/icons/rust.svg',
       }),
     });
-    upsertTrendEnrichFromDetail({
+    upsertRepoCardFromDetail({
       id: 'acme/atlas',
       name: 'atlas',
       description_en: '',

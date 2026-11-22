@@ -5,7 +5,7 @@
 
 import type { AppSummary, FetchTrendsOptions, TrendBoardId, TrendRepo, TrendsResult } from '../../types';
 import { tauriApi } from '../api';
-import { hydrateCardsByIds } from '../repoEnrichCache';
+import { hydrateCardsByIds, subscribeRepoCardHeals, type RepoCardHeal } from '../repoEnrichCache';
 import {
   admitIconHit,
   advanceTrendIconGateOnRefresh,
@@ -45,8 +45,7 @@ import {
   writeTrendsCache,
 } from './cache';
 import {
-  DETAIL_PLATFORMS_HEAL_EVENT,
-  DETAIL_RICHCARD_HEAL_EVENT,
+  diffRichSummary,
   enrichTrendRepos,
   isPlaceholderDescription,
   markTrendConfirmedOthers,
@@ -56,8 +55,6 @@ import {
   snapshotTrendRepoCards,
   sweepExpiredTrendEnrichCache,
   unmarkTrendConfirmedOthers,
-  type DetailPlatformsHealPayload,
-  type DetailRichcardHealPayload,
 } from './enrich';
 import {
   classifyTrendsError,
@@ -849,208 +846,61 @@ function mergeSettleSyntheticMirror(
   return changed ? next : prev;
 }
 
-function normalizeHealKeys(keys: unknown): string[] {
-  if (!Array.isArray(keys)) return [];
-  const out: string[] = [];
-  for (const k of keys) {
-    const nk = String(k ?? '').trim().toLowerCase();
-    if (nk) out.push(nk);
+/** 详情补丁并入单行：平台补齐，其余字段仅取实质变更（图标通道由 iconStore 写口扇出）。 */
+function patchHealRow(cur: AppSummary, heal: RepoCardHeal): AppSummary {
+  let patched: AppSummary | null = null;
+  const platforms = heal.platforms;
+  if (platforms && platforms.length > 0 && !arePlatformsEqual(cur.platforms, platforms)) {
+    patched = { ...cur, platforms: [...platforms] };
   }
-  return out;
+  const summary = heal.summary as unknown as Record<string, unknown>;
+  for (const f of diffRichSummary(cur, heal.summary)) {
+    patched ??= { ...cur };
+    (patched as unknown as Record<string, unknown>)[f] = summary[f];
+  }
+  return patched ?? cur;
 }
 
-function applyPlatformsHealToMirror(
-  prev: Record<string, AppSummary>,
-  keys: readonly string[],
-  summary: AppSummary,
-  platforms: readonly string[],
-  repoKeys: ReadonlySet<string>,
-): Record<string, AppSummary> {
-  const keySet = new Set(keys);
-  let changed = false;
-  const next = { ...prev };
-  for (const k of Object.keys(prev)) {
-    if (!keySet.has(k.toLowerCase())) continue;
-    const cur = prev[k];
-    if (!cur.platforms || cur.platforms.length === 0 || !arePlatformsEqual(cur.platforms, platforms)) {
-      const keepIcon = summary.icon.trim() === '' && cur.icon.trim() !== '';
-      next[k] = {
-        ...summary,
-        platforms: [...platforms],
-        ...(keepIcon ? { icon: cur.icon } : null),
-      };
-      changed = true;
-    } else {
-      const incomingIcon = typeof summary.icon === 'string' ? summary.icon.trim() : '';
-      if (incomingIcon !== '' && cur.icon !== incomingIcon) {
-        const incomingBg = typeof summary.icon_bg === 'string' ? summary.icon_bg : '';
-        next[k] = {
-          ...cur,
-          icon: incomingIcon,
-          ...(incomingBg.trim() !== '' ? { icon_bg: summary.icon_bg } : null),
-        };
-        changed = true;
-      }
-    }
-  }
-  for (const k of keys) {
-    if (!next[k] && repoKeys.has(k)) {
-      next[k] = { ...summary, platforms: [...platforms] };
-      changed = true;
-    }
-  }
-  return changed ? next : prev;
-}
-
-function matchHealRowKey(
-  mirrorKey: string,
-  rowId: unknown,
-  keySet: ReadonlySet<string>,
-  repoKeys: ReadonlySet<string>,
-): boolean {
-  const alias = String(rowId ?? '').trim().toLowerCase();
-  const lowerKey = mirrorKey.toLowerCase();
-  if (!keySet.has(lowerKey) && (alias === '' || !keySet.has(alias))) return false;
-  if (!repoKeys.has(lowerKey) && (alias === '' || !repoKeys.has(alias))) return false;
-  return true;
-}
-
-function patchHealRow(
-  cur: AppSummary,
-  dirtyFields: ReadonlySet<string>,
-  summary: Record<string, unknown>,
-  platforms: readonly string[] | undefined,
-): AppSummary | null {
-  const patched: AppSummary = { ...cur };
-  let rowChanged = false;
-  if (platforms && platforms.length > 0 && !arePlatformsEqual(patched.platforms, platforms)) {
-    patched.platforms = [...platforms];
-    rowChanged = true;
-  }
-  for (const f of dirtyFields) {
-    const incoming = summary[f];
-    if (incoming === undefined) continue;
-    if (
-      (f === 'description' || f === 'description_en') &&
-      typeof incoming === 'string' &&
-      isPlaceholderDescription(incoming)
-    ) {
-      continue;
-    }
-    if ((patched as unknown as Record<string, unknown>)[f] === incoming) continue;
-    (patched as unknown as Record<string, unknown>)[f] = incoming as unknown;
-    rowChanged = true;
-  }
-  return rowChanged ? patched : null;
-}
-
-function synthesizeHealRow(summary: AppSummary, platforms: readonly string[] | undefined): AppSummary {
-  const {
-    icon: _dropIcon,
-    icon_bg: _dropBg,
-    platforms: _dropPlats,
-    ...rest
-  } = summary as unknown as AppSummary & Record<string, unknown>;
-  void _dropIcon;
-  void _dropBg;
-  void _dropPlats;
-  const restSummary = rest as unknown as AppSummary;
+/** 尚未 enrich 的本榜行：由详情补丁合成（图标通道置空，占位简介剥空）。 */
+function synthesizeHealRow(heal: RepoCardHeal): AppSummary {
+  const summary = heal.summary;
   return {
-    ...restSummary,
-    description:
-      typeof restSummary.description === 'string' && isPlaceholderDescription(restSummary.description)
-        ? ''
-        : restSummary.description,
+    ...summary,
+    description: isPlaceholderDescription(summary.description) ? '' : summary.description,
     description_en:
-      typeof restSummary.description_en === 'string' &&
-      isPlaceholderDescription(restSummary.description_en)
+      typeof summary.description_en === 'string' && isPlaceholderDescription(summary.description_en)
         ? ''
-        : restSummary.description_en,
+        : summary.description_en,
     icon: '',
     icon_bg: DEFAULT_ICON_BG,
-    platforms: platforms && platforms.length > 0 ? [...platforms] : [],
+    platforms: heal.platforms && heal.platforms.length > 0 ? [...heal.platforms] : [],
   };
 }
 
-function applyRichcardHealToMirror(
+/** 将详情补丁并入榜单镜像：命中行（镜像键或行 id 别名）就地补丁，本榜缺席行合成。 */
+function applyRepoCardHealToMirror(
   prev: Record<string, AppSummary>,
-  payload: DetailRichcardHealPayload,
+  heal: RepoCardHeal,
   repoKeys: ReadonlySet<string>,
 ): Record<string, AppSummary> {
-  const keys = normalizeHealKeys(payload.keys);
-  if (keys.length === 0) return prev;
-  const keySet = new Set(keys);
-  const dirtySet = new Set(
-    (payload.dirtyFields ?? []).filter((f): f is string => typeof f === 'string'),
-  );
-  dirtySet.delete('icon');
-  dirtySet.delete('icon_bg');
-  dirtySet.delete('platforms');
-  if (dirtySet.size === 0 && (!payload.platforms || payload.platforms.length === 0)) return prev;
-  const hitKeys = keys.filter((k) => repoKeys.has(k));
-  const hasMirrorHit = Object.keys(prev).some((k) => keySet.has(k.toLowerCase()));
-  if (hitKeys.length === 0 && !hasMirrorHit) return prev;
-  const summaryFields = payload.summary as unknown as Record<string, unknown>;
-  let changed = false;
-  const next = { ...prev };
+  const keySet = new Set(heal.keys);
+  let next: Record<string, AppSummary> | null = null;
   for (const k of Object.keys(prev)) {
-    if (!matchHealRowKey(k, prev[k]?.id, keySet, repoKeys)) continue;
-    const patched = patchHealRow(prev[k], dirtySet, summaryFields, payload.platforms);
-    if (patched === null) continue;
+    const cur = prev[k];
+    if (!cur) continue;
+    const alias = String(cur.id ?? '').trim().toLowerCase();
+    if (!keySet.has(k.toLowerCase()) && (alias === '' || !keySet.has(alias))) continue;
+    const patched = patchHealRow(cur, heal);
+    if (patched === cur) continue;
+    next ??= { ...prev };
     next[k] = patched;
-    changed = true;
   }
-  for (const k of hitKeys) {
-    if (next[k]) continue;
-    next[k] = synthesizeHealRow(payload.summary, payload.platforms);
-    changed = true;
+  for (const k of heal.keys) {
+    if ((next ?? prev)[k] || !repoKeys.has(k)) continue;
+    next ??= { ...prev };
+    next[k] = synthesizeHealRow(heal);
   }
-  return changed ? next : prev;
-}
-
-function recordRichcardHeal(
-  latest: Record<string, AppSummary>,
-  payload: DetailRichcardHealPayload,
-  repoKeys: ReadonlySet<string>,
-): void {
-  try {
-    const keys = normalizeHealKeys(payload.keys);
-    const keySet = new Set(keys);
-    const toHydrate: Record<string, AppSummary> = {};
-    for (const k of Object.keys(latest)) {
-      const cur = latest[k];
-      if (!cur) continue;
-      const alias = String(cur.id ?? '').trim().toLowerCase();
-      if (!keySet.has(k.toLowerCase()) && (alias === '' || !keySet.has(alias))) continue;
-      if (!repoKeys.has(k.toLowerCase()) && (alias === '' || !repoKeys.has(alias))) continue;
-      toHydrate[k] = cur;
-    }
-    const hitKeys = keys.filter((k) => repoKeys.has(k));
-    for (const k of hitKeys) {
-      if (!toHydrate[k]) {
-        const created = {
-          ...payload.summary,
-          platforms:
-            payload.platforms && payload.platforms.length > 0 ? [...payload.platforms] : [],
-        } as AppSummary;
-        if (isDataIcon(created.icon)) continue;
-        if (typeof created.description === 'string' && isPlaceholderDescription(created.description)) {
-          created.description = '';
-        }
-        if (
-          typeof created.description_en === 'string' &&
-          isPlaceholderDescription(created.description_en)
-        ) {
-          created.description_en = '';
-        }
-        toHydrate[k] = created;
-      }
-    }
-    if (Object.keys(toHydrate).length === 0) return;
-    putTrendEnrichMemory(toHydrate);
-  } catch {
-    // 镜像同步失败不影响内存 merge
-  }
+  return next ?? prev;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1215,48 +1065,15 @@ export function createTrendBoardSession(
     })();
   }
 
+  /** 订阅详情落定补丁：仅更新榜单镜像（富卡池已由 `upsertRepoCardFromDetail` 写入）。 */
   function attachHealBus(): () => void {
-    const onPlatforms = (e: Event): void => {
-      const payload = (e as CustomEvent<DetailPlatformsHealPayload>).detail;
-      if (!payload || !Array.isArray(payload.platforms) || payload.platforms.length === 0) return;
-      if (!payload.summary || !Array.isArray(payload.keys) || payload.keys.length === 0) return;
-      const keys = normalizeHealKeys(payload.keys);
-      if (keys.length === 0) return;
+    return subscribeRepoCardHeals((heal) => {
       const repoKeys = boardRepoKeys(currentTrendResult?.repos);
-      const next = applyPlatformsHealToMirror(
-        enrichedApps,
-        keys,
-        payload.summary,
-        payload.platforms,
-        repoKeys,
-      );
-      updateEnrichedApps(next);
-      updateConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, keys));
-      unmarkTrendConfirmedOthers(keys);
-      putTrendEnrichMemory(next);
-    };
-
-    const onRichcard = (e: Event): void => {
-      const payload = (e as CustomEvent<DetailRichcardHealPayload>).detail;
-      if (!payload || !payload.summary || typeof payload.summary !== 'object') return;
-      if (!Array.isArray(payload.keys) || payload.keys.length === 0) return;
-      const hasDirty = Array.isArray(payload.dirtyFields) && payload.dirtyFields.length > 0;
-      const hasPlats = Array.isArray(payload.platforms) && payload.platforms.length > 0;
-      if (!hasDirty && !hasPlats && payload.confirmedOther !== true) return;
-      const keys = normalizeHealKeys(payload.keys);
-      if (keys.length === 0) return;
-      const repoKeys = boardRepoKeys(currentTrendResult?.repos);
-      const next = applyRichcardHealToMirror(enrichedApps, payload, repoKeys);
-      updateEnrichedApps(next);
-      recordRichcardHeal(next, payload, repoKeys);
-    };
-
-    window.addEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatforms);
-    window.addEventListener(DETAIL_RICHCARD_HEAL_EVENT, onRichcard);
-    return () => {
-      window.removeEventListener(DETAIL_PLATFORMS_HEAL_EVENT, onPlatforms);
-      window.removeEventListener(DETAIL_RICHCARD_HEAL_EVENT, onRichcard);
-    };
+      updateEnrichedApps((prev) => applyRepoCardHealToMirror(prev, heal, repoKeys));
+      if (heal.platforms && heal.platforms.length > 0) {
+        updateConfirmedOtherIds((prev) => removeConfirmedForConcrete(prev, heal.keys));
+      }
+    });
   }
 
   /** enrich 批量取回后并入镜像（`enrichTrendRepos` 内已写富卡池，榜单 L2 不重写）。 */

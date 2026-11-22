@@ -12,6 +12,7 @@ vi.mock('./api/catalog', () => ({
 import {
   clearPrivateSharedRepoCards,
   hasSettledRepoPlatforms,
+  healSummaryPlaceholders,
   hydrateCardsByIds,
   hydrateRowFromSharedEnrich,
   isSharedRepoConfirmedOther,
@@ -21,11 +22,14 @@ import {
   recordSharedPrivateRepos,
   recordSharedRepoCards,
   recordSharedRepoPlatforms,
+  subscribeRepoCardHeals,
+  upsertRepoCardFromDetail,
+  type RepoCardHeal,
 } from './repoEnrichCache';
 import { tauriApi } from './api';
 import { getBufferedIcon } from './iconStore';
 import { clearTrendEnrichCache, putTrendEnrichMemory } from './trends/enrich';
-import type { HydratedRepoCard } from '../types';
+import type { AppDetail, HydratedRepoCard } from '../types';
 import { assembleOnlineRowsWithIcons } from './search/onlineRows';
 
 function row(id: string, patch: Partial<AppSummary> = {}): AppSummary {
@@ -286,5 +290,119 @@ describe('hydrateCardsByIds', () => {
     });
     const out = await hydrateCardsByIds(['acme/x']);
     expect(out.rows).toEqual([]);
+  });
+});
+
+function detail(id: string, patch: Partial<AppDetail> = {}): AppDetail {
+  return {
+    ...row(id),
+    changelog: '',
+    readme_markdown: '',
+    releases: [],
+    ...patch,
+  };
+}
+
+describe('healSummaryPlaceholders', () => {
+  it('以池内实质值治愈占位/空白简介与主页，无可改进保持引用', () => {
+    putTrendEnrichMemory({
+      'acme/atlas': row('acme/atlas', {
+        description: '真实简介',
+        description_en: 'Real description',
+        homepage: 'https://atlas.example',
+        platforms: ['windows'],
+      }),
+    });
+    const healed = healSummaryPlaceholders(
+      row('acme/atlas', { description: 'GitHub 社区开源项目', description_en: '' }),
+    );
+    expect(healed.description).toBe('真实简介');
+    expect(healed.description_en).toBe('Real description');
+    expect(healed.homepage).toBe('https://atlas.example');
+
+    const real = row('acme/atlas', {
+      description: '自有简介',
+      description_en: 'Own',
+      homepage: 'https://own.example',
+    });
+    expect(healSummaryPlaceholders(real)).toBe(real);
+    const miss = row('acme/none', { description: 'GitHub 社区开源项目' });
+    expect(healSummaryPlaceholders(miss)).toBe(miss);
+  });
+
+  it('extraKeys 补充查找键（详情 id 与打开 id 不一致）', () => {
+    putTrendEnrichMemory({ 'acme/atlas': row('acme/atlas', { description: '真实简介' }) });
+    const healed = healSummaryPlaceholders(
+      { id: 'mirror/atlas', owner: 'mirror', repo: 'atlas', description: '' },
+      { extraKeys: ['acme/atlas'] },
+    );
+    expect(healed.description).toBe('真实简介');
+  });
+});
+
+describe('upsertRepoCardFromDetail', () => {
+  it('三态平台单调：空平台记为已确认 Other，具平台撤销确认，空平台不回退具平台', () => {
+    upsertRepoCardFromDetail(detail('acme/atlas', { platforms: [] }));
+    expect(isSharedRepoConfirmedOther('acme/atlas')).toBe(true);
+    expect(hasSettledRepoPlatforms('acme/atlas')).toBe(true);
+
+    upsertRepoCardFromDetail(detail('acme/atlas', { platforms: ['linux'] }));
+    expect(isSharedRepoConfirmedOther('acme/atlas')).toBe(false);
+    expect(readSharedRepoEnrich('acme/atlas')?.platforms).toEqual(['linux']);
+
+    upsertRepoCardFromDetail(detail('acme/atlas', { platforms: [] }));
+    expect(isSharedRepoConfirmedOther('acme/atlas')).toBe(false);
+    expect(readSharedRepoEnrich('acme/atlas')?.platforms).toEqual(['linux']);
+  });
+
+  it('is_stale 详情不写池、不扇出', () => {
+    const heals: RepoCardHeal[] = [];
+    const unsubscribe = subscribeRepoCardHeals((h) => heals.push(h));
+    try {
+      expect(upsertRepoCardFromDetail(detail('acme/atlas', { is_stale: true, platforms: ['linux'] }))).toBeNull();
+      expect(peekFreshRepoCard('acme/atlas')).toBeUndefined();
+      expect(heals).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('向订阅方扇出合并后的补丁：占位简介保留旧值、data: 图标剥空、别名入键', () => {
+    putTrendEnrichMemory({
+      'acme/atlas': row('acme/atlas', { description: '真实简介', stars: 1, platforms: ['windows'] }),
+    });
+    const heals: RepoCardHeal[] = [];
+    const unsubscribe = subscribeRepoCardHeals((h) => heals.push(h));
+    try {
+      upsertRepoCardFromDetail(
+        detail('acme/atlas', {
+          description: 'GitHub 社区开源项目',
+          icon: 'data:image/png;base64,AAA',
+          stars: 5,
+          platforms: ['windows', 'macos'],
+        }),
+        { aliases: ['github.com/acme/atlas'] },
+      );
+      expect(heals).toHaveLength(1);
+      const [heal] = heals;
+      expect(heal.keys).toContain('acme/atlas');
+      expect(heal.summary.description).toBe('真实简介');
+      expect(heal.summary.icon).toBe('');
+      expect(heal.dirtyFields).toContain('stars');
+      expect(heal.dirtyFields).not.toContain('description');
+      expect(heal.platforms).toEqual(['windows', 'macos']);
+      expect(peekFreshRepoCard('acme/atlas')?.stars).toBe(5);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('登出清理私有仓库详情卡', () => {
+    upsertRepoCardFromDetail(detail('acme/secret', { platforms: ['linux'] }));
+    upsertRepoCardFromDetail(detail('acme/public', { platforms: ['linux'] }));
+    recordSharedPrivateRepos(['acme/secret']);
+    clearPrivateSharedRepoCards();
+    expect(peekFreshRepoCard('acme/secret')).toBeUndefined();
+    expect(peekFreshRepoCard('acme/public')).toBeDefined();
   });
 });

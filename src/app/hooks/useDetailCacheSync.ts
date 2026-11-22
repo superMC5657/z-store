@@ -1,27 +1,18 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { AppDetail, AppDetailViewModel, AppSummary } from '../../types';
 import { tauriApi } from '../../services/api';
-import { admitIconHit, getBufferedIcon } from '../../services/iconStore';
+import { admitIconCycleResult, admitIconHit, getBufferedIcon } from '../../services/iconStore';
 import type { CatalogListsStore } from './useCatalogLists';
 import { annotateIsCataloged, buildCatalogIdSet, prepareRecentViews, selectCatalogBase } from '../selectors';
 import { DEFAULT_ICON_BG } from '../../styles/tokens';
-import { resolveRemoteIconUrl } from '../../services/custom';
 import { arePlatformsEqual, buildAppRepoUrl, resolveExternalHomepageUrl } from '../../utils/appHelper';
 import { findInSearchListCache, patchSearchListCacheRows } from '../../services/search/searchListCache';
 import { unmaskRecentViewApp } from '../../services/recentViewsMask';
 import {
-  DETAIL_PLATFORMS_HEAL_EVENT,
-  DETAIL_RICHCARD_HEAL_EVENT,
-  appSummaryFromDetail,
-  detailHealKeysFor,
-  evictTrendEnrichCachesForDetail,
+  healSummaryPlaceholders,
   isPlaceholderDescription,
-  snapshotTrendEnrichCache,
-  upsertTrendEnrichFromDetail,
-  upsertTrendEnrichRichcard,
-  type DetailPlatformsHealPayload,
-  type DetailRichcardHealPayload,
-} from '../../services/trends';
+  upsertRepoCardFromDetail,
+} from '../../services/repoEnrichCache';
 
 interface UseDetailCacheSyncParams {
   catalogLists: Pick<
@@ -52,6 +43,22 @@ function pickRealDescription(v: unknown): string | undefined {
 
 function nonBlankString(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+}
+
+/** 共享富卡池中该仓库的实质简介与主页（占位与空白不计）。 */
+function readPooledText(
+  ref: { id?: string; owner?: string; repo?: string },
+  extraKeys: readonly string[],
+): { description?: string; description_en?: string; homepage?: string } {
+  const probe = healSummaryPlaceholders(
+    { id: ref.id, owner: ref.owner, repo: ref.repo, description: '', description_en: '', homepage: '' },
+    { extraKeys },
+  );
+  return {
+    description: nonBlankString(probe.description),
+    description_en: nonBlankString(probe.description_en),
+    homepage: nonBlankString(probe.homepage),
+  };
 }
 
 function isConcreteLicense(v: unknown): v is string {
@@ -122,48 +129,8 @@ export function useDetailCacheSync({
   const loadRecentViews = useCallback(async () => {
     try {
       const recents = await tauriApi.getRecentlyViewedApps();
-      // 叠加本地标记并使用趋势富卡非占位简介治愈最近浏览行
-      const withLocal = prepareRecentViews(recents, fullCatalogAppsRef?.current, appsRef.current, localApps);
-      try {
-        const snap = snapshotTrendEnrichCache();
-        if (Object.keys(snap).length === 0) {
-          setRecentlyViewedApps(withLocal);
-          return;
-        }
-        const healed = withLocal.map((r) => {
-          const needDesc =
-            typeof r.description !== 'string' || r.description.trim() === '' || isPlaceholderDescription(r.description);
-          const needDescEn =
-            typeof r.description_en === 'string' &&
-            (r.description_en.trim() === '' || isPlaceholderDescription(r.description_en));
-          if (!needDesc && !needDescEn) return r;
-          const keys: string[] = [(r.id || '').toLowerCase()];
-          if (r.owner && r.repo) keys.push(`${r.owner}/${r.repo}`.toLowerCase());
-          let enrichDesc: string | undefined;
-          let enrichDescEn: string | undefined;
-          for (const k of keys) {
-            if (!k) continue;
-            const hit = snap[k];
-            if (!hit) continue;
-            if (needDesc && enrichDesc === undefined) {
-              const cand = pickRealDescription(hit.description);
-              if (cand !== undefined) enrichDesc = cand;
-            }
-            if (needDescEn && enrichDescEn === undefined) {
-              const candEn = pickRealDescription(hit.description_en);
-              if (candEn !== undefined) enrichDescEn = candEn;
-            }
-            if ((!needDesc || enrichDesc !== undefined) && (!needDescEn || enrichDescEn !== undefined)) break;
-          }
-          let next = r;
-          if (needDesc && enrichDesc !== undefined) next = { ...next, description: enrichDesc };
-          if (needDescEn && enrichDescEn !== undefined) next = { ...next, description_en: enrichDescEn };
-          return next;
-        });
-        setRecentlyViewedApps(healed);
-      } catch {
-        setRecentlyViewedApps(withLocal);
-      }
+      // 叠加本地标记并以共享富卡池治愈占位简介（prepareRecentViews 内完成）
+      setRecentlyViewedApps(prepareRecentViews(recents, fullCatalogAppsRef?.current, appsRef.current, localApps));
     } catch {
       // 忽略错误
     }
@@ -172,32 +139,10 @@ export function useDetailCacheSync({
   // 同步详情快照缓存与各卡片列表（字段无变化时保留原引用，避免全网格重渲染）
   const patchDetailMemoryAndLists = useCallback((idClean: string, rawDetail: AppDetail, isBackgroundSilent = false) => {
     const detail = annotateEntry(rawDetail);
-    // 用趋势富卡非占位简介兜底，避免占位文案进入内存快照
-    let enrichDesc: string | undefined;
-    let enrichDescEn: string | undefined;
-    try {
-      const snap = snapshotTrendEnrichCache();
-      const lookupKeys: string[] = [idClean, (detail.id || '').toLowerCase()];
-      if (detail.owner && detail.repo) {
-        lookupKeys.push(`${detail.owner}/${detail.repo}`.toLowerCase());
-      }
-      for (const k of lookupKeys) {
-        if (!k) continue;
-        const hit = snap[k];
-        if (!hit) continue;
-        if (enrichDesc === undefined) {
-          const cand = pickRealDescription(hit.description);
-          if (cand !== undefined) enrichDesc = cand;
-        }
-        if (enrichDescEn === undefined) {
-          const candEn = pickRealDescription(hit.description_en);
-          if (candEn !== undefined) enrichDescEn = candEn;
-        }
-        if (enrichDesc !== undefined && enrichDescEn !== undefined) break;
-      }
-    } catch {
-      // 快照读取失败时回退为无富卡兜底
-    }
+    // 用共享富卡池非占位简介兜底，避免占位文案进入内存快照
+    const pooled = readPooledText(detail, [idClean]);
+    const enrichDesc = pooled.description;
+    const enrichDescEn = pooled.description_en;
     const detailDescIsPlaceholder = isPlaceholderDescription(detail.description);
     const detailDescEnIsPlaceholder =
       typeof detail.description_en === 'string' && isPlaceholderDescription(detail.description_en);
@@ -361,6 +306,10 @@ export function useDetailCacheSync({
     patchAllLists(patchList);
     // 搜索列表 M1 缓存全字段写透：翻页/重搜回访时立即呈现详情更新后的最新数据
     patchSearchListCacheRows(patchList);
+    // 非 stale 详情合入共享富卡池，并经 subscribeRepoCardHeals 扇出至趋势镜像等订阅方
+    const heal = isStaleDetail
+      ? null
+      : upsertRepoCardFromDetail(detail, { prevLookup: findById, aliases: [idClean] });
     // 详情已取回仍为空（非 stale）：记为已确认 other，徽标/统计/过滤一次落定
     if (detailConfirmedEmpty) {
       const keys = new Set<string>([idClean, detail.id.toLowerCase()]);
@@ -376,62 +325,15 @@ export function useDetailCacheSync({
         return changed ? next : prev;
       });
     }
-    // 详情带回真实平台：解除已确认 other、驱逐榜单空缓存并广播平台治愈事件
+    // 详情带回真实平台：解除已确认 other
     if (detailPlatforms) {
-      const healKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
-      // detail.id 与 idClean 不一致时的双键兜底
-      const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
-      for (const k of extraKeys) {
-        if (k && !healKeys.includes(k)) healKeys.push(k);
-      }
+      const healKeys = new Set<string>([idClean, detail.id.toLowerCase(), ...(heal?.keys ?? [])]);
       setPlatformResolvedOtherIds((prev) => {
-        let hit = false;
-        for (const k of healKeys) {
-          if (prev.has(k)) {
-            hit = true;
-            break;
-          }
-        }
-        if (!hit) return prev;
+        if (![...healKeys].some((k) => prev.has(k))) return prev;
         const next = new Set(prev);
         for (const k of healKeys) next.delete(k);
         return next;
       });
-      evictTrendEnrichCachesForDetail(idClean, detail.owner, detail.repo);
-      upsertTrendEnrichFromDetail(detail);
-      try {
-        const payload: DetailPlatformsHealPayload = {
-          keys: healKeys,
-          platforms: [...detailPlatforms],
-          summary: appSummaryFromDetail(detail),
-        };
-        window.dispatchEvent(new CustomEvent(DETAIL_PLATFORMS_HEAL_EVENT, { detail: payload }));
-      } catch {
-        // 事件派发失败不影响列表已落定的治愈
-      }
-    }
-    // 非 stale 时同步更新趋势富卡缓存并广播变更字段
-    if (!isStaleDetail) {
-      try {
-        const healed = upsertTrendEnrichRichcard(detail, findById);
-        if (healed && (healed.dirtyFields.length > 0 || detailConfirmedEmpty)) {
-          const richKeys = detailHealKeysFor(idClean, detail.owner, detail.repo);
-          const extraKeys = new Set<string>([idClean, detail.id.toLowerCase()]);
-          for (const k of extraKeys) {
-            if (k && !richKeys.includes(k)) richKeys.push(k);
-          }
-          const payload: DetailRichcardHealPayload = {
-            keys: richKeys,
-            summary: healed.summary,
-            dirtyFields: healed.dirtyFields,
-            ...(detailPlatforms ? { platforms: [...detailPlatforms] } : null),
-            ...(detailConfirmedEmpty ? { confirmedOther: true } : null),
-          };
-          window.dispatchEvent(new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, { detail: payload }));
-        }
-      } catch {
-        // 富卡治愈失败不影响列表已落定的值
-      }
     }
 
     if (patchedIcon) {
@@ -449,24 +351,15 @@ export function useDetailCacheSync({
       ) {
         return;
       }
-      // 列表回填仅使用可持久化的远端 URL，忽略 data: 即时态
-      void tauriApi.restoreOrFetchIconCycle(idClean).then((cycle) => {
-        const remote = resolveRemoteIconUrl(cycle);
-        const fallbackUrl = typeof cycle?.url === 'string' ? cycle.url.trim() : '';
-        const persistUrl = remote !== '' ? remote : (!fallbackUrl.startsWith('data:') ? fallbackUrl : '');
-        if(!persistUrl){
-          // L5 显式空态需经写口广播以定格徽章，普通空值丢弃保留占位
-          const emptyLevel = typeof cycle?.level === 'number' && cycle.level === 5 ? 5 : undefined;
-          if (emptyLevel === 5) {
-            admitIconHit({ id: idClean, icon: '', level: 5, patch: patchIcons });
-          }
-          return;
-        }
-        const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
-        admitIconHit({ id: idClean, icon: persistUrl, level: cycleLevel, patch: patchIcons });
-      }).catch(() => {
-        // 取不到轮换图标则保持占位，不阻塞
-      });
+      // 列表回填仅使用可持久化的远端 URL 与 L5 徽标，data: 即时态由详情 Header 自行展示
+      void tauriApi
+        .restoreOrFetchIconCycle(idClean)
+        .then((cycle) => {
+          admitIconCycleResult(idClean, cycle, { patch: patchIcons });
+        })
+        .catch(() => {
+          // 取不到轮换图标则保持占位，不阻塞
+        });
     }
   }, [annotateEntry, findById, patchAllLists, patchIcons, setPlatformResolvedOtherIds, setSelectedApp]);
 
@@ -478,46 +371,8 @@ export function useDetailCacheSync({
     if (!forceRefresh) {
       const cached = appDetailMemoryCache.current.get(idClean);
       if (cached) {
-        // 若缓存简介仍为占位文案，用富卡缓存的非占位值先行替换
-        let cachedForShow = cached;
-        if (isPlaceholderDescription(cached.description) || (typeof cached.description_en === 'string' && isPlaceholderDescription(cached.description_en))) {
-          try {
-            const snap = snapshotTrendEnrichCache();
-            const cKeys: string[] = [idClean, (cached.id || '').toLowerCase()];
-            if (cached.owner && cached.repo) cKeys.push(`${cached.owner}/${cached.repo}`.toLowerCase());
-            for (const k of cKeys) {
-              if (!k) continue;
-              const hit = snap[k];
-              if (!hit) continue;
-              const useDesc =
-                isPlaceholderDescription(cachedForShow.description) &&
-                typeof hit.description === 'string' &&
-                hit.description.trim() !== '' &&
-                !isPlaceholderDescription(hit.description)
-                  ? hit.description
-                  : cachedForShow.description;
-              const useDescEn =
-                typeof cachedForShow.description_en === 'string' &&
-                isPlaceholderDescription(cachedForShow.description_en) &&
-                typeof hit.description_en === 'string' &&
-                hit.description_en.trim() !== '' &&
-                !isPlaceholderDescription(hit.description_en)
-                  ? hit.description_en
-                  : cachedForShow.description_en;
-              if (useDesc !== cachedForShow.description || useDescEn !== cachedForShow.description_en) {
-                cachedForShow = { ...cachedForShow, description: useDesc, description_en: useDescEn };
-              }
-              if (
-                !isPlaceholderDescription(cachedForShow.description) &&
-                (typeof cachedForShow.description_en !== 'string' || !isPlaceholderDescription(cachedForShow.description_en))
-              ) {
-                break;
-              }
-            }
-          } catch {
-            // 快照失败则直接展示缓存
-          }
-        }
+        // 缓存简介/主页仍为占位或空白时，以共享富卡池实质值先行治愈
+        let cachedForShow = healSummaryPlaceholders(cached, { extraKeys: [idClean] });
         // 收录库行优先；未收录再回退在线/最近/搜缓存
         const curatedCatalogHit = findCuratedEntry(
           idClean,
@@ -631,44 +486,11 @@ export function useDetailCacheSync({
       recentsRef.current.find((a) => a.id.toLowerCase() === idClean) ||
       findInSearchListCache(idClean);
 
-    // 取富卡缓存非占位简介作为 loading 阶段的初始值
-    let enrichInitialDesc: string | undefined;
-    let enrichInitialDescEn: string | undefined;
-    let enrichInitialHomepage: string | undefined;
-    try {
-      const snap = snapshotTrendEnrichCache();
-      const enrichKeys: string[] = [idClean];
-      if (existing?.owner && existing?.repo) {
-        enrichKeys.push(`${existing.owner}/${existing.repo}`.toLowerCase());
-      }
-      if (existing?.id) {
-        const eid = existing.id.toLowerCase();
-        if (!enrichKeys.includes(eid)) enrichKeys.push(eid);
-      }
-      for (const k of enrichKeys) {
-        if (!k) continue;
-        const hit = snap[k];
-        if (!hit) continue;
-        if (enrichInitialDesc === undefined) {
-          const cand = pickRealDescription(hit.description);
-          if (cand !== undefined) enrichInitialDesc = cand;
-        }
-        if (enrichInitialDescEn === undefined) {
-          const candEn = pickRealDescription(hit.description_en);
-          if (candEn !== undefined) enrichInitialDescEn = candEn;
-        }
-        if (enrichInitialHomepage === undefined) enrichInitialHomepage = nonBlankString(hit.homepage);
-        if (
-          enrichInitialDesc !== undefined &&
-          enrichInitialDescEn !== undefined &&
-          enrichInitialHomepage !== undefined
-        ) {
-          break;
-        }
-      }
-    } catch {
-      // 快照失败时使用默认初始值
-    }
+    // 取共享富卡池非占位简介与主页作为 loading 阶段的初始值
+    const initialPooled = readPooledText(existing ?? { id: idClean }, [idClean]);
+    const enrichInitialDesc = initialPooled.description;
+    const enrichInitialDescEn = initialPooled.description_en;
+    const enrichInitialHomepage = initialPooled.homepage;
 
     const selectedSnapshot = selectedAppRef.current;
     const initialDetail: AppDetailViewModel = selectedSnapshot && selectedSnapshot.id.toLowerCase() === idClean && forceRefresh

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { AppDetail, AppSummary } from '../types';
-import type { AppIconCycleResult } from '../services/api';
 import { tauriApi } from '../services/api';
-import { admitIconHit, patchAppIconList } from '../services/iconStore';
-import { appSummaryFromDetail } from '../services/trends';
+import { admitIconCycleResult, admitIconHit, patchAppIconList } from '../services/iconStore';
+import { appSummaryFromDetail } from '../services/repoEnrichCache';
 import { isRemoteIcon } from '../components/AppIcon';
 import { normalizeId, normalizeIdLowerSet } from '../services/normalizeId';
 import { isCatalogedFailClosed } from '../utils/appHelper';
@@ -135,18 +134,6 @@ export function isFavoritePlaceholderRow(app: AppSummary): boolean {
   );
 }
 
-/** 从图标轮换结果提取可持久化的远端 URL（忽略即时 `data:` URL）。 */
-export function pickFavoritePersistIconUrl(
-  cycle: AppIconCycleResult | null | undefined,
-): string {
-  // 后端规范字段为 snake_case（`remote_url`），此处按需直读。
-  const remote = (cycle?.remote_url ?? '').trim();
-  const fallback = (cycle?.url ?? '').trim();
-  const persist = remote !== '' ? remote : (!fallback.startsWith('data:') ? fallback : '');
-  if(!persist||!isRemoteIcon(persist))return'';
-  return persist;
-}
-
 /** 图标为空或非远端 URL 时需要触发轮换回填。 */
 export function needsFavoriteIconWarm(icon: unknown): boolean {
   if (typeof icon !== 'string') return true;
@@ -233,25 +220,7 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
           return;
         }
         const cycle = await tauriApi.restoreOrFetchIconCycle(raw);
-        const persistUrl = pickFavoritePersistIconUrl(cycle);
-        const cycleLevel = typeof cycle?.level === 'number' ? cycle.level : undefined;
-        if (!persistUrl) {
-          if (cycleLevel === 5) {
-            admitIconHit({
-              id: summary.id,
-              icon: '',
-              level: 5,
-              patch: (tid, icon) => {
-                setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
-              },
-            });
-          }
-          return;
-        }
-        admitIconHit({
-          id: summary.id,
-          icon: persistUrl,
-          level: cycleLevel,
+        admitIconCycleResult(summary.id, cycle, {
           patch: (tid, icon) => {
             setUncatalogedExtraApps((prev) => patchAppIconList(prev, tid, icon));
           },

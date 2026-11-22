@@ -1,15 +1,15 @@
-/** 趋势榜单富卡治愈事件与会话生命周期测试。 */
+/** 趋势榜单详情补丁订阅（`subscribeRepoCardHeals`）与会话生命周期测试。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  DETAIL_RICHCARD_HEAL_EVENT,
   clearTrendEnrichCache,
   clearTrendsCache,
   createTrendBoardSession,
   putTrendEnrichMemory,
-  type DetailRichcardHealPayload,
 } from '../trends';
+import { snapshotTrendEnrichCache, upsertRepoCardFromDetail } from '../repoEnrichCache';
 import { CMD, tauriApi } from '../api';
 import * as clientModule from '../api/client';
+import type { AppDetail, AppSummary } from '../../types';
 import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
 
 const REAL_DESC = 'A fast in-browser Markdown reserve editor';
@@ -18,13 +18,14 @@ const PLACEHOLDER_DESC = 'GitHub 社区开源项目';
 const PLACEHOLDER_DESC_EN = 'No description available';
 const FALLBACK_BG = 'linear-gradient(135deg, #475569, #334155)';
 
-function healPayload(overrides: Partial<DetailRichcardHealPayload>): DetailRichcardHealPayload {
+function detailFrom(overrides: Partial<AppSummary> & { id: string }, extra: Partial<AppDetail> = {}): AppDetail {
   return {
-    keys: ['acme/atlas'],
-    summary: makeEnrichedApp({ id: 'acme/atlas' }),
-    dirtyFields: [],
-    ...overrides,
-  };
+    ...makeEnrichedApp(overrides),
+    changelog: '',
+    readme_markdown: '',
+    releases: [],
+    ...extra,
+  } as AppDetail;
 }
 
 function startSessionWithRepos(
@@ -45,12 +46,12 @@ function startSessionWithRepos(
   return session;
 }
 
-describe('富卡治愈事件占位守卫', () => {
+describe('详情补丁占位守卫', () => {
   afterEach(() => {
     clearTrendEnrichCache();
   });
 
-  it('占位简介误带 dirty 不覆盖实值，其余 dirty 仍覆盖', () => {
+  it('占位简介不覆盖镜像实值，其余实质变更照常覆盖', () => {
     const prev = {
       'acme/atlas': makeEnrichedApp({
         id: 'acme/atlas',
@@ -61,17 +62,12 @@ describe('富卡治愈事件占位守卫', () => {
     };
     const session = startSessionWithRepos(prev, ['acme/atlas']);
     try {
-      window.dispatchEvent(
-        new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, {
-          detail: healPayload({
-            summary: makeEnrichedApp({
-              id: 'acme/atlas',
-              description: PLACEHOLDER_DESC,
-              description_en: PLACEHOLDER_DESC_EN,
-              stars: 200,
-            }),
-            dirtyFields: ['description', 'description_en', 'stars'],
-          }),
+      upsertRepoCardFromDetail(
+        detailFrom({
+          id: 'acme/atlas',
+          description: PLACEHOLDER_DESC,
+          description_en: PLACEHOLDER_DESC_EN,
+          stars: 200,
         }),
       );
       const next = session.getSnapshot().enrichedApps;
@@ -84,20 +80,13 @@ describe('富卡治愈事件占位守卫', () => {
     }
   });
 
-  it('真实简介 dirty 正常覆盖', () => {
+  it('真实简介正常覆盖', () => {
     const prev = {
       'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', description: REAL_DESC }),
     };
     const session = startSessionWithRepos(prev, ['acme/atlas']);
     try {
-      window.dispatchEvent(
-        new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, {
-          detail: healPayload({
-            summary: makeEnrichedApp({ id: 'acme/atlas', description: 'A brand new real description' }),
-            dirtyFields: ['description'],
-          }),
-        }),
-      );
+      upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', description: 'A brand new real description' }));
       expect(session.getSnapshot().enrichedApps['acme/atlas']?.description).toBe(
         'A brand new real description',
       );
@@ -107,7 +96,7 @@ describe('富卡治愈事件占位守卫', () => {
   });
 });
 
-describe('富卡治愈事件别名与跨榜隔离', () => {
+describe('详情补丁别名与跨榜隔离', () => {
   afterEach(() => {
     clearTrendEnrichCache();
   });
@@ -118,67 +107,71 @@ describe('富卡治愈事件别名与跨榜隔离', () => {
     };
     const session = startSessionWithRepos(prev, ['acme/atlas']);
     try {
-      window.dispatchEvent(
-        new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, {
-          detail: healPayload({
-            summary: makeEnrichedApp({ id: 'acme/atlas', stars: 300 }),
-            dirtyFields: ['stars'],
-          }),
-        }),
-      );
+      upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', stars: 300 }));
       expect(session.getSnapshot().enrichedApps['legacy-key']?.stars).toBe(300);
     } finally {
       session.dispose();
     }
   });
 
-  it('镜像与别名均未命中时保持原引用不变', () => {
+  it('镜像与别名均未命中且不属本榜时保持原引用不变', () => {
     const prev = {
       'other/app': makeEnrichedApp({ id: 'other/app', stars: 100 }),
     };
     const session = startSessionWithRepos(prev, ['other/app']);
     try {
       const before = session.getSnapshot().enrichedApps;
-      window.dispatchEvent(
-        new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, {
-          detail: healPayload({
-            summary: makeEnrichedApp({ id: 'acme/atlas', stars: 300 }),
-            dirtyFields: ['stars'],
-          }),
-        }),
-      );
+      upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', stars: 300 }));
       expect(session.getSnapshot().enrichedApps).toBe(before);
+    } finally {
+      session.dispose();
+    }
+  });
+
+  it('stale 详情不写富卡池也不扇出', () => {
+    const prev = { 'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', stars: 100 }) };
+    const session = startSessionWithRepos(prev, ['acme/atlas']);
+    try {
+      const before = session.getSnapshot().enrichedApps;
+      expect(upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', stars: 999 }, { is_stale: true }))).toBeNull();
+      expect(session.getSnapshot().enrichedApps).toBe(before);
+      expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
     } finally {
       session.dispose();
     }
   });
 });
 
-describe('富卡治愈事件预 enrich 行合成', () => {
+describe('详情补丁平台落定与预 enrich 行合成', () => {
   afterEach(() => {
     clearTrendEnrichCache();
+  });
+
+  it('空平台镜像行补齐详情平台', () => {
+    const prev = { 'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }) };
+    const session = startSessionWithRepos(prev, ['acme/atlas']);
+    try {
+      upsertRepoCardFromDetail(detailFrom({ id: 'acme/atlas', platforms: ['linux'] }));
+      expect(session.getSnapshot().enrichedApps['acme/atlas']?.platforms).toEqual(['linux']);
+      expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['linux']);
+    } finally {
+      session.dispose();
+    }
   });
 
   it('合成行剥图标通道与占位简介，平台取详情实值', () => {
     const session = startSessionWithRepos({}, ['acme/atlas']);
     try {
-      window.dispatchEvent(
-        new CustomEvent(DETAIL_RICHCARD_HEAL_EVENT, {
-          detail: healPayload({
-            keys: ['Acme/Atlas'],
-            summary: makeEnrichedApp({
-              id: 'acme/atlas',
-              name: 'atlas',
-              icon: 'https://cdn.example/icon.png',
-              icon_bg: 'linear-gradient(red, blue)',
-              description: PLACEHOLDER_DESC,
-              description_en: PLACEHOLDER_DESC_EN,
-              stars: 42,
-              platforms: ['macos'],
-            }),
-            dirtyFields: ['stars'],
-            platforms: ['windows', 'macos'],
-          }),
+      upsertRepoCardFromDetail(
+        detailFrom({
+          id: 'acme/atlas',
+          name: 'atlas',
+          icon: 'https://cdn.example/icon.png',
+          icon_bg: 'linear-gradient(red, blue)',
+          description: PLACEHOLDER_DESC,
+          description_en: PLACEHOLDER_DESC_EN,
+          stars: 42,
+          platforms: ['windows', 'macos'],
         }),
       );
       const row = session.getSnapshot().enrichedApps['acme/atlas'];

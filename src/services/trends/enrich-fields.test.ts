@@ -11,7 +11,7 @@ import {
   markTrendConfirmedOthers,
   snapshotTrendConfirmedOthers,
   snapshotTrendEnrichCache,
-  upsertTrendEnrichFromDetail,
+  upsertRepoCardFromDetail,
 } from './enrich';
 import { tauriApi } from '../api';
 import { makeEnrichedApp, makeTrendRepo } from '../../views/test-utils/trendFixture';
@@ -137,7 +137,7 @@ describe('loading 永不持久化', () => {
     expect(loadingOut.get('acme/atlas')?.platforms).toEqual([]);
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
     // 应用详情刷新治愈：具平台回填唯一写口。
-    upsertTrendEnrichFromDetail(makeDetail({ id: 'acme/atlas', platforms: ['windows'] }));
+    upsertRepoCardFromDetail(makeDetail({ id: 'acme/atlas', platforms: ['windows'] }));
     expect(snapshotTrendEnrichCache()['acme/atlas']?.platforms).toEqual(['windows']);
     const spy2 = vi
       .spyOn(tauriApi, 'enrichTrendRepos')
