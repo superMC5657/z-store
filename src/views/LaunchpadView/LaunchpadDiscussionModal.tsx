@@ -4,7 +4,6 @@ import '../../i18n';
 import { AppWindow, ArrowBigUp, ExternalLink, LogIn, MessageSquare, RefreshCw, Reply, SmilePlus, X } from 'lucide-react';
 import type {
   LaunchpadDiscussionComment,
-  LaunchpadDiscussionDetail,
   LaunchpadEntry,
   LaunchpadReactionContent,
   LaunchpadReactionGroup,
@@ -23,79 +22,37 @@ import { DiscussionComposer } from './DiscussionComposer';
 import { DiscussionMarkdown } from './DiscussionMarkdown';
 import { DISCUSSION_REACTIONS, formatRelativeTime, reactionEmoji } from './discussionFormat';
 import { scrollBehavior } from '../../lib/motion';
-
-export interface LaunchpadDiscussionSyncedPayload {
-  upvotes: number;
-  commentsCount: number;
-  viewerHasUpvoted: boolean;
-  nodeId?: string;
-}
+import { useLaunchpadDiscussion } from './useLaunchpadDiscussion';
+import type { LaunchpadFeedActions } from './useLaunchpadFeed';
 
 export interface LaunchpadDiscussionModalProps {
   entry: LaunchpadEntry;
   oauthUser: OAuthUser | null;
-  /** 已知的本人顶帖态（卡片水合或已顶帖后带入）。 */
-  initialUpvoted?: boolean;
-  isStarring?: boolean;
+  /** 广场写动作（Star、顶帖与讨论状态写回）：与卡片共用同一入口。 */
+  actions: LaunchpadFeedActions;
   onClose: () => void;
   /** 在讨论之上叠开应用详情弹窗；关闭详情即回到讨论。 */
   onOpenDetail: (id: string) => void;
   onOpenDeveloper: (login: string) => void;
   onOpenAccount: () => void;
-  onToggleStar?: (entry: LaunchpadEntry) => void;
-  onUpvoteChange: (entryId: string, count: number, upvoted: boolean) => void;
-  onCommentAdded: (entryId: string) => void;
-  onDiscussionSynced?: (entryId: string, synced: LaunchpadDiscussionSyncedPayload) => void;
-}
-
-function mergeComments(
-  prev: LaunchpadDiscussionComment[],
-  next: LaunchpadDiscussionComment[],
-): LaunchpadDiscussionComment[] {
-  const seen = new Set(prev.map((c) => c.id));
-  return [...prev, ...next.filter((c) => !seen.has(c.id))];
-}
-
-function patchComment(
-  list: LaunchpadDiscussionComment[],
-  id: string,
-  patch: (c: LaunchpadDiscussionComment) => LaunchpadDiscussionComment,
-): LaunchpadDiscussionComment[] {
-  return list.map((c) => (c.id === id ? patch(c) : { ...c, replies: patchComment(c.replies, id, patch) }));
 }
 
 export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> = ({
   entry,
   oauthUser,
-  initialUpvoted = false,
-  isStarring = false,
+  actions,
   onClose,
   onOpenDetail,
   onOpenDeveloper,
   onOpenAccount,
-  onToggleStar,
-  onUpvoteChange,
-  onCommentAdded,
-  onDiscussionSynced,
 }) => {
   const { t, i18n } = useTranslation();
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const [detail, setDetail] = useState<LaunchpadDiscussionDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [upvoting, setUpvoting] = useState(false);
-  const [upvoteCount, setUpvoteCount] = useState(entry.discussion_upvotes);
-  const [upvoted, setUpvoted] = useState(initialUpvoted);
-  const [votingComments, setVotingComments] = useState<ReadonlySet<string>>(new Set());
-  const [reactingSubjects, setReactingSubjects] = useState<ReadonlySet<string>>(new Set());
   const [openReactionFor, setOpenReactionFor] = useState<string | null>(null);
   const openReactionRef = useRef<string | null>(null);
   openReactionRef.current = openReactionFor;
   const [draft, setDraft] = useState('');
-  const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<{ threadId: string; targetLogin: string; seq: number } | null>(null);
   const [loginNudge, setLoginNudge] = useState(false);
 
@@ -103,9 +60,22 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
   const makerLogin = entry.maker.login || app.owner;
   const loggedIn = Boolean(oauthUser && !oauthUser.is_expired);
   const viewerLogin = loggedIn ? oauthUser?.login : undefined;
-  const loggedInRef = useRef(loggedIn);
-  loggedInRef.current = loggedIn;
   const authKey = loggedIn ? `1:${oauthUser?.login ?? ''}` : '0';
+  const discussion = useLaunchpadDiscussion({ entry, loggedIn, authKey, actions });
+  const {
+    detail,
+    loading,
+    refreshing,
+    error,
+    loadingMore,
+    upvoting,
+    upvoteCount,
+    upvoted,
+    votingComments,
+    reactingSubjects,
+    sending,
+  } = discussion;
+  const isStarring = actions.isStarring(app.id);
   const canWrite = loggedIn && detail !== null && !detail.auth_required_for_write;
   const webUrl = detail?.url || entry.discussion_url;
   const isGithub = (app.forge || 'github') === 'github';
@@ -113,98 +83,6 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
   const note = makerNoteFor(entry, i18n.language);
   const launchedText = formatLaunchedLabel(entry.launched_at, t);
   const canUpvoteComments = detail ? detail.viewer_can_upvote || detail.auth_required_for_write : false;
-
-  const syncCtxRef = useRef({
-    appId: app.id,
-    entryUpvotes: entry.discussion_upvotes,
-    initialUpvoted,
-    onDiscussionSynced,
-  });
-  syncCtxRef.current = {
-    appId: app.id,
-    entryUpvotes: entry.discussion_upvotes,
-    initialUpvoted,
-    onDiscussionSynced,
-  };
-
-  const fetchSeqRef = useRef(0);
-  const detailRef = useRef<LaunchpadDiscussionDetail | null>(null);
-  detailRef.current = detail;
-
-  const applyDiscussionDetail = useCallback((d: LaunchpadDiscussionDetail) => {
-    setDetail(d);
-    // 匿名空壳无计数口径，保留卡片上的展示值；匿名 REST 缺原生 upvote_count 时不将已知顶帖数降回 0。
-    if (d.id) {
-      const ctx = syncCtxRef.current;
-      const resolvedUpvotes = d.auth_required_for_write
-        ? Math.max(ctx.entryUpvotes, d.upvote_count)
-        : d.upvote_count;
-      const resolvedUpvoted = d.auth_required_for_write
-        ? (loggedInRef.current ? ctx.initialUpvoted : false)
-        : d.viewer_has_upvoted;
-      setUpvoteCount(resolvedUpvotes);
-      setUpvoted(resolvedUpvoted);
-      if (!d.is_stale) {
-        ctx.onDiscussionSynced?.(ctx.appId, {
-          upvotes: resolvedUpvotes,
-          commentsCount: d.comments_total,
-          viewerHasUpvoted: resolvedUpvoted,
-          nodeId: d.id,
-        });
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const seq = ++fetchSeqRef.current;
-    setLoading(true);
-    setRefreshing(false);
-    setError(null);
-    tauriApi
-      .getLaunchpadDiscussion(entry.discussion_repo, entry.discussion_number)
-      .then((d) => {
-        if (fetchSeqRef.current !== seq) return;
-        applyDiscussionDetail(d);
-      })
-      .catch((e) => {
-        if (fetchSeqRef.current !== seq) return;
-        setError(String(e));
-      })
-      .finally(() => {
-        if (fetchSeqRef.current === seq) setLoading(false);
-      });
-    return () => {
-      fetchSeqRef.current += 1;
-    };
-  }, [entry.discussion_repo, entry.discussion_number, authKey, applyDiscussionDetail]);
-
-  const handleRefresh = useCallback(async () => {
-    if (loading || refreshing) return;
-    const seq = ++fetchSeqRef.current;
-    const hadDetail = detailRef.current !== null;
-    setRefreshing(true);
-    if (!hadDetail) setError(null);
-    try {
-      const d = await tauriApi.getLaunchpadDiscussion(
-        entry.discussion_repo,
-        entry.discussion_number,
-        undefined,
-        true,
-      );
-      if (fetchSeqRef.current !== seq) return;
-      setError(null);
-      applyDiscussionDetail(d);
-    } catch (e) {
-      if (fetchSeqRef.current !== seq) return;
-      if (hadDetail) {
-        notifyToast(t('launchpad.load_failed', { error: String(e) }), 'error');
-      } else {
-        setError(String(e));
-      }
-    } finally {
-      if (fetchSeqRef.current === seq) setRefreshing(false);
-    }
-  }, [loading, refreshing, entry.discussion_repo, entry.discussion_number, applyDiscussionDetail, t]);
 
   // 应用详情 / 开发者画像叠在讨论之上时，Esc 归最上层弹窗；本层 Esc 先收起表情面板。
   const handleEscape = () => {
@@ -232,204 +110,45 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
     notifyToast(t('launchpad.login_required'), 'info');
   };
 
-  const handleUpvote = async () => {
+  const handleUpvote = () => {
     if (!canWrite) {
       nudgeLogin();
       return;
     }
-    if (upvoting) return;
-    setUpvoting(true);
-    try {
-      const res = await tauriApi.toggleLaunchpadUpvote({
-        discussionRepo: entry.discussion_repo,
-        discussionNumber: entry.discussion_number,
-        subjectId: detail?.id || entry.discussion_node_id,
-        currentlyUpvoted: upvoted,
-      });
-      setUpvoteCount(res.upvote_count);
-      setUpvoted(res.viewer_has_upvoted);
-      if (res.mode === 'reaction') {
-        setDetail((prev) => {
-          if (!prev) return prev;
-          const rest = (prev.reaction_groups ?? []).filter((g) => g.content !== 'THUMBS_UP');
-          const next =
-            res.upvote_count > 0
-              ? [{ content: 'THUMBS_UP' as const, count: res.upvote_count, viewer_has_reacted: res.viewer_has_upvoted }, ...rest]
-              : rest;
-          return { ...prev, reaction_groups: next };
-        });
-      }
-      onUpvoteChange(app.id, res.upvote_count, res.viewer_has_upvoted);
-    } catch (e) {
-      notifyToast(t('launchpad.upvote_failed', { error: String(e) }), 'error');
-    } finally {
-      setUpvoting(false);
-    }
+    void discussion.toggleUpvote();
   };
 
-  const handleToggleReaction = async (
-    subjectId: string,
-    content: LaunchpadReactionContent,
-    currentlyReacted: boolean,
-  ) => {
+  const handleToggleReaction = (subjectId: string, content: LaunchpadReactionContent, currentlyReacted: boolean) => {
     if (!canWrite) {
       nudgeLogin();
       return;
     }
-    if (detail?.locked || reactingSubjects.has(subjectId)) return;
+    if (detail?.locked) return;
     setOpenReactionFor(null);
-    setReactingSubjects((s) => new Set(s).add(subjectId));
-    try {
-      const groups = await tauriApi.toggleLaunchpadReaction({
-        discussionRepo: entry.discussion_repo,
-        discussionNumber: entry.discussion_number,
-        subjectId,
-        content,
-        currentlyReacted,
-      });
-      setDetail((prev) => {
-        if (!prev) return prev;
-        if (prev.id === subjectId) {
-          if (!prev.viewer_can_upvote && content === 'THUMBS_UP') {
-            const thumbs = groups.find((g) => g.content === 'THUMBS_UP');
-            const nextCount = thumbs?.count ?? 0;
-            const nextReacted = thumbs?.viewer_has_reacted ?? false;
-            setUpvoteCount(nextCount);
-            setUpvoted(nextReacted);
-            onUpvoteChange(app.id, nextCount, nextReacted);
-          }
-          return { ...prev, reaction_groups: groups };
-        }
-        return {
-          ...prev,
-          comments: patchComment(prev.comments, subjectId, (x) => ({
-            ...x,
-            reaction_groups: groups,
-          })),
-        };
-      });
-    } catch (e) {
-      notifyToast(t('launchpad.reaction_failed', { error: String(e) }), 'error');
-    } finally {
-      setReactingSubjects((s) => {
-        const next = new Set(s);
-        next.delete(subjectId);
-        return next;
-      });
-    }
+    void discussion.toggleReaction(subjectId, content, currentlyReacted);
   };
 
-  const handleCommentUpvote = async (c: LaunchpadDiscussionComment) => {
+  const handleCommentUpvote = (c: LaunchpadDiscussionComment) => {
     if (!canWrite) {
       nudgeLogin();
       return;
     }
-    if (!canUpvoteComments) return;
-    if (votingComments.has(c.id)) return;
-    setVotingComments((s) => new Set(s).add(c.id));
-    try {
-      const res = await tauriApi.toggleLaunchpadCommentUpvote({
-        discussionRepo: entry.discussion_repo,
-        discussionNumber: entry.discussion_number,
-        commentId: c.id,
-        currentlyUpvoted: c.viewer_has_upvoted,
-      });
-      setDetail((prev) =>
-        prev
-          ? {
-              ...prev,
-              comments: patchComment(prev.comments, c.id, (x) => ({
-                ...x,
-                upvote_count: res.upvote_count,
-                viewer_has_upvoted: res.viewer_has_upvoted,
-              })),
-            }
-          : prev,
-      );
-    } catch (e) {
-      notifyToast(t('launchpad.upvote_failed', { error: String(e) }), 'error');
-    } finally {
-      setVotingComments((s) => {
-        const next = new Set(s);
-        next.delete(c.id);
-        return next;
-      });
-    }
+    if (canUpvoteComments) void discussion.toggleCommentUpvote(c);
   };
 
-  const handleLoadMore = async () => {
-    if (!detail?.has_next_page || !detail.end_cursor || loadingMore) return;
-    const seq = fetchSeqRef.current;
-    setLoadingMore(true);
-    try {
-      const page = await tauriApi.getLaunchpadDiscussion(
-        entry.discussion_repo,
-        entry.discussion_number,
-        detail.end_cursor,
-      );
-      if (fetchSeqRef.current !== seq) return;
-      setDetail((prev) =>
-        prev
-          ? {
-              ...prev,
-              comments: mergeComments(prev.comments, page.comments),
-              has_next_page: page.has_next_page,
-              end_cursor: page.end_cursor,
-            }
-          : prev,
-      );
-    } catch (e) {
-      if (fetchSeqRef.current !== seq) return;
-      notifyToast(t('launchpad.load_failed', { error: String(e) }), 'error');
-    } finally {
-      setLoadingMore(false);
-    }
-  };
-
+  const { sendComment } = discussion;
   const handleSend = useCallback(async () => {
-    const body = draft.trim();
-    if (!body || sending || !detail) return;
-    setSending(true);
-    try {
-      const created = await tauriApi.addLaunchpadComment({
-        discussionRepo: entry.discussion_repo,
-        discussionNumber: entry.discussion_number,
-        discussionId: detail.id || entry.discussion_node_id,
-        body,
-        replyToId: replyTo?.threadId,
-      });
-      setDetail((prev) => {
-        if (!prev) return prev;
-        if (replyTo) {
-          return {
-            ...prev,
-            comments: prev.comments.map((c) =>
-              c.id === replyTo.threadId ? { ...c, replies: [...c.replies, created] } : c,
-            ),
-            comments_total: prev.comments_total + 1,
-          };
-        }
-        return {
-          ...prev,
-          comments: [...prev.comments, created],
-          comments_total: prev.comments_total + 1,
-        };
-      });
-      setDraft('');
-      setReplyTo(null);
-      onCommentAdded(app.id);
-      window.setTimeout(() => {
-        const nodes = panelRef.current?.querySelectorAll<HTMLElement>('.launchpad-comment') ?? [];
-        Array.from(nodes)
-          .find((n) => n.dataset.testid === `launchpad-comment-${created.id}`)
-          ?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'nearest' });
-      }, 30);
-    } catch (e) {
-      notifyToast(t('launchpad.comment_failed', { error: String(e) }), 'error');
-    } finally {
-      setSending(false);
-    }
-  }, [draft, sending, detail, entry, replyTo, onCommentAdded, app.id, t]);
+    const created = await sendComment(draft.trim(), replyTo?.threadId);
+    if (!created) return;
+    setDraft('');
+    setReplyTo(null);
+    window.setTimeout(() => {
+      const nodes = panelRef.current?.querySelectorAll<HTMLElement>('.launchpad-comment') ?? [];
+      Array.from(nodes)
+        .find((n) => n.dataset.testid === `launchpad-comment-${created.id}`)
+        ?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'nearest' });
+    }, 30);
+  }, [draft, replyTo, sendComment]);
 
   const goLogin = () => {
     onClose();
@@ -509,7 +228,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
                       aria-pressed={reacted}
                       title={label}
                       aria-label={label}
-                      onClick={() => void handleToggleReaction(subjectId, item.content, reacted)}
+                      onClick={() => handleToggleReaction(subjectId, item.content, reacted)}
                     >
                       {item.emoji}
                     </button>
@@ -532,7 +251,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
               disabled={locked || busy}
               title={label}
               aria-label={`${label} ${g.count}`}
-              onClick={() => void handleToggleReaction(subjectId, g.content, g.viewer_has_reacted)}
+              onClick={() => handleToggleReaction(subjectId, g.content, g.viewer_has_reacted)}
             >
               <span>{reactionEmoji(g.content)}</span>
               <span>{g.count}</span>
@@ -599,7 +318,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
                 disabled={voting}
                 title={voteLabel}
                 aria-label={voteLabel}
-                onClick={() => void handleCommentUpvote(c)}
+                onClick={() => handleCommentUpvote(c)}
               >
                 <ArrowBigUp
                   size={14}
@@ -683,13 +402,13 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
               <AppWindow size={13} strokeWidth={1.5} aria-hidden="true" />
               <span>{t('launchpad.view_app_detail')}</span>
             </button>
-            {isGithub && onToggleStar && (
+            {isGithub && (
               <LaunchpadStarButton
                 starred={entry.viewer_has_starred}
                 stars={app.stars}
                 disabled={isStarring}
                 label={starLabel}
-                onClick={() => onToggleStar(entry)}
+                onClick={() => void actions.toggleStar(entry)}
               />
             )}
             <button
@@ -712,7 +431,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
               title={t('launchpad.refresh')}
               aria-label={t('launchpad.refresh')}
               disabled={loading || refreshing}
-              onClick={() => void handleRefresh()}
+              onClick={() => void discussion.refresh()}
             >
               <RefreshCw
                 size={14}
@@ -807,7 +526,7 @@ export const LaunchpadDiscussionModal: React.FC<LaunchpadDiscussionModalProps> =
                 type="button"
                 className="btn-fluent btn-secondary btn-compact launchpad-load-more"
                 disabled={loadingMore}
-                onClick={handleLoadMore}
+                onClick={() => void discussion.loadMore()}
               >
                 {t('launchpad.load_more_comments')}
               </button>

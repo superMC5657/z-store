@@ -326,8 +326,7 @@ impl CatalogService {
         let list_ttl = if use_cache { readme_list_ttl_secs() } else { 0 };
 
         let api_timeout = crate::github::http::api_timeout();
-        let client = crate::forge::http::new_api_client(api_timeout.as_secs())
-            .unwrap_or_else(|_| self.http_client());
+        let client = crate::forge::http::api_client(api_timeout.as_secs());
         let headers = crate::github::http::token_headers(token);
 
         // default_branch 在 TTL 内复用，key 按 repo（大小写收敛）。

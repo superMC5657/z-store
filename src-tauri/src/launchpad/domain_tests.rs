@@ -1,5 +1,12 @@
-use super::*;
+//! 广场领域接口测试：清单装载（304 / 镜像 / 快照降级）、本地水合、脉冲同步与讨论写透。
+
+use super::feed::{hydrate_entries, is_id_in_snapshot, load_launchpad_manifest};
+use super::preflight::resolve_preflight_icon;
+use super::pulse::sync_discussions;
+use crate::db::Database;
+use crate::icons::verify_custom_icon_d8;
 use crate::test_support::{dead_addr, serve, Reply};
+use std::sync::Mutex;
 
 const MANIFEST: &str = r#"{
   "version": 1,
@@ -346,7 +353,7 @@ async fn sync_launchpad_discussions_fetches_live_graphql_and_persists_for_offlin
         .unwrap();
     let catalog = crate::github::CatalogService::new_empty();
 
-    let pulses = sync_launchpad_discussions_core(
+    let pulses = sync_discussions(
         &db,
         &catalog,
         &client(),
@@ -397,7 +404,7 @@ async fn sync_launchpad_discussions_fetches_live_graphql_and_persists_for_offlin
             .header("ETag", "W/\"d3\"")
     })
     .await;
-    let anon_pulses = sync_launchpad_discussions_core(
+    let anon_pulses = sync_discussions(
         &db,
         &catalog,
         &client(),
@@ -460,7 +467,7 @@ async fn partial_graphql_response_and_newer_manifest_do_not_corrupt_counts_or_re
         )
     })
     .await;
-    let pulses = sync_launchpad_discussions_core(
+    let pulses = sync_discussions(
         &db,
         &catalog,
         &client(),
@@ -540,10 +547,8 @@ async fn verify_custom_icon_d8_validates_png_and_rejects_html() {
     assert!(!verify_custom_icon_d8(&client(), &format!("{}/missing.png", miss_server.base)).await);
     assert_eq!(miss_server.hits(), 1);
 
-    let html_server = serve(|_| {
-        Reply::ok("<html>not an image</html>").header("Content-Type", "text/html")
-    })
-    .await;
+    let html_server =
+        serve(|_| Reply::ok("<html>not an image</html>").header("Content-Type", "text/html")).await;
     assert!(!verify_custom_icon_d8(&client(), &format!("{}/logo.png", html_server.base)).await);
     assert_eq!(html_server.hits(), 1);
 }
@@ -553,9 +558,9 @@ fn is_id_in_launchpad_snapshot_detects_existing_entries() {
     let db = Database::open_in_memory().unwrap();
     let url = "https://example.com/launchpad.json";
     db.save_launchpad_feed_cache(url, MANIFEST).unwrap();
-    assert!(is_id_in_launchpad_snapshot(&db, url, "acme/hyper-term"));
-    assert!(is_id_in_launchpad_snapshot(&db, url, "RustDesk/RustDesk"));
-    assert!(!is_id_in_launchpad_snapshot(&db, url, "other/missing"));
+    assert!(is_id_in_snapshot(&db, url, "acme/hyper-term"));
+    assert!(is_id_in_snapshot(&db, url, "RustDesk/RustDesk"));
+    assert!(!is_id_in_snapshot(&db, url, "other/missing"));
 }
 
 #[tokio::test]
@@ -563,22 +568,178 @@ async fn resolve_preflight_icon_rejects_http_and_data_schemes() {
     let coord = crate::forge::RepositoryUrlParser::parse("acme/demo").unwrap();
     let c = client();
 
-    let http_res = resolve_preflight_icon(&c, &c, &coord, None, Some("http://example.com/a.png")).await;
+    let http_res =
+        resolve_preflight_icon(&c, &c, &coord, None, Some("http://example.com/a.png")).await;
     assert!(matches!(
         http_res,
         crate::launchpad::PreflightIconOutcome::CustomInvalidScheme(_)
     ));
 
-    let data_res = resolve_preflight_icon(
-        &c,
-        &c,
-        &coord,
-        None,
-        Some("data:image/png;base64,iVBOR"),
-    )
-    .await;
+    let data_res =
+        resolve_preflight_icon(&c, &c, &coord, None, Some("data:image/png;base64,iVBOR")).await;
     assert!(matches!(
         data_res,
         crate::launchpad::PreflightIconOutcome::CustomInvalidScheme(_)
     ));
+}
+
+#[tokio::test]
+async fn retryable_primary_failure_adopts_validated_mirror_without_saving_etag() {
+    let mirror = serve(|_| Reply::ok(MANIFEST).header("ETag", "W/\"mirror\"")).await;
+    let url = format!("http://{}{}", dead_addr(), URL_PATH);
+    let db = mem_db();
+    db.lock()
+        .unwrap()
+        .save_etag(&url, "W/\"old\"", "", 1)
+        .unwrap();
+    let load = load_launchpad_manifest(&db, &client(), &url, Some(&mirror.base), false)
+        .await
+        .unwrap();
+    assert!(!load.is_stale);
+    assert_eq!(load.manifest.items.len(), 2);
+    assert!(!mirror.requests()[0]
+        .to_ascii_lowercase()
+        .contains("if-none-match"));
+    let guard = db.lock().unwrap();
+    assert!(guard.get_launchpad_feed_cache(&url).unwrap().is_some());
+    assert_eq!(
+        guard.get_etag(&url).unwrap(),
+        None,
+        "mirror ETag never persisted"
+    );
+}
+
+#[tokio::test]
+async fn invalid_mirror_manifest_is_rejected_and_falls_back_to_snapshot() {
+    let bad =
+        r#"{"version":1,"items":[{"id":"../escape","name":"x","owner":"..","repo":"escape"}]}"#;
+    let mirror = serve(move |_| Reply::ok(bad)).await;
+    let url = format!("http://{}{}", dead_addr(), URL_PATH);
+    let db = mem_db();
+    let err = load_launchpad_manifest(&db, &client(), &url, Some(&mirror.base), false)
+        .await
+        .unwrap_err();
+    assert!(err.contains("镜像清单校验失败"), "{err}");
+
+    db.lock()
+        .unwrap()
+        .save_launchpad_feed_cache(&url, MANIFEST)
+        .unwrap();
+    let load = load_launchpad_manifest(&db, &client(), &url, Some(&mirror.base), false)
+        .await
+        .unwrap();
+    assert!(load.is_stale);
+}
+
+#[tokio::test]
+async fn non_retryable_primary_failure_never_hits_mirror() {
+    let primary = serve(|_| Reply::status("404 Not Found")).await;
+    let mirror = serve(|_| Reply::ok(MANIFEST)).await;
+    let url = format!("{}{}", primary.base, URL_PATH);
+    let err = load_launchpad_manifest(&mem_db(), &client(), &url, Some(&mirror.base), false)
+        .await
+        .unwrap_err();
+    assert!(err.contains("404"), "{err}");
+    assert_eq!(mirror.hits(), 0);
+}
+
+fn rest_discussion_key(number: u64) -> String {
+    format!(
+        "{}/repos/o/r/discussions/{number}",
+        crate::github::GITHUB_API_BASE
+    )
+}
+
+fn rest_comments_key(number: u64) -> String {
+    format!(
+        "{}/comments?per_page={}",
+        rest_discussion_key(number),
+        crate::github::discussions::COMMENTS_PAGE_SIZE
+    )
+}
+
+fn seed_anonymous_cache(db: &Mutex<Database>, number: u64) {
+    let g = db.lock().unwrap();
+    g.save_etag(&rest_discussion_key(number), "W/\"d\"", "{}", 1)
+        .unwrap();
+    g.save_etag(&rest_comments_key(number), "W/\"c\"", "[]", 1)
+        .unwrap();
+}
+
+#[tokio::test]
+async fn upvote_writes_through_and_invalidates_only_discussion_cache() {
+    let server = serve(|_| {
+        Reply::ok(r#"{"data":{"addUpvote":{"subject":{"id":"D_1","upvoteCount":13,"viewerHasUpvoted":true}}}}"#)
+    })
+    .await;
+    let db = mem_db();
+    seed_anonymous_cache(&db, 7);
+    let lp = super::discussion::LaunchpadDiscussions {
+        db: &db,
+        client: client(),
+        api_base: &server.base,
+        token: Some("tok".to_string()),
+    };
+    let r = lp
+        .toggle_upvote("o/r", 7, Some("D_1"), false)
+        .await
+        .unwrap();
+    assert_eq!((r.upvote_count, r.viewer_has_upvoted), (13, true));
+    let g = db.lock().unwrap();
+    let st = g.get_launchpad_discussion_state("o/r", 7).unwrap().unwrap();
+    assert_eq!((st.upvote_count, st.viewer_has_upvoted), (13, Some(true)));
+    assert_eq!(st.node_id, "D_1");
+    assert_eq!(g.get_etag(&rest_discussion_key(7)).unwrap(), None);
+    assert!(g.get_etag(&rest_comments_key(7)).unwrap().is_some());
+}
+
+#[tokio::test]
+async fn comment_writes_through_and_invalidates_discussion_and_comment_caches() {
+    let server = serve(|_| {
+        Reply::ok(r#"{"data":{"addDiscussionComment":{"comment":{"id":"DC_9","body":"hi"}}}}"#)
+    })
+    .await;
+    let db = mem_db();
+    seed_anonymous_cache(&db, 7);
+    let lp = super::discussion::LaunchpadDiscussions {
+        db: &db,
+        client: client(),
+        api_base: &server.base,
+        token: Some("tok".to_string()),
+    };
+    let c = lp
+        .add_comment("o/r", 7, Some("D_1"), "hi", None)
+        .await
+        .unwrap();
+    assert_eq!(c.id, "DC_9");
+    let g = db.lock().unwrap();
+    let st = g.get_launchpad_discussion_state("o/r", 7).unwrap().unwrap();
+    assert_eq!(st.comments_count, 1);
+    assert_eq!(g.get_etag(&rest_discussion_key(7)).unwrap(), None);
+    assert_eq!(g.get_etag(&rest_comments_key(7)).unwrap(), None);
+}
+
+#[tokio::test]
+async fn writes_require_login_before_touching_network_or_cache() {
+    let server = serve(|_| Reply::status("500 Internal Server Error")).await;
+    let db = mem_db();
+    seed_anonymous_cache(&db, 7);
+    let lp = super::discussion::LaunchpadDiscussions {
+        db: &db,
+        client: client(),
+        api_base: &server.base,
+        token: None,
+    };
+    let err = lp
+        .toggle_upvote("not a repo", 7, None, false)
+        .await
+        .unwrap_err();
+    assert!(err.contains("登录"), "{err}");
+    assert_eq!(server.hits(), 0);
+    assert!(db
+        .lock()
+        .unwrap()
+        .get_etag(&rest_discussion_key(7))
+        .unwrap()
+        .is_some());
 }

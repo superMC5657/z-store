@@ -3,7 +3,6 @@ use crate::github::affinity_text::CatalogIdf;
 use crate::github::models::{AppRepoCoordinates, CatalogItem};
 use crate::github::CatalogService;
 use crate::models::AppSummary;
-use reqwest::header::{IF_NONE_MATCH, USER_AGENT};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
@@ -53,13 +52,6 @@ pub struct RemoteCatalogFetch {
     pub items: Option<Vec<CatalogItem>>,
     pub etag: Option<String>,
     pub via: CatalogVia,
-}
-
-/// 镜像回退主请求错误：附带是否允许经镜像重试一次的标记。
-pub(crate) struct MirrorPrimaryError {
-    pub message: String,
-    /// 传输失败 / 429 / 5xx：官方源或广场清单可经镜像重试。
-    pub retryable: bool,
 }
 
 /// 本地清单文件读取：以 mtime 合成弱 ETag，命中缓存 ETag 即视为未变更。
@@ -113,114 +105,6 @@ fn fetch_local_catalog(url: &str, cached_etag: Option<&str>) -> Result<RemoteCat
 
 /// 远端清单响应体上限：16 MiB（现行清单约 0.4 MiB），超限视为不可重试失败。
 const MAX_CATALOG_BYTES: usize = 16 * 1024 * 1024;
-
-/// 镜像回退清单池：键为超时 + 代理签名（含镜像直连豁免 host），签名不变即复用连接池。
-static MIRROR_CATALOG_SLOT: crate::proxy::ClientSlot = crate::proxy::ClientSlot::new();
-
-/// 镜像地址对应的清单池 Client（无 Token；镜像 host 走 per-client `no_proxy` 直连）。
-pub(crate) fn mirror_catalog_client(mirrored_url: &str) -> Result<reqwest::Client, String> {
-    let snap = crate::proxy::current_proxy_snapshot();
-    let extra = crate::proxy::proxy_hosts_for(mirrored_url);
-    let key = format!(
-        "{}|{}",
-        crate::config::get_project_config()
-            .network
-            .api_timeout_seconds,
-        snap.signature(&extra)
-    );
-    MIRROR_CATALOG_SLOT.get_or_build(&key, || CatalogService::build_catalog_client(&snap, &extra))
-}
-
-/// 镜像回退公共骨架（收录清单与开源广场清单共用）：首跳 `primary` 成功直接返回；
-/// 失败且 `retryable`、并给出 `mirror_prefix` 时，以镜像地址与复用的镜像池 Client 调用 `mirror`
-/// 重试一次，镜像失败文案以「首跳原因；镜像原因」拼接。不可重试失败或无镜像时返回首跳原因。
-pub(crate) async fn fetch_with_mirror_fallback<T, P, M, MFut>(
-    primary: P,
-    url: &str,
-    mirror_prefix: Option<&str>,
-    mirror: M,
-) -> Result<T, String>
-where
-    P: std::future::Future<Output = Result<T, MirrorPrimaryError>>,
-    M: FnOnce(reqwest::Client, String) -> MFut,
-    MFut: std::future::Future<Output = Result<T, String>>,
-{
-    let primary_err = match primary.await {
-        Ok(v) => return Ok(v),
-        Err(MirrorPrimaryError {
-            message,
-            retryable: true,
-        }) => message,
-        Err(MirrorPrimaryError {
-            message,
-            retryable: false,
-        }) => return Err(message),
-    };
-    let Some(prefix) = mirror_prefix else {
-        return Err(primary_err);
-    };
-    let mirrored = crate::mirror::prefix_with_base(prefix, url);
-    let client = mirror_catalog_client(&mirrored)?;
-    mirror(client, mirrored)
-        .await
-        .map_err(|reason| format!("{}；{}", primary_err, reason))
-}
-
-async fn fetch_catalog_once(
-    client: &reqwest::Client,
-    url: &str,
-    cached_etag: Option<&str>,
-    via: CatalogVia,
-) -> Result<RemoteCatalogFetch, MirrorPrimaryError> {
-    let fail = |message: String, retryable: bool| MirrorPrimaryError { message, retryable };
-    let mut req = client
-        .get(url)
-        .header(USER_AGENT, crate::github::http::GH_USER_AGENT);
-    if let Some(etag) = cached_etag {
-        req = req.header(IF_NONE_MATCH, etag);
-    }
-    let resp = req.send().await.map_err(|e| {
-        crate::proxy::note_transport_error(&e);
-        fail(format!("请求收录清单失败: {}", e), true)
-    })?;
-    let status = resp.status();
-    if status == reqwest::StatusCode::NOT_MODIFIED {
-        return Ok(RemoteCatalogFetch {
-            items: None,
-            etag: None,
-            via,
-        });
-    }
-    if !status.is_success() {
-        let retryable = status.as_u16() == 429 || status.is_server_error();
-        return Err(fail(
-            format!("同步收录清单失败，HTTP 状态码: {}", status),
-            retryable,
-        ));
-    }
-    let etag = resp
-        .headers()
-        .get("etag")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string());
-    let bytes = crate::forge::http::read_body_capped(resp, MAX_CATALOG_BYTES)
-        .await
-        .map_err(|e| match e {
-            crate::forge::http::BodyReadError::TooLarge => {
-                fail("收录清单超过 16 MiB 上限".to_string(), false)
-            }
-            crate::forge::http::BodyReadError::Transport(e) => {
-                fail(format!("读取清单内容失败: {}", e), true)
-            }
-        })?;
-    let items: Vec<CatalogItem> = serde_json::from_slice(&bytes)
-        .map_err(|e| fail(format!("解析收录清单 JSON 失败: {}", e), false))?;
-    Ok(RemoteCatalogFetch {
-        items: Some(items),
-        etag,
-        via,
-    })
-}
 
 /// 镜像清单严格校验：拒绝空数组与任一非法 `Canonical App Id`，防止门户页/截断响应覆盖目录。
 fn validate_mirrored_catalog(items: &[CatalogItem]) -> Result<(), String> {
@@ -500,7 +384,6 @@ impl CatalogService {
         store.set_remote(items);
         Self {
             store: RwLock::new(store),
-            client: crate::proxy::ClientSlot::new(),
         }
     }
 
@@ -512,38 +395,6 @@ impl CatalogService {
     fn write_store(&self) -> std::sync::RwLockWriteGuard<'_, CatalogStore> {
         self.store.write().unwrap_or_else(|e| e.into_inner())
     }
-    /// 清单 Client 构造（无 Token，独立连接池参数）；`extra_hosts` 追加 per-client `no_proxy`。
-    pub(crate) fn build_catalog_client(
-        snap: &crate::proxy::ProxySnapshot,
-        extra_hosts: &[String],
-    ) -> Result<reqwest::Client, String> {
-        let cfg = crate::config::get_project_config();
-        let builder = reqwest::Client::builder()
-            .pool_max_idle_per_host(10)
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .tcp_keepalive(std::time::Duration::from_secs(60))
-            .timeout(std::time::Duration::from_secs(
-                cfg.network.api_timeout_seconds,
-            ));
-        crate::proxy::apply_proxy_snapshot(builder, snap, extra_hosts)
-            .build()
-            .map_err(|e| e.to_string())
-    }
-
-    /// 指定快照下的清单池 Client：签名不变复用，变化即重建。
-    pub(crate) fn http_client_for(&self, snap: &crate::proxy::ProxySnapshot) -> reqwest::Client {
-        self.client
-            .get_or_build(&snap.signature(&[]), || {
-                Self::build_catalog_client(snap, &[])
-            })
-            .unwrap_or_else(|_| crate::proxy::fallback_client(snap, &[]))
-    }
-
-    /// 当前系统代理快照下的清单池 Client（跟随系统代理：有代理走代理、无代理直连）。
-    pub(crate) fn http_client(&self) -> reqwest::Client {
-        self.http_client_for(&crate::proxy::current_proxy_snapshot())
-    }
-
     pub fn get_catalog_count(&self) -> usize {
         self.read_store().remote.items.len()
     }
@@ -862,35 +713,47 @@ impl CatalogService {
         self.fetch_http_catalog(url, cached_etag, mirror).await
     }
 
-    /// HTTP 清单拉取：首跳经清单池（跟随系统代理）；`mirror_prefix` 为 `Some` 且首跳可重试失败时，
-    /// 经镜像前缀重试一次（镜像 host 走 per-client `no_proxy` 直连，绝不携带 Token），
-    /// 镜像响应须通过严格结构校验才采纳。
+    /// HTTP 清单拉取：经共享无令牌清单传输（[`crate::forge::http::fetch_manifest_with_mirror_fallback`]）；
+    /// 镜像响应须通过严格结构校验才采纳，镜像侧 ETag 不落库（下次同步仍以官方源为准）。
     pub(crate) async fn fetch_http_catalog(
         &self,
         url: &str,
         cached_etag: Option<&str>,
         mirror_prefix: Option<&str>,
     ) -> Result<RemoteCatalogFetch, String> {
-        let primary_client = self.http_client();
-        let primary = fetch_catalog_once(&primary_client, url, cached_etag, CatalogVia::Direct);
-        // 镜像不发条件请求：恒取完整正文并严格校验，镜像无法以 304 冻结目录；
-        // 镜像侧 ETag 不落库（下次同步仍以官方源为准）。
-        fetch_with_mirror_fallback(primary, url, mirror_prefix, |client, mirrored| async move {
-            let fetched = fetch_catalog_once(&client, &mirrored, None, CatalogVia::Mirror)
-                .await
-                .map_err(|e| format!("镜像重试失败: {}", e.message))?;
-            let Some(items) = fetched.items else {
-                return Err("镜像清单校验失败: 未发条件请求却返回 304".to_string());
-            };
-            validate_mirrored_catalog(&items)
-                .map_err(|reason| format!("镜像清单校验失败: {}", reason))?;
-            Ok(RemoteCatalogFetch {
-                items: Some(items),
-                etag: None,
-                via: CatalogVia::Mirror,
-            })
+        let fetched = crate::forge::http::fetch_manifest_with_mirror_fallback(
+            &crate::forge::http::manifest_client(),
+            crate::forge::http::ManifestRequest {
+                url,
+                cached_etag,
+                mirror_prefix,
+                max_bytes: MAX_CATALOG_BYTES,
+                label: "收录清单",
+            },
+            |body| {
+                let items: Vec<CatalogItem> = serde_json::from_slice(body)
+                    .map_err(|e| format!("解析收录清单 JSON 失败: {e}"))?;
+                validate_mirrored_catalog(&items)
+            },
+        )
+        .await?;
+        let via = if fetched.via_mirror {
+            CatalogVia::Mirror
+        } else {
+            CatalogVia::Direct
+        };
+        let items = match fetched.body {
+            None => None,
+            Some(body) => Some(
+                serde_json::from_slice::<Vec<CatalogItem>>(&body)
+                    .map_err(|e| format!("解析收录清单 JSON 失败: {e}"))?,
+            ),
+        };
+        Ok(RemoteCatalogFetch {
+            items,
+            etag: fetched.etag,
+            via,
         })
-        .await
     }
 
     /// 本地合并目录搜索（空查询按 stars 降序，命中分类名返回全分类，否则按关键词匹配分排序）。

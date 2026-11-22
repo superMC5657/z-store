@@ -89,6 +89,12 @@ fn norm_discussion_key(repo: &str, number: u64) -> Option<(String, i64)> {
     Some((key, number as i64))
 }
 
+/// 讨论脉冲表的规范键 `(小写 owner/repo, number)`；与 `get_launchpad_discussion_states_batch`
+/// 返回映射的键同口径，非法坐标或编号为 0 返回 `None`。
+pub fn discussion_state_key(repo: &str, number: u64) -> Option<(String, u64)> {
+    norm_discussion_key(repo, number).map(|(r, n)| (r, n as u64))
+}
+
 fn row_to_discussion_state(row: &rusqlite::Row<'_>) -> Result<LaunchpadDiscussionState> {
     let number: i64 = row.get(1)?;
     let upvotes: i64 = row.get(3)?;

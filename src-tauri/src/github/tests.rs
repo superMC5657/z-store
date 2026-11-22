@@ -411,24 +411,6 @@ mod catalog_mirror_fallback {
     }
 
     #[test]
-    fn catalog_pool_rebuilds_on_proxy_signature_change_and_reuses_otherwise() {
-        let cat = CatalogService::new_empty();
-        let direct = crate::proxy::ProxySnapshot::direct();
-        let proxied = crate::test_support::proxied_snapshot("http://127.0.0.1:7890");
-        cat.http_client_for(&direct);
-        cat.http_client_for(&direct);
-        assert_eq!(
-            cat.client.build_count(),
-            1,
-            "identical signature must reuse"
-        );
-        cat.http_client_for(&proxied);
-        assert_eq!(cat.client.build_count(), 2, "proxy turned on must rebuild");
-        cat.http_client_for(&direct);
-        assert_eq!(cat.client.build_count(), 3, "proxy turned off must rebuild");
-    }
-
-    #[test]
     fn search_alternatives_hits_and_ranks_above_description_match() {
         let cat = CatalogService::new();
         for q in ["TeamViewer", "toDesk", "向日葵"] {

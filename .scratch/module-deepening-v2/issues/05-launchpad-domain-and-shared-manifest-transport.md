@@ -1,6 +1,6 @@
 # Issue 05: 前后端双向加深开源广场（`Launchpad`）领域模块并抽离共享无令牌清单同步传输
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 04, 06
 
 ## Summary

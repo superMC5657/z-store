@@ -174,7 +174,7 @@ pub fn discussion_html_url(owner: &str, repo: &str, number: u64) -> String {
 }
 
 /// 匿名 REST 端点（`api_etag_cache` 键，恒用官方基址）。
-pub fn rest_discussion_url(owner: &str, repo: &str, number: u64) -> String {
+fn rest_discussion_url(owner: &str, repo: &str, number: u64) -> String {
     format!(
         "{}/repos/{}/{}/discussions/{}",
         super::GITHUB_API_BASE,
@@ -184,12 +184,34 @@ pub fn rest_discussion_url(owner: &str, repo: &str, number: u64) -> String {
     )
 }
 
-pub fn rest_comments_url(owner: &str, repo: &str, number: u64) -> String {
+fn rest_comments_url(owner: &str, repo: &str, number: u64) -> String {
     format!(
         "{}/comments?per_page={}",
         rest_discussion_url(owner, repo, number),
         COMMENTS_PAGE_SIZE
     )
+}
+
+/// 写操作成功后需失效的匿名 REST 缓存范围。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnonCacheScope {
+    /// 主帖（顶帖数、主帖表情）。
+    Discussion,
+    /// 首页评论（评论顶帖）。
+    Comments,
+    /// 主帖与评论（新评论、评论表情）。
+    All,
+}
+
+/// 失效匿名 REST 通道的 `ETag Cache` 键，使下次未登录读取取回写后的最新载荷。
+pub fn invalidate_anonymous_cache(db: &Database, target: DiscussionRef<'_>, scope: AnonCacheScope) {
+    let (owner, repo, number) = (target.owner, target.repo, target.number);
+    if matches!(scope, AnonCacheScope::Discussion | AnonCacheScope::All) {
+        let _ = db.delete_etag(&rest_discussion_url(owner, repo, number));
+    }
+    if matches!(scope, AnonCacheScope::Comments | AnonCacheScope::All) {
+        let _ = db.delete_etag(&rest_comments_url(owner, repo, number));
+    }
 }
 
 /// GraphQL 调用错误分类。

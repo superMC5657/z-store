@@ -301,6 +301,184 @@ pub(crate) async fn read_body_capped(
     Ok(buf)
 }
 
+/* ------------------------------------------------------------------ */
+/* 无令牌清单同步传输（收录目录与开源广场清单共用）                     */
+/* ------------------------------------------------------------------ */
+
+/// 清单池（无 Token，跟随系统代理；与 API / 图标池物理隔离）。
+static SHARED_MANIFEST: ClientSlot = ClientSlot::new();
+/// 镜像回退清单池：键含镜像 host 直连豁免，签名不变即复用连接池。
+static MIRROR_MANIFEST: ClientSlot = ClientSlot::new();
+
+/// 清单 Client 构造（无 Token，独立连接池参数）；`extra_hosts` 追加 per-client `no_proxy`。
+fn build_manifest_client(
+    snap: &ProxySnapshot,
+    extra_hosts: &[String],
+) -> Result<reqwest::Client, String> {
+    let cfg = crate::config::get_project_config();
+    let builder = reqwest::Client::builder()
+        .pool_max_idle_per_host(10)
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .tcp_keepalive(std::time::Duration::from_secs(60))
+        .timeout(std::time::Duration::from_secs(
+            cfg.network.api_timeout_seconds,
+        ));
+    crate::proxy::apply_proxy_snapshot(builder, snap, extra_hosts)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+fn pooled_manifest_client(slot: &ClientSlot, snap: &ProxySnapshot) -> reqwest::Client {
+    slot.get_or_build(&snap.signature(&[]), || build_manifest_client(snap, &[]))
+        .unwrap_or_else(|_| crate::proxy::fallback_client(snap, &[]))
+}
+
+/// 当前系统代理快照下的清单池 Client（签名不变复用，代理变化即重建）。
+pub fn manifest_client() -> reqwest::Client {
+    pooled_manifest_client(&SHARED_MANIFEST, &crate::proxy::current_proxy_snapshot())
+}
+
+/// 镜像地址对应的清单池 Client（镜像 host 走 per-client `no_proxy` 直连）。
+fn mirror_manifest_client(mirrored_url: &str) -> Result<reqwest::Client, String> {
+    let snap = crate::proxy::current_proxy_snapshot();
+    let extra = crate::proxy::proxy_hosts_for(mirrored_url);
+    let key = format!(
+        "{}|{}",
+        crate::config::get_project_config()
+            .network
+            .api_timeout_seconds,
+        snap.signature(&extra)
+    );
+    MIRROR_MANIFEST.get_or_build(&key, || build_manifest_client(&snap, &extra))
+}
+
+/// 一次清单同步的请求参数。
+#[derive(Debug, Clone, Copy)]
+pub struct ManifestRequest<'a> {
+    pub url: &'a str,
+    /// 首跳条件请求的 `If-None-Match`（镜像重试恒不携带）。
+    pub cached_etag: Option<&'a str>,
+    /// 首跳可重试失败（传输错误 / 429 / 5xx）时经此镜像前缀重试一次。
+    pub mirror_prefix: Option<&'a str>,
+    /// 响应体上限，超限视为不可重试失败。
+    pub max_bytes: usize,
+    /// 错误文案中的清单名（如「收录清单」「开源广场清单」）。
+    pub label: &'a str,
+}
+
+/// 清单同步结果：`body == None` 表示 `304 Not Modified`；镜像结果恒不带 ETag。
+#[derive(Debug)]
+pub struct ManifestFetch {
+    pub body: Option<Vec<u8>>,
+    pub etag: Option<String>,
+    pub via_mirror: bool,
+}
+
+struct ManifestFetchError {
+    message: String,
+    retryable: bool,
+}
+
+fn human_size(bytes: usize) -> String {
+    const MIB: usize = 1024 * 1024;
+    if bytes >= MIB && bytes.is_multiple_of(MIB) {
+        format!("{} MiB", bytes / MIB)
+    } else {
+        format!("{} KiB", bytes / 1024)
+    }
+}
+
+/// 单跳无令牌 GET：可选 `If-None-Match`，传输失败记入代理记账。
+async fn fetch_manifest_once(
+    client: &reqwest::Client,
+    url: &str,
+    cached_etag: Option<&str>,
+    req: &ManifestRequest<'_>,
+) -> Result<ManifestFetch, ManifestFetchError> {
+    let label = req.label;
+    let fail = |message: String, retryable: bool| ManifestFetchError { message, retryable };
+    let mut builder = client
+        .get(url)
+        .header(USER_AGENT, crate::github::http::GH_USER_AGENT);
+    if let Some(etag) = cached_etag {
+        builder = builder.header(reqwest::header::IF_NONE_MATCH, etag);
+    }
+    let resp = builder.send().await.map_err(|e| {
+        crate::proxy::note_transport_error(&e);
+        fail(format!("请求{label}失败: {e}"), true)
+    })?;
+    let status = resp.status();
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(ManifestFetch {
+            body: None,
+            etag: None,
+            via_mirror: false,
+        });
+    }
+    if !status.is_success() {
+        let retryable = status.as_u16() == 429 || status.is_server_error();
+        return Err(fail(format!("同步{label}失败，HTTP 状态码: {status}"), retryable));
+    }
+    let etag = resp
+        .headers()
+        .get("etag")
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string);
+    let body = read_body_capped(resp, req.max_bytes)
+        .await
+        .map_err(|e| match e {
+            BodyReadError::TooLarge => {
+                fail(format!("{label}超过 {} 上限", human_size(req.max_bytes)), false)
+            }
+            BodyReadError::Transport(e) => fail(format!("读取{label}失败: {e}"), true),
+        })?;
+    Ok(ManifestFetch {
+        body: Some(body),
+        etag,
+        via_mirror: false,
+    })
+}
+
+/// 无令牌清单同步：首跳经 `primary` 发条件请求（`304` 即未变更）；首跳可重试失败且给出
+/// `mirror_prefix` 时经镜像池无条件重试一次，镜像载荷须通过 `validate_mirror` 才采纳，
+/// 失败文案以「首跳原因；镜像原因」拼接。不可重试失败或无镜像时返回首跳原因。
+pub async fn fetch_manifest_with_mirror_fallback(
+    primary: &reqwest::Client,
+    req: ManifestRequest<'_>,
+    validate_mirror: impl FnOnce(&[u8]) -> Result<(), String>,
+) -> Result<ManifestFetch, String> {
+    let primary_err = match fetch_manifest_once(primary, req.url, req.cached_etag, &req).await {
+        Ok(fetched) => return Ok(fetched),
+        Err(ManifestFetchError {
+            message,
+            retryable: true,
+        }) => message,
+        Err(ManifestFetchError { message, .. }) => return Err(message),
+    };
+    let Some(prefix) = req.mirror_prefix else {
+        return Err(primary_err);
+    };
+    let mirrored = crate::mirror::prefix_with_base(prefix, req.url);
+    let mirror_result = async {
+        let client = mirror_manifest_client(&mirrored)?;
+        let fetched = fetch_manifest_once(&client, &mirrored, None, &req)
+            .await
+            .map_err(|e| format!("镜像重试失败: {}", e.message))?;
+        let Some(body) = fetched.body else {
+            return Err("镜像清单校验失败: 未发条件请求却返回 304".to_string());
+        };
+        validate_mirror(&body).map_err(|reason| format!("镜像清单校验失败: {reason}"))?;
+        Ok(ManifestFetch {
+            body: Some(body),
+            etag: None,
+            via_mirror: true,
+        })
+    };
+    mirror_result
+        .await
+        .map_err(|reason: String| format!("{primary_err}；{reason}"))
+}
+
 /// 统一 HTTP 限流上报跨度（只负责 `x-ratelimit` 上报，不直接刷屏打日志）。
 pub struct HttpSpan;
 
@@ -317,9 +495,26 @@ impl HttpSpan {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_with_d7_retry_observed, pooled_client, retry_after_delay_ms, PoolKind};
+    use super::{
+        get_with_d7_retry_observed, pooled_client, pooled_manifest_client, retry_after_delay_ms,
+        PoolKind,
+    };
     use crate::proxy::{ClientSlot, ProxySnapshot};
     use crate::test_support::proxied_snapshot;
+
+    #[test]
+    fn manifest_pool_rebuilds_on_proxy_signature_change_and_reuses_otherwise() {
+        let slot = ClientSlot::new();
+        let direct = ProxySnapshot::direct();
+        let proxied = proxied_snapshot("http://127.0.0.1:7890");
+        pooled_manifest_client(&slot, &direct);
+        pooled_manifest_client(&slot, &direct);
+        assert_eq!(slot.build_count(), 1, "identical signature must reuse");
+        pooled_manifest_client(&slot, &proxied);
+        assert_eq!(slot.build_count(), 2, "proxy turned on must rebuild");
+        pooled_manifest_client(&slot, &direct);
+        assert_eq!(slot.build_count(), 3, "proxy turned off must rebuild");
+    }
 
     #[test]
     fn pools_rebuild_on_proxy_signature_change_and_reuse_otherwise() {

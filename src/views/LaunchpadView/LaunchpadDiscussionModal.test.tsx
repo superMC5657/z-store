@@ -33,6 +33,7 @@ vi.mock('../../services/api', async (importOriginal) => {
 });
 
 import { LaunchpadDiscussionModal } from './LaunchpadDiscussionModal';
+import type { DiscussionStatePatch, UpvoteOptions } from './useLaunchpadFeed';
 
 const entry: LaunchpadEntry = {
   summary: {
@@ -114,16 +115,36 @@ function detail(overrides: Partial<LaunchpadDiscussionDetail> = {}): LaunchpadDi
 
 const user: OAuthUser = { login: 'me', has_list_scope: true, is_expired: false };
 
+/** 与 `useLaunchpadFeed` 同口径的写动作替身：顶帖经 IPC 后写回讨论状态。 */
+function makeActions() {
+  const patchDiscussionState = vi.fn((_id: string, _patch: DiscussionStatePatch) => {});
+  return {
+    isStarring: () => false,
+    isUpvoting: () => false,
+    toggleStar: vi.fn(async (_e: LaunchpadEntry) => {}),
+    upvote: vi.fn(async (e: LaunchpadEntry, opts?: UpvoteOptions) => {
+      const res = await api.toggleLaunchpadUpvote({
+        discussionRepo: e.discussion_repo,
+        discussionNumber: e.discussion_number,
+        subjectId: opts?.subjectId || e.discussion_node_id,
+        currentlyUpvoted: opts?.currentlyUpvoted ?? Boolean(e.viewer_has_upvoted),
+      });
+      patchDiscussionState(e.summary.id, { upvotes: res.upvote_count, viewerHasUpvoted: res.viewer_has_upvoted });
+      return res;
+    }),
+    patchDiscussionState,
+  };
+}
+
 function renderModal(overrides: Partial<React.ComponentProps<typeof LaunchpadDiscussionModal>> = {}) {
   const props = {
     entry,
     oauthUser: user as OAuthUser | null,
+    actions: makeActions(),
     onClose: vi.fn(),
     onOpenDetail: vi.fn(),
     onOpenDeveloper: vi.fn(),
     onOpenAccount: vi.fn(),
-    onUpvoteChange: vi.fn(),
-    onCommentAdded: vi.fn(),
     ...overrides,
   };
   render(<LaunchpadDiscussionModal {...props} />);
@@ -153,7 +174,7 @@ describe('LaunchpadDiscussionModal', () => {
     expect(api.getLaunchpadDiscussion).toHaveBeenCalledWith('superMC5657/z-store-launchpad', 7);
   });
 
-  it('已登录顶帖调用 toggleLaunchpadUpvote 并同步父级计数', async () => {
+  it('已登录顶帖经共享顶帖动作调用 toggleLaunchpadUpvote 并写回广场计数', async () => {
     api.getLaunchpadDiscussion.mockResolvedValue(detail());
     api.toggleLaunchpadUpvote.mockResolvedValue({ subject_id: 'D_7', upvote_count: 4, viewer_has_upvoted: true, mode: 'reaction' });
     const props = renderModal();
@@ -167,7 +188,7 @@ describe('LaunchpadDiscussionModal', () => {
       subjectId: 'D_7',
       currentlyUpvoted: false,
     });
-    expect(props.onUpvoteChange).toHaveBeenCalledWith('acme/hyper', 4, true);
+    expect(props.actions.patchDiscussionState).toHaveBeenCalledWith('acme/hyper', { upvotes: 4, viewerHasUpvoted: true });
     expect(screen.getByTestId('launchpad-discussion-upvote').textContent).toBe('4');
   });
 
@@ -192,7 +213,7 @@ describe('LaunchpadDiscussionModal', () => {
       replyToId: undefined,
     });
     expect(await screen.findByTestId('launchpad-comment-DC_9')).toBeTruthy();
-    expect(props.onCommentAdded).toHaveBeenCalledWith('acme/hyper');
+    expect(props.actions.patchDiscussionState).toHaveBeenCalledWith('acme/hyper', { commentsDelta: 1 });
 
     fireEvent.click(within(screen.getByTestId('launchpad-comment-DC_1')).getByRole('button', { name: '回复 @bob' }));
     fireEvent.change(screen.getByTestId('launchpad-comment-input'), { target: { value: 'a reply' } });
@@ -297,7 +318,7 @@ describe('LaunchpadDiscussionModal', () => {
     expect(screen.getByTestId('launchpad-comment-vote-DC_1').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('launchpad-comment-vote-DC_1').querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
     expect(api.toggleLaunchpadUpvote).not.toHaveBeenCalled();
-    expect(props.onUpvoteChange).not.toHaveBeenCalled();
+    expect(props.actions.upvote).not.toHaveBeenCalled();
   });
 
   it('自己的评论按 GitHub 原始顶帖态展示，并支持取消/切换顶帖', async () => {
@@ -501,8 +522,7 @@ describe('LaunchpadDiscussionModal', () => {
           }),
       );
 
-    const onDiscussionSynced = vi.fn();
-    renderModal({ onDiscussionSynced });
+    const props = renderModal();
 
     const refreshBtn = screen.getByTestId('launchpad-discussion-refresh') as HTMLButtonElement;
     expect(refreshBtn.disabled).toBe(true);
@@ -545,7 +565,7 @@ describe('LaunchpadDiscussionModal', () => {
     expect(await screen.findByTestId('launchpad-comment-DC_99')).toBeTruthy();
     expect(document.querySelector('.launchpad-discussion-body strong')?.textContent).toBe('更新后的正文');
     expect(screen.getByTestId('launchpad-discussion-upvote').textContent).toBe('8');
-    expect(onDiscussionSynced).toHaveBeenLastCalledWith('acme/hyper', {
+    expect(props.actions.patchDiscussionState).toHaveBeenLastCalledWith('acme/hyper', {
       upvotes: 8,
       commentsCount: 3,
       viewerHasUpvoted: true,
