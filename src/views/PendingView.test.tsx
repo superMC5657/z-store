@@ -304,12 +304,13 @@ describe('PendingView 表单窄宽布局回归（只锁布局，不碰字段/校
     expect(categoryNameInput.value).toBe('系统实用');
   });
 
-  it('components-pending.css and tokens.css provide theme-adapted styles for select-fluent', () => {
-    const css = readPendingCss();
-    expect(css).toContain('.pending-view .select-fluent');
-    expect(css).toContain('.pending-view .select-fluent option');
-    expect(css).toContain('var(--bg-acrylic-card)');
-    expect(css).toContain('var(--bg-input)');
+  it('select-fluent options get a solid theme background from the shared input styles', () => {
+    const css = readFileSync(join(process.cwd(), 'src', 'styles', 'components-inputs.css'), 'utf8');
+    const optionRule = css.match(/\.select-fluent option\s*\{([^}]*)\}/);
+    expect(optionRule).not.toBeNull();
+    expect(optionRule![1]).toContain('background: var(--bg-acrylic-card)');
+    expect(optionRule![1]).toContain('color: var(--text-primary)');
+    expect(readPendingCss()).not.toContain('.select-fluent option');
   });
 
   it('长 id 标题省略 + title 悬浮看全', async () => {

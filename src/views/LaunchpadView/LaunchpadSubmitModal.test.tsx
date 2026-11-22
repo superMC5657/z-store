@@ -116,6 +116,12 @@ describe('LaunchpadSubmitModal', () => {
     fireEvent.change(noteInput, { target: { value: '重写了 WebGPU 渲染管线。' } });
     fireEvent.change(screen.getByLabelText(/上架档位/), { target: { value: 'spotlight-7d' } });
 
+    // Dropdowns share the app-wide select styles so native option lists follow the theme
+    for (const select of [screen.getByLabelText(/功能分类/), screen.getByLabelText(/上架档位/)]) {
+      expect(select.tagName).toBe('SELECT');
+      expect(select.className).toContain('select-fluent');
+    }
+
     const preview = screen.getByTestId('launchpad-wizard-preview');
     expect(within(preview).getByText('HyperTerm')).toBeTruthy();
     expect(within(preview).getByText('重写了 WebGPU 渲染管线。')).toBeTruthy();

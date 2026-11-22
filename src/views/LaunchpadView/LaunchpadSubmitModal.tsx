@@ -386,7 +386,7 @@ export const LaunchpadSubmitModal: React.FC<LaunchpadSubmitModalProps> = ({
               <select
                 id={categorySelectId}
                 name="category"
-                className="launchpad-select"
+                className="select-fluent"
                 value={category}
                 onChange={(e) => setCategory(e.target.value as LaunchpadCategoryKey)}
               >
@@ -461,7 +461,7 @@ export const LaunchpadSubmitModal: React.FC<LaunchpadSubmitModalProps> = ({
               <select
                 id={tierSelectId}
                 name="launch_tier"
-                className="launchpad-select"
+                className="select-fluent"
                 value={launchTier}
                 onChange={(e) => setLaunchTier(e.target.value as LaunchpadTier)}
               >

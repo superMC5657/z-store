@@ -1107,7 +1107,6 @@ button.launchpad-comment-author:hover {
 }
 
 .launchpad-input,
-.launchpad-select,
 .launchpad-textarea {
   width: 100%;
   box-sizing: border-box;
@@ -1120,10 +1119,14 @@ button.launchpad-comment-author:hover {
   transition: border-color 0.12s var(--ease-smooth), box-shadow 0.12s var(--ease-smooth);
 }
 
-.launchpad-input,
-.launchpad-select {
+.launchpad-input {
   height: 30px;
   padding: 0 9px;
+}
+
+/* 下拉沿用通用 .select-fluent，仅把高度对齐到本表单 30px 的输入框 */
+.launchpad-field .select-fluent {
+  height: 30px;
 }
 
 .launchpad-textarea {
@@ -1134,7 +1137,6 @@ button.launchpad-comment-author:hover {
 }
 
 .launchpad-input:focus-visible,
-.launchpad-select:focus-visible,
 .launchpad-textarea:focus-visible {
   outline: 2px solid var(--border-highlight);
   outline-offset: 1px;
