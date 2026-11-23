@@ -275,8 +275,8 @@ describe('PendingView revert collected to draft (secondary + double-confirm)', (
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     fireEvent.click(screen.getByTestId('pending-revert-to-draft'));
     await waitFor(() => expect(onRevertToDraft).toHaveBeenCalledWith('o/a'));
-    // 退回不跳 Tab：停留本地收录（守住不自动切草稿）
-    expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull();
+    // 退回不跳 Tab：停留本地收录（守住不自动切草稿）。选中清空发生在 revert promise 落定之后，需等待 DOM。
+    await waitFor(() => expect(screen.queryByTestId('pending-revert-to-draft')).toBeNull());
     expect(screen.getByText('选择或新建草稿')).toBeTruthy();
   });
 

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 import { InstalledView } from './InstalledView';
+// 预热懒加载的分享弹窗模块：全量并行跑时首次动态 import 的转换耗时可能超过 findBy 默认 1s。
+import '../components/CollectionShareModal';
 import type { InstalledApp, UpdateItem, UpdateRule } from '../types';
 import {
   buildRulesMap,

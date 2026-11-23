@@ -228,9 +228,13 @@ describe('deeplink install guard (real App path)', () => {
     await act(async () => {
       dispatchDeepLink('zstore://view/settings');
     });
-    await waitFor(() => {
-      expect(document.getElementById('settings-account')).toBeTruthy();
-    });
+    // 设置页整树挂载较重，全量并行跑时可能超过 waitFor 默认 1s。
+    await waitFor(
+      () => {
+        expect(document.getElementById('settings-account')).toBeTruthy();
+      },
+      { timeout: 3000 },
+    );
 
     expect(hooks.installApp).not.toHaveBeenCalled();
   });

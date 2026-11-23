@@ -60,13 +60,19 @@ const RESOLVED_APPS: AppSummary[] = [
   makeSummary({ id: 'acme/cold-tool', name: 'cold-tool', platforms: [], is_cataloged: false, description: '' }),
 ];
 
+// jsdom's default UA embeds process.platform, so pin a Windows host to keep default selection deterministic across CI runners.
+const HOST_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)';
+let userAgentSpy: ReturnType<typeof vi.spyOn> | undefined;
+
 beforeEach(async () => {
+  userAgentSpy = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(HOST_UA);
   await i18n.changeLanguage('zh-CN');
   mocks.resolveCollectionApps.mockResolvedValue(RESOLVED_APPS);
 });
 
 afterEach(() => {
   cleanup();
+  userAgentSpy?.mockRestore();
   vi.clearAllMocks();
 });
 

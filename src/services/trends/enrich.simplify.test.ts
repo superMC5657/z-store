@@ -96,9 +96,10 @@ describe('takeFreshEnrichEntry 分支', () => {
 
   it('平台未知的卡片 12h 内新鲜命中，过期即驱逐', () => {
     const t0 = Date.now();
-    putTrendEnrichMemory({
-      'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }),
-    });
+    putTrendEnrichMemory(
+      { 'acme/atlas': makeEnrichedApp({ id: 'acme/atlas', platforms: [] }) },
+      { timestamp: t0 },
+    );
     expect(takeFreshEnrichEntry('acme/atlas', t0, false)).toBe(true);
     expect(snapshotTrendEnrichCache()).not.toHaveProperty('acme/atlas');
     expect(takeFreshEnrichEntry('acme/atlas', t0 + TREND_ENRICH_CACHE_TTL_MS + 1, false)).toBe(false);
