@@ -64,6 +64,11 @@ function toSummary(c: CatalogRaw): AppSummary {
 
 export const summaries: AppSummary[] = catalogEntries.map(toSummary);
 
+/** 小写 id → 目录别名（人工策展的关键词），供演示站相似推荐使用。 */
+export const catalogAliases: ReadonlyMap<string, readonly string[]> = new Map(
+  catalogEntries.map((c) => [c.id.toLowerCase(), c.aliases ?? []]),
+);
+
 const summaryById = new Map<string, AppSummary>();
 for (const s of summaries) {
   const key = s.id.toLowerCase();

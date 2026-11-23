@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-11-14
-- 关联：ADR-0023（精选页推荐货架；本 ADR 修订其 §2.1、§2.4、§2.5、§2.6 的部分细则）
+- 关联：ADR-0023（精选页推荐货架；本 ADR 修订其 §2.1、§2.4、§2.5、§2.6 的部分细则）、ADR-0031（修订本 ADR §2.4 的种子相似度与 §2.5 的货架采样种子）
 - 范围：后端（`affinity_text` 文本底座、`UserAffinityProfile` 打分、GitHub 画像同步时间戳、`app_details` 概要回退、`featured.rs` 货架组装、`dismiss_featured` 命令）；前端（`dismissFeatured` 附带 `appId`、演示站 mock、删除前端画像打分器）
 - 落地计划：`.scratch/affinity-algorithm-v2/`
 - 实现：`src-tauri/src/github/affinity_text.rs`、`src-tauri/src/github/affinity.rs`、`src-tauri/src/github/featured.rs`、`src-tauri/src/db/affinity.rs`、`src-tauri/src/commands/catalog_feed.rs`
@@ -57,8 +57,8 @@ P_tok = clamp(0.60·s1 + 0.25·s2 + 0.15·s3, 0, 1)，s_i = W_tok(t_i) × idf(t_
 ### 2.5 精选货架组装
 
 - **候选排除**：隐藏、平台不可见、「不感兴趣」，以及应用内显式关系（收藏 ∪ 关注 ∪ 已装）的应用一律不进推荐货架；它们仍可作为 `because_you` 的种子被查找和命名。`get_home_feed` 主流仍只做 1.2 的让位扣分。
-- **日期采样**：货架质量分 = `ln(stars+1) + 0.25·ln(forks+1)` + 日期抖动；星数 ≥ 500 的应用抖动半幅为 `SHELF_JITTER_HALF = 1.15`（全幅约等于 10 倍星数的竞争窗口），更低星数只用 `±0.15`，长尾应用不会靠极端随机数登上 hero。`get_home_feed` 的 `±0.15` 不变。
-- **探索新领域**：每个画像权重 < 0.15 且未被少推的分类，按纯质量分取前 `EXPLORE_PER_CAT_POOL = 5` 个组成精品池，再按日期种子挑当日代表作；分类之间仍按日期种子轮换取 4 个。
+- **种子采样**：货架质量分 = `ln(stars+1) + 0.25·ln(forks+1)` + 按访问种子的抖动（ADR-0031 §2.4）；星数 ≥ 500 的应用抖动半幅为 `SHELF_JITTER_HALF = 1.15`（全幅约等于 10 倍星数的竞争窗口），更低星数只用 `±0.15`，长尾应用不会靠极端随机数登上 hero。`get_home_feed` 的 `±0.15` 不变。
+- **探索新领域**：每个画像权重 < 0.15 且未被少推的分类，按纯质量分取前 `EXPLORE_PER_CAT_POOL = 5` 个组成精品池，再按访问种子挑代表作；分类之间仍按访问种子轮换取 4 个。
 - **「少推这类」全货架生效**：hero 先在未被少推的分类里互斥取满，凑不满才用被少推的分类补位；`because_you` 不以被少推分类的应用为种子，候选也排除该分类；本月新入库排除该分类；个性化的分类精选直接剔除被少推的分类；无画像的分类轮换把它们排到队尾，只在其余分类不足时兜底；探索直接跳过。
 - **`rich` 态补位新入库**：`fresh` 在非 `rich`，或 `rich` 但实际产出的 `because_you` 不足 2 排时出现。
 - **`because_you` 理由**：优先画像给出的作者 / 关键词理由，其次种子与候选共同的高 IDF 词元（IDF ≥ 0.5），都没有才用分类。
@@ -87,4 +87,4 @@ P_tok = clamp(0.60·s1 + 0.25·s2 + 0.15·s3, 0, 1)，s_i = W_tok(t_i) × idf(t_
 - `RawAffinitySignals` 新增 `uncataloged_briefs`，`load_raw_affinity_signals` 对涉及的全部去重应用按每批 200 个 id 读取 `app_details` 轻量列。
 - `GitHubRepoResponse` 新增 `pushed_at`、`updated_at`。
 - 已收藏 / 已关注的应用不再出现在精选页推荐货架里；它们仍在主流、分类与搜索中正常出现。
-- 真实目录门禁：无画像与典型 `rich` 画像下，连续 30 个日期种子内主 hero 至少 5 款、hero 三元组至少 12 组、hero 星数均 ≥ 500；300 条目录外 GitHub 信号加 2 条收藏与 1 个兴趣种子时，收藏与种子分类权重均 ≥ 0.45；推荐理由不含泛化词；四种画像状态下「少推这类」后该分类与触发卡片都不再出现在页面任何位置（其余分类足够填满 hero）。
+- 真实目录门禁：无画像与典型 `rich` 画像下，30 个访问种子内主 hero 至少 5 款、hero 三元组至少 12 组、hero 星数均 ≥ 500；300 条目录外 GitHub 信号加 2 条收藏与 1 个兴趣种子时，收藏与种子分类权重均 ≥ 0.45；推荐理由不含泛化词；四种画像状态下「少推这类」后该分类与触发卡片都不再出现在页面任何位置（其余分类足够填满 hero）。

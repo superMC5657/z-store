@@ -292,4 +292,15 @@ describe('collection demo handlers', () => {
       }
     }
   });
+
+  it('handleGetSimilarApps matches on shared keywords instead of category popularity', () => {
+    const popular = ['anomalyco/opencode', 'microsoft/vscode', 'openai/codex'];
+    const api = handleGetSimilarApps({ appId: 'hoppscotch/hoppscotch', limit: 8 });
+    const ids = api.items.map((entry) => entry.app.id.toLowerCase());
+    expect(ids).toContain('kong/insomnia');
+    for (const p of popular) expect(ids).not.toContain(p);
+    for (const entry of api.items) {
+      expect(entry.reasons.some((r) => r.kind === 'keywords')).toBe(true);
+    }
+  });
 });

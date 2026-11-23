@@ -258,12 +258,23 @@ describe('FeaturedView: recent section and backend args', () => {
     expect(screen.queryByTestId('featured-recent')).toBeNull();
   });
 
-  it('passes the platform-filtered ids and the day seed to the backend', async () => {
-    renderView(undefined, APPS.slice(0, 5));
-    await screen.findByTestId('featured-hero');
-    const [seed, ids] = vi.mocked(tauriApi.getFeaturedPage).mock.calls[0];
-    expect(String(seed)).toMatch(/^\d{8}$/);
-    expect(ids).toEqual(APPS.slice(0, 5).map((a) => a.id));
+  it('passes the platform-filtered ids and a fresh visit seed to the backend', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0.25).mockReturnValueOnce(0.75);
+    try {
+      const first = renderView(undefined, APPS.slice(0, 5));
+      await screen.findByTestId('featured-hero');
+      const [seed, ids] = vi.mocked(tauriApi.getFeaturedPage).mock.calls[0];
+      expect(seed).toBe(0x4000_0000);
+      expect(ids).toEqual(APPS.slice(0, 5).map((a) => a.id));
+      // 重新进入精选页换一个种子，货架随之轮换
+      first.unmount();
+      renderView(undefined, APPS.slice(0, 5));
+      await screen.findByTestId('featured-hero');
+      const calls = vi.mocked(tauriApi.getFeaturedPage).mock.calls;
+      expect(calls[calls.length - 1][0]).toBe(0xc000_0000);
+    } finally {
+      random.mockRestore();
+    }
   });
 });
 

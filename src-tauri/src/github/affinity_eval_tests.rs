@@ -1,5 +1,5 @@
 //! 基于仓库根目录真实 `catalog.json` 的推荐质量门禁：轮换多样性、抗淹没、
-//! 推荐理由纯净度、分类推断准确率与「少推这类」全态闭环。
+//! 推荐理由纯净度、分类推断准确率、「少推这类」全态闭环与关键词优先的相似推荐。
 
 use super::affinity::{infer_categories_from_repo, Reason, UserAffinityProfile};
 use super::featured::{
@@ -13,7 +13,18 @@ use std::collections::HashSet;
 
 /// 2026-11-15 00:00:00 UTC。
 const NOW: i64 = 1_794_700_800;
-const DAYS: std::ops::RangeInclusive<u64> = 20261101..=20261130;
+/// 30 次进入精选页的访问种子：与前端 `visitSeed()` 同为 32 位随机整数，
+/// 这里用固定起点的 splitmix64 生成以保证门禁可复现。
+fn visits() -> impl Iterator<Item = u64> {
+    let mut state: u64 = 0x5eed_2026_1123;
+    (0..30).map(move |_| {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        (z ^ (z >> 31)) & 0xffff_ffff
+    })
+}
 
 fn real_catalog() -> Vec<CatalogItem> {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../catalog.json");
@@ -46,7 +57,7 @@ fn page(
     catalog: &[CatalogItem],
     raw: &RawAffinitySignals,
     enabled: bool,
-    day_seed: u64,
+    visit_seed: u64,
 ) -> (FeaturedPage, UserAffinityProfile) {
     let profile = UserAffinityProfile::from_signals(raw, catalog, NOW);
     let hidden = HashSet::new();
@@ -57,7 +68,7 @@ fn page(
         hidden_ids: &hidden,
         profile: Some(&profile),
         enabled,
-        day_seed,
+        visit_seed,
         now_secs: NOW,
     });
     (page, profile)
@@ -99,33 +110,36 @@ fn thirty_day_rotation_keeps_hero_diverse_and_guarded() {
             .collect();
         let mut main_heroes: HashSet<String> = HashSet::new();
         let mut triples: HashSet<Vec<String>> = HashSet::new();
-        for day in DAYS {
-            let (p, _) = page(&catalog, &raw, enabled, day);
+        for visit in visits() {
+            let (p, _) = page(&catalog, &raw, enabled, visit);
             assert_eq!(p.profile_state, state, "{name}");
             let hero: Vec<String> = p.hero.iter().map(|h| h.app.core.id.clone()).collect();
             main_heroes.insert(hero[0].clone());
             triples.insert(hero.clone());
             for id in &hero {
-                assert!(stars_of(id) >= 500, "{name} day {day}: 长尾 {id} 登上 hero");
+                assert!(
+                    stars_of(id) >= 500,
+                    "{name} visit {visit}: 长尾 {id} 登上 hero"
+                );
             }
             let ids = page_ids(&p);
             let uniq: HashSet<&String> = ids.iter().collect();
-            assert_eq!(uniq.len(), ids.len(), "{name} day {day}: 整页重复");
+            assert_eq!(uniq.len(), ids.len(), "{name} visit {visit}: 整页重复");
             for id in &ids {
                 assert!(
                     !explicit.contains(id),
-                    "{name} day {day}: 已知应用 {id} 混入"
+                    "{name} visit {visit}: 已知应用 {id} 混入"
                 );
             }
         }
         assert!(
             main_heroes.len() >= 5,
-            "{name}: 30 天主 hero 只有 {} 款：{main_heroes:?}",
+            "{name}: 30 次访问主 hero 只有 {} 款：{main_heroes:?}",
             main_heroes.len()
         );
         assert!(
             triples.len() >= 12,
-            "{name}: 30 天 hero 三元组只有 {} 组",
+            "{name}: 30 次访问 hero 三元组只有 {} 组",
             triples.len()
         );
     }
@@ -208,8 +222,8 @@ fn keyword_reasons_never_surface_generic_words() {
         "app",
     ];
     let mut seen_keywords = 0usize;
-    for day in DAYS {
-        let (p, _) = page(&catalog, &raw, true, day);
+    for visit in visits() {
+        let (p, _) = page(&catalog, &raw, true, visit);
         for pick in p
             .hero
             .iter()
@@ -318,8 +332,8 @@ fn category_dismissal_closes_the_loop_in_every_state() {
         ("rich", rich_raw(&catalog), true, ProfileState::Rich),
     ];
     for (name, raw, enabled, state) in cases {
-        for day in [20261101u64, 20261115, 20261130] {
-            let (before, _) = page(&catalog, &raw, enabled, day);
+        for visit in [20261101u64, 20261115, 20261130] {
+            let (before, _) = page(&catalog, &raw, enabled, visit);
             assert_eq!(before.profile_state, state, "{name}");
             let (cat, card) = first_dismiss_target(&before);
 
@@ -336,16 +350,167 @@ fn category_dismissal_closes_the_loop_in_every_state() {
                     created_at: NOW,
                 },
             ]);
-            let (after, _) = page(&catalog, &after_raw, enabled, day);
+            let (after, _) = page(&catalog, &after_raw, enabled, visit);
             // 其余分类充足，hero 不需要用被少推的分类补位，整页都不应再出现它
             assert!(
                 !page_categories(&after).contains(&cat),
-                "{name} day {day}: {cat} 仍出现在页面上"
+                "{name} visit {visit}: {cat} 仍出现在页面上"
             );
             assert!(
                 !page_ids(&after).contains(&card),
-                "{name} day {day}: 触发卡片 {card} 仍在页面上"
+                "{name} visit {visit}: 触发卡片 {card} 仍在页面上"
             );
         }
+    }
+}
+
+/// 开发重度画像：收藏 / 安装 AI 编程类工具，外加偏 AI 的 GitHub Star。
+fn dev_heavy_raw(catalog: &[CatalogItem]) -> RawAffinitySignals {
+    let pick = |ids: &[&str]| -> Vec<(String, i64)> {
+        ids.iter()
+            .filter(|id| catalog.iter().any(|c| c.id.eq_ignore_ascii_case(id)))
+            .map(|id| (id.to_string(), NOW - 3600))
+            .collect()
+    };
+    RawAffinitySignals {
+        favorites: pick(&["cline/cline", "qwenlm/qwen-code"]),
+        installed: pick(&["zed-industries/zed", "wezterm/wezterm", "usebruno/bruno"]),
+        repo_signals: (0..40)
+            .map(|i| UserRepoSignal {
+                full_name: format!("someone{i}/agent-{i}"),
+                relation: "starred".to_string(),
+                language: "TypeScript".to_string(),
+                description: "AI coding agent for the terminal".to_string(),
+                stars: 2_000,
+                forks: 100,
+                updated_at: NOW - (i as i64) * 3600,
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn dev_heavy_profile_rotates_dev_hero_instead_of_pinning_top_star_app() {
+    let catalog = real_catalog();
+    let raw = dev_heavy_raw(&catalog);
+    let top_dev = ids_in(&catalog, "dev", 1).remove(0);
+    let mut dev_heroes: HashSet<String> = HashSet::new();
+    let mut top_dev_in_hero = 0usize;
+    let visit_count = visits().count();
+    for visit in visits() {
+        let (p, _) = page(&catalog, &raw, true, visit);
+        assert_eq!(p.profile_state, ProfileState::Rich);
+        for h in &p.hero {
+            if h.app.core.category == "dev" {
+                dev_heroes.insert(h.app.core.id.to_lowercase());
+            }
+        }
+        if p.hero
+            .iter()
+            .any(|h| h.app.core.id.eq_ignore_ascii_case(&top_dev))
+        {
+            top_dev_in_hero += 1;
+        }
+    }
+    assert!(
+        dev_heroes.len() >= 4,
+        "dev hero 只轮换了 {} 款：{dev_heroes:?}",
+        dev_heroes.len()
+    );
+    assert!(
+        top_dev_in_hero * 2 <= visit_count,
+        "星数第一的 {top_dev} 在 {visit_count} 次访问里 {top_dev_in_hero} 次上 hero"
+    );
+}
+
+fn similar_ids(svc: &super::CatalogService, seed: &str) -> Vec<(String, Vec<Reason>)> {
+    let hidden = HashSet::new();
+    svc.find_similar_apps(
+        &super::catalog_service::SimilarAppSeed {
+            clean_id: seed,
+            name: None,
+            owner: None,
+            category: None,
+            description: None,
+            description_en: None,
+        },
+        &hidden,
+        Some(8),
+    )
+    .items
+    .into_iter()
+    .map(|m| (m.app.core.id.to_lowercase(), m.reasons))
+    .collect()
+}
+
+#[test]
+fn similar_apps_require_shared_keywords_across_real_catalog() {
+    let catalog = real_catalog();
+    let svc = super::CatalogService::with_items(catalog.clone());
+    for item in &catalog {
+        for (id, reasons) in similar_ids(&svc, &item.id) {
+            assert!(
+                reasons.iter().any(|r| matches!(r, Reason::Keywords { .. })),
+                "{} → {id} 没有共享关键词：{reasons:?}",
+                item.id
+            );
+        }
+    }
+}
+
+#[test]
+fn similar_apps_stay_on_track_instead_of_pulling_popular_dev_tools() {
+    let catalog = real_catalog();
+    let svc = super::CatalogService::with_items(catalog.clone());
+    let popular = ["anomalyco/opencode", "microsoft/vscode", "openai/codex"];
+    let no_popular = |seed: &str, ids: &[String]| {
+        for p in popular {
+            assert!(!ids.iter().any(|id| id == p), "{seed} 推出了 {p}：{ids:?}");
+        }
+    };
+    for (seed, expected) in [
+        ("hoppscotch/hoppscotch", "kong/insomnia"),
+        ("alacritty/alacritty", "wezterm/wezterm"),
+        ("videolan/vlc", "clsid2/mpc-hc"),
+        ("rustdesk/rustdesk", "mremoteng/mremoteng"),
+    ] {
+        let ids: Vec<String> = similar_ids(&svc, seed)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        no_popular(seed, &ids);
+        assert!(
+            ids.iter().any(|id| id == expected),
+            "{seed} 缺少 {expected}：{ids:?}"
+        );
+    }
+    // 目录里没有同赛道条目：scrcpy 只推出共享 android 关键词的条目，ripgrep 静默为空
+    let scrcpy = similar_ids(&svc, "genymobile/scrcpy");
+    no_popular(
+        "genymobile/scrcpy",
+        &scrcpy.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
+    );
+    for (id, reasons) in &scrcpy {
+        assert!(
+            reasons.iter().any(|r| matches!(
+                r,
+                Reason::Keywords { tokens } if tokens.iter().any(|t| t == "android")
+            )),
+            "scrcpy → {id} 不共享 android：{reasons:?}"
+        );
+    }
+    let ripgrep = similar_ids(&svc, "burntsushi/ripgrep");
+    assert!(ripgrep.is_empty(), "ripgrep 应无同赛道条目：{ripgrep:?}");
+    // AI 编程智能体之间互相推荐
+    let ids: Vec<String> = similar_ids(&svc, "anomalyco/opencode")
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    for want in ["openai/codex", "cline/cline", "qwenlm/qwen-code"] {
+        assert!(
+            ids.iter().any(|id| id == want),
+            "opencode 缺少 {want}：{ids:?}"
+        );
     }
 }

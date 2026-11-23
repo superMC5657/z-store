@@ -1,6 +1,6 @@
 //! 精选页货架组装纯函数：输入合并目录与本地画像，输出整页结构。
 
-use super::affinity::{Reason, SeedRelation, UserAffinityProfile, MAX_REASONS};
+use super::affinity::{Reason, SeedRelation, SimilarityTokens, UserAffinityProfile, MAX_REASONS};
 use super::catalog_feed_score::{feed_jitter01, feed_stars_forks_base, FEED_JITTER_HALF};
 use crate::models::AppSummary;
 use serde::Serialize;
@@ -23,12 +23,20 @@ pub const EXPLORE_WEIGHT_MAX: f64 = 0.15;
 pub const FRESH_WINDOW_DAYS: i64 = 30;
 /// 画像信号数达到此值进入 `rich`。
 pub const RICH_SIGNAL_MIN: usize = 5;
-/// 精选货架日期采样的抖动半幅（全幅 2.30，约等于 10 倍星数的竞争窗口），让头部按天轮换。
+/// 精选货架采样的抖动半幅（全幅 2.30，约等于 10 倍星数的竞争窗口），让头部随访问种子轮换。
 pub const SHELF_JITTER_HALF: f64 = 1.15;
 /// 星数低于此值的长尾应用只用窄幅抖动，避免靠极端随机数登上 hero。
 pub const SHELF_WIDE_JITTER_MIN_STARS: u64 = 500;
-/// 探索货架在每个分类内的精品池大小（按纯质量分取前 N，再按日期种子挑 1 款）。
+/// 探索货架在每个分类内的精品池大小（按纯质量分取前 N，再按访问种子挑 1 款）。
 pub const EXPLORE_PER_CAT_POOL: usize = 5;
+/// hero 在每个分类内的候选池：得分前 N 名里按访问种子挑 1 款，
+/// 画像把整个分类抬高时头部不会被同一款星数最高的应用长期占住。
+pub const HERO_POOL: usize = 5;
+/// 分类精选的候选池：得分前 N 名里按访问种子抽 `SHELF_SIZE` 个。
+pub const CATEGORY_PICK_POOL: usize = 8;
+/// hero 与分类精选抽样的种子盐，与得分抖动的种子错开。
+const HERO_PICK_SALT: u64 = 0x9e37_79b9_7f4a_7c15;
+const CATEGORY_PICK_SALT: u64 = 0xc2b2_ae3d_27d4_eb4f;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -104,7 +112,7 @@ pub struct FeaturedInput<'a> {
     /// 本地画像（关闭个性化时也传入，用于排除已知应用与负反馈）。
     pub profile: Option<&'a UserAffinityProfile>,
     pub enabled: bool,
-    pub day_seed: u64,
+    pub visit_seed: u64,
     pub now_secs: i64,
 }
 
@@ -130,18 +138,18 @@ struct Scored<'a> {
 struct ShelfQuality {
     /// 纯星数 + Fork 质量基线。
     base: f64,
-    /// 基线 + 按日期种子的确定性抖动（长尾应用只用窄幅抖动）。
+    /// 基线 + 按访问种子的确定性抖动（长尾应用只用窄幅抖动）。
     sampled: f64,
 }
 
-fn shelf_quality(app: &AppSummary, id: &str, day_seed: u64) -> ShelfQuality {
+fn shelf_quality(app: &AppSummary, id: &str, visit_seed: u64) -> ShelfQuality {
     let base = feed_stars_forks_base(app.core.stars, app.core.forks);
     let half = if app.core.stars >= SHELF_WIDE_JITTER_MIN_STARS {
         SHELF_JITTER_HALF
     } else {
         FEED_JITTER_HALF
     };
-    let jitter = (feed_jitter01(id, day_seed) - 0.5) * half * 2.0;
+    let jitter = (feed_jitter01(id, visit_seed) - 0.5) * half * 2.0;
     ShelfQuality {
         base,
         sampled: base + jitter,
@@ -165,7 +173,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
     let profile = input.profile;
     // 个性化状态下参与打分与解释的画像；关闭个性化或冷启动时为 None
     let personal = profile.filter(|_| personalized);
-    let day_seed = input.day_seed;
+    let visit_seed = input.visit_seed;
     let empty: HashSet<String> = HashSet::new();
     let dismissed_cats = profile.map(|p| &p.dismissed_categories).unwrap_or(&empty);
     let is_dismissed_category = |cat: &str| dismissed_cats.contains(cat);
@@ -198,7 +206,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         {
             continue;
         }
-        let quality = shelf_quality(app, &id, day_seed);
+        let quality = shelf_quality(app, &id, visit_seed);
         let boost = personal.map(|p| p.affinity_boost(app)).unwrap_or(0.0);
         ranked.push(Scored {
             score: quality.sampled + boost,
@@ -222,37 +230,47 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
 
     // 种子相似度词元：每个种子与每个候选各只分词一次，在 hero 与 because_you 间复用。
     let seeds = profile.map(|p| p.seeds.as_slice()).unwrap_or(&[]);
-    let seed_tokens: HashMap<&str, Vec<String>> = match personal {
+    let seed_tokens: HashMap<&str, SimilarityTokens> = match personal {
         Some(p) => seeds
             .iter()
             .filter_map(|sr| Some((sr.id.as_str(), p.similarity_tokens(by_id.get(&sr.id)?))))
             .collect(),
         None => HashMap::new(),
     };
-    let cand_tokens: Vec<OnceCell<Vec<String>>> = ranked.iter().map(|_| OnceCell::new()).collect();
+    let cand_tokens: Vec<OnceCell<SimilarityTokens>> =
+        ranked.iter().map(|_| OnceCell::new()).collect();
     let similarity = |p: &UserAffinityProfile, seed_id: &str, seed_app: &AppSummary, i: usize| {
         let cand = ranked[i].app;
         match seed_tokens.get(seed_id) {
             Some(st) => {
                 let ct = cand_tokens[i].get_or_init(|| p.similarity_tokens(cand));
-                p.seed_similarity_with_tokens(seed_app, st, cand, ct)
+                p.seed_similarity_with_tokens(st, ct)
             }
             None => p.seed_similarity(seed_app, cand),
         }
     };
 
-    // ---- hero：分类互斥取头部，「少推这类」分类只在其余分类凑不满时补位 ----
+    // ---- hero：分类互斥，分类先后由该分类最高分决定；分类内从前 HERO_POOL 名里按访问种子挑一款。
+    //      「少推这类」分类只在其余分类凑不满时补位 ----
     let mut hero: Vec<FeaturedPick> = Vec::new();
     let mut hero_cats: HashSet<String> = HashSet::new();
     for allow_dismissed in [false, true] {
-        for (idx, s) in ranked.iter().enumerate() {
+        for leader in ranked.iter() {
             if hero.len() >= HERO_SIZE {
                 break;
             }
-            let cat = s.app.core.category.trim().to_lowercase();
+            let cat = leader.app.core.category.trim().to_lowercase();
             if (!allow_dismissed && is_dismissed_category(&cat)) || hero_cats.contains(&cat) {
                 continue;
             }
+            let pool = category_pool(&ranked, &cat, HERO_POOL, |_| true);
+            let Some(idx) = sample_indices(&ranked, &pool, 1, visit_seed ^ HERO_PICK_SALT)
+                .into_iter()
+                .next()
+            else {
+                continue;
+            };
+            let s = &ranked[idx];
             hero_cats.insert(cat);
             let mut reasons = Vec::new();
             if let Some(p) = personal {
@@ -412,7 +430,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
             })
             .unwrap_or_default()
     } else {
-        rotated_categories(&ranked, day_seed)
+        rotated_categories(&ranked, visit_seed)
     };
     // 个性化分类只来自画像，被抑制分类直接剔除；无画像轮换池在其余分类不足时才用它兜底
     let category_order = if personalized {
@@ -428,21 +446,24 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         if picked_cats >= want_cats {
             break;
         }
-        let items: Vec<FeaturedPick> = ranked
-            .iter()
-            .filter(|s| s.app.core.category.trim().eq_ignore_ascii_case(cat))
-            .filter(|s| !used.contains(&s.app.core.id.to_lowercase()))
-            .take(SHELF_SIZE)
-            .map(|s| {
-                let mut reasons = explain(s.app);
-                reasons.retain(|r| !matches!(r, Reason::Category { .. }));
-                reasons.truncate(1);
-                FeaturedPick {
-                    app: s.app.clone(),
-                    reasons,
-                }
-            })
-            .collect();
+        // 分类内前 CATEGORY_PICK_POOL 名按访问种子抽 SHELF_SIZE 个，展示仍按得分先后
+        let pool = category_pool(&ranked, cat, CATEGORY_PICK_POOL, |s| {
+            !used.contains(&s.app.core.id.to_lowercase())
+        });
+        let items: Vec<FeaturedPick> =
+            sample_indices(&ranked, &pool, SHELF_SIZE, visit_seed ^ CATEGORY_PICK_SALT)
+                .into_iter()
+                .map(|i| &ranked[i])
+                .map(|s| {
+                    let mut reasons = explain(s.app);
+                    reasons.retain(|r| !matches!(r, Reason::Category { .. }));
+                    reasons.truncate(1);
+                    FeaturedPick {
+                        app: s.app.clone(),
+                        reasons,
+                    }
+                })
+                .collect();
         if items.len() < SHELF_MIN {
             continue;
         }
@@ -459,7 +480,7 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
         });
     }
 
-    // ---- explore（仅 rich）：每个少接触分类取质量前 N 的精品池，按日期种子挑当日代表作 ----
+    // ---- explore（仅 rich）：每个少接触分类取质量前 N 的精品池，按访问种子挑代表作 ----
     if state == ProfileState::Rich {
         let p = profile.expect("rich implies profile");
         let mut pools: HashMap<String, Vec<&Scored>> = HashMap::new();
@@ -485,20 +506,13 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
                 });
                 pool.truncate(EXPLORE_PER_CAT_POOL);
                 let pick = pool.into_iter().max_by(|a, b| {
-                    feed_jitter01(&a.app.core.id, day_seed)
-                        .partial_cmp(&feed_jitter01(&b.app.core.id, day_seed))
-                        .unwrap_or(std::cmp::Ordering::Equal)
+                    jitter_order(&a.app.core.id, &b.app.core.id, visit_seed)
                         .then_with(|| b.app.core.id.cmp(&a.app.core.id))
                 })?;
                 Some((cat, pick))
             })
             .collect();
-        picks.sort_by(|a, b| {
-            feed_jitter01(&a.0, day_seed)
-                .partial_cmp(&feed_jitter01(&b.0, day_seed))
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        picks.sort_by(|a, b| jitter_order(&a.0, &b.0, visit_seed).then_with(|| a.0.cmp(&b.0)));
         let items: Vec<FeaturedPick> = picks
             .into_iter()
             .take(SHELF_SIZE)
@@ -545,8 +559,42 @@ pub fn assemble_featured_page(input: FeaturedInput<'_>) -> FeaturedPage {
     }
 }
 
-/// 无画像时的分类轮换：候选中出现的分类按日期种子抖动排序。
-fn rotated_categories(ranked: &[Scored<'_>], day_seed: u64) -> Vec<String> {
+/// 两个键按种子抖动值升序比较（相等时由调用方决定次序）。
+fn jitter_order(a: &str, b: &str, seed: u64) -> std::cmp::Ordering {
+    feed_jitter01(a, seed)
+        .partial_cmp(&feed_jitter01(b, seed))
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+/// `cat` 分类里满足 `keep` 的得分前 `n` 名（`ranked` 下标，按得分降序）。
+fn category_pool(
+    ranked: &[Scored<'_>],
+    cat: &str,
+    n: usize,
+    keep: impl Fn(&Scored<'_>) -> bool,
+) -> Vec<usize> {
+    ranked
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.app.core.category.trim().eq_ignore_ascii_case(cat) && keep(s))
+        .map(|(i, _)| i)
+        .take(n)
+        .collect()
+}
+
+/// 从 `pool`（`ranked` 下标，按得分降序）里按种子确定性抽 `n` 个，结果仍按得分先后排列。
+fn sample_indices(ranked: &[Scored<'_>], pool: &[usize], n: usize, seed: u64) -> Vec<usize> {
+    let mut drawn: Vec<usize> = pool.to_vec();
+    drawn.sort_by(|&a, &b| {
+        jitter_order(&ranked[b].app.core.id, &ranked[a].app.core.id, seed).then_with(|| a.cmp(&b))
+    });
+    drawn.truncate(n);
+    drawn.sort_unstable();
+    drawn
+}
+
+/// 无画像时的分类轮换：候选中出现的分类按访问种子抖动排序。
+fn rotated_categories(ranked: &[Scored<'_>], visit_seed: u64) -> Vec<String> {
     let mut cats: Vec<String> = ranked
         .iter()
         .map(|s| s.app.core.category.trim().to_lowercase())
@@ -554,12 +602,7 @@ fn rotated_categories(ranked: &[Scored<'_>], day_seed: u64) -> Vec<String> {
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    cats.sort_by(|a, b| {
-        feed_jitter01(a, day_seed)
-            .partial_cmp(&feed_jitter01(b, day_seed))
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.cmp(b))
-    });
+    cats.sort_by(|a, b| jitter_order(a, b, visit_seed).then_with(|| a.cmp(b)));
     cats
 }
 
@@ -655,7 +698,7 @@ mod tests {
     fn page(
         raw: &RawAffinitySignals,
         enabled: bool,
-        day_seed: u64,
+        visit_seed: u64,
         allowed: Option<&HashSet<String>>,
     ) -> FeaturedPage {
         let c = catalog();
@@ -667,7 +710,7 @@ mod tests {
             hidden_ids: &hidden,
             profile: Some(&profile),
             enabled,
-            day_seed,
+            visit_seed,
             now_secs: NOW,
         })
     }
@@ -811,25 +854,25 @@ mod tests {
     }
 
     #[test]
-    fn same_day_seed_is_stable() {
+    fn same_visit_seed_is_stable() {
         let a = page(&RawAffinitySignals::default(), false, 20261113, None);
         let b = page(&RawAffinitySignals::default(), false, 20261113, None);
         assert_eq!(all_ids(&a), all_ids(&b));
         assert_eq!(hero_ids(&a), hero_ids(&b));
     }
 
-    /// 目录 ≥ 20 时换 daySeed 后 hero 至少有 1 个变化：逐日检查一周内每次换种子。
+    /// 目录 ≥ 20 时换访问种子后 hero 至少有 1 个变化：连续检查 7 次换种子。
     #[test]
-    fn next_day_seed_rotates_hero() {
+    fn next_visit_seed_rotates_hero() {
         assert!(catalog().len() >= 20);
-        for day in 20261113..20261120u64 {
-            let today = page(&RawAffinitySignals::default(), false, day, None);
-            let tomorrow = page(&RawAffinitySignals::default(), false, day + 1, None);
+        for visit in 20261113..20261120u64 {
+            let this = page(&RawAffinitySignals::default(), false, visit, None);
+            let next = page(&RawAffinitySignals::default(), false, visit + 1, None);
             assert_ne!(
-                hero_ids(&today),
-                hero_ids(&tomorrow),
-                "hero unchanged between {day} and {}",
-                day + 1
+                hero_ids(&this),
+                hero_ids(&next),
+                "hero unchanged between {visit} and {}",
+                visit + 1
             );
         }
     }
@@ -1074,12 +1117,12 @@ mod tests {
         let c = catalog();
         let profile = UserAffinityProfile::from_signals(&rich_raw(), &c, NOW);
         let apps = summaries(&c);
-        let tokens: Vec<Vec<String>> = apps.iter().map(|a| profile.similarity_tokens(a)).collect();
+        let tokens: Vec<SimilarityTokens> =
+            apps.iter().map(|a| profile.similarity_tokens(a)).collect();
         for (si, seed) in apps.iter().enumerate().step_by(5) {
             for (ci, cand) in apps.iter().enumerate() {
                 let direct = profile.seed_similarity(seed, cand);
-                let cached =
-                    profile.seed_similarity_with_tokens(seed, &tokens[si], cand, &tokens[ci]);
+                let cached = profile.seed_similarity_with_tokens(&tokens[si], &tokens[ci]);
                 assert_eq!(
                     direct.to_bits(),
                     cached.to_bits(),

@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-11-20
-- 关联：CONTEXT.md（D1 纯粹开源、D2 零服务器成本、D4 Linear 去彩单色界面）、ADR-0009（独立生态清单仓库）、ADR-0010（规范应用标识）、ADR-0023（可解释本地推荐）、ADR-0024（亲和度词袋 IDF 与种子相似度）
+- 关联：CONTEXT.md（D1 纯粹开源、D2 零服务器成本、D4 Linear 去彩单色界面）、ADR-0009（独立生态清单仓库）、ADR-0010（规范应用标识）、ADR-0023（可解释本地推荐）、ADR-0024（亲和度词袋 IDF 与种子相似度）、ADR-0031（修订本 ADR §2.3 的相似度公式与排序）
 - 落地计划：`.scratch/feature-similar-and-alternatives/`
 - 实现：`src-tauri/src/github/alternatives.rs`、`src-tauri/src/github/models.rs`、`src-tauri/src/github/catalog_feed_score.rs`、`src-tauri/src/github/catalog_service.rs`、`src-tauri/src/github/affinity.rs`、`src-tauri/src/commands/catalog_detail.rs`、`src-tauri/src/db/schema.rs`、`src-tauri/src/db/catalog.rs`、`src/components/AppDetailModal/SimilarAppsSection.tsx`、`src/components/AppDetailModal/Header.tsx`、`src/views/SearchResultsView.tsx`、`src/demo/alternatives.ts`
 

@@ -83,8 +83,8 @@ const PROFILE_STATES: readonly ProfileState[] = ['off', 'cold', 'warm', 'rich'];
 /**
  * 精选页整页货架。`allowedIds` 为 App 层平台筛选后的可见应用 id（缺省 = 不限制）。
  */
-export async function getFeaturedPage(daySeed: number, allowedIds?: readonly string[]): Promise<FeaturedPage> {
-  const args: Record<string, unknown> = { daySeed };
+export async function getFeaturedPage(visitSeed: number, allowedIds?: readonly string[]): Promise<FeaturedPage> {
+  const args: Record<string, unknown> = { visitSeed };
   if (allowedIds) args.allowedIds = [...allowedIds];
   const raw = await tauriInvoke<Partial<FeaturedPage> | null>(CMD.getFeaturedPage, args);
   const state = PROFILE_STATES.includes(raw?.profile_state as ProfileState)

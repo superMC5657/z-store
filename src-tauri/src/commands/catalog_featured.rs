@@ -3,11 +3,12 @@ use crate::AppState;
 use std::collections::HashSet;
 use tauri::State;
 
-/// 精选页整页货架：`day_seed`（`yyyymmdd`）控制当日轮换，可选 `allowed_ids` 按结果求交。
+/// 精选页整页货架：`visit_seed` 由前端每次进入精选页时生成，同一种子结果确定、换种子即轮换；
+/// 可选 `allowed_ids` 按结果求交。
 #[tauri::command(rename_all = "camelCase")]
 pub fn get_featured_page(
     state: State<'_, AppState>,
-    day_seed: u64,
+    visit_seed: u64,
     allowed_ids: Option<Vec<String>>,
 ) -> crate::AppResult<FeaturedPage> {
     let hidden: HashSet<String> = super::hidden_rule_ids(&state)?
@@ -31,7 +32,7 @@ pub fn get_featured_page(
         hidden_ids: &hidden,
         profile,
         enabled,
-        day_seed,
+        visit_seed,
         now_secs: crate::now_secs(),
     }))
 }

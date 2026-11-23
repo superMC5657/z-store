@@ -30,7 +30,7 @@ beforeEach(() => {
 });
 
 function featuredIds(): string[] {
-  const page = handleGetFeaturedPage({ daySeed: 1 });
+  const page = handleGetFeaturedPage({ visitSeed: 1 });
   return [...page.hero, ...page.shelves.flatMap((s) => s.items)].map((p) => p.app.id.toLowerCase());
 }
 

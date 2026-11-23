@@ -26,7 +26,7 @@ import { useAppContextProps } from '../app/AppContext';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
 import { tauriApi } from '../services/api';
-import { daySeed } from '../services/daySeed';
+import { visitSeed } from '../services/visitSeed';
 import { notifyToast } from '../useToasts';
 import { getAppDescription } from '../utils/appHelper';
 import { isPlaceholderDescription } from '../services/trends';
@@ -73,7 +73,7 @@ export const FeaturedView: React.FC<FeaturedViewProps> = (props) => {
     onOpenAffinitySettings,
   } = useAppContextProps(props);
   const { t, i18n } = useTranslation();
-  const seed = useMemo(() => daySeed(), []);
+  const seed = useMemo(() => visitSeed(), []);
   const allowedIds = useMemo(() => apps.map((a) => a.id), [apps]);
   const { page, loading, reload, dismissedIds, dismiss } = useFeaturedPage(allowedIds, seed);
   const annotate = useRowAnnotator(apps, localApps);

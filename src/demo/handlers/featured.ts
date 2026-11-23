@@ -32,8 +32,8 @@ function argIds(a: InvokeArgs, key: string): Set<string> | null {
 }
 
 export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
-  warnUnknownArgs(['daySeed', 'allowedIds'], a, 'handleGetFeaturedPage');
-  const seed = Math.floor(argNum(a, 'daySeed') ?? 0);
+  warnUnknownArgs(['visitSeed', 'allowedIds'], a, 'handleGetFeaturedPage');
+  const seed = Math.floor(argNum(a, 'visitSeed') ?? 0);
   const allowed = argIds(a, 'allowedIds');
   const state = demoProfileState();
   const personalized = state === 'warm' || state === 'rich';
@@ -43,7 +43,7 @@ export function handleGetFeaturedPage(a: InvokeArgs): FeaturedPage {
     .filter((s) => (!allowed || allowed.has(s.id.toLowerCase())) && !dismissedApps.has(s.id.toLowerCase()))
     .slice()
     .sort((x, y) => y.stars - x.stars || x.id.localeCompare(y.id));
-  // 日期种子轮换：按种子把池子转一个偏移，同一天稳定。
+  // 访问种子轮换：按种子把池子转一个偏移，同一次访问内稳定。
   const offset = pool.length > 0 ? seed % Math.min(pool.length, 7) : 0;
   const rotated = [...pool.slice(offset), ...pool.slice(0, offset)];
 

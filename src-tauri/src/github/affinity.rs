@@ -1370,21 +1370,19 @@ impl UserAffinityProfile {
         seed_similarity_with_idf(seed, candidate, Some(&*self.idf), Some(&*self.aliases))
     }
 
-    /// 种子相似度使用的词元（名称、仓库、目录别名与中英简介）；同一应用参与多次比较时
+    /// 种子相似度使用的词元（见 [`SimilarityTokens`]）；同一应用参与多次比较时
     /// 由调用方预提取一次，再交给 `seed_similarity_with_tokens`。
-    pub fn similarity_tokens(&self, app: &AppSummary) -> Vec<String> {
+    pub fn similarity_tokens(&self, app: &AppSummary) -> SimilarityTokens {
         similarity_tokens(app, Some(&*self.aliases))
     }
 
     /// 以预提取词元计算种子相似度，结果与 `seed_similarity` 逐位一致。
     pub fn seed_similarity_with_tokens(
         &self,
-        seed: &AppSummary,
-        seed_tokens: &[String],
-        candidate: &AppSummary,
-        candidate_tokens: &[String],
+        seed: &SimilarityTokens,
+        candidate: &SimilarityTokens,
     ) -> f64 {
-        similarity_from_tokens(seed, seed_tokens, candidate, candidate_tokens, &self.idf)
+        similarity_from_tokens(seed, candidate, &self.idf)
     }
 
     /// `because_you` 条目的单条理由：优先画像给出的作者 / 关键词理由，其次种子与候选
@@ -1397,9 +1395,11 @@ impl UserAffinityProfile {
         {
             return r;
         }
-        let seed_toks = affinity_text::extract_summary_tokens(seed, &[]);
-        let cand_toks = affinity_text::extract_summary_tokens(candidate, &[]);
-        let shared = shared_high_idf_keywords(&seed_toks, &cand_toks, &self.idf);
+        let shared = shared_high_idf_keywords(
+            &self.similarity_tokens(seed),
+            &self.similarity_tokens(candidate),
+            &self.idf,
+        );
         if !shared.is_empty() {
             return Reason::Keywords { tokens: shared };
         }
@@ -1409,81 +1409,264 @@ impl UserAffinityProfile {
     }
 }
 
-/// `seed_shelf_reason` 与详情相似推荐里种子与候选共同词元的最低 IDF。
+/// 共享关键词作为理由展示时的最低 IDF（整条别名 / 平替短语不受此限）。
 const SHARED_TOKEN_MIN_IDF: f64 = 0.5;
+/// 理由里最多展示的共享关键词数。
+const SHARED_KEYWORDS_MAX: usize = 3;
 
-/// 提取种子与候选之间满足最低 IDF 阈值的共享关键词（最多 3 个，按权重降序、字典序升序）。
+/// 一个应用参与相似度计算的全部输入（由 [`similarity_tokens`] 提取）。
+///
+/// - `text`：名称、仓库、别名与中英简介的全文词元。
+/// - `cjk_chains`：全文里每段连续汉字的双字词元链（不去重），供理由把双字词元拼回原词。
+/// - `keywords`：目录别名与开源平替元数据（人工策展的关键词）的分词结果。
+/// - `phrases`：整条别名 / 平替短语（小写、空白折叠），两侧出现同一短语是最强的同赛道证据。
+/// - `category` / `owner`：去空白、小写后的分类与作者，用于同分类 / 同作者加分。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SimilarityTokens {
+    pub text: Vec<String>,
+    pub cjk_chains: Vec<Vec<String>>,
+    pub keywords: Vec<String>,
+    pub phrases: Vec<String>,
+    pub category: String,
+    pub owner: String,
+}
+
+impl SimilarityTokens {
+    pub fn same_category(&self, other: &Self) -> bool {
+        !self.category.is_empty() && self.category == other.category
+    }
+
+    pub fn same_owner(&self, other: &Self) -> bool {
+        !self.owner.is_empty() && self.owner == other.owner
+    }
+}
+
+/// 两侧都有策展关键词时，关键词相关度里别名词元余弦、短语命中与全文余弦的占比。
+const RELEVANCE_ALIAS_SHARE: f64 = 0.35;
+const RELEVANCE_PHRASE_SHARE: f64 = 0.30;
+const RELEVANCE_TEXT_SHARE: f64 = 0.35;
+/// 命中几条短语即视为短语命中满分。
+const PHRASE_FULL_HITS: f64 = 1.5;
+/// 关键词相关度低于该值视为没有同赛道证据：相似度记 0，同分类、同作者不能单独成立。
+pub const KEYWORD_RELEVANCE_MIN: f64 = 0.15;
+/// 相似度 = 关键词相关度 × 占比 + 同分类 / 同作者加分（仅在关键词相关度达标后叠加）。
+const SIM_KEYWORD_SHARE: f64 = 0.80;
+const SIM_CATEGORY_BONUS: f64 = 0.12;
+const SIM_OWNER_BONUS: f64 = 0.08;
+
+fn normalize_phrase(raw: &str) -> String {
+    raw.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn is_cjk_token(t: &str) -> bool {
+    !t.is_empty() && t.chars().all(|c| !c.is_ascii())
+}
+
+/// `longer` 是否包含 `shorter`：纯汉字短语按子串匹配；含 ASCII 的短语要求两端不紧邻
+/// ASCII 字母数字（`编辑器` ⊂ `vim编辑器`、`editor` ⊂ `code editor`、`rust` ⊂ `rust编辑器`，
+/// 但 `go` ⊄ `google`）。
+fn phrase_contains(longer: &str, shorter: &str) -> bool {
+    if shorter.chars().count() < 2 {
+        return false;
+    }
+    if is_cjk_token(shorter) {
+        return longer.contains(shorter);
+    }
+    let bounded = |c: Option<char>| c.map(|c| !c.is_ascii_alphanumeric()).unwrap_or(true);
+    longer.match_indices(shorter).any(|(i, m)| {
+        bounded(longer[..i].chars().next_back()) && bounded(longer[i + m.len()..].chars().next())
+    })
+}
+
+/// 两侧命中的短语（按 `b` 的顺序）：同一短语，或一侧短语被另一侧短语按词边界包含。
+fn shared_phrases<'a>(a: &SimilarityTokens, b: &'a SimilarityTokens) -> Vec<&'a str> {
+    b.phrases
+        .iter()
+        .map(String::as_str)
+        .filter(|pb| {
+            a.phrases
+                .iter()
+                .any(|pa| pa == pb || phrase_contains(pa, pb) || phrase_contains(pb, pa))
+        })
+        .collect()
+}
+
+/// 关键词相关度（0–1）：两侧都有策展关键词时
+/// `0.35·别名词元余弦 + 0.30·min(1, 短语命中数 / 1.5) + 0.35·全文余弦`，否则退化为全文余弦。
+/// 余弦均按目录 IDF 加权。
+pub fn keyword_relevance(a: &SimilarityTokens, b: &SimilarityTokens, idf: &CatalogIdf) -> f64 {
+    let text = idf.cosine_similarity(&a.text, &b.text);
+    if a.keywords.is_empty() || b.keywords.is_empty() {
+        return text;
+    }
+    let alias = idf.cosine_similarity(&a.keywords, &b.keywords);
+    let phrase = (shared_phrases(a, b).len() as f64 / PHRASE_FULL_HITS).min(1.0);
+    RELEVANCE_ALIAS_SHARE * alias + RELEVANCE_PHRASE_SHARE * phrase + RELEVANCE_TEXT_SHARE * text
+}
+
+/// 种子与候选的共享关键词（最多 3 个），供推荐理由展示：
+/// 先列两侧命中的别名 / 平替短语，再列共享的高 IDF 词元（按 IDF 降序）；
+/// 汉字词元按候选全文里的双字链拼回原词（见 [`stitched_shared_cjk_terms`]），
+/// 已被所列短语按词边界覆盖的词元不再重复。
 fn shared_high_idf_keywords(
-    seed_tokens: &[String],
-    candidate_tokens: &[String],
+    seed: &SimilarityTokens,
+    candidate: &SimilarityTokens,
     idf: &CatalogIdf,
 ) -> Vec<String> {
-    let seed_toks: HashSet<&str> = seed_tokens.iter().map(String::as_str).collect();
-    let mut seen: HashSet<&str> = HashSet::new();
-    let mut shared: Vec<(String, f64)> = Vec::new();
-    for tok in candidate_tokens {
-        let t = tok.as_str();
-        if seed_toks.contains(t) && seen.insert(t) {
-            let w = idf.weight(t);
-            if w >= SHARED_TOKEN_MIN_IDF {
-                shared.push((tok.clone(), w));
-            }
-        }
+    let mut out: Vec<String> = shared_phrases(seed, candidate)
+        .into_iter()
+        .take(SHARED_KEYWORDS_MAX)
+        .map(str::to_string)
+        .collect();
+    if out.len() >= SHARED_KEYWORDS_MAX {
+        return out;
     }
-    shared.sort_by(|a, b| {
+
+    let seed_toks: HashSet<&str> = seed.text.iter().map(String::as_str).collect();
+    let mut terms: Vec<(String, f64)> = candidate
+        .text
+        .iter()
+        .filter(|t| !is_cjk_token(t) && seed_toks.contains(t.as_str()))
+        .map(|t| (t.clone(), idf.weight(t)))
+        .collect();
+    terms.extend(stitched_shared_cjk_terms(
+        &candidate.cjk_chains,
+        &seed_toks,
+        idf,
+    ));
+    let covered = |s: &str| out.iter().any(|p| p == s || phrase_contains(p, s));
+    let mut ranked: Vec<(String, f64)> = terms
+        .into_iter()
+        .filter(|(s, w)| *w >= SHARED_TOKEN_MIN_IDF && !covered(s))
+        .collect();
+    ranked.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.0.cmp(&b.0))
     });
-    shared.into_iter().take(3).map(|(t, _)| t).collect()
+    for (s, _) in ranked {
+        if out.len() >= SHARED_KEYWORDS_MAX {
+            break;
+        }
+        if !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    out
+}
+
+/// 候选双字链里连续命中种子词元的片段拼回原词（`编程`+`程智`+`智能`+`能体` → `编程智能体`），
+/// 权重取片段内最高 IDF；被更长片段包含的片段（如别名里单独出现的 `智能`）不再单列。
+fn stitched_shared_cjk_terms(
+    chains: &[Vec<String>],
+    seed_toks: &HashSet<&str>,
+    idf: &CatalogIdf,
+) -> Vec<(String, f64)> {
+    let mut spans: Vec<(String, f64)> = Vec::new();
+    let mut push = |span: &mut String, w: &mut f64| {
+        if span.is_empty() {
+            return;
+        }
+        let s = std::mem::take(span);
+        match spans.iter_mut().find(|(t, _)| *t == s) {
+            Some((_, sw)) => *sw = sw.max(*w),
+            None => spans.push((s, *w)),
+        }
+        *w = 0.0;
+    };
+    for chain in chains {
+        let (mut span, mut w) = (String::new(), 0.0_f64);
+        for bigram in chain {
+            if !seed_toks.contains(bigram.as_str()) {
+                push(&mut span, &mut w);
+                continue;
+            }
+            if span.is_empty() {
+                span.push_str(bigram);
+            } else {
+                span.extend(bigram.chars().skip(1));
+            }
+            w = w.max(idf.weight(bigram));
+        }
+        push(&mut span, &mut w);
+    }
+    let longer_exists = |s: &str| {
+        spans
+            .iter()
+            .any(|(o, _)| o.chars().count() > s.chars().count() && o.contains(s))
+    };
+    spans
+        .iter()
+        .filter(|(s, _)| !longer_exists(s))
+        .cloned()
+        .collect()
 }
 
 /// 无状态可解释相似理由生成（供详情页 `get_similar_apps` 复用）：
-/// 按同作者 → 高 IDF 共享关键词 → 同分类顺序收集理由。
+/// 按同作者 → 共享关键词 → 同分类顺序收集理由。
 pub fn explain_similarity_reasons(
-    seed: &AppSummary,
-    seed_tokens: &[String],
+    seed_tokens: &SimilarityTokens,
     candidate: &AppSummary,
     idf: &CatalogIdf,
     aliases_map: Option<&HashMap<String, Vec<String>>>,
 ) -> Vec<Reason> {
     let mut reasons = Vec::new();
-    let seed_owner = seed.core.owner.trim();
-    let cand_owner = candidate.core.owner.trim();
-    if !seed_owner.is_empty() && seed_owner.eq_ignore_ascii_case(cand_owner) {
+    let cand_tokens = similarity_tokens(candidate, aliases_map);
+    if seed_tokens.same_owner(&cand_tokens) {
         reasons.push(Reason::Owner {
-            owner: cand_owner.to_string(),
+            owner: candidate.core.owner.trim().to_string(),
         });
     }
-    let cand_tokens = similarity_tokens(candidate, aliases_map);
     let kw = shared_high_idf_keywords(seed_tokens, &cand_tokens, idf);
     if !kw.is_empty() {
         reasons.push(Reason::Keywords { tokens: kw });
     }
-    let seed_cat = seed.core.category.trim();
-    let cand_cat = candidate.core.category.trim();
-    if !seed_cat.is_empty() && seed_cat.eq_ignore_ascii_case(cand_cat) {
+    if seed_tokens.same_category(&cand_tokens) {
         reasons.push(Reason::Category {
-            category: cand_cat.to_lowercase(),
+            category: cand_tokens.category,
         });
     }
     reasons
 }
 
-/// 种子相似度使用的词元：名称、仓库、别名与中英简介。
+/// 提取应用的相似度词元：全文取名称、仓库、别名与中英简介；关键词取目录别名与开源平替元数据。
 pub(crate) fn similarity_tokens(
     app: &AppSummary,
     aliases_map: Option<&HashMap<String, Vec<String>>>,
-) -> Vec<String> {
+) -> SimilarityTokens {
     let aliases = aliases_map
         .and_then(|m| m.get(&app.core.id.to_lowercase()))
         .map(Vec::as_slice)
         .unwrap_or(&[]);
-    affinity_text::extract_summary_tokens(app, aliases)
+    let curated = || {
+        aliases
+            .iter()
+            .chain(app.core.alternatives.iter())
+            .map(String::as_str)
+    };
+    let mut phrases: Vec<String> = Vec::new();
+    for raw in curated() {
+        let p = normalize_phrase(raw);
+        if p.chars().count() >= 2 && !phrases.contains(&p) {
+            phrases.push(p);
+        }
+    }
+    SimilarityTokens {
+        text: affinity_text::extract_summary_tokens(app, aliases),
+        cjk_chains: affinity_text::summary_cjk_chains(app, aliases),
+        keywords: affinity_text::extract_tokens_from_parts(curated()),
+        phrases,
+        category: app.core.category.trim().to_lowercase(),
+        owner: app.core.owner.trim().to_lowercase(),
+    }
 }
 
-/// 候选应用与推荐种子的相似度：
-/// `0.25 * I(同分类) + 0.25 * I(同作者) + 0.50 * IDF 加权词元余弦`。
+/// 候选应用与推荐种子的相似度（关键词优先）：
+/// 关键词相关度 `r` 低于 `KEYWORD_RELEVANCE_MIN` 时为 0；
+/// 否则 `0.80·r + 0.12·I(同分类) + 0.08·I(同作者)`。
 /// 不传 `idf` 时所有词等权。
 pub fn seed_similarity_with_idf(
     seed: &AppSummary,
@@ -1494,9 +1677,7 @@ pub fn seed_similarity_with_idf(
     let default_idf = CatalogIdf::default();
     let idf = idf.unwrap_or(&default_idf);
     similarity_from_tokens(
-        seed,
         &similarity_tokens(seed, aliases_map),
-        candidate,
         &similarity_tokens(candidate, aliases_map),
         idf,
     )
@@ -1504,26 +1685,22 @@ pub fn seed_similarity_with_idf(
 
 /// 种子相似度公式本体（见 `seed_similarity_with_idf`），词元由调用方给出。
 pub(crate) fn similarity_from_tokens(
-    seed: &AppSummary,
-    seed_tokens: &[String],
-    candidate: &AppSummary,
-    candidate_tokens: &[String],
+    seed: &SimilarityTokens,
+    candidate: &SimilarityTokens,
     idf: &CatalogIdf,
 ) -> f64 {
-    let same_cat = !seed.core.category.trim().is_empty()
-        && seed
-            .core
-            .category
-            .trim()
-            .eq_ignore_ascii_case(candidate.core.category.trim());
-    let same_owner = !seed.core.owner.trim().is_empty()
-        && seed
-            .core
-            .owner
-            .trim()
-            .eq_ignore_ascii_case(candidate.core.owner.trim());
-    let sim_tok = idf.cosine_similarity(seed_tokens, candidate_tokens);
-    (if same_cat { 0.25 } else { 0.0 }) + (if same_owner { 0.25 } else { 0.0 }) + 0.5 * sim_tok
+    let relevance = keyword_relevance(seed, candidate, idf);
+    if relevance < KEYWORD_RELEVANCE_MIN {
+        return 0.0;
+    }
+    let mut sim = SIM_KEYWORD_SHARE * relevance;
+    if seed.same_category(candidate) {
+        sim += SIM_CATEGORY_BONUS;
+    }
+    if seed.same_owner(candidate) {
+        sim += SIM_OWNER_BONUS;
+    }
+    sim
 }
 
 /// 等权词元版本的种子相似度（无目录上下文时使用）。
@@ -2686,13 +2863,134 @@ mod tests {
     }
 
     #[test]
-    fn seed_similarity_rewards_same_category_and_owner() {
-        let catalog = sample_catalog();
-        let mpv = catalog[0].to_summary();
-        let jellyfin = catalog[1].to_summary();
-        let rustdesk = catalog[2].to_summary();
-        assert!(seed_similarity(&mpv, &jellyfin) >= 0.28);
-        assert!(seed_similarity(&mpv, &rustdesk) < 0.28);
+    fn seed_similarity_needs_keyword_evidence_category_and_owner_only_add() {
+        let mut catalog = filler(30);
+        catalog.push(cat_item(
+            "acme/player",
+            "media",
+            "video player",
+            &["播放器", "video player"],
+        ));
+        catalog.push(cat_item(
+            "other/player",
+            "media",
+            "video player",
+            &["播放器"],
+        ));
+        catalog.push(cat_item("third/player", "dev", "video player", &["播放器"]));
+        catalog.push(cat_item(
+            "acme/editor",
+            "media",
+            "markdown notes",
+            &["笔记"],
+        ));
+        let aliases: HashMap<String, Vec<String>> = catalog
+            .iter()
+            .map(|c| (c.id.to_lowercase(), c.aliases.clone()))
+            .collect();
+        let idf = CatalogIdf::from_catalog(&catalog);
+        let sim = |a: usize, b: usize| {
+            seed_similarity_with_idf(
+                &catalog[a].to_summary(),
+                &catalog[b].to_summary(),
+                Some(&idf),
+                Some(&aliases),
+            )
+        };
+        let (seed, same_cat, cross_cat, same_owner_unrelated) = (30, 31, 32, 33);
+        // 同分类 + 同作者但没有共享关键词：不相似
+        assert_eq!(sim(seed, same_owner_unrelated), 0.0);
+        // 关键词成立后，同分类只是加分，跨分类同样能成立
+        let cross = sim(seed, cross_cat);
+        let same = sim(seed, same_cat);
+        assert!(cross >= 0.28, "cross = {cross}");
+        assert!(
+            (same - cross - SIM_CATEGORY_BONUS).abs() < 1e-9,
+            "{same} {cross}"
+        );
+    }
+
+    #[test]
+    fn phrase_containment_respects_word_boundaries() {
+        assert!(phrase_contains("vim编辑器", "编辑器"));
+        assert!(phrase_contains("code editor", "editor"));
+        assert!(phrase_contains("rust编辑器", "rust"));
+        assert!(!phrase_contains("google", "go"));
+        assert!(!phrase_contains("mpv", "m"));
+    }
+
+    #[test]
+    fn shared_keywords_show_phrases_and_stitch_cjk_bigrams() {
+        let seed = cat_item("a/agent", "dev", "开源编程智能体", &["coding agent"]).to_summary();
+        let cand = cat_item("b/agent", "dev", "终端里的编程智能体", &["coding agent"]).to_summary();
+        let aliases: HashMap<String, Vec<String>> = [
+            ("a/agent".to_string(), vec!["coding agent".to_string()]),
+            ("b/agent".to_string(), vec!["coding agent".to_string()]),
+        ]
+        .into_iter()
+        .collect();
+        let kw = shared_high_idf_keywords(
+            &similarity_tokens(&seed, Some(&aliases)),
+            &similarity_tokens(&cand, Some(&aliases)),
+            &CatalogIdf::default(),
+        );
+        assert_eq!(
+            kw.first().map(String::as_str),
+            Some("coding agent"),
+            "{kw:?}"
+        );
+        assert!(kw.iter().any(|k| k == "编程智能体"), "{kw:?}");
+        // 被短语覆盖的词元与双字碎片不单独出现
+        assert!(!kw.iter().any(|k| k == "coding" || k == "程智"), "{kw:?}");
+    }
+
+    /// 别名先产出某个双字词元时，全文去重会让它从简介的词元序列里消失；
+    /// 拼词按双字链进行，不受去重影响，也不把被长词包含的片段单列。
+    #[test]
+    fn cjk_stitching_survives_bigram_dedup_across_aliases() {
+        let seed = cat_item("a/agent", "dev", "开源编程智能体", &[]).to_summary();
+        let cand = cat_item("b/agent", "dev", "编程智能体", &["智能助手"]).to_summary();
+        let aliases: HashMap<String, Vec<String>> =
+            [("b/agent".to_string(), vec!["智能助手".to_string()])]
+                .into_iter()
+                .collect();
+        let kw = shared_high_idf_keywords(
+            &similarity_tokens(&seed, Some(&aliases)),
+            &similarity_tokens(&cand, Some(&aliases)),
+            &CatalogIdf::default(),
+        );
+        assert!(kw.iter().any(|k| k == "编程智能体"), "{kw:?}");
+        assert!(
+            !kw.iter()
+                .any(|k| k == "智能" || k == "编程智" || k == "能体" || k == "程智"),
+            "{kw:?}"
+        );
+    }
+
+    /// 短语覆盖按词边界判断：短语 `google drive` 不覆盖共享词元 `go`。
+    #[test]
+    fn phrase_coverage_respects_word_boundaries() {
+        let seed =
+            cat_item("a/sync", "tools", "sync written in go", &["google drive"]).to_summary();
+        let cand = cat_item("b/sync", "tools", "go sync client", &["google drive"]).to_summary();
+        let aliases: HashMap<String, Vec<String>> = [
+            ("a/sync".to_string(), vec!["google drive".to_string()]),
+            ("b/sync".to_string(), vec!["google drive".to_string()]),
+        ]
+        .into_iter()
+        .collect();
+        let kw = shared_high_idf_keywords(
+            &similarity_tokens(&seed, Some(&aliases)),
+            &similarity_tokens(&cand, Some(&aliases)),
+            &CatalogIdf::default(),
+        );
+        assert_eq!(
+            kw.first().map(String::as_str),
+            Some("google drive"),
+            "{kw:?}"
+        );
+        assert!(kw.iter().any(|k| k == "go"), "{kw:?}");
+        assert!(!kw.iter().any(|k| k == "google" || k == "drive"), "{kw:?}");
     }
 
     fn cat_item(id: &str, category: &str, desc: &str, aliases: &[&str]) -> CatalogItem {
@@ -3005,7 +3303,7 @@ mod tests {
         // 构造所有共享词元 IDF 均低于阈值 (< 0.5) 的场景，验证跨分类不伪造 Reason::Category。
         let idf = CatalogIdf::default();
         let seed_toks = similarity_tokens(&seed, None);
-        let reasons = explain_similarity_reasons(&seed, &seed_toks, &cand, &idf, None);
+        let reasons = explain_similarity_reasons(&seed_toks, &cand, &idf, None);
         assert!(
             !reasons.iter().any(|r| matches!(r, Reason::Category { .. })),
             "跨分类候选不得产出同分类理由: {reasons:?}"

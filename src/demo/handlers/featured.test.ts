@@ -20,14 +20,14 @@ describe('handleDismissFeatured category scope', () => {
   });
 
   it('filters the category and the originating card on refetch', () => {
-    const before = handleGetFeaturedPage({ daySeed: 3 });
+    const before = handleGetFeaturedPage({ visitSeed: 3 });
     const pick = before.shelves.find((s) => s.kind === 'category_pick');
     expect(pick).toBeTruthy();
     const category = pick!.category!;
     const card = pick!.items[0].app.id;
 
     handleDismissFeatured({ target: category, scope: 'category', appId: card });
-    const after = handleGetFeaturedPage({ daySeed: 3 });
+    const after = handleGetFeaturedPage({ visitSeed: 3 });
 
     expect(pageCategories(after)).not.toContain(category);
     expect(allPicks(after).map((p) => p.app.id.toLowerCase())).not.toContain(card.toLowerCase());

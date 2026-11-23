@@ -897,7 +897,10 @@ pub struct SimilarAppsPlan {
     pub items: Vec<SimilarAppMatch>,
 }
 
-const SIMILAR_MIN_SIMILARITY: f64 = 0.25;
+/// 详情页相似项目的最低相似度；相似度由关键词相关度主导（见 `affinity::similarity_from_tokens`）。
+const SIMILAR_MIN_SIMILARITY: f64 = 0.20;
+/// 星数 + Fork 基线在排序里只作同等相关度下的轻微偏好（2 个数量级星数差约合 0.03 相似度）。
+const SIMILAR_POPULARITY_TIEBREAK: f64 = 0.005;
 const SIMILAR_DEFAULT_LIMIT: usize = 4;
 const SIMILAR_MIN_LIMIT: usize = 1;
 const SIMILAR_MAX_LIMIT: usize = 8;
@@ -994,13 +997,8 @@ impl CatalogService {
         };
         let target_alternatives = seed_summary.core.alternatives.clone();
 
-        let seed_aliases = derived
-            .aliases
-            .get(&clean_lower)
-            .map(Vec::as_slice)
-            .unwrap_or(&[]);
         let seed_tokens =
-            crate::github::affinity_text::extract_summary_tokens(&seed_summary, seed_aliases);
+            crate::github::affinity::similarity_tokens(&seed_summary, Some(&*derived.aliases));
 
         let cap = limit
             .unwrap_or(SIMILAR_DEFAULT_LIMIT)
@@ -1016,16 +1014,15 @@ impl CatalogService {
             let cand_tokens =
                 crate::github::affinity::similarity_tokens(&cand_summary, Some(&*derived.aliases));
             let sim = crate::github::affinity::similarity_from_tokens(
-                &seed_summary,
                 &seed_tokens,
-                &cand_summary,
                 &cand_tokens,
                 &derived.idf,
             );
             if sim < SIMILAR_MIN_SIMILARITY {
                 continue;
             }
-            let rank = sim * 10.0 + 0.15 * feed_stars_forks_base(item.stars, item.forks);
+            let rank =
+                sim + SIMILAR_POPULARITY_TIEBREAK * feed_stars_forks_base(item.stars, item.forks);
             scored.push((rank, item.stars, sim, cand_summary));
         }
 
@@ -1041,7 +1038,6 @@ impl CatalogService {
             .into_iter()
             .map(|(_, _, sim, app)| {
                 let reasons = crate::github::affinity::explain_similarity_reasons(
-                    &seed_summary,
                     &seed_tokens,
                     &app,
                     &derived.idf,
@@ -2000,18 +1996,21 @@ mod tests {
         seed_item.category = "system".to_string();
         seed_item.description = "远程桌面控制工具".to_string();
         seed_item.description_en = Some("Remote desktop control software".to_string());
+        seed_item.aliases = vec!["远程桌面".to_string(), "remote desktop".to_string()];
         seed_item.stars = 80_000;
 
         let mut same_owner = item("rustdesk/rustdesk-server", "rustdesk", "rustdesk-server");
         same_owner.name = "RustDesk Server".to_string();
         same_owner.category = "system".to_string();
         same_owner.description = "远程桌面自建中继服务".to_string();
+        same_owner.aliases = vec!["远程桌面".to_string(), "中继".to_string()];
         same_owner.stars = 5_000;
 
         let mut hidden_peer = item("hidden/remote-app", "hidden", "remote-app");
         hidden_peer.name = "Hidden Remote".to_string();
         hidden_peer.category = "system".to_string();
         hidden_peer.description = "Remote desktop control alternative".to_string();
+        hidden_peer.aliases = vec!["remote desktop".to_string()];
         hidden_peer.stars = 90_000;
 
         let mut same_track = item("acme/moonlight", "acme", "moonlight");
@@ -2019,6 +2018,7 @@ mod tests {
         same_track.category = "system".to_string();
         same_track.description = "远程桌面低延迟串流".to_string();
         same_track.description_en = Some("Remote desktop streaming".to_string());
+        same_track.aliases = vec!["远程桌面".to_string(), "串流".to_string()];
         same_track.stars = 20_000;
 
         let mut extra_items = Vec::new();
@@ -2027,6 +2027,7 @@ mod tests {
             peer.name = format!("System Peer {idx}");
             peer.category = "system".to_string();
             peer.description = "远程桌面工具".to_string();
+            peer.aliases = vec!["远程桌面".to_string()];
             peer.stars = 100 + idx as u64;
             extra_items.push(peer);
         }

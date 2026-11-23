@@ -245,9 +245,9 @@ fn keep_ascii_token(tok: &str) -> bool {
     !ASCII_STOPWORDS.contains(&tok)
 }
 
-/// 连续汉字的双字滑窗。功能字与泛化双字词（自左向右贪心匹配）都充当分隔，
+/// 连续汉字里不参与双字滑窗的位置。功能字与泛化双字词（自左向右贪心匹配）都充当分隔，
 /// 避免在它们两侧拼出跨词碎片（如「开源的跨平台工具」不产出「台工」）。
-fn push_cjk_bigrams(run: &[char], out: &mut Vec<String>, seen: &mut HashSet<String>) {
+fn cjk_blocked(run: &[char]) -> Vec<bool> {
     let mut blocked = vec![false; run.len()];
     let mut i = 0;
     while i < run.len() {
@@ -267,15 +267,65 @@ fn push_cjk_bigrams(run: &[char], out: &mut Vec<String>, seen: &mut HashSet<Stri
         }
         i += 1;
     }
-    for start in 0..run.len().saturating_sub(1) {
-        if blocked[start] || blocked[start + 1] {
-            continue;
-        }
-        let bigram: String = run[start..start + 2].iter().collect();
-        if seen.insert(bigram.clone()) {
-            out.push(bigram);
+    blocked
+}
+
+/// 连续汉字的双字滑窗（分隔规则见 [`cjk_blocked`]），按首次出现去重写入 `out`。
+fn push_cjk_bigrams(run: &[char], out: &mut Vec<String>, seen: &mut HashSet<String>) {
+    for chain in cjk_run_chains(run) {
+        for bigram in chain {
+            if seen.insert(bigram.clone()) {
+                out.push(bigram);
+            }
         }
     }
+}
+
+/// 一段连续汉字切出的双字词元链：链内相邻两项首尾相接（`编程` → `程智` → `智能`），
+/// 遇到分隔位置断开成新链。不去重。
+fn cjk_run_chains(run: &[char]) -> Vec<Vec<String>> {
+    let blocked = cjk_blocked(run);
+    let mut chains: Vec<Vec<String>> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    for start in 0..run.len().saturating_sub(1) {
+        if blocked[start] || blocked[start + 1] {
+            if !current.is_empty() {
+                chains.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        current.push(run[start..start + 2].iter().collect());
+    }
+    if !current.is_empty() {
+        chains.push(current);
+    }
+    chains
+}
+
+/// 各段文本里所有连续汉字的双字词元链（见 [`cjk_run_chains`]），按出现顺序排列、不去重；
+/// 切分口径与 [`extract_tokens_from_parts`] 一致。
+pub fn cjk_bigram_chains_from_parts<'a>(
+    parts: impl IntoIterator<Item = &'a str>,
+) -> Vec<Vec<String>> {
+    let mut chains = Vec::new();
+    let mut run: Vec<char> = Vec::new();
+    for part in parts {
+        for chunk in part.split_whitespace() {
+            for c in strip_url_in_chunk(chunk).chars() {
+                if is_cjk(c) {
+                    run.push(c);
+                } else if !run.is_empty() {
+                    chains.extend(cjk_run_chains(&run));
+                    run.clear();
+                }
+            }
+            if !run.is_empty() {
+                chains.extend(cjk_run_chains(&run));
+                run.clear();
+            }
+        }
+    }
+    chains
 }
 
 fn flush_ascii(buf: &mut String, out: &mut Vec<String>, seen: &mut HashSet<String>) {
@@ -343,6 +393,20 @@ pub fn extract_tokens(text: &str) -> Vec<String> {
     extract_tokens_from_parts(std::iter::once(text))
 }
 
+/// 应用参与分词的文本段，按名称、仓库、别名、中文简介、英文简介的顺序。
+fn app_parts<'a>(
+    name: &'a str,
+    repo: &'a str,
+    description: &'a str,
+    description_en: Option<&'a str>,
+    aliases: &'a [String],
+) -> impl Iterator<Item = &'a str> {
+    [name, repo]
+        .into_iter()
+        .chain(aliases.iter().map(String::as_str))
+        .chain([description, description_en.unwrap_or("")])
+}
+
 /// 分段提取应用词元（名称、仓库、别名与中英简介），避免无谓的文本拼接分配。
 pub fn extract_app_tokens(
     name: &str,
@@ -351,12 +415,7 @@ pub fn extract_app_tokens(
     description_en: Option<&str>,
     aliases: &[String],
 ) -> Vec<String> {
-    extract_tokens_from_parts(
-        [name, repo]
-            .into_iter()
-            .chain(aliases.iter().map(String::as_str))
-            .chain([description, description_en.unwrap_or("")]),
-    )
+    extract_tokens_from_parts(app_parts(name, repo, description, description_en, aliases))
 }
 
 /// 提取目录条目的词元（含别名）。
@@ -379,6 +438,17 @@ pub fn extract_summary_tokens(app: &AppSummary, aliases: &[String]) -> Vec<Strin
         app.core.description_en.as_deref(),
         aliases,
     )
+}
+
+/// 精选候选全文（同 [`extract_summary_tokens`] 的文本段）里的汉字双字词元链。
+pub fn summary_cjk_chains(app: &AppSummary, aliases: &[String]) -> Vec<Vec<String>> {
+    cjk_bigram_chains_from_parts(app_parts(
+        &app.core.name,
+        &app.core.repo,
+        &app.core.description,
+        app.core.description_en.as_deref(),
+        aliases,
+    ))
 }
 
 /// 应用参与画像词袋、IDF 与相似度计算的文本：名称、仓库、别名与中英简介。

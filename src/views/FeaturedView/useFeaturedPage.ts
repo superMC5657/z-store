@@ -6,7 +6,7 @@ import { tauriApi } from '../../services/api';
 const ALLOWED_IDS_DEBOUNCE_MS = 250;
 
 /** 精选页整页货架数据与负反馈状态：随平台筛选或显式 reload 拉取，不响应实时画像变化。 */
-export function useFeaturedPage(allowedIds: readonly string[], daySeed: number) {
+export function useFeaturedPage(allowedIds: readonly string[], visitSeed: number) {
   const [page, setPage] = useState<FeaturedPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -32,7 +32,7 @@ export function useFeaturedPage(allowedIds: readonly string[], daySeed: number) 
       const seq = ++issuedRef.current;
       setLoading(true);
       tauriApi
-        .getFeaturedPage(daySeed, idsRef.current)
+        .getFeaturedPage(visitSeed, idsRef.current)
         .then((res) => {
           if (seq <= appliedRef.current) return;
           appliedRef.current = seq;
@@ -53,7 +53,7 @@ export function useFeaturedPage(allowedIds: readonly string[], daySeed: number) 
     }
     const timer = setTimeout(run, ALLOWED_IDS_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [signature, daySeed, reloadSeq, hasIds]);
+  }, [signature, visitSeed, reloadSeq, hasIds]);
 
   const reload = useCallback(() => setReloadSeq((n) => n + 1), []);
 
