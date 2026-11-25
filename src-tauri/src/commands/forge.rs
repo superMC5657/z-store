@@ -10,7 +10,7 @@ pub async fn get_developer_profile(
     developer: String,
 ) -> crate::AppResult<DeveloperProfile> {
     let token = resolve_active_github_token(&state);
-    let dev = developer.trim();
+    let dev = crate::github::validate_github_username(&developer)?;
     let user_key = crate::github::CatalogService::dev_user_endpoint(dev);
     let repos_key = crate::github::CatalogService::dev_repos_endpoint(dev);
     let (user_cache, repos_cache) = {

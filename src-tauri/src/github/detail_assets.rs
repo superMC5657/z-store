@@ -235,23 +235,161 @@ pub fn heal_cached_detail(
     }
 }
 
-/// checksum 文件名平台相关性判定（与 installer 资产过滤同模块 single source；入参须为小写文件名）。
-/// Windows 相关（msi/exe/zip/setup/portable/win）或通用命名时返回 true；
-/// 携带 linux/mac/dmg/appimage/deb/rpm/aarch64/arm64/darwin 任一提示词时返回 false 及命中的提示词。
-pub fn checksum_asset_platform_eligible(lower_name: &str) -> (bool, &'static str) {
-    const WIN_HINTS: &[&str] = &["msi", "exe", "zip", "setup", "portable", "win"];
-    if WIN_HINTS.iter().any(|h| lower_name.contains(*h)) {
-        return (true, "windows_relevant");
-    }
-    const NON_WIN_HINTS: &[&str] = &[
-        "linux", "mac", "dmg", "appimage", "deb", "rpm", "aarch64", "arm64", "darwin",
+/// 判断小写文件名是否为可抓取的 SHA-256 校验清单候选：
+/// 排除二进制安装包、压缩归档、签名与结构化元数据，防止误下 `sha256sum-win.exe` / `checksum-cli.zip` / `SHA256SUMS.asc`。
+pub fn is_checksum_manifest_asset(lower_name: &str) -> bool {
+    const NON_MANIFEST_SUFFIXES: &[&str] = &[
+        ".exe", ".msi", ".msix", ".dmg", ".pkg", ".appimage", ".deb", ".rpm", ".apk", ".ipa",
+        ".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".xz", ".txz", ".bz2", ".tbz2", ".zst",
+        ".iso", ".bin", ".run", ".sh", ".bat", ".cmd", ".ps1", ".dll", ".so", ".dylib", ".sig",
+        ".asc", ".gpg", ".minisig", ".pem", ".crt", ".cer", ".sbom", ".blockmap", ".zsync",
+        ".json", ".yml", ".yaml", ".xml", ".md",
     ];
-    for hint in NON_WIN_HINTS {
-        if lower_name.contains(*hint) {
-            return (false, hint);
+    if NON_MANIFEST_SUFFIXES
+        .iter()
+        .any(|suf| lower_name.ends_with(suf))
+    {
+        return false;
+    }
+    // 排除明确指向非 SHA-256 算法的清单（如 SHA512SUMS / MD5SUMS / checksums-sha1.txt）。
+    if (lower_name.contains("sha512") || lower_name.contains("sha1") || lower_name.contains("md5"))
+        && !lower_name.contains("sha256")
+    {
+        return false;
+    }
+    lower_name.ends_with(".sha256")
+        || lower_name.ends_with(".sha256sum")
+        || lower_name.ends_with(".sha256sums")
+        || lower_name.contains("checksum")
+        || lower_name.contains("sha256")
+}
+
+/// 按指定宿主 OS/Arch 判断 checksum 文件名是否与目标宿主相关（入参 `lower_name` 须为小写）。
+/// 无 OS/Arch 提示词的通用清单（如 `SHA256SUMS` / `checksums.txt`）在全平台放行；
+/// 携带明确平台/架构词时按词边界精确匹配，跨平台 `.zip` 不再强行归为 Windows。
+pub fn checksum_asset_platform_eligible_for(
+    lower_name: &str,
+    host_os: &str,
+    host_arch: &str,
+) -> (bool, &'static str) {
+    use crate::installer::contains_word;
+
+    let has_win = contains_word(lower_name, "windows")
+        || contains_word(lower_name, "win")
+        || contains_word(lower_name, "win64")
+        || contains_word(lower_name, "win32")
+        || contains_word(lower_name, "mingw")
+        || contains_word(lower_name, "msvc")
+        || contains_word(lower_name, "msi")
+        || contains_word(lower_name, "exe")
+        || contains_word(lower_name, "msix")
+        || contains_word(lower_name, "nsis");
+    let has_mac = contains_word(lower_name, "macos")
+        || contains_word(lower_name, "darwin")
+        || contains_word(lower_name, "osx")
+        || contains_word(lower_name, "mac")
+        || contains_word(lower_name, "apple")
+        || contains_word(lower_name, "dmg")
+        || contains_word(lower_name, "pkg")
+        || lower_name.contains(".app.");
+    let has_linux = contains_word(lower_name, "linux")
+        || contains_word(lower_name, "appimage")
+        || contains_word(lower_name, "deb")
+        || contains_word(lower_name, "rpm")
+        || contains_word(lower_name, "flatpak")
+        || contains_word(lower_name, "snap")
+        || contains_word(lower_name, "musl")
+        || contains_word(lower_name, "gnu");
+    let has_other_os = contains_word(lower_name, "android")
+        || contains_word(lower_name, "apk")
+        || contains_word(lower_name, "ios")
+        || contains_word(lower_name, "ipa")
+        || contains_word(lower_name, "freebsd")
+        || contains_word(lower_name, "openbsd")
+        || contains_word(lower_name, "netbsd");
+
+    let has_any_os = has_win || has_mac || has_linux || has_other_os;
+    if has_any_os && host_os != "all" {
+        let os_ok = match host_os {
+            "windows" => has_win,
+            "macos" => has_mac,
+            "linux" => has_linux,
+            _ => true,
+        };
+        if !os_ok {
+            let reason = if has_linux {
+                "linux"
+            } else if has_mac {
+                "macos"
+            } else if has_win {
+                "windows"
+            } else {
+                "other_os"
+            };
+            return (false, reason);
         }
     }
-    (true, "generic")
+
+    let has_x64 = contains_word(lower_name, "x86_64")
+        || contains_word(lower_name, "amd64")
+        || contains_word(lower_name, "x64")
+        || contains_word(lower_name, "win64");
+    let has_arm64 = contains_word(lower_name, "arm64") || contains_word(lower_name, "aarch64");
+    let has_x86 = contains_word(lower_name, "x86")
+        || contains_word(lower_name, "i386")
+        || contains_word(lower_name, "i686")
+        || contains_word(lower_name, "ia32")
+        || contains_word(lower_name, "win32");
+    let has_other_arch = contains_word(lower_name, "armv7")
+        || contains_word(lower_name, "armhf")
+        || contains_word(lower_name, "armv6")
+        || contains_word(lower_name, "riscv64")
+        || contains_word(lower_name, "ppc64le")
+        || contains_word(lower_name, "s390x");
+    let has_universal = contains_word(lower_name, "universal");
+
+    let has_any_arch = has_x64 || has_arm64 || has_x86 || has_other_arch;
+    if has_any_arch && !has_universal {
+        let norm_arch = match host_arch {
+            "x86_64" | "x64" | "amd64" => "x86_64",
+            "aarch64" | "arm64" => "aarch64",
+            "x86" | "i686" | "i386" => "x86",
+            _ => "universal",
+        };
+        let arch_ok = match norm_arch {
+            "x86_64" => has_x64 || (host_os == "windows" && has_x86),
+            "aarch64" => has_arm64,
+            "x86" => has_x86,
+            _ => true,
+        };
+        if !arch_ok {
+            let reason = if has_arm64 {
+                "arm64"
+            } else if has_x64 {
+                "x86_64"
+            } else if has_x86 {
+                "x86"
+            } else {
+                "other_arch"
+            };
+            return (false, reason);
+        }
+    }
+
+    if has_any_os || has_any_arch {
+        (true, "platform_match")
+    } else {
+        (true, "generic")
+    }
+}
+
+/// checksum 文件名平台相关性判定（按编译期当前宿主 `target_os`/`target_arch` 过滤；入参须为小写文件名）。
+pub fn checksum_asset_platform_eligible(lower_name: &str) -> (bool, &'static str) {
+    checksum_asset_platform_eligible_for(
+        lower_name,
+        crate::installer::selector::current_target_os(),
+        crate::installer::selector::current_target_arch(),
+    )
 }
 
 /// GitHub 原始资产 → 收录库平台优先（保持收录库原序），空时最小 `ReleaseAsset` 投影 → deduce（lite 通道 SSOT）。
@@ -423,20 +561,119 @@ mod tests {
     }
 
     #[test]
-    fn test_checksum_platform_filter_skips_linux_aarch64_only() {
-        // 单源覆盖，不两处重复测。
-        // FreeCAD 案：Linux-aarch64-only 的 checksum 文件必须跳过，不产生请求。
-        let (ok, _) = checksum_asset_platform_eligible("freecad-linux-aarch64.sha256");
-        assert!(!ok);
-        let (ok, _) = checksum_asset_platform_eligible("app-1.0-linux.tar.gz.sha256");
-        assert!(!ok);
-        // Windows 相关与通用命名允许请求。
-        let (ok, reason) = checksum_asset_platform_eligible("rustdesk-1.2.6-windows-msi.sha256");
-        assert!(ok, "{}", reason);
-        let (ok, reason) = checksum_asset_platform_eligible("checksums-sha256.txt");
-        assert!(ok, "{}", reason);
-        let (ok, _) = checksum_asset_platform_eligible("SHA256SUMS");
-        assert!(ok);
+    fn test_checksum_platform_filter_respects_runtime_os_and_arch() {
+        // 通用聚合清单在所有平台/架构均放行
+        for (os, arch) in [
+            ("windows", "x86_64"),
+            ("windows", "aarch64"),
+            ("macos", "aarch64"),
+            ("linux", "x86_64"),
+            ("linux", "aarch64"),
+        ] {
+            assert!(
+                checksum_asset_platform_eligible_for("checksums-sha256.txt", os, arch).0,
+                "generic checksums must pass on {os}/{arch}"
+            );
+            assert!(
+                checksum_asset_platform_eligible_for("sha256sums", os, arch).0,
+                "SHA256SUMS must pass on {os}/{arch}"
+            );
+        }
+
+        // Windows x86_64：放行 Windows/x86 资产，拒绝 linux/darwin（含 .zip!）/arm64
+        assert!(
+            checksum_asset_platform_eligible_for(
+                "rustdesk-1.2.6-windows-msi.sha256",
+                "windows",
+                "x86_64"
+            )
+            .0
+        );
+        assert!(
+            !checksum_asset_platform_eligible_for("app-darwin.zip.sha256", "windows", "x86_64").0,
+            "darwin .zip checksum must NOT match Windows"
+        );
+        assert!(
+            !checksum_asset_platform_eligible_for(
+                "freecad-linux-aarch64.sha256",
+                "windows",
+                "x86_64"
+            )
+            .0
+        );
+        assert!(
+            !checksum_asset_platform_eligible_for(
+                "app-1.0-linux.tar.gz.sha256",
+                "windows",
+                "x86_64"
+            )
+            .0
+        );
+
+        // macOS arm64：放行 macOS/darwin arm64 与 universal，拒绝 Windows/Linux/x86_64
+        assert!(
+            checksum_asset_platform_eligible_for("app-darwin-arm64.zip.sha256", "macos", "aarch64")
+                .0
+        );
+        assert!(
+            checksum_asset_platform_eligible_for("app-universal.dmg.sha256", "macos", "aarch64").0
+        );
+        assert!(
+            !checksum_asset_platform_eligible_for("app-win-x64.msi.sha256", "macos", "aarch64").0
+        );
+        assert!(
+            !checksum_asset_platform_eligible_for("app-darwin-x64.dmg.sha256", "macos", "aarch64").0
+        );
+
+        // Linux aarch64：放行 linux-aarch64，拒绝 linux-x64 与 Windows
+        assert!(
+            checksum_asset_platform_eligible_for(
+                "freecad-linux-aarch64.sha256",
+                "linux",
+                "aarch64"
+            )
+            .0
+        );
+        assert!(
+            !checksum_asset_platform_eligible_for(
+                "freecad-linux-aarch64.sha256",
+                "linux",
+                "x86_64"
+            )
+            .0
+        );
+        assert!(
+            checksum_asset_platform_eligible_for("app-1.0-linux.tar.gz.sha256", "linux", "x86_64")
+                .0
+        );
+    }
+
+    #[test]
+    fn test_is_checksum_manifest_asset_excludes_binaries_archives_and_sigs() {
+        for ok in [
+            "sha256sums",
+            "checksums.txt",
+            "checksums-sha256.txt",
+            "app-win.msi.sha256",
+            "app-macos.dmg.sha256sum",
+            "app-linux.appimage.sha256.txt",
+        ] {
+            assert!(is_checksum_manifest_asset(ok), "{ok} should be accepted");
+        }
+        for bad in [
+            "sha256sum-win.exe",
+            "checksum-cli.zip",
+            "sha256-tool-linux.tar.gz",
+            "checksums.txt.asc",
+            "sha256sums.sig",
+            "checksums.txt.gpg",
+            "sha512sums",
+            "md5sums.txt",
+            "checksums.json",
+            "app-win.msi",
+        ] {
+            assert!(!is_checksum_manifest_asset(bad), "{bad} must be rejected");
+        }
     }
 
     #[test]

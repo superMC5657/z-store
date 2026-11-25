@@ -126,10 +126,7 @@ impl CatalogService {
         repos_cache: CachedEtagPayload,
         api_base: Option<&str>,
     ) -> Result<DeveloperProfileFetch, String> {
-        let dev = developer.trim();
-        if dev.is_empty() {
-            return Err("开发者账号不能为空".to_string());
-        }
+        let dev = super::validate_github_username(developer)?;
 
         let client = super::http::build_api_client()?;
 
@@ -531,5 +528,51 @@ mod developer_profile_tests {
             .profile;
         assert!(!profile.repos_truncated, "计数一致不误标");
         assert_eq!(profile.public_repos, 1);
+    }
+
+    #[tokio::test]
+    async fn test_profile_fetch_rejects_invalid_developer_handles_without_network() {
+        let routes = HashMap::new();
+        let srv = spawn_mock(routes).await;
+        let svc = test_service();
+        let over_39 = "a".repeat(40);
+        for bad in [
+            "",
+            "   ",
+            "../user/emails",
+            "..%2Fuser%2Femails",
+            "foo/bar",
+            "foo\\bar",
+            "..",
+            ".",
+            "foo?per_page=1#",
+            "foo#bar",
+            "foo%20bar",
+            "foo bar",
+            "-foo",
+            "foo-",
+            "foo--bar",
+            over_39.as_str(),
+        ] {
+            let err = svc
+                .fetch_developer_profile_with_cache(
+                    bad,
+                    Some("gho_secret_token"),
+                    CachedEtagPayload::default(),
+                    CachedEtagPayload::default(),
+                    Some(&srv.base),
+                )
+                .await
+                .expect_err(&format!("invalid handle {bad:?} must be rejected"));
+            assert!(!err.is_empty());
+        }
+        assert!(
+            srv.seen_inm.lock().unwrap().is_empty(),
+            "rejected developer handles must never trigger HTTP requests"
+        );
+        // 合法账号通过校验函数
+        for ok in ["a", "foo-bar", "foo123", &"a".repeat(39)] {
+            assert_eq!(crate::github::validate_github_username(ok).unwrap(), ok);
+        }
     }
 }

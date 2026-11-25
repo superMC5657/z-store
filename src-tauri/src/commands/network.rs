@@ -173,6 +173,12 @@ fn is_github_api_host(host: &str) -> bool {
     host.eq_ignore_ascii_case("api.github.com")
 }
 
+/// 判定趋势请求响应是否应触发 GitHub OAuth 401 失效通知：
+/// 仅针对携带认证头的 `api.github.com` 401 响应，匿名请求与非 API 主机永不误报。
+fn should_notify_trends_auth_expired(is_api: bool, has_auth: bool, status: u16) -> bool {
+    is_api && has_auth && status == 401
+}
+
 /// 趋势抓取附加请求头：仅 `api.github.com` 带 GitHub API 预设头（含 Token，若有）；其余主机为空。
 fn trends_auth_headers(host: &str, token: Option<&str>) -> reqwest::header::HeaderMap {
     if is_github_api_host(host) {
@@ -266,6 +272,7 @@ pub async fn fetch_trends_text(
             None
         };
         let auth = trends_auth_headers(&host, token.as_deref());
+        let has_auth = auth.contains_key(reqwest::header::AUTHORIZATION);
         let outcome = send_trends_once_with(
             &crate::shared_http_client(),
             &parsed,
@@ -276,6 +283,9 @@ pub async fn fetch_trends_text(
         if is_api {
             if let TrendSend::Resp(ref resp) = outcome {
                 crate::notify_rate_limit("github.com", resp.headers());
+                if should_notify_trends_auth_expired(is_api, has_auth, resp.status().as_u16()) {
+                    crate::check_auth_expired(401, "github.com");
+                }
             }
         }
         (outcome, TrendVia::Direct)
@@ -483,7 +493,10 @@ mod trends_fallback_tests {
 
 #[cfg(test)]
 mod trends_text_tests {
-    use super::{check_trends_text_url, decode_truncated_utf8, trends_auth_headers};
+    use super::{
+        check_trends_text_url, decode_truncated_utf8, should_notify_trends_auth_expired,
+        trends_auth_headers,
+    };
 
     #[test]
     fn truncation_cut_inside_multibyte_char_returns_valid_prefix() {
@@ -540,5 +553,15 @@ mod trends_text_tests {
         assert!(check_trends_text_url("https://apigithub.com/").is_err());
         assert!(check_trends_text_url("https://gittrend.io/api/trending").is_err());
         assert!(check_trends_text_url("not a url").is_err());
+    }
+
+    #[test]
+    fn trends_401_notifies_auth_expired_only_for_authed_github_api() {
+        assert!(should_notify_trends_auth_expired(true, true, 401));
+        assert!(!should_notify_trends_auth_expired(true, false, 401));
+        assert!(!should_notify_trends_auth_expired(false, true, 401));
+        assert!(!should_notify_trends_auth_expired(true, true, 403));
+        assert!(!should_notify_trends_auth_expired(true, true, 429));
+        assert!(!should_notify_trends_auth_expired(true, true, 200));
     }
 }

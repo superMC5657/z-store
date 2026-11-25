@@ -393,11 +393,408 @@ fn resolve_tokens_prefer_cache_then_oauth_then_host() {
 
 #[test]
 fn apply_star_mutation_adjusts_launchpad_only_on_flip() {
+    use crate::db::LaunchpadDiscussionUpsert;
+
     let db = crate::db::Database::open_in_memory().unwrap();
+    // 真实播种 launchpad_feed_cache 与 launchpad_discussion_cache，验证星标翻转的 ±1 增量。
+    db.save_launchpad_feed_cache(
+        "https://x/launchpad.json",
+        r#"{"version":1,"items":[{"id":"o/r","owner":"o","repo":"r","forge":"github",
+            "discussion_repo":"o/lp","discussion_number":7,
+            "discussion_node_id":"D_7","discussion_comments_count":1,"discussion_upvotes":2,"stars":10}]}"#,
+    )
+    .unwrap();
+    db.upsert_launchpad_discussion_state(&LaunchpadDiscussionUpsert {
+        discussion_repo: "o/lp".to_string(),
+        discussion_number: 7,
+        node_id: Some("D_7".to_string()),
+        upvote_count: 2,
+        authoritative_upvotes: true,
+        comments_count: Some(1),
+        viewer_has_upvoted: None,
+        stars: Some(25),
+        forks: Some(3),
+        latest_version: Some("v1.0.0".to_string()),
+        synced_at: 100,
+    })
+    .unwrap();
+
+    let lp_stars = || {
+        db.get_launchpad_discussion_state("o/lp", 7)
+            .unwrap()
+            .and_then(|s| s.stars)
+    };
+    assert_eq!(lp_stars(), Some(25));
+
+    // false -> true 且 adjust_launchpad_delta=true：星数 +1
     apply_star_mutation(&db, "o", "r", true, true);
     assert!(db.is_starred("o", "r").unwrap());
+    assert_eq!(lp_stars(), Some(26));
+
+    // 重复 true -> true（无翻转）：星数不变
     apply_star_mutation(&db, "o", "r", true, true);
     assert!(db.is_starred("o", "r").unwrap());
-    apply_star_mutation(&db, "o", "r", false, false);
+    assert_eq!(lp_stars(), Some(26));
+
+    // true -> false 且 adjust_launchpad_delta=true：星数 -1
+    apply_star_mutation(&db, "o", "r", false, true);
     assert!(!db.is_starred("o", "r").unwrap());
+    assert_eq!(lp_stars(), Some(25));
+
+    // 重复 false -> false（无翻转）：星数不变
+    apply_star_mutation(&db, "o", "r", false, true);
+    assert!(!db.is_starred("o", "r").unwrap());
+    assert_eq!(lp_stars(), Some(25));
+
+    // false -> true 但 adjust_launchpad_delta=false：只写 user_stars，不改动广场星数
+    apply_star_mutation(&db, "o", "r", true, false);
+    assert!(db.is_starred("o", "r").unwrap());
+    assert_eq!(lp_stars(), Some(25));
+}
+
+#[tokio::test]
+async fn star_endpoints_reject_traversal_and_control_segments() {
+    // F-07：split_github_repo_id 与 Star 接口拒绝 `.`/`..`/控制字符/路径注入
+    for bad in ["../..", "./r", "o/..", "o/.", "o\x00/r", "o/r\n"] {
+        assert!(
+            split_github_repo_id(bad).is_err(),
+            "split_github_repo_id must reject {bad:?}"
+        );
+    }
+    assert!(check_starred("gho_tok", "..", "emails").await.is_err());
+    assert!(star_repo("gho_tok", ".", "repo").await.is_err());
+    assert!(unstar_repo("gho_tok", "owner", "..").await.is_err());
+    assert!(
+        star::add_repo_to_star_list_with_base("gho_tok", "..", "r", "http://127.0.0.1:9")
+            .await
+            .is_err()
+    );
+    // starred_api_url 兜底编码特殊字符
+    assert_eq!(
+        starred_api_url("o/x", "r?y=1"),
+        "https://api.github.com/user/starred/o%2Fx/r%3Fy%3D1"
+    );
+}
+
+async fn spawn_graphql_mock<F>(
+    handler: F,
+) -> (String, std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>)
+where
+    F: Fn(&serde_json::Value) -> (u16, serde_json::Value) + Send + Sync + 'static,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_clone = seen.clone();
+    let handler = std::sync::Arc::new(handler);
+    tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            let mut raw = Vec::new();
+            let mut tmp = [0u8; 4096];
+            let mut header_end = None;
+            let mut content_len: usize = 0;
+            loop {
+                let n = match sock.read(&mut tmp).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                raw.extend_from_slice(&tmp[..n]);
+                if header_end.is_none() {
+                    if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                        header_end = Some(pos + 4);
+                        let head = String::from_utf8_lossy(&raw[..pos]);
+                        for line in head.lines() {
+                            if let Some((k, v)) = line.split_once(':') {
+                                if k.trim().eq_ignore_ascii_case("content-length") {
+                                    content_len = v.trim().parse().unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(he) = header_end {
+                    if raw.len() >= he + content_len {
+                        break;
+                    }
+                }
+            }
+            let body_bytes = header_end
+                .map(|he| &raw[he..(he + content_len).min(raw.len())])
+                .unwrap_or(&[]);
+            let req_json: serde_json::Value =
+                serde_json::from_slice(body_bytes).unwrap_or(serde_json::Value::Null);
+            seen_clone.lock().unwrap().push(req_json.clone());
+            let (status, resp_json) = handler(&req_json);
+            let status_line = match status {
+                200 => "200 OK",
+                500 => "500 Internal Server Error",
+                _ => "400 Bad Request",
+            };
+            let body = resp_json.to_string();
+            let resp = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = sock.write_all(resp.as_bytes()).await;
+        }
+    });
+    (format!("http://{addr}"), seen)
+}
+
+#[tokio::test]
+async fn add_repo_to_star_list_paginates_lists_and_items_preserving_all_memberships() {
+    // 场景：第 1 页 lists 含 z-store-list（无目标仓）与 BigList（items 有下一页，目标仓在第 2 页）；
+    // 第 2 页 lists 含 Page2List（首屏即含目标仓）。最终 updateUserListsForItem 必须保留 BigList + Page2List + z-store-list。
+    let (base, seen) = spawn_graphql_mock(|req| {
+        let q = req.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        let vars = req.get("variables");
+        if q.contains("updateUserListsForItem") {
+            return (
+                200,
+                serde_json::json!({ "data": { "updateUserListsForItem": { "clientMutationId": null } } }),
+            );
+        }
+        if q.contains("node(id: $listId)") {
+            let list_id = vars
+                .and_then(|v| v.get("listId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let after = vars
+                .and_then(|v| v.get("after"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if list_id == "L_BIG" && after == "ITEM_CUR_1" {
+                return (
+                    200,
+                    serde_json::json!({
+                        "data": {
+                            "node": {
+                                "items": {
+                                    "nodes": [{ "__typename": "Repository", "id": "R_TARGET" }],
+                                    "pageInfo": { "hasNextPage": false, "endCursor": null }
+                                }
+                            }
+                        }
+                    }),
+                );
+            }
+        }
+        let lists_after = vars
+            .and_then(|v| v.get("listsAfter"))
+            .and_then(|v| v.as_str());
+        if lists_after.is_none() {
+            return (
+                200,
+                serde_json::json!({
+                    "data": {
+                        "repository": { "id": "R_TARGET" },
+                        "viewer": {
+                            "lists": {
+                                "nodes": [
+                                    {
+                                        "id": "L_ZSTORE",
+                                        "name": "z-store-list",
+                                        "items": {
+                                            "nodes": [{ "__typename": "Repository", "id": "R_OTHER" }],
+                                            "pageInfo": { "hasNextPage": false, "endCursor": null }
+                                        }
+                                    },
+                                    {
+                                        "id": "L_BIG",
+                                        "name": "BigList",
+                                        "items": {
+                                            "nodes": [{ "__typename": "Repository", "id": "R_OTHER2" }],
+                                            "pageInfo": { "hasNextPage": true, "endCursor": "ITEM_CUR_1" }
+                                        }
+                                    }
+                                ],
+                                "pageInfo": { "hasNextPage": true, "endCursor": "LIST_CUR_1" }
+                            }
+                        }
+                    }
+                }),
+            );
+        }
+        if lists_after == Some("LIST_CUR_1") {
+            return (
+                200,
+                serde_json::json!({
+                    "data": {
+                        "viewer": {
+                            "lists": {
+                                "nodes": [
+                                    {
+                                        "id": "L_PAGE2",
+                                        "name": "Page2List",
+                                        "items": {
+                                            "nodes": [{ "__typename": "Repository", "id": "R_TARGET" }],
+                                            "pageInfo": { "hasNextPage": false, "endCursor": null }
+                                        }
+                                    }
+                                ],
+                                "pageInfo": { "hasNextPage": false, "endCursor": null }
+                            }
+                        }
+                    }
+                }),
+            );
+        }
+        (500, serde_json::json!({}))
+    })
+    .await;
+
+    let outcome = star::add_repo_to_star_list_with_base("gho_tok", "acme", "app", &base)
+        .await
+        .unwrap();
+    assert_eq!(outcome, AddToListOutcome::Success);
+
+    let reqs = seen.lock().unwrap();
+    let mutation = reqs
+        .iter()
+        .find(|r| {
+            r.get("query")
+                .and_then(|q| q.as_str())
+                .is_some_and(|q| q.contains("updateUserListsForItem"))
+        })
+        .expect("must invoke updateUserListsForItem once pagination completes");
+    let list_ids: Vec<&str> = mutation
+        .pointer("/variables/listIds")
+        .and_then(|v| v.as_array())
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert!(list_ids.contains(&"L_BIG"), "{list_ids:?}");
+    assert!(list_ids.contains(&"L_PAGE2"), "{list_ids:?}");
+    assert!(list_ids.contains(&"L_ZSTORE"), "{list_ids:?}");
+}
+
+#[tokio::test]
+async fn add_repo_to_star_list_aborts_without_overwrite_on_incomplete_pagination() {
+    // 场景 1：hasNextPage=true 但后续项分页 HTTP 500 → 安全中止，绝不调用 updateUserListsForItem
+    let (base, seen) = spawn_graphql_mock(|req| {
+        let q = req.get("query").and_then(|v| v.as_str()).unwrap_or("");
+        if q.contains("node(id: $listId)") {
+            return (500, serde_json::json!({}));
+        }
+        (
+            200,
+            serde_json::json!({
+                "data": {
+                    "repository": { "id": "R_TARGET" },
+                    "viewer": {
+                        "lists": {
+                            "nodes": [
+                                {
+                                    "id": "L_ZSTORE",
+                                    "name": "z-store-list",
+                                    "items": {
+                                        "nodes": [],
+                                        "pageInfo": { "hasNextPage": false, "endCursor": null }
+                                    }
+                                },
+                                {
+                                    "id": "L_BIG",
+                                    "name": "BigList",
+                                    "items": {
+                                        "nodes": [],
+                                        "pageInfo": { "hasNextPage": true, "endCursor": "CUR_1" }
+                                    }
+                                }
+                            ],
+                            "pageInfo": { "hasNextPage": false, "endCursor": null }
+                        }
+                    }
+                }
+            }),
+        )
+    })
+    .await;
+
+    let outcome = star::add_repo_to_star_list_with_base("gho_tok", "acme", "app", &base)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, AddToListOutcome::Failed(_)), "{outcome:?}");
+    {
+        let reqs = seen.lock().unwrap();
+        assert!(
+            !reqs.iter().any(|r| r
+                .get("query")
+                .and_then(|q| q.as_str())
+                .is_some_and(|q| q.contains("updateUserListsForItem"))),
+            "must NEVER overwrite listIds when pagination fails"
+        );
+    }
+
+    // 场景 2：lists hasNextPage=true 但缺失 endCursor → 安全中止
+    let (base2, seen2) = spawn_graphql_mock(|_| {
+        (
+            200,
+            serde_json::json!({
+                "data": {
+                    "repository": { "id": "R_TARGET" },
+                    "viewer": {
+                        "lists": {
+                            "nodes": [],
+                            "pageInfo": { "hasNextPage": true, "endCursor": null }
+                        }
+                    }
+                }
+            }),
+        )
+    })
+    .await;
+    let outcome2 = star::add_repo_to_star_list_with_base("gho_tok", "acme", "app", &base2)
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome2, AddToListOutcome::Failed(_)),
+        "{outcome2:?}"
+    );
+    assert_eq!(seen2.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn add_repo_to_star_list_skips_mutation_when_already_in_target_list() {
+    let (base, seen) = spawn_graphql_mock(|_| {
+        (
+            200,
+            serde_json::json!({
+                "data": {
+                    "repository": { "id": "R_TARGET" },
+                    "viewer": {
+                        "lists": {
+                            "nodes": [
+                                {
+                                    "id": "L_ZSTORE",
+                                    "name": "z-store-list",
+                                    "items": {
+                                        "nodes": [{ "__typename": "Repository", "id": "R_TARGET" }],
+                                        "pageInfo": { "hasNextPage": false, "endCursor": null }
+                                    }
+                                },
+                                {
+                                    "id": "L_BIG",
+                                    "name": "BigList",
+                                    "items": {
+                                        "nodes": [],
+                                        "pageInfo": { "hasNextPage": true, "endCursor": "CUR_1" }
+                                    }
+                                }
+                            ],
+                            "pageInfo": { "hasNextPage": false, "endCursor": null }
+                        }
+                    }
+                }
+            }),
+        )
+    })
+    .await;
+
+    let outcome = star::add_repo_to_star_list_with_base("gho_tok", "acme", "app", &base)
+        .await
+        .unwrap();
+    assert_eq!(outcome, AddToListOutcome::Success);
+    assert_eq!(seen.lock().unwrap().len(), 1);
 }

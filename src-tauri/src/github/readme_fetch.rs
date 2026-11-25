@@ -17,6 +17,37 @@ static ROOT_PATHS_CACHE: LazyLock<std::sync::Mutex<RootPathsCache>> =
 
 /// 两张内存表各自的条目上限：长时运行不随浏览过的仓库数无限增长。
 const README_MEMO_CAP: usize = 512;
+/// 根目录列举响应体字节上限（2 MiB），防止异常超大响应导致内存峰值。
+const MAX_ROOT_LIST_BYTES: usize = 2 * 1024 * 1024;
+
+/// 流式读取有限大小响应体：超过 `max_bytes` 或超时即返回 `None`。
+async fn read_bounded_bytes(
+    resp: reqwest::Response,
+    max_bytes: usize,
+    timeout: std::time::Duration,
+) -> Option<Vec<u8>> {
+    use futures_util::StreamExt;
+    if resp
+        .content_length()
+        .is_some_and(|len| len > max_bytes as u64)
+    {
+        return None;
+    }
+    let mut buf = Vec::with_capacity(8 * 1024);
+    let mut stream = resp.bytes_stream();
+    let res = tokio::time::timeout(timeout, async {
+        while let Some(chunk_res) = stream.next().await {
+            let chunk = chunk_res.ok()?;
+            if buf.len().saturating_add(chunk.len()) > max_bytes {
+                return None;
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        Some(buf)
+    })
+    .await;
+    res.ok().flatten()
+}
 
 /// 有界写入：表满且为新键时先清过期条目，仍满则驱逐写入时间最早的一条。
 fn insert_bounded<V>(
@@ -141,7 +172,7 @@ async fn fetch_repo_default_branch(
     api_base: Option<&str>,
     api_timeout: std::time::Duration,
 ) -> Option<String> {
-    let canonical = format!("{GITHUB_API_BASE}/repos/{owner}/{repo}");
+    let canonical = crate::github::github_repo_endpoint(owner, repo);
     let url = CatalogService::request_url(&canonical, api_base);
     let span = crate::forge::http::HttpSpan::start();
     let req = client.get(&url).headers(headers.clone()).send();
@@ -163,7 +194,7 @@ async fn fetch_repo_default_branch(
 }
 
 /// 列根目录：`contents?ref=` 成功即返（含空即分支有效）；失败回退
-/// `git/trees?recursive=1` 只收根文件。两路皆失败返回 `None`（换下个分支）。
+/// 非递归 `git/trees/{branch}` 只收根文件，且两路均施加响应体积上限。两路皆失败返回 `None`（换下个分支）。
 async fn list_root_paths(
     client: &reqwest::Client,
     headers: &reqwest::header::HeaderMap,
@@ -189,7 +220,8 @@ async fn list_root_paths(
             &format!("op=readme-contents owner={owner} repo={repo}"),
         );
         if resp.status().is_success() {
-            if let Ok(entries) = resp.json::<Vec<ContentsEntry>>().await {
+            let bytes = read_bounded_bytes(resp, MAX_ROOT_LIST_BYTES, api_timeout).await?;
+            if let Ok(entries) = serde_json::from_slice::<Vec<ContentsEntry>>(&bytes) {
                 let mut paths = Vec::new();
                 for e in entries {
                     if e.entry_type.as_deref() == Some("dir") {
@@ -207,9 +239,13 @@ async fn list_root_paths(
         }
     }
 
-    // 回退：git trees 全量，过滤根文件。
-    let canonical_tree =
-        format!("{GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1");
+    // 回退：非递归 git trees 直接列根目录，逐段 percent-encoding 并限制响应体积。
+    let canonical_tree = format!(
+        "{GITHUB_API_BASE}/repos/{}/{}/git/trees/{}",
+        urlencoding::encode(owner),
+        urlencoding::encode(repo),
+        urlencoding::encode(branch)
+    );
     let tree_url = CatalogService::request_url(&canonical_tree, api_base);
     let tree_span = crate::forge::http::HttpSpan::start();
     let req = client.get(&tree_url).headers(headers.clone()).send();
@@ -222,7 +258,8 @@ async fn list_root_paths(
     if !resp.status().is_success() {
         return None;
     }
-    match resp.json::<GitTreeResponse>().await {
+    let bytes = read_bounded_bytes(resp, MAX_ROOT_LIST_BYTES, api_timeout).await?;
+    match serde_json::from_slice::<GitTreeResponse>(&bytes) {
         Ok(tree) => {
             let paths = tree
                 .tree
@@ -583,9 +620,9 @@ mod tests {
                 honor_inm: None,
             },
         );
-        // contents 刻意不注册 → 404，触发 trees 回退。
+        // contents 刻意不注册 → 404，触发非递归 trees 回退（不带 ?recursive=1）。
         routes.insert(
-            "/repos/o/r2/git/trees/main?recursive=1".to_string(),
+            "/repos/o/r2/git/trees/main".to_string(),
             MockResp {
                 status: 200,
                 reason: "OK",
@@ -631,5 +668,88 @@ mod tests {
         assert_eq!(variants.len(), 2);
         assert_eq!(variants[0].lang, "zh-CN");
         assert!(!variants.iter().any(|v| v.path.contains('/')));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_readme_variants_trees_encodes_slash_branch_and_caps_oversized() {
+        use crate::github::developer_starred::test_support::{spawn_mock, MockResp};
+        use std::collections::HashMap;
+
+        // 1. 含斜杠分支 release/1.0 必须 percent-encoding 且不带 ?recursive=1
+        let mut routes = HashMap::new();
+        routes.insert(
+            "/repos/o/r3".to_string(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: serde_json::json!({"default_branch": "release/1.0"}).to_string(),
+                honor_inm: None,
+            },
+        );
+        routes.insert(
+            "/repos/o/r3/git/trees/release%2F1.0".to_string(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: serde_json::json!({
+                    "tree": [
+                        {"path": "README.md", "type": "blob"},
+                        {"path": "README.zh-CN.md", "type": "blob"}
+                    ]
+                })
+                .to_string(),
+                honor_inm: None,
+            },
+        );
+        routes.insert(
+            "/repos/o/r3/contents/README.zh-CN.md?ref=release%2F1.0".to_string(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: "# 发布版".to_string(),
+                honor_inm: None,
+            },
+        );
+        routes.insert(
+            "/repos/o/r3/contents/README.md?ref=release%2F1.0".to_string(),
+            MockResp {
+                status: 200,
+                reason: "OK",
+                etag: None,
+                body: "# Release".to_string(),
+                honor_inm: None,
+            },
+        );
+        let srv = spawn_mock(routes).await;
+        let svc = crate::github::CatalogService::with_items(Vec::new());
+        let variants = svc
+            .fetch_readme_variants("o/r3", None, Some(&srv.base))
+            .await
+            .expect("slash-named branch fallback must succeed");
+        assert_eq!(variants.len(), 2);
+        assert_eq!(variants[0].lang, "zh-CN");
+
+        // 2. 超大响应体（> MAX_ROOT_LIST_BYTES）在流式读取阶段即被拒绝
+        let huge = "x".repeat(super::MAX_ROOT_LIST_BYTES + 64);
+        let server = crate::test_support::serve(move |_| {
+            crate::test_support::Reply::ok(huge.clone())
+        })
+        .await;
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let headers = reqwest::header::HeaderMap::new();
+        let res = super::list_root_paths(
+            &client,
+            &headers,
+            "o",
+            "big",
+            "main",
+            Some(&server.base),
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        assert!(res.is_none(), "oversized root listing must be rejected");
     }
 }

@@ -30,11 +30,12 @@ impl ForgeType {
     }
 
     /// 宿主精确或白名单子域匹配（大小写不敏感）：`github.com` 命中
-    /// `api.github.com` / `github.com:443`，不命中 `xx-github.com` / `github.com.evil.com`。
-    /// 比较前剥端口（`split(':').next()`，与 `mirror::url_host` 同口径）并去尾部点。
+    /// `api.github.com` / `github.com:443`，不命中 `xx-github.com` / `github.com.evil.com`
+    /// 以及携带 `@` userinfo 或非法主机字符的伪造串。
     pub fn matches_host(&self, host: &str) -> bool {
-        let host = host.trim().to_lowercase();
-        let host = host.split(':').next().unwrap_or("").trim_end_matches('.');
+        let Some(host) = parse_valid_hostname(host) else {
+            return false;
+        };
         let domain = self.default_host();
         host == domain || host.ends_with(&format!(".{domain}"))
     }
@@ -68,6 +69,9 @@ impl UniversalRepoCoord {
 
 /// 将入站应用标识归一化为 canonical 形态，无法解析返回 `None`。
 pub fn canonical_app_id(input: &str) -> Option<String> {
+    if input.chars().any(char::is_control) {
+        return None;
+    }
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
@@ -89,17 +93,68 @@ pub fn canonical_lookup_id(raw: &str) -> String {
 
 pub struct RepositoryUrlParser;
 
-/// host 段校验（注入面收口）：拒绝空值与 `?`/`#`/`/`/反斜杠/空白——这些字符
-/// 入 URL 路径即路径/查询注入，入 canonical 键即脏键。放行 `:` 以承载自建实例
-/// 的非标端口；`/`/`://` 经上游 split 切分天然不出现，此处仍显式拒绝作纵深防御。
-fn valid_host_segment(s: &str) -> bool {
-    !s.is_empty() && !s.contains(['?', '#', '/', '\\']) && !s.chars().any(char::is_whitespace)
+/// 校验主机名（可选 `:port` 与单个尾部 FQDN 点），拒绝 `@` userinfo、控制/空白字符、
+/// 路径/查询分隔符、非法端口及不合规域名标签；返回小写无端口无尾点的主机名。
+fn parse_valid_hostname(raw: &str) -> Option<String> {
+    if raw.chars().any(char::is_control) {
+        return None;
+    }
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed.contains(['@', '/', '\\', '?', '#'])
+        || trimmed.chars().any(char::is_whitespace)
+    {
+        return None;
+    }
+    let host_part = match trimmed.split_once(':') {
+        Some((h, port)) => {
+            if port.is_empty()
+                || !port.bytes().all(|b| b.is_ascii_digit())
+                || port.parse::<u16>().ok().filter(|&p| p > 0).is_none()
+            {
+                return None;
+            }
+            h
+        }
+        None => trimmed,
+    };
+    // 仅剥除单个 FQDN 尾点，避免 `github.com..` 被静默放行。
+    let host = host_part.strip_suffix('.').unwrap_or(host_part);
+    if host.is_empty() || host.len() > 253 {
+        return None;
+    }
+    for label in host.split('.') {
+        if label.is_empty()
+            || label.len() > 63
+            || label.starts_with('-')
+            || label.ends_with('-')
+            || !label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            return None;
+        }
+    }
+    Some(host.to_ascii_lowercase())
 }
 
-/// owner/repo 段校验：同 host 口径并拒绝 `:`——`owner:repo` 会与
-/// `forge:host:owner/repo` 语法混淆。
+/// host 段校验（注入面收口）：拒绝空值、首尾空白、`@` userinfo、控制字符、
+/// 路径/查询分隔符及非法主机名/端口，放行自建实例的合法 `:port`。
+fn valid_host_segment(s: &str) -> bool {
+    !s.is_empty() && s == s.trim() && parse_valid_hostname(s).is_some()
+}
+
+/// owner/repo 段校验：拒绝空值、`.`/`..` 路径穿越段、控制/空白字符以及 URL 注入分隔符。
+pub(crate) fn is_valid_repo_segment(s: &str) -> bool {
+    !s.is_empty()
+        && s != "."
+        && s != ".."
+        && !s.contains(['?', '#', '/', '\\', ':', '@', '%'])
+        && !s.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 fn valid_repo_segment(s: &str) -> bool {
-    valid_host_segment(s) && !s.contains(':')
+    is_valid_repo_segment(s)
 }
 
 /// 解析出口唯一构造点：四条解析分支经此校验收敛，脏段一律 `None`。
@@ -120,7 +175,7 @@ fn checked_coord(
     })
 }
 
-/// Web URL 的 host 归一：小写、去尾部点、去默认端口（https 443 / http 80）。
+/// Web URL 的 host 归一：小写、去单个尾部 FQDN 点、去默认端口（https 443 / http 80）。
 /// 非标端口保留，自建实例 API 仍需带端口访问；canonical 键因此与无端口写法同值。
 fn normalize_url_host(raw: &str, is_https: bool) -> String {
     let host = raw.trim().to_lowercase();
@@ -129,11 +184,19 @@ fn normalize_url_host(raw: &str, is_https: bool) -> String {
         Some((head, port)) if port == default_port => head.to_string(),
         _ => host,
     };
-    host.trim_end_matches('.').to_string()
+    if let Some(stripped) = host.strip_suffix('.') {
+        if !stripped.ends_with('.') {
+            return stripped.to_string();
+        }
+    }
+    host
 }
 
 impl RepositoryUrlParser {
     pub fn parse(input: &str) -> Option<UniversalRepoCoord> {
+        if input.chars().any(char::is_control) {
+            return None;
+        }
         let s = input.trim();
         if s.is_empty() {
             return None;
@@ -393,5 +456,69 @@ mod tests {
         // 不可解析回退小写（深链解析层不断路由；执行层 `require_app_id` 再拒绝）。
         assert_eq!(canonical_lookup_id("rustdesk"), "rustdesk");
         assert_eq!(canonical_lookup_id("  "), "");
+    }
+
+    #[test]
+    fn test_f07_rejects_userinfo_invalid_hosts_and_dot_control_segments() {
+        // matches_host 拒绝 @ userinfo、空标签、非法字符与异常端口
+        for bad_host in [
+            "evil@.github.com",
+            "user:pass@github.com",
+            ".github.com",
+            "github.com..",
+            "bad host.github.com",
+            "foo/bar.github.com",
+            "foo\\bar.github.com",
+            "github.com:0",
+            "github.com:abc",
+            "github.com:443:80",
+            "github.com\n",
+            "github.com\x00",
+        ] {
+            assert!(
+                !ForgeType::GitHub.matches_host(bad_host),
+                "matches_host must reject {bad_host:?}"
+            );
+        }
+
+        // RepositoryUrlParser / canonical_app_id 拒绝 @ userinfo 主机、`.`/`..` 与控制字符段
+        for bad_input in [
+            "gitea:attacker@internal:8080/o/r",
+            "https://evil@.github.com/o/r",
+            "https://user:pass@github.com/o/r",
+            "https://github.com../o/r",
+            "../..",
+            "./foo",
+            "foo/.",
+            "foo/..",
+            "https://github.com/../user",
+            "https://github.com/o/..",
+            "github:../emails",
+            "codeberg:./repo",
+            "o\x00/r",
+            "o/r\x07",
+            "o/r\n",
+            "o@x/r",
+            "o/r%2f",
+        ] {
+            assert!(
+                RepositoryUrlParser::parse(bad_input).is_none(),
+                "parse must reject {bad_input:?}"
+            );
+            assert!(
+                canonical_app_id(bad_input).is_none(),
+                "canonical_app_id must reject {bad_input:?}"
+            );
+        }
+
+        // 含合法点号与下划线的仓库名仍正常通过
+        assert_eq!(
+            canonical_app_id("mozilla/pdf.js").as_deref(),
+            Some("mozilla/pdf.js")
+        );
+        assert_eq!(
+            canonical_app_id("my_org/my_repo.v2").as_deref(),
+            Some("my_org/my_repo.v2")
+        );
     }
 }

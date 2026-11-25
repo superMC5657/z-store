@@ -1,14 +1,26 @@
 use super::{AddToListOutcome, OAuthUser, StarRepoOutcome, GITHUB_API_BASE};
 use serde::Deserialize;
 
-/// Star API 地址构造（纯函数）。
+/// Star API 地址构造（纯函数，对 owner/repo 做 percent-encoding 防止路径穿越）。
 pub fn starred_api_url(owner: &str, repo: &str) -> String {
     format!(
         "{}/user/starred/{}/{}",
         GITHUB_API_BASE,
-        owner.trim(),
-        repo.trim()
+        urlencoding::encode(owner.trim()),
+        urlencoding::encode(repo.trim())
     )
+}
+
+/// 校验 GitHub Star 接口的 `(owner, repo)` 段，拒绝 `.`、`..`、控制字符与路径/查询注入符。
+fn validate_github_repo_parts<'a>(owner: &'a str, repo: &'a str) -> Result<(&'a str, &'a str), String> {
+    let o = owner.trim();
+    let r = repo.trim();
+    if !crate::forge::coord::is_valid_repo_segment(o)
+        || !crate::forge::coord::is_valid_repo_segment(r)
+    {
+        return Err(format!("无效的 GitHub 仓库坐标: {}/{}", owner, repo));
+    }
+    Ok((o, r))
 }
 
 /// 构建 GitHub API 客户端（认证按请求经 auth_headers 携带，永不落日志）。
@@ -86,6 +98,7 @@ pub async fn fetch_oauth_user(token: &str) -> Result<OAuthUser, String> {
 
 /// 查询是否已 Star（204 = 已 Star，404 = 未 Star）。
 pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool, String> {
+    let (owner, repo) = validate_github_repo_parts(owner, repo)?;
     let resp = super::authed_req(
         reqwest::Method::GET,
         &starred_api_url(owner, repo),
@@ -113,6 +126,7 @@ pub async fn check_starred(token: &str, owner: &str, repo: &str) -> Result<bool,
 /// Star 指定仓库（幂等，PUT 成功返回 204）。
 /// 并自动尝试将仓库归入 GitHub User List（z-store-list 列表）。
 pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoOutcome, String> {
+    let (owner, repo) = validate_github_repo_parts(owner, repo)?;
     let resp = super::authed_req(
         reqwest::Method::PUT,
         &starred_api_url(owner, repo),
@@ -167,22 +181,98 @@ pub async fn star_repo(token: &str, owner: &str, repo: &str) -> Result<StarRepoO
     }
 }
 
+/// Star List 分页上限：防止异常游标死循环；若超过上限仍未翻完，必须安全中止而非覆盖。
+const MAX_STAR_LIST_PAGES: usize = 20;
+const MAX_STAR_LIST_ITEM_PAGES: usize = 50;
+
+const ABORT_INCOMPLETE_LISTS_MSG: &str =
+    "无法完整读取现有 Star 列表分页，已中止列表同步以避免覆盖既有分组";
+
+/// 解析 GraphQL `pageInfo`：`hasNextPage` 必须存在；为真时 `endCursor` 必须非空，否则视为分页不完整。
+fn parse_page_info(page_info: Option<&serde_json::Value>) -> Result<Option<String>, ()> {
+    let pi = page_info.ok_or(())?;
+    let has_next = pi.get("hasNextPage").and_then(|v| v.as_bool()).ok_or(())?;
+    if !has_next {
+        return Ok(None);
+    }
+    let cursor = pi
+        .get("endCursor")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or(())?;
+    Ok(Some(cursor.to_string()))
+}
+
+/// 发送单次 GraphQL 请求并解析响应 JSON；非 2xx 与 `INSUFFICIENT_SCOPES` 归一为 `AddToListOutcome`。
+async fn post_star_list_graphql(
+    client: &reqwest::Client,
+    gql_url: &str,
+    headers: &reqwest::header::HeaderMap,
+    payload: &serde_json::Value,
+    op_label: &str,
+) -> Result<Result<serde_json::Value, AddToListOutcome>, String> {
+    let resp = client
+        .post(gql_url)
+        .headers(headers.clone())
+        .json(payload)
+        .send()
+        .await
+        .map_err(|e| format!("{}: {}", op_label, e))?;
+    if !resp.status().is_success() {
+        return Ok(Err(AddToListOutcome::Failed(format!(
+            "{} HTTP 状态码: {}",
+            op_label,
+            resp.status()
+        ))));
+    }
+    let val: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析{}响应失败: {}", op_label, e))?;
+    if let Some(errs) = val.get("errors").and_then(|e| e.as_array()) {
+        for err in errs {
+            if is_insufficient_scopes(err) {
+                return Ok(Err(AddToListOutcome::InsufficientScopes));
+            }
+        }
+    }
+    Ok(Ok(val))
+}
+
+fn nodes_contain_repo(nodes: &[serde_json::Value], repo_id: &str) -> bool {
+    nodes
+        .iter()
+        .any(|it| it.get("id").and_then(|v| v.as_str()) == Some(repo_id))
+}
+
 /// 将已 Star 的仓库归入 GitHub User List（默认列表名：z-store-list）。
 /// 若当前令牌缺少 `user` scope 或 GraphQL 返回权限错误，返回 InsufficientScopes，保证调用方获得准确反馈。
+/// 完整翻页所有 `lists` 与每张列表的 `items`；若任一分页未读完或异常，安全中止写入而不覆盖既有归属。
 pub async fn add_repo_to_star_list(
     token: &str,
     owner: &str,
     repo: &str,
 ) -> Result<AddToListOutcome, String> {
+    add_repo_to_star_list_with_base(token, owner, repo, GITHUB_API_BASE).await
+}
+
+pub(crate) async fn add_repo_to_star_list_with_base(
+    token: &str,
+    owner: &str,
+    repo: &str,
+    api_base: &str,
+) -> Result<AddToListOutcome, String> {
+    let (owner, repo) = validate_github_repo_parts(owner, repo)?;
     let client = authed_client()?;
     let headers = auth_headers(token)?;
-    let gql_url = format!("{}/graphql", GITHUB_API_BASE);
+    let gql_url = format!("{}/graphql", api_base.trim_end_matches('/'));
 
-    // 1. 查询当前用户的列表（含已有仓库 item 以保留既有归类）及目标仓库 node id
-    let query = r#"
-        query($owner: String!, $name: String!) {
+    // 1. 完整分页拉取 viewer.lists（首请求同时取目标仓库 node id）
+    let first_page_query = r#"
+        query($owner: String!, $name: String!, $listsAfter: String) {
           viewer {
-            lists(first: 50) {
+            lists(first: 50, after: $listsAfter) {
               nodes {
                 id
                 name
@@ -193,7 +283,15 @@ pub async fn add_repo_to_star_list(
                       id
                     }
                   }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
                 }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
               }
             }
           }
@@ -202,71 +300,275 @@ pub async fn add_repo_to_star_list(
           }
         }
     "#;
-
-    let payload = serde_json::json!({
-        "query": query,
-        "variables": {
-            "owner": owner.trim(),
-            "name": repo.trim()
-        }
-    });
-
-    let resp = client
-        .post(&gql_url)
-        .headers(headers.clone())
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("GraphQL 查询失败: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Ok(AddToListOutcome::Failed(format!(
-            "GraphQL HTTP 异常: {}",
-            resp.status()
-        )));
-    }
-
-    let val: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析 GraphQL 响应失败: {}", e))?;
-
-    if let Some(errs) = val.get("errors").and_then(|e| e.as_array()) {
-        for err in errs {
-            if is_insufficient_scopes(err) {
-                return Ok(AddToListOutcome::InsufficientScopes);
+    let next_lists_query = r#"
+        query($listsAfter: String!) {
+          viewer {
+            lists(first: 50, after: $listsAfter) {
+              nodes {
+                id
+                name
+                items(first: 100) {
+                  nodes {
+                    __typename
+                    ... on Repository {
+                      id
+                    }
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
             }
+          }
         }
-    }
+    "#;
 
-    let repo_id = match val.pointer("/data/repository/id").and_then(|v| v.as_str()) {
-        Some(id) => id.to_string(),
-        None => return Ok(AddToListOutcome::Failed("未找到对应仓库 ID".to_string())),
-    };
-
-    // 寻找现有的 z-store-list 或 star-list 列表，同时收集该仓库已归属的其他列表予以保留
+    let mut repo_id: Option<String> = None;
     let mut target_list_id: Option<String> = None;
     let mut item_list_ids: Vec<String> = Vec::new();
+    let mut lists_needing_item_pages: Vec<(String, String)> = Vec::new();
+    let mut lists_cursor: Option<String> = None;
+    let mut list_pages_fetched: usize = 0;
 
-    if let Some(nodes) = val
-        .pointer("/data/viewer/lists/nodes")
-        .and_then(|v| v.as_array())
-    {
+    loop {
+        list_pages_fetched += 1;
+        let payload = if lists_cursor.is_none() {
+            serde_json::json!({
+                "query": first_page_query,
+                "variables": {
+                    "owner": owner,
+                    "name": repo,
+                    "listsAfter": serde_json::Value::Null
+                }
+            })
+        } else {
+            serde_json::json!({
+                "query": next_lists_query,
+                "variables": {
+                    "listsAfter": lists_cursor
+                }
+            })
+        };
+
+        let val = match post_star_list_graphql(
+            &client,
+            &gql_url,
+            &headers,
+            &payload,
+            "GraphQL 列表查询",
+        )
+        .await?
+        {
+            Ok(v) => v,
+            Err(outcome) => return Ok(outcome),
+        };
+
+        if val
+            .get("errors")
+            .and_then(|e| e.as_array())
+            .is_some_and(|arr| !arr.is_empty())
+        {
+            return Ok(AddToListOutcome::Failed(
+                ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+            ));
+        }
+
+        if repo_id.is_none() {
+            repo_id = val
+                .pointer("/data/repository/id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            if repo_id.is_none() {
+                return Ok(AddToListOutcome::Failed("未找到对应仓库 ID".to_string()));
+            }
+        }
+        let current_repo_id = repo_id.as_deref().unwrap_or_default();
+
+        let Some(lists_conn) = val.pointer("/data/viewer/lists") else {
+            return Ok(AddToListOutcome::Failed(
+                ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+            ));
+        };
+        let Some(nodes) = lists_conn.get("nodes").and_then(|v| v.as_array()) else {
+            return Ok(AddToListOutcome::Failed(
+                ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+            ));
+        };
+
         for n in nodes {
             let id = n.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if id.is_empty() {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            }
             let name = n.get("name").and_then(|v| v.as_str()).unwrap_or_default();
             let lower = name.trim().to_lowercase();
             if lower == "z-store-list" || lower == "star-list" {
                 target_list_id = Some(id.to_string());
             }
-            if let Some(items) = n.pointer("/items/nodes").and_then(|v| v.as_array()) {
-                for it in items {
-                    if it.get("id").and_then(|v| v.as_str()) == Some(&repo_id) {
-                        if !id.is_empty() && !item_list_ids.contains(&id.to_string()) {
-                            item_list_ids.push(id.to_string());
-                        }
-                        break;
+            let Some(items_conn) = n.get("items") else {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            };
+            let Some(items) = items_conn.get("nodes").and_then(|v| v.as_array()) else {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            };
+            if nodes_contain_repo(items, current_repo_id) {
+                if !item_list_ids.iter().any(|existing| existing == id) {
+                    item_list_ids.push(id.to_string());
+                }
+            } else {
+                match parse_page_info(items_conn.get("pageInfo")) {
+                    Ok(Some(next_item_cursor)) => {
+                        lists_needing_item_pages.push((id.to_string(), next_item_cursor));
                     }
+                    Ok(None) => {}
+                    Err(()) => {
+                        return Ok(AddToListOutcome::Failed(
+                            ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        match parse_page_info(lists_conn.get("pageInfo")) {
+            Ok(Some(next_cursor)) => {
+                if list_pages_fetched >= MAX_STAR_LIST_PAGES {
+                    return Ok(AddToListOutcome::Failed(
+                        ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                    ));
+                }
+                lists_cursor = Some(next_cursor);
+            }
+            Ok(None) => break,
+            Err(()) => {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            }
+        }
+    }
+
+    let repo_id = repo_id.unwrap_or_default();
+
+    // 若目标列表已包含当前仓库，无需调用 updateUserListsForItem（零覆盖风险）。
+    if let Some(ref tid) = target_list_id {
+        if item_list_ids.iter().any(|existing| existing == tid) {
+            return Ok(AddToListOutcome::Success);
+        }
+    }
+
+    // 2. 对首屏未命中且存在后续页的列表逐一完整翻页（优先检查目标列表，命中可提前结束）
+    if let Some(ref tid) = target_list_id {
+        if let Some(pos) = lists_needing_item_pages
+            .iter()
+            .position(|(lid, _)| lid == tid)
+        {
+            if pos > 0 {
+                let entry = lists_needing_item_pages.remove(pos);
+                lists_needing_item_pages.insert(0, entry);
+            }
+        }
+    }
+
+    let list_items_query = r#"
+        query($listId: ID!, $after: String!) {
+          node(id: $listId) {
+            ... on UserList {
+              items(first: 100, after: $after) {
+                nodes {
+                  __typename
+                  ... on Repository {
+                    id
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
+            }
+          }
+        }
+    "#;
+
+    for (list_id, mut item_cursor) in lists_needing_item_pages {
+        let mut item_pages_fetched: usize = 1; // 首屏已拉第 1 页
+        loop {
+            if item_pages_fetched >= MAX_STAR_LIST_ITEM_PAGES {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            }
+            item_pages_fetched += 1;
+            let payload = serde_json::json!({
+                "query": list_items_query,
+                "variables": {
+                    "listId": list_id,
+                    "after": item_cursor
+                }
+            });
+            let val = match post_star_list_graphql(
+                &client,
+                &gql_url,
+                &headers,
+                &payload,
+                "GraphQL 列表项分页查询",
+            )
+            .await?
+            {
+                Ok(v) => v,
+                Err(outcome) => return Ok(outcome),
+            };
+            if val
+                .get("errors")
+                .and_then(|e| e.as_array())
+                .is_some_and(|arr| !arr.is_empty())
+            {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            }
+            let Some(items_conn) = val.pointer("/data/node/items") else {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            };
+            let Some(items) = items_conn.get("nodes").and_then(|v| v.as_array()) else {
+                return Ok(AddToListOutcome::Failed(
+                    ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                ));
+            };
+            if nodes_contain_repo(items, &repo_id) {
+                if !item_list_ids.iter().any(|existing| existing == &list_id) {
+                    item_list_ids.push(list_id.clone());
+                }
+                if target_list_id.as_deref() == Some(list_id.as_str()) {
+                    return Ok(AddToListOutcome::Success);
+                }
+                break;
+            }
+            match parse_page_info(items_conn.get("pageInfo")) {
+                Ok(Some(next_cursor)) => {
+                    item_cursor = next_cursor;
+                }
+                Ok(None) => break,
+                Err(()) => {
+                    return Ok(AddToListOutcome::Failed(
+                        ABORT_INCOMPLETE_LISTS_MSG.to_string(),
+                    ));
                 }
             }
         }
@@ -287,33 +589,18 @@ pub async fn add_repo_to_star_list(
                 }
             "#;
             let create_payload = serde_json::json!({ "query": create_mutation });
-            let create_resp = client
-                .post(&gql_url)
-                .headers(headers.clone())
-                .json(&create_payload)
-                .send()
-                .await
-                .map_err(|e| format!("创建列表失败: {}", e))?;
-
-            if !create_resp.status().is_success() {
-                return Ok(AddToListOutcome::Failed(format!(
-                    "创建列表 HTTP 状态码: {}",
-                    create_resp.status()
-                )));
-            }
-
-            let create_val: serde_json::Value = create_resp
-                .json()
-                .await
-                .map_err(|e| format!("解析创建列表响应失败: {}", e))?;
-
-            if let Some(errs) = create_val.get("errors").and_then(|e| e.as_array()) {
-                for err in errs {
-                    if is_insufficient_scopes(err) {
-                        return Ok(AddToListOutcome::InsufficientScopes);
-                    }
-                }
-            }
+            let create_val = match post_star_list_graphql(
+                &client,
+                &gql_url,
+                &headers,
+                &create_payload,
+                "创建列表",
+            )
+            .await?
+            {
+                Ok(v) => v,
+                Err(outcome) => return Ok(outcome),
+            };
 
             match create_val
                 .pointer("/data/createUserList/list/id")
@@ -331,7 +618,7 @@ pub async fn add_repo_to_star_list(
         item_list_ids.push(target_list_id);
     }
 
-    // 2. 将仓库更新到列表集合中
+    // 3. 将仓库更新到完整保留的列表集合中
     let add_mutation = r#"
         mutation($itemId: ID!, $listIds: [ID!]!) {
           updateUserListsForItem(input: { itemId: $itemId, listIds: $listIds }) {
@@ -392,6 +679,7 @@ pub async fn add_repo_to_star_list(
 
 /// 取消 Star（幂等，DELETE 成功返回 204）。
 pub async fn unstar_repo(token: &str, owner: &str, repo: &str) -> Result<(), String> {
+    let (owner, repo) = validate_github_repo_parts(owner, repo)?;
     let resp = super::authed_req(
         reqwest::Method::DELETE,
         &starred_api_url(owner, repo),

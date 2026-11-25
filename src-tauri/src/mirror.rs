@@ -4,17 +4,13 @@ use std::time::Instant;
 
 pub const DEFAULT_GH_PROXY: &str = "https://gh-proxy.com";
 
-/// 从 URL 提取小写 host（仅接受带 scheme 的完整 URL；剥 userinfo 与端口）。
-/// 手写解析不引入 `url` 依赖：调用方传入的均为 Provider/镜像侧完整 URL。
+/// 从 URL 提取小写 host（经 WHATWG `reqwest::Url::parse` 解析，拒绝非 http(s) 与反斜杠权威混淆）。
 fn url_host(raw_url: &str) -> Option<String> {
-    let rest = raw_url
-        .strip_prefix("https://")
-        .or_else(|| raw_url.strip_prefix("http://"))?;
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
-    let host = authority.rsplit('@').next()?; // 剥 userinfo（user:pass@host）
-    let host = host.split(':').next()?; // 剥端口
-    let host = host.trim().to_ascii_lowercase();
+    let parsed = reqwest::Url::parse(raw_url.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = parsed.host_str()?.trim_end_matches('.').to_ascii_lowercase();
     (!host.is_empty()).then_some(host)
 }
 
@@ -46,9 +42,12 @@ pub fn validate_custom_proxy(id_or_url: &str) -> Result<(), String> {
             "加速镜像必须使用 https://（明文 http 镜像可篡改下载载荷，已拒绝）".to_string(),
         );
     }
-    // userinfo（user:pass@host）显式拒绝：镜像地址不应携带凭据。
+    // userinfo（user:pass@host）与反斜杠权威混淆显式拒绝：镜像地址不应携带凭据或反斜杠。
+    if trimmed.contains('\\') {
+        return Err("镜像地址含非法反斜杠字符".to_string());
+    }
     let rest = trimmed.strip_prefix("https://").unwrap_or(trimmed);
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority_end = rest.find(['/', '\\', '?', '#']).unwrap_or(rest.len());
     if rest[..authority_end].contains('@') {
         return Err("镜像地址不应携带用户凭据（user:pass@host 形态）".to_string());
     }
@@ -231,29 +230,37 @@ impl MirrorManager {
         }
     }
 
+    /// 解析测速目标 URL 与是否为镜像模式：`direct`/空 -> 官方 `https://github.com`，
+    /// `"ghproxy"` -> `DEFAULT_GH_PROXY`，自定义地址经 `validate_custom_proxy` 校验。
+    pub(crate) fn resolve_latency_test_url(proxy_url: Option<&str>) -> Result<(String, bool), String> {
+        let clean_url = proxy_url
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty() && *s != "direct");
+
+        match clean_url {
+            Some("ghproxy") => Ok((DEFAULT_GH_PROXY.to_string(), true)),
+            Some(p) => {
+                // 测速与保存同一准入口径（https 强制 + 域名校验）：
+                // 允许测 http 却存不进去只会制造困惑。
+                validate_custom_proxy(p)?;
+                Ok((p.trim_end_matches('/').to_string(), true))
+            }
+            None => Ok(("https://github.com".to_string(), false)),
+        }
+    }
+
     /// 单击测速：快速探测指定代理地址（或官方直连）的网络握手时延，并附带 HTTP 状态与实际测速 URL。
     pub async fn test_proxy_latency(
         proxy_url: Option<&str>,
     ) -> (bool, u32, String, Option<u16>, String) {
         let timeout_ms = crate::config::get_project_config().network.ping_timeout_ms;
 
-        let clean_url = proxy_url
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty() && *s != "direct");
-
-        let test_url = match clean_url {
-            Some(p) => {
-                // 测速与保存同一准入口径（https 强制 + 域名校验）：
-                // 允许测 http 却存不进去只会制造困惑。
-                if let Err(reason) = validate_custom_proxy(p) {
-                    return (false, 9999, reason, None, String::new());
-                }
-                p.trim_end_matches('/').to_string()
-            }
-            None => "https://github.com".to_string(),
+        let (test_url, testing_mirror) = match Self::resolve_latency_test_url(proxy_url) {
+            Ok(pair) => pair,
+            Err(reason) => return (false, 9999, reason, None, String::new()),
         };
 
-        let extra_hosts = Self::latency_test_bypass_hosts(clean_url.is_some(), &test_url);
+        let extra_hosts = Self::latency_test_bypass_hosts(testing_mirror, &test_url);
         let client = Self::ping_client(timeout_ms, &extra_hosts);
 
         let start = Instant::now();
@@ -408,13 +415,43 @@ mod tests {
         assert!(is_github_domain(
             "https://github-releases.githubusercontent.com/x"
         ));
-        // 子串误命中形态必须拒绝
+        // 子串误命中与反斜杠权威混淆形态必须拒绝
         assert!(!is_github_domain("https://notgithub.com/a.zip"));
         assert!(!is_github_domain("https://github.com.evil.com/a.zip"));
         assert!(!is_github_domain("https://mygithubusercontent.com/a"));
+        assert!(!is_github_domain("https://evil.com\\@github.com/a/b"));
         // 缺 scheme 的字符串按拒绝处理（调用方传入完整 URL）
         assert!(!is_github_domain("github.com/owner/repo"));
         assert!(!is_github_domain("https://codeberg.org/attachments/a.exe"));
+    }
+
+    #[test]
+    fn resolve_latency_test_url_maps_ghproxy_and_validates_custom() {
+        assert_eq!(
+            MirrorManager::resolve_latency_test_url(None).unwrap(),
+            ("https://github.com".to_string(), false)
+        );
+        assert_eq!(
+            MirrorManager::resolve_latency_test_url(Some("direct")).unwrap(),
+            ("https://github.com".to_string(), false)
+        );
+        assert_eq!(
+            MirrorManager::resolve_latency_test_url(Some("ghproxy")).unwrap(),
+            (DEFAULT_GH_PROXY.to_string(), true)
+        );
+        assert_eq!(
+            MirrorManager::resolve_latency_test_url(Some("  ghproxy  ")).unwrap(),
+            (DEFAULT_GH_PROXY.to_string(), true)
+        );
+        assert_eq!(
+            MirrorManager::resolve_latency_test_url(Some("https://mirror.example.com/")).unwrap(),
+            ("https://mirror.example.com".to_string(), true)
+        );
+        assert!(MirrorManager::resolve_latency_test_url(Some("http://evil.com")).is_err());
+        assert!(
+            MirrorManager::resolve_latency_test_url(Some("https://evil.com\\@gh-proxy.com"))
+                .is_err()
+        );
     }
 
     #[test]

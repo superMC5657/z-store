@@ -64,10 +64,38 @@ pub struct CatalogService {
     pub(crate) store: RwLock<catalog_service::CatalogStore>,
 }
 
+/// 校验 GitHub 开发者账号（用户名/组织名）：1..=39 位 ASCII 字母/数字/连字符，
+/// 首尾不可为 `-`，不可含连续 `--`，杜绝路径穿越、查询注入与空白字符。
+pub fn is_valid_github_username(raw: &str) -> bool {
+    if raw.is_empty() || raw.len() > 39 {
+        return false;
+    }
+    if raw.starts_with('-') || raw.ends_with('-') || raw.contains("--") {
+        return false;
+    }
+    raw.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// 去除首尾空白并校验 GitHub 开发者账号，供 IPC 命令与服务层共用。
+pub fn validate_github_username(raw: &str) -> Result<&str, String> {
+    let dev = raw.trim();
+    if dev.is_empty() {
+        return Err("开发者账号不能为空".to_string());
+    }
+    if !is_valid_github_username(dev) {
+        return Err("无效的开发者账号名称".to_string());
+    }
+    Ok(dev)
+}
+
 impl CatalogService {
     /// 开发者画像用户端点（canonical cache key，直存 `api_etag_cache.endpoint_url`）。
     pub fn dev_user_endpoint(developer: &str) -> String {
-        format!("{}/users/{}", GITHUB_API_BASE, developer.trim())
+        format!(
+            "{}/users/{}",
+            GITHUB_API_BASE,
+            urlencoding::encode(developer.trim())
+        )
     }
 
     /// 开发者画像仓库列表端点（canonical cache key）。
@@ -75,7 +103,7 @@ impl CatalogService {
         format!(
             "{}/users/{}/repos?sort=updated&per_page={}",
             GITHUB_API_BASE,
-            developer.trim(),
+            urlencoding::encode(developer.trim()),
             DEVELOPER_REPOS_PAGE_SIZE
         )
     }

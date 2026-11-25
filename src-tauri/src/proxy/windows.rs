@@ -2,8 +2,31 @@
 
 use super::ProxySnapshot;
 
+/// 归一化 Windows 注册表 `socks=` / `socks5=` 条目：保留已带 `socks*://` 的地址，
+/// 裸 `host:port` 映射为 `socks5h://{addr}`；非 SOCKS scheme 或无端口裸词拒绝。
+fn normalize_windows_socks_addr(raw: &str) -> Option<String> {
+    let addr = raw.trim();
+    if addr.is_empty() {
+        return None;
+    }
+    let lower = addr.to_ascii_lowercase();
+    if lower.starts_with("socks5://")
+        || lower.starts_with("socks5h://")
+        || lower.starts_with("socks4://")
+        || lower.starts_with("socks4a://")
+    {
+        Some(addr.to_string())
+    } else if lower.contains("://") {
+        None
+    } else if addr.contains(':') {
+        Some(format!("socks5h://{}", addr))
+    } else {
+        None
+    }
+}
+
 /// 解析 `ProxyServer` 值；无法解析返回 `None`（视为未配置，保持直连）。
-/// scheme 必须带 `://`（裸 `socks4` 前缀无 `://` 一律拒绝）。
+/// scheme 必须带 `://`（裸 `socks4` 前缀无 `://` 一律拒绝）；`socks=`/`socks5=` 映射为 `socks5h://`，忽略 `ftp=` 等非 HTTP/SOCKS 条目。
 pub fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -11,7 +34,7 @@ pub fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
     }
     let mut https_pick: Option<&str> = None;
     let mut http_pick: Option<&str> = None;
-    let mut other_pick: Option<&str> = None;
+    let mut socks_pick: Option<&str> = None;
     let mut plain_pick: Option<&str> = None;
     for part in raw.split(';') {
         let part = part.trim();
@@ -33,22 +56,23 @@ pub fn normalize_windows_proxy_server(raw: &str) -> Option<String> {
                         http_pick = Some(addr);
                     }
                 }
-                _ => {
-                    if other_pick.is_none() {
-                        other_pick = Some(addr);
-                    }
+                "socks" | "socks5" if socks_pick.is_none() => {
+                    socks_pick = Some(addr);
                 }
+                // 忽略 ftp= 等非 HTTP/SOCKS 协议，避免误用为 HTTPS 代理。
+                _ => {}
             }
         } else if plain_pick.is_none() {
             plain_pick = Some(part);
         }
     }
-    let addr = https_pick
-        .or(http_pick)
-        .or(other_pick)
-        .or(plain_pick)?
-        .trim();
-    super::normalize_single_proxy_addr(addr)
+    if let Some(addr) = https_pick.or(http_pick) {
+        return super::normalize_single_proxy_addr(addr);
+    }
+    if let Some(addr) = socks_pick {
+        return normalize_windows_socks_addr(addr);
+    }
+    plain_pick.and_then(super::normalize_single_proxy_addr)
 }
 
 /// 解析 `ProxyOverride`（`;` 分隔）：`<local>` 映射为 `localhost`/`127.0.0.1`/`::1`，
@@ -152,6 +176,29 @@ mod tests {
             normalize_windows_proxy_server("socks4a://127.0.0.1:7890"),
             Some("socks4a://127.0.0.1:7890".to_string())
         );
+        // F-11: socks=/socks5= 映射为 socks5h://，ftp= 忽略
+        assert_eq!(
+            normalize_windows_proxy_server("socks=127.0.0.1:1080"),
+            Some("socks5h://127.0.0.1:1080".to_string())
+        );
+        assert_eq!(
+            normalize_windows_proxy_server("socks5=127.0.0.1:1080"),
+            Some("socks5h://127.0.0.1:1080".to_string())
+        );
+        assert_eq!(
+            normalize_windows_proxy_server("SOCKS=socks5://127.0.0.1:1080"),
+            Some("socks5://127.0.0.1:1080".to_string())
+        );
+        assert_eq!(normalize_windows_proxy_server("ftp=proxy.local:21"), None);
+        assert_eq!(
+            normalize_windows_proxy_server("ftp=proxy.local:21;socks=127.0.0.1:1080"),
+            Some("socks5h://127.0.0.1:1080".to_string())
+        );
+        assert_eq!(
+            normalize_windows_proxy_server("socks=127.0.0.1:1080;http=127.0.0.1:7890"),
+            Some("http://127.0.0.1:7890".to_string())
+        );
+        assert_eq!(normalize_windows_proxy_server("socks=notaport"), None);
     }
 
     #[test]

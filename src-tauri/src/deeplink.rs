@@ -225,9 +225,10 @@ impl DeepLinkParser {
         // 4. 开发者主页路由：zstore://developer/{owner}
         if let Some(owner) = path_part.strip_prefix("developer/") {
             let o = decode_payload(owner)?;
-            if !o.trim().is_empty() {
+            if crate::github::is_valid_github_username(&o) {
                 return Some(DeepLinkAction::DeveloperProfile { owner: o });
             }
+            return None;
         }
 
         // 5. 视图切换路由：zstore://view/{view}
@@ -415,6 +416,38 @@ mod tests {
                 owner: "rustdesk".to_string()
             }
         );
+        for valid in ["a", "foo-bar", "Foo123", &"a".repeat(39)] {
+            let url = format!("zstore://developer/{valid}");
+            assert_eq!(
+                DeepLinkParser::parse(&url),
+                Some(DeepLinkAction::DeveloperProfile {
+                    owner: valid.to_string()
+                }),
+                "valid handle {valid} must be accepted"
+            );
+        }
+        for bad in [
+            "zstore://developer/..%2Fuser%2Femails",
+            "zstore://developer/../user/emails",
+            "zstore://developer/foo/bar",
+            "zstore://developer/foo%5Cbar",
+            "zstore://developer/..",
+            "zstore://developer/.",
+            "zstore://developer/foo%3Fper_page=1",
+            "zstore://developer/foo%23frag",
+            "zstore://developer/foo%25bar",
+            "zstore://developer/foo%20bar",
+            "zstore://developer/-leading",
+            "zstore://developer/trailing-",
+            "zstore://developer/double--hyphen",
+            &format!("zstore://developer/{}", "a".repeat(40)),
+        ] {
+            assert_eq!(
+                DeepLinkParser::parse(bad),
+                None,
+                "invalid developer deeplink {bad} must be rejected"
+            );
+        }
     }
 
     #[test]

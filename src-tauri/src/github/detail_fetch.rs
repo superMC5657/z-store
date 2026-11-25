@@ -663,6 +663,179 @@ fn resolve_effective_descriptions(
 /// 校验清单拉取硬超时：留足跨国系统代理经 `github.com` 302 跳转至
 /// `objects.githubusercontent.com` 的握手时间，避免误判超时触发未校验门禁。
 pub(crate) const CHECKSUM_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+/// 单个校验清单允许读取的最大字节数（1 MiB），防止误下大文件或恶意超长响应打爆内存。
+pub(crate) const MAX_CHECKSUM_BYTES: usize = 1024 * 1024;
+/// 聚合清单与单资产 `.sha256` 文件的并发拉取数量上限（遵守 D6 有限并发）。
+const MAX_AGGREGATE_CHECKSUM_FETCHES: usize = 4;
+const MAX_PER_ASSET_CHECKSUM_FETCHES: usize = 8;
+
+fn is_valid_sha256_hex(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// 归一名校验清单中的文件名：剥 `*` 二进制标记、外层引号、`./`/`.\\` 及任意目录前缀，保留文件名内空格。
+fn normalize_checksum_filename(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let without_star = trimmed.strip_prefix('*').unwrap_or(trimmed).trim();
+    let unquoted = without_star
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(without_star)
+        .trim();
+    let base = unquoted
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(unquoted)
+        .trim();
+    (!base.is_empty()).then(|| base.to_string())
+}
+
+/// 若资产为单文件校验和（如 `app-win.msi.sha256` / `app.dmg.sha256sum`），推导目标资产名；
+/// 聚合清单（如 `SHA256SUMS` / `checksums.txt` / `checksums.sha256`）返回 `None`。
+pub(crate) fn infer_per_asset_checksum_target(name: &str) -> Option<String> {
+    const SUFFIXES: &[&str] = &[
+        ".sha256.txt",
+        ".sha256sum.txt",
+        ".sha256sums.txt",
+        ".sha256",
+        ".sha256sum",
+        ".sha256sums",
+    ];
+    let lower = name.to_ascii_lowercase();
+    for suf in SUFFIXES {
+        if lower.ends_with(suf) {
+            let stem = name[..name.len() - suf.len()].trim();
+            if stem.is_empty() {
+                return None;
+            }
+            let stem_lower = stem.to_ascii_lowercase();
+            if stem_lower.contains("checksum")
+                || stem_lower.contains("sha256")
+                || stem_lower.contains("shasum")
+                || stem_lower.contains("digest")
+                || stem_lower == "sums"
+                || stem_lower == "hashes"
+            {
+                return None;
+            }
+            return Some(stem.to_string());
+        }
+    }
+    None
+}
+
+/// 解析校验清单文本（支持 GNU `<hash>  [*][./dir/]name with spaces`、BSD `SHA256 (name) = <hash>`、
+/// 以及单资产 `.sha256` 的 1-token 纯哈希行），严格校验 64 位 ASCII 十六进制字符。
+pub(crate) fn parse_checksum_manifest(
+    text: &str,
+    inferred_target: Option<&str>,
+    map: &mut HashMap<String, String>,
+) {
+    let cleaned = text.trim_start_matches('\u{feff}');
+    for line in cleaned.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // BSD tag 格式：SHA256 (filename) = <64-hex>
+        if let Some(rest) = trimmed
+            .get(..6)
+            .filter(|p| p.eq_ignore_ascii_case("sha256"))
+            .map(|_| trimmed[6..].trim_start())
+        {
+            if let Some(after_open) = rest.strip_prefix('(') {
+                if let Some((raw_name, after_eq)) = after_open.rsplit_once(")=").or_else(|| {
+                    after_open
+                        .rsplit_once(')')
+                        .and_then(|(n, tail)| tail.trim_start().strip_prefix('=').map(|h| (n, h)))
+                }) {
+                    let hash = after_eq.trim();
+                    if is_valid_sha256_hex(hash) {
+                        if let Some(filename) = normalize_checksum_filename(raw_name) {
+                            map.insert(filename, hash.to_ascii_lowercase());
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // 标准格式：首个空白前为哈希，其后整段保留空格作为文件名；无空白则按单 token 哈希处理。
+        match trimmed.find(|c: char| c.is_ascii_whitespace()) {
+            Some(ws_idx) => {
+                let hash = &trimmed[..ws_idx];
+                let rest = &trimmed[ws_idx..];
+                if is_valid_sha256_hex(hash) {
+                    if let Some(filename) = normalize_checksum_filename(rest) {
+                        map.insert(filename, hash.to_ascii_lowercase());
+                    }
+                }
+            }
+            None => {
+                if is_valid_sha256_hex(trimmed) {
+                    if let Some(target) = inferred_target {
+                        if let Some(filename) = normalize_checksum_filename(target) {
+                            map.insert(filename, trimmed.to_ascii_lowercase());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 流式拉取单个校验清单，硬上限 `MAX_CHECKSUM_BYTES`（1 MiB）与整段超时约束。
+async fn fetch_single_checksum_manifest(
+    url: &str,
+    client: &reqwest::Client,
+    headers: &HeaderMap,
+    timeout: std::time::Duration,
+) -> Result<String, (String, String)> {
+    use futures_util::StreamExt;
+    let deadline = tokio::time::Instant::now() + timeout;
+    let send_fut = client.get(url).headers(headers.clone()).send();
+    let res = match tokio::time::timeout_at(deadline, send_fut).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            return Err((
+                "err".to_string(),
+                crate::log_support::short_reason(&e.to_string()),
+            ));
+        }
+        Err(_) => {
+            return Err(("timeout".to_string(), format!("timeout_{}s", timeout.as_secs())));
+        }
+    };
+    let status = res.status().as_u16();
+    if !res.status().is_success() {
+        return Err((status.to_string(), format!("http_{}", status)));
+    }
+    if res
+        .content_length()
+        .is_some_and(|len| len > MAX_CHECKSUM_BYTES as u64)
+    {
+        return Err(("too_large".to_string(), "exceeds_1mb".to_string()));
+    }
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    let mut stream = res.bytes_stream();
+    let read_res = tokio::time::timeout_at(deadline, async {
+        while let Some(chunk_res) = stream.next().await {
+            let chunk = chunk_res.map_err(|_| ("read_err", "read_failed"))?;
+            if buf.len().saturating_add(chunk.len()) > MAX_CHECKSUM_BYTES {
+                return Err(("too_large", "exceeds_1mb"));
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        Ok(())
+    })
+    .await;
+    match read_res {
+        Ok(Ok(())) => {}
+        Ok(Err((tag, reason))) => return Err((tag.to_string(), reason.to_string())),
+        Err(_) => return Err(("read_err".to_string(), "read_timeout".to_string())),
+    }
+    String::from_utf8(buf).map_err(|_| ("decode_err".to_string(), "invalid_utf8".to_string()))
+}
 
 impl CatalogService {
     /// GitHub 完整详情拉取：release / repo 并发 ETag 条件请求，README、图标探测与
@@ -974,7 +1147,8 @@ impl CatalogService {
 
 /// Checksum Manifest〈校验清单〉拉取 adapter（入参为 `(资产名, 原始 download_url)` 投影，
 /// GitHub 与多源 forge 共用）：严守直连/系统代理（绝不经下载镜像），
-/// [`CHECKSUM_FETCH_TIMEOUT`] 硬超时（不超过 API 超时），失败置空不阻塞；
+/// 排除二进制/归档/签名资产，按运行时宿主 OS/Arch 过滤，聚合清单与单资产 `.sha256` 协同拉取，
+/// [`CHECKSUM_FETCH_TIMEOUT`] 硬超时与 1 MiB 体积上限约束，失败置空不阻塞；
 /// 返回 `(map, step_label, skip_or_fail_reason)` 供宽事件汇总。
 pub(crate) async fn extract_checksums_map(
     assets: &[(&str, &str)],
@@ -984,66 +1158,92 @@ pub(crate) async fn extract_checksums_map(
     let start = std::time::Instant::now();
     let mut map = HashMap::new();
     let mut first_ineligible: Option<(String, &'static str)> = None;
-    let mut candidate: Option<&str> = None;
+    let mut aggregate_candidates: Vec<&str> = Vec::new();
+    let mut per_asset_candidates: Vec<(String, &str)> = Vec::new();
+
     for &(name, download_url) in assets {
         let n = name.to_lowercase();
-        if !(n.contains("checksum") || n.contains("sha256") || n.ends_with(".sha256")) {
+        if !super::detail_assets::is_checksum_manifest_asset(&n) {
             continue;
         }
         let (eligible, reason) = super::detail_assets::checksum_asset_platform_eligible(&n);
-        if eligible {
-            candidate = Some(download_url);
-            break;
-        } else if first_ineligible.is_none() {
-            first_ineligible = Some((name.to_string(), reason));
+        if !eligible {
+            if first_ineligible.is_none() {
+                first_ineligible = Some((name.to_string(), reason));
+            }
+            continue;
+        }
+        match infer_per_asset_checksum_target(name) {
+            Some(target) => {
+                if per_asset_candidates.len() < MAX_PER_ASSET_CHECKSUM_FETCHES {
+                    per_asset_candidates.push((target, download_url));
+                }
+            }
+            None => {
+                if aggregate_candidates.len() < MAX_AGGREGATE_CHECKSUM_FETCHES {
+                    aggregate_candidates.push(download_url);
+                }
+            }
         }
     }
 
-    let Some(effective_url) = candidate else {
+    if aggregate_candidates.is_empty() && per_asset_candidates.is_empty() {
         let reason = first_ineligible
             .map(|(f, r)| format!("filtered({}:{})", f, r))
             .unwrap_or_else(|| "no_asset".to_string());
         let step = format!("chk:skip({})", reason);
         return (map, step, Some(reason));
-    };
-    let checksum_timeout = CHECKSUM_FETCH_TIMEOUT.min(crate::github::http::api_timeout());
-    let send_fut = client.get(effective_url).headers(headers.clone()).send();
-    let res = match tokio::time::timeout(checksum_timeout, send_fut).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => {
-            let reason = crate::log_support::short_reason(&e.to_string());
-            let step = format!("chk:err({}ms)", start.elapsed().as_millis());
-            return (map, step, Some(reason));
-        }
-        Err(_) => {
-            let step = format!("chk:timeout({}ms)", start.elapsed().as_millis());
-            return (
-                map,
-                step,
-                Some(format!("timeout_{}s", checksum_timeout.as_secs())),
-            );
-        }
-    };
-    let status = res.status().as_u16();
-    if !res.status().is_success() {
-        let step = format!("chk:{}({}ms)", status, start.elapsed().as_millis());
-        return (map, step, Some(format!("http_{}", status)));
     }
-    let text = match tokio::time::timeout(checksum_timeout, res.text()).await {
-        Ok(Ok(t)) => t,
-        _ => {
-            let step = format!("chk:read_err({}ms)", start.elapsed().as_millis());
-            return (map, step, Some("read_timeout".to_string()));
-        }
-    };
-    for line in text.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            let hash = parts[0].trim();
-            let filename = parts[1].trim().trim_start_matches('*');
-            if hash.len() == 64 {
-                map.insert(filename.to_string(), hash.to_lowercase());
+
+    let checksum_timeout = CHECKSUM_FETCH_TIMEOUT.min(crate::github::http::api_timeout());
+    let mut first_err: Option<(String, String)> = None;
+
+    // 1. 优先并发拉取聚合校验清单（SHA256SUMS / checksums.txt 等）
+    if !aggregate_candidates.is_empty() {
+        let futs = aggregate_candidates
+            .iter()
+            .map(|url| fetch_single_checksum_manifest(url, client, headers, checksum_timeout));
+        for res in futures_util::future::join_all(futs).await {
+            match res {
+                Ok(text) => parse_checksum_manifest(&text, None, &mut map),
+                Err(err) => {
+                    if first_err.is_none() {
+                        first_err = Some(err);
+                    }
+                }
             }
+        }
+    }
+
+    // 2. 补拉尚未命中哈希的单资产 `.sha256` 文件（按剩余超时预算并发执行）
+    let pending_per_asset: Vec<(String, &str)> = per_asset_candidates
+        .into_iter()
+        .filter(|(target, _)| !map.contains_key(target))
+        .collect();
+    if !pending_per_asset.is_empty() {
+        if let Some(remaining) = checksum_timeout.checked_sub(start.elapsed()) {
+            let per_timeout = remaining.max(std::time::Duration::from_millis(500));
+            let futs = pending_per_asset.iter().map(|(target, url)| async move {
+                let res = fetch_single_checksum_manifest(url, client, headers, per_timeout).await;
+                (target.as_str(), res)
+            });
+            for (target, res) in futures_util::future::join_all(futs).await {
+                match res {
+                    Ok(text) => parse_checksum_manifest(&text, Some(target), &mut map),
+                    Err(err) => {
+                        if first_err.is_none() {
+                            first_err = Some(err);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if map.is_empty() {
+        if let Some((tag, reason)) = first_err {
+            let step = format!("chk:{}({}ms)", tag, start.elapsed().as_millis());
+            return (map, step, Some(reason));
         }
     }
     let step = format!("chk:ok({},{}ms)", map.len(), start.elapsed().as_millis());
@@ -1107,6 +1307,116 @@ mod tests {
             Some(hash.as_str()),
             "{step} {reason:?}"
         );
+    }
+
+    #[test]
+    fn test_parse_checksum_manifest_formats_and_hex_validation() {
+        let h1 = "0123456789abcdef".repeat(4);
+        let h2 = "ABCDEF0123456789".repeat(4);
+        let h3 = "a".repeat(64);
+        let h4 = "b".repeat(64);
+        let h5 = "c".repeat(64);
+        let bad_non_hex = "g".repeat(64);
+        let bad_short = "a".repeat(63);
+        let body = format!(
+            "\u{feff}# comment line\n\
+             {h1}  ./dist/win/app-setup.exe\n\
+             {h2} *out\\sub\\My App Setup 1.0.msi\n\
+             SHA256 (./pkg/Cool App.dmg) = {h3}\n\
+             {bad_non_hex}  fake.exe\n\
+             {bad_short}  short.exe\n\
+             {h4}  \"Quoted Name 2.0.zip\"\n"
+        );
+        let mut map = std::collections::HashMap::new();
+        super::parse_checksum_manifest(&body, None, &mut map);
+        assert_eq!(map.get("app-setup.exe").map(String::as_str), Some(h1.as_str()));
+        assert_eq!(
+            map.get("My App Setup 1.0.msi").map(String::as_str),
+            Some(h2.to_ascii_lowercase().as_str())
+        );
+        assert_eq!(map.get("Cool App.dmg").map(String::as_str), Some(h3.as_str()));
+        assert_eq!(
+            map.get("Quoted Name 2.0.zip").map(String::as_str),
+            Some(h4.as_str())
+        );
+        assert!(!map.contains_key("fake.exe"), "non-hex 64 chars must be rejected");
+        assert!(!map.contains_key("short.exe"), "non-64-char hash must be rejected");
+
+        // 1-token 纯哈希 .sha256 推导目标文件名；无目标名时忽略 1-token 行
+        let mut single_map = std::collections::HashMap::new();
+        super::parse_checksum_manifest(&format!("  {h5}  \n"), None, &mut single_map);
+        assert!(single_map.is_empty());
+        super::parse_checksum_manifest(&format!("  {h5}  \n"), Some("tool-1.0.msi"), &mut single_map);
+        assert_eq!(
+            single_map.get("tool-1.0.msi").map(String::as_str),
+            Some(h5.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_extract_checksums_excludes_binaries_and_fetches_multiple_per_asset_sha256() {
+        use crate::test_support::{serve, Reply};
+        let h1 = "1".repeat(64);
+        let h2 = "2".repeat(64);
+        let h1_clone = h1.clone();
+        let h2_clone = h2.clone();
+        let server = serve(move |req| {
+            if req.starts_with("GET /app-one.sha256 ") {
+                // 1-token hash-only per-asset checksum
+                Reply::ok(format!("{h1_clone}\n"))
+            } else if req.starts_with("GET /app-two.sha256 ") {
+                // 2-token with ./ prefix and spaces in filename
+                Reply::ok(format!("{h2_clone}  *./release/My App Two.zip\n"))
+            } else {
+                Reply::status("404 Not Found")
+            }
+        })
+        .await;
+
+        let u_bin = format!("{}/sha256sum-win.exe", server.base);
+        let u_zip = format!("{}/checksum-cli.zip", server.base);
+        let u_sig = format!("{}/SHA256SUMS.asc", server.base);
+        let u_one = format!("{}/app-one.sha256", server.base);
+        let u_two = format!("{}/app-two.sha256", server.base);
+        let assets = [
+            ("sha256sum-win.exe", u_bin.as_str()),
+            ("checksum-cli.zip", u_zip.as_str()),
+            ("SHA256SUMS.asc", u_sig.as_str()),
+            ("My App One.zip.sha256", u_one.as_str()),
+            ("My App Two.zip.sha256", u_two.as_str()),
+        ];
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let headers = reqwest::header::HeaderMap::new();
+        let (map, step, reason) = super::extract_checksums_map(&assets, &client, &headers).await;
+        assert_eq!(
+            map.get("My App One.zip").map(String::as_str),
+            Some(h1.as_str()),
+            "{step} {reason:?}"
+        );
+        assert_eq!(
+            map.get("My App Two.zip").map(String::as_str),
+            Some(h2.as_str()),
+            "{step} {reason:?}"
+        );
+        let reqs = server.requests().join("\n");
+        assert!(!reqs.contains("sha256sum-win.exe"), "{reqs}");
+        assert!(!reqs.contains("checksum-cli.zip"), "{reqs}");
+        assert!(!reqs.contains("SHA256SUMS.asc"), "{reqs}");
+    }
+
+    #[tokio::test]
+    async fn test_extract_checksums_rejects_oversized_manifest_over_1mb() {
+        use crate::test_support::{serve, Reply};
+        let huge = vec![b'a'; super::MAX_CHECKSUM_BYTES + 128];
+        let server = serve(move |_| Reply::ok(huge.clone())).await;
+        let url = format!("{}/SHA256SUMS", server.base);
+        let assets = [("SHA256SUMS", url.as_str())];
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let headers = reqwest::header::HeaderMap::new();
+        let (map, step, reason) = super::extract_checksums_map(&assets, &client, &headers).await;
+        assert!(map.is_empty());
+        assert!(step.starts_with("chk:too_large"), "{step}");
+        assert_eq!(reason.as_deref(), Some("exceeds_1mb"));
     }
 
     #[test]
