@@ -203,4 +203,66 @@ describe('ModalShell', () => {
       expect(document.activeElement).toBe(screen.getByRole('dialog'));
     });
   });
+
+  describe('sibling layer visual stacking (F-35)', () => {
+    it('gives a newly opened base modal higher z-index even when mounted earlier in DOM', () => {
+      const Harness = () => {
+        const [firstOpen, setFirstOpen] = useState(true);
+        const [secondOpen, setSecondOpen] = useState(false);
+        return (
+          <>
+            <button type="button" onClick={() => setSecondOpen(true)}>
+              open-second
+            </button>
+            <button type="button" onClick={() => setFirstOpen(false)}>
+              close-first
+            </button>
+            {secondOpen && (
+              <ModalShell layer="base" ariaLabel="second-in-time-first-in-dom" onClose={() => setSecondOpen(false)}>
+                <p>second</p>
+              </ModalShell>
+            )}
+            {firstOpen && (
+              <ModalShell layer="base" ariaLabel="first-in-time-second-in-dom" onClose={() => setFirstOpen(false)}>
+                <p>first</p>
+              </ModalShell>
+            )}
+          </>
+        );
+      };
+      render(<Harness />);
+      const firstBackdrop = screen.getByRole('dialog', { name: 'first-in-time-second-in-dom' }).parentElement!;
+      expect(Number(firstBackdrop.style.zIndex)).toBe(100);
+
+      fireEvent.click(screen.getByText('open-second'));
+      const secondBackdrop = screen.getByRole('dialog', { name: 'second-in-time-first-in-dom' }).parentElement!;
+      expect(Number(secondBackdrop.style.zIndex)).toBeGreaterThan(Number(firstBackdrop.style.zIndex));
+      expect(Number(secondBackdrop.style.zIndex)).toBeLessThan(200);
+
+      // Closing the older modal compacts the stack so the remaining modal returns to base z-index
+      fireEvent.click(screen.getByText('close-first'));
+      expect(Number(secondBackdrop.style.zIndex)).toBe(100);
+    });
+
+    it('keeps higher semantic layers above lower stacked layers', () => {
+      render(
+        <>
+          <ModalShell layer="base" ariaLabel="base-1" onClose={() => {}}>
+            <p>b1</p>
+          </ModalShell>
+          <ModalShell layer="base" ariaLabel="base-2" onClose={() => {}}>
+            <p>b2</p>
+          </ModalShell>
+          <ModalShell layer="confirm" ariaLabel="confirm-1" onClose={() => {}}>
+            <p>c1</p>
+          </ModalShell>
+        </>,
+      );
+      const b1 = Number(screen.getByRole('dialog', { name: 'base-1' }).parentElement!.style.zIndex);
+      const b2 = Number(screen.getByRole('dialog', { name: 'base-2' }).parentElement!.style.zIndex);
+      const c1 = Number(screen.getByRole('dialog', { name: 'confirm-1' }).parentElement!.style.zIndex);
+      expect(b2).toBeGreaterThan(b1);
+      expect(c1).toBeGreaterThan(b2);
+    });
+  });
 });

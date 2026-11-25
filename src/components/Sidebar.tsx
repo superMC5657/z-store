@@ -341,7 +341,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       height: '7px',
                       borderRadius: '50%',
                       backgroundColor: '#eab308',
-                      border: '1.5px solid var(--bg-primary, #0f172a)',
+                      border: '1.5px solid var(--bg-canvas)',
                     }}
                     title={t('sidebar.account_expired_tag')}
                   />

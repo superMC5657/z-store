@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import '../../i18n';
 import { AppDetailViewModel, DownloadAssetResult, DownloadProgressPayload, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi } from '../../services/api';
+import { normalizeId } from '../../services/normalizeId';
 import { detectHostArch, detectHostOs, getAppDescription, getCategoryLabel, isInstallableAssetKind, isProductAssetName, sortAssetsByRelevance } from '../../utils/appHelper';
 import { Header, handleOpenExternal } from './Header';
 import { InstallActions } from './InstallActions';
@@ -79,20 +80,58 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [isRevealingFolder, setIsRevealingFolder] = useState(false);
   const [resolvedTargetAlts, setResolvedTargetAlts] = useState<{ appId: string; items: string[] } | null>(null);
   const modalBodyRef = useRef<HTMLDivElement | null>(null);
+  const currentAppIdRef = useRef(normalizeId(app.id));
+  currentAppIdRef.current = normalizeId(app.id);
+  const isMountedRef = useRef(true);
+  const installErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const effectiveIsInstalling = isInstalling || isInstallingGlobal;
   const effectiveIsBusy = effectiveIsInstalling || isDownloadingOnly;
 
+  const clearInstallErrorTimer = useCallback(() => {
+    if (installErrorTimerRef.current !== null) {
+      clearTimeout(installErrorTimerRef.current);
+      installErrorTimerRef.current = null;
+    }
+  }, []);
+
+  const showInstallErrorForApp = useCallback(
+    (reqAppId: string, message: string) => {
+      if (!isMountedRef.current || currentAppIdRef.current !== reqAppId) return;
+      clearInstallErrorTimer();
+      setInstallError(message);
+      installErrorTimerRef.current = setTimeout(() => {
+        installErrorTimerRef.current = null;
+        if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+          setInstallError(null);
+        }
+      }, 5000);
+    },
+    [clearInstallErrorTimer],
+  );
+
   useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      clearInstallErrorTimer();
+    };
+  }, [clearInstallErrorTimer]);
+
+  useEffect(() => {
+    clearInstallErrorTimer();
+    setShowAllAssets(false);
     setSelectedAssetName(null);
     setInstallError(null);
+    setIsInstalling(false);
     setDownloadProgress(null);
     setDownloadedFile(null);
     setIsDownloadingOnly(false);
+    setIsRevealingFolder(false);
     setResolvedTargetAlts(null);
     if (modalBodyRef.current) {
       modalBodyRef.current.scrollTop = 0;
     }
-  }, [app.id]);
+  }, [app.id, clearInstallErrorTimer]);
 
   const handleSelectSimilarApp = useCallback(
     (id: string) => {
@@ -131,19 +170,27 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     let isMounted = true;
+    let progressClearTimer: ReturnType<typeof setTimeout> | null = null;
+    const expectedAppId = normalizeId(app.id);
     tauriApi.onDownloadProgress((payload) => {
       if (!isMounted) return;
       // 任务隔离：仅消费归属当前应用的事件
-      if (payload.task_id && payload.task_id.toLowerCase() !== app.id.toLowerCase()) {
+      if (payload.task_id && normalizeId(payload.task_id) !== expectedAppId) {
         return;
+      }
+      if (progressClearTimer !== null) {
+        clearTimeout(progressClearTimer);
+        progressClearTimer = null;
       }
       setDownloadProgress(payload);
       if (payload.state === 'verified' || payload.state === 'completed_unverified') {
-        setTimeout(() => {
+        progressClearTimer = setTimeout(() => {
+          progressClearTimer = null;
           if (isMounted) setDownloadProgress(null);
         }, 3500);
       } else if (payload.state === 'error' || payload.state === 'tampered') {
-        setTimeout(() => {
+        progressClearTimer = setTimeout(() => {
+          progressClearTimer = null;
           if (isMounted) setDownloadProgress(null);
         }, 6000);
       }
@@ -157,6 +204,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
     return () => {
       isMounted = false;
+      if (progressClearTimer !== null) {
+        clearTimeout(progressClearTimer);
+      }
       if (cleanup) cleanup();
     };
   }, [app.id]);
@@ -225,34 +275,39 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
       tauriApi.openUrl(primaryAsset.download_url);
       return;
     }
+    const reqAppId = normalizeId(app.id);
+    const rawAppId = app.id;
+    const assetName = primaryAsset.name;
+    clearInstallErrorTimer();
     setInstallError(null);
     setDownloadedFile(null);
     setIsDownloadingOnly(true);
     try {
-      const res = await tauriApi.downloadAsset(app.id, primaryAsset.name);
+      const res = await tauriApi.downloadAsset(rawAppId, assetName);
+      if (!isMountedRef.current || currentAppIdRef.current !== reqAppId) return;
       setDownloadedFile(res);
     } catch (e) {
-      setInstallError(String(e));
-      setTimeout(() => {
-        setInstallError(null);
-      }, 5000);
+      showInstallErrorForApp(reqAppId, String(e));
     } finally {
-      setIsDownloadingOnly(false);
+      if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+        setIsDownloadingOnly(false);
+      }
     }
   };
 
   const handleRevealDownload = async () => {
     if (!downloadedFile || isRevealingFolder || !isTauri) return;
+    const reqAppId = normalizeId(app.id);
+    const filePath = downloadedFile.file_path;
     setIsRevealingFolder(true);
     try {
-      await tauriApi.showFileInFolder(downloadedFile.file_path);
+      await tauriApi.showFileInFolder(filePath);
     } catch (e) {
-      setInstallError(String(e));
-      setTimeout(() => {
-        setInstallError(null);
-      }, 5000);
+      showInstallErrorForApp(reqAppId, String(e));
     } finally {
-      setIsRevealingFolder(false);
+      if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+        setIsRevealingFolder(false);
+      }
     }
   };
 
@@ -263,6 +318,10 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
       return;
     }
 
+    const reqAppId = normalizeId(app.id);
+    const rawAppId = app.id;
+    const assetName = primaryAsset?.name;
+    clearInstallErrorTimer();
     setInstallError(null);
     try {
       setIsInstalling(true);
@@ -271,6 +330,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
       const portableKind = (primaryAsset?.kind || '').toLowerCase();
       if (portableKind === 'portable_zip' || portableKind === 'portable_tarball') {
         const picked = await tauriApi.selectFolder();
+        if (!isMountedRef.current || currentAppIdRef.current !== reqAppId) {
+          return;
+        }
         if (!picked) {
           // 用户主动取消了文件夹选择，优雅中止安装
           setIsInstalling(false);
@@ -278,14 +340,13 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
         }
         customInstallDir = picked;
       }
-      await onInstall(app.id, primaryAsset?.name, customInstallDir);
+      await onInstall(rawAppId, assetName, customInstallDir);
     } catch (e) {
-      setInstallError(String(e));
-      setTimeout(() => {
-        setInstallError(null);
-      }, 5000);
+      showInstallErrorForApp(reqAppId, String(e));
     } finally {
-      setIsInstalling(false);
+      if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+        setIsInstalling(false);
+      }
     }
   };
 
@@ -300,7 +361,11 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
         primaryAsset={primaryAsset}
         platformLoading={platformLoading}
         oauthUser={oauthUser}
-        targetAlternatives={resolvedTargetAlts?.appId === app.id ? resolvedTargetAlts.items : undefined}
+        targetAlternatives={
+          resolvedTargetAlts && normalizeId(resolvedTargetAlts.appId) === normalizeId(app.id)
+            ? resolvedTargetAlts.items
+            : undefined
+        }
         isFavorite={isFavorite}
         isWatched={isWatched}
         onClose={onClose}

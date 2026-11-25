@@ -72,15 +72,21 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     setLocalQuery(searchQuery);
   }, [searchQuery]);
 
-  // 全局快捷键：Ctrl+K 聚焦搜索，Escape 取消聚焦
+  // 全局快捷键：Ctrl+K 聚焦搜索（弹窗打开时让位给模态焦点陷阱），Escape 取消聚焦并收起下拉
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        if (document.querySelector('[aria-modal="true"]')) return;
         e.preventDefault();
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
-      } else if (e.key === 'Escape' && document.activeElement === searchInputRef.current) {
-        searchInputRef.current?.blur();
+      } else if (e.key === 'Escape') {
+        if (document.activeElement === searchInputRef.current) {
+          setIsDropdownOpen(false);
+          searchInputRef.current?.blur();
+        } else if (searchBoxRef.current?.contains(document.activeElement)) {
+          setIsDropdownOpen(false);
+        }
       }
     };
 
@@ -133,6 +139,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       if (query) {
         tauriApi.recordSearchQuery(query).then(loadSearchHistory).catch(() => {});
       }
+    } else if (e.key === 'Escape') {
+      setIsDropdownOpen(false);
+      searchInputRef.current?.blur();
     }
   };
 

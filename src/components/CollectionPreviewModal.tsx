@@ -208,7 +208,7 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
       for (let i = 0; i < targets.length; i += 1) {
         const app = targets[i];
         if (!mountedRef.current) break;
-        setInstallingAppId(app.id);
+        setInstallingAppId(normalizeId(app.id));
         setInstallProgress({ current: i + 1, total: targets.length, name: app.name });
         try {
           const outcome = await onInstallApp(app.id);
@@ -334,7 +334,7 @@ export const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
               const installed = isAppInstalled(app.id);
               const norm = normalizeId(app.id);
               const isSelected = !installed && selectedIds.has(norm);
-              const isInstallingRow = installingAppId === app.id;
+              const isInstallingRow = installingAppId !== null && installingAppId === norm;
               const desc = getAppDescription(app, i18n.language);
               const needsDetailLoad =
                 onLoadUncatalogedDetail !== undefined &&

@@ -235,11 +235,26 @@ export function useDetailReadme(opts: {
     // 内部锚点平滑跳转
     if (href.startsWith('#')) {
       e.preventDefault();
-      const anchorId = decodeURIComponent(href.slice(1));
+      const rawFragment = href.slice(1);
+      let anchorId = rawFragment;
+      try {
+        anchorId = decodeURIComponent(rawFragment);
+      } catch {
+        // 非法百分号编码时回退原始片段，不抛出未捕获异常
+      }
       if (anchorId) {
-        const targetEl =
-          document.getElementById(anchorId) ||
-          document.querySelector(`[name="${anchorId}"]`);
+        const escapedAnchorId =
+          typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+            ? CSS.escape(anchorId)
+            : anchorId.replace(/["\\\n\r\f]/g, (ch) => `\\${ch.codePointAt(0)!.toString(16)} `);
+        let targetEl: Element | null = document.getElementById(anchorId);
+        if (!targetEl) {
+          try {
+            targetEl = document.querySelector(`[name="${escapedAnchorId}"]`);
+          } catch {
+            targetEl = null;
+          }
+        }
         if (targetEl) {
           targetEl.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
         }

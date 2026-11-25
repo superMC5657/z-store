@@ -4,21 +4,23 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import i18n from '../i18n';
 
 const oauthDevicePollMock = vi.fn(async () => ({ status: 'pending' }));
+const oauthDeviceStartMock = vi.fn(async () => ({
+  device_code: 'device-code-1',
+  user_code: 'ABCD-1234',
+  verification_uri: 'https://github.com/login/device',
+  verification_uri_complete: 'https://github.com/login/device',
+  expires_in: 900,
+  interval: 1,
+}));
+const openUrlMock = vi.fn(async () => undefined);
 
 vi.mock('../services/api', () => ({
   tauriApi: {
     getOAuthUser: async () => null,
-    oauthDeviceStart: async () => ({
-      device_code: 'device-code-1',
-      user_code: 'ABCD-1234',
-      verification_uri: 'https://github.com/login/device',
-      verification_uri_complete: 'https://github.com/login/device',
-      expires_in: 900,
-      interval: 1,
-    }),
+    oauthDeviceStart: () => oauthDeviceStartMock(),
     oauthDevicePoll: (...args: unknown[]) => oauthDevicePollMock(...(args as [])),
     oauthLogout: async () => undefined,
-    openUrl: async () => undefined,
+    openUrl: (...args: unknown[]) => openUrlMock(...(args as [])),
   },
 }));
 
@@ -55,6 +57,16 @@ async function startSession() {
 beforeEach(() => {
   vi.useFakeTimers();
   oauthDevicePollMock.mockClear();
+  oauthDeviceStartMock.mockReset();
+  oauthDeviceStartMock.mockImplementation(async () => ({
+    device_code: 'device-code-1',
+    user_code: 'ABCD-1234',
+    verification_uri: 'https://github.com/login/device',
+    verification_uri_complete: 'https://github.com/login/device',
+    expires_in: 900,
+    interval: 1,
+  }));
+  openUrlMock.mockClear();
 });
 
 afterEach(() => {
@@ -102,5 +114,44 @@ describe('OAuthAccountCard poll lifecycle', () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
     expect(oauthDevicePollMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('oauthDeviceStart 在途时卸载不再调用 openUrl 也不调度轮询 (F-38)', async () => {
+    let resolveStart!: (value: {
+      device_code: string;
+      user_code: string;
+      verification_uri: string;
+      verification_uri_complete: string;
+      expires_in: number;
+      interval: number;
+    }) => void;
+    oauthDeviceStartMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStart = resolve;
+        }),
+    );
+
+    const { unmount } = render(<OAuthAccountCard />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(loginButton());
+    unmount();
+
+    await act(async () => {
+      resolveStart({
+        device_code: 'device-code-late',
+        user_code: 'LATE-9999',
+        verification_uri: 'https://github.com/login/device',
+        verification_uri_complete: 'https://github.com/login/device',
+        expires_in: 900,
+        interval: 1,
+      });
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+    });
+
+    expect(openUrlMock).not.toHaveBeenCalled();
+    expect(oauthDevicePollMock).not.toHaveBeenCalled();
   });
 });

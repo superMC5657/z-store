@@ -6,6 +6,7 @@ import { DeveloperProfile } from '../types';
 import { tauriApi } from '../services/api';
 import { EmptyState } from './EmptyState';
 import { isInstalled, selectManagedState } from '../app/selectors';
+import { normalizeId } from '../services/normalizeId';
 import { CachedAvatar } from './CachedAvatar';
 import { ModalShell } from './ModalShell';
 
@@ -66,7 +67,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
 
   const handleInstall = async (appId: string) => {
     try {
-      setInstallingId(appId);
+      setInstallingId(normalizeId(appId));
       await onInstallApp(appId);
     } finally {
       setInstallingId(null);
@@ -228,7 +229,7 @@ export const DeveloperProfileModal: React.FC<DeveloperProfileModalProps> = ({
         ) : profile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {profile.repos.map((repo) => {
-              const isInstalling = installingId === repo.id;
+              const isInstalling = installingId !== null && installingId === normalizeId(repo.id);
               // 已纳管绿已安装，未纳管走安装；
               // 判态统一经共享选择器（归一 ID，大小写变体一致）；managedIds===null（未加载）
               // + 已安装命中 = 未知，中性占位。

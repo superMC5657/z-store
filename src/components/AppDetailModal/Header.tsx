@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { AppDetailViewModel, OAuthUser, ReleaseAsset } from '../../types';
 import { tauriApi, type AppIconCycleResult } from '../../services/api';
+import { normalizeId } from '../../services/normalizeId';
 import { AppIconFrame } from '../AppIconFrame';
 import { ShareBadgeModal } from '../ShareBadgeModal';
 import { admitIconCycleResult, pickCyclePersistIconUrl } from '../../services/iconStore';
@@ -84,6 +85,30 @@ export const Header: React.FC<HeaderProps> = ({
   const [shareBadgeOpen, setShareBadgeOpen] = useState(false);
   // 初次展示同步去重：同一 id+url 只 dispatch 一次，避免重复事件刷榜
   const iconSyncDispatchedRef = useRef<Set<string>>(new Set());
+  const currentAppIdRef = useRef(normalizeId(app.id));
+  currentAppIdRef.current = normalizeId(app.id);
+  const isMountedRef = useRef(true);
+  const refreshSuccessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRefreshTimers = () => {
+    if (refreshSuccessTimerRef.current !== null) {
+      clearTimeout(refreshSuccessTimerRef.current);
+      refreshSuccessTimerRef.current = null;
+    }
+    if (refreshErrorTimerRef.current !== null) {
+      clearTimeout(refreshErrorTimerRef.current);
+      refreshErrorTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      clearRefreshTimers();
+    };
+  }, []);
 
   // 图标写透 patch（与 useDetailCacheSync 的 iconPatch 同效）：
   // Header 不直持四列表 setters，显式 patch 声明与 App 侧 `subscribeIconWrites` 扇出幂等，
@@ -92,29 +117,40 @@ export const Header: React.FC<HeaderProps> = ({
     // 无直写：四列表经 App 扇出 `patchAppIconList` 落定（与详情同步侧 iconPatch 同体同效，幂等）。
   };
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshSuccessNotice, setRefreshSuccessNotice] = useState(false);
+  const [refreshErrorNotice, setRefreshErrorNotice] = useState<string | null>(null);
+
   useEffect(() => {
     let isMounted = true;
+    const reqAppId = normalizeId(app.id);
+    const rawAppId = app.id;
+    clearRefreshTimers();
     setIconCycle(null);
+    setIsCyclingIcon(false);
     setShareBadgeOpen(false);
-    if (!isTauri || !app.id) {
+    setIsRefreshing(false);
+    setRefreshSuccessNotice(false);
+    setRefreshErrorNotice(null);
+    if (!isTauri || !rawAppId) {
       return () => {
         isMounted = false;
       };
     }
 
     tauriApi
-      .restoreOrFetchIconCycle(app.id)
+      .restoreOrFetchIconCycle(rawAppId)
       .then((data) => {
-        if (!isMounted || !data) return;
+        if (!isMounted || !isMountedRef.current || currentAppIdRef.current !== reqAppId || !data) return;
         setIconCycle(data);
         // data: 仅供弹窗即时展示；可持久化 URL 与 L5 徽标经 iconStore 准入写透（同 id+url 只准入一次）
         const persistUrl = pickCyclePersistIconUrl(data);
         const curIcon = typeof app.icon === 'string' ? app.icon.trim() : '';
         if (persistUrl !== '' && persistUrl === curIcon) return;
-        const dedupKey = `${String(app.id).trim().toLowerCase()}::${persistUrl}`;
+        const dedupKey = `${reqAppId}::${persistUrl}`;
         if (iconSyncDispatchedRef.current.has(dedupKey)) return;
         iconSyncDispatchedRef.current.add(dedupKey);
-        admitIconCycleResult(app.id, data, { patch: iconPatch });
+        admitIconCycleResult(rawAppId, data, { patch: iconPatch });
       })
       .catch(() => {
         // 降级不崩；收录位按显式 is_cataloged 判定。
@@ -162,14 +198,17 @@ export const Header: React.FC<HeaderProps> = ({
     e.stopPropagation();
     // 收录恒 L1 禁切：收录应用不给切（与 L1 官方锁定同语义）。
     if (isCyclingIcon || !isTauri || !app.id || isCataloged) return;
+    const reqAppId = normalizeId(app.id);
+    const rawAppId = app.id;
     setIsCyclingIcon(true);
     try {
-      const res = await tauriApi.cycleAppIcon(app.id);
+      const res = await tauriApi.cycleAppIcon(rawAppId);
+      if (!isMountedRef.current || currentAppIdRef.current !== reqAppId) return;
       if (res) {
         // 未收录手动定 Logo：选中即默认。data: 经 iconOverride 即时直显，
         // 可持久化 URL 与 L5 徽标经 iconStore 准入写透列表与镜像。
         setIconCycle(res);
-        admitIconCycleResult(app.id, res, { patch: iconPatch });
+        admitIconCycleResult(rawAppId, res, { patch: iconPatch });
         const total = res.total_levels ?? 5;
         const levelKey = ICON_LEVEL_NAME_KEYS[res.level];
         const name = levelKey ? t(levelKey) : '';
@@ -179,6 +218,7 @@ export const Header: React.FC<HeaderProps> = ({
         );
       }
     } catch (err) {
+      if (!isMountedRef.current || currentAppIdRef.current !== reqAppId) return;
       notifyToast(
         t('toast.icon_cycle_failed', {
           error: err instanceof Error ? err.message : String(err),
@@ -186,7 +226,9 @@ export const Header: React.FC<HeaderProps> = ({
         'error',
       );
     } finally {
-      setIsCyclingIcon(false);
+      if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+        setIsCyclingIcon(false);
+      }
     }
   };
 
@@ -205,31 +247,40 @@ export const Header: React.FC<HeaderProps> = ({
     isLoading: app.isLoading,
   });
 
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [refreshSuccessNotice, setRefreshSuccessNotice] = useState(false);
-  const [refreshErrorNotice, setRefreshErrorNotice] = useState<string | null>(null);
-
   const effectiveRefreshing = Boolean(isRefreshing || app.isRefreshing);
 
   const handleTriggerRefresh = async () => {
     if (!onRefresh || effectiveRefreshing) return;
+    const reqAppId = normalizeId(app.id);
+    const rawAppId = app.id;
+    clearRefreshTimers();
     setIsRefreshing(true);
     setRefreshSuccessNotice(false);
     setRefreshErrorNotice(null);
 
     try {
-      await onRefresh(app.id);
+      await onRefresh(rawAppId);
+      if (!isMountedRef.current || currentAppIdRef.current !== reqAppId) return;
       setRefreshSuccessNotice(true);
-      setTimeout(() => {
-        setRefreshSuccessNotice(false);
+      refreshSuccessTimerRef.current = setTimeout(() => {
+        refreshSuccessTimerRef.current = null;
+        if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+          setRefreshSuccessNotice(false);
+        }
       }, 2800);
     } catch (err) {
+      if (!isMountedRef.current || currentAppIdRef.current !== reqAppId) return;
       setRefreshErrorNotice(String(err));
-      setTimeout(() => {
-        setRefreshErrorNotice(null);
+      refreshErrorTimerRef.current = setTimeout(() => {
+        refreshErrorTimerRef.current = null;
+        if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+          setRefreshErrorNotice(null);
+        }
       }, 3500);
     } finally {
-      setIsRefreshing(false);
+      if (isMountedRef.current && currentAppIdRef.current === reqAppId) {
+        setIsRefreshing(false);
+      }
     }
   };
 

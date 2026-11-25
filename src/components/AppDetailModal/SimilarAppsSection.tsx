@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { tauriApi } from '../../services/api';
 import { queueAssembledRowIcons } from '../../services/iconStore';
+import { normalizeId } from '../../services/normalizeId';
 import { formatStars } from '../../services/trends';
 import type { AppDetailViewModel, RecommendationReason, SimilarAppItem } from '../../types';
 import { getCategoryLabel } from '../../utils/appHelper';
@@ -53,12 +54,13 @@ export const SimilarAppsSection: React.FC<SimilarAppsSectionProps> = ({
 
   useEffect(() => {
     const appId = app.id.trim();
+    const appIdNorm = normalizeId(appId);
     if (!appId) {
       setItems([]);
       return;
     }
-    if (lastAppIdRef.current !== appId) {
-      lastAppIdRef.current = appId;
+    if (lastAppIdRef.current !== appIdNorm) {
+      lastAppIdRef.current = appIdNorm;
       setItems([]);
     }
 

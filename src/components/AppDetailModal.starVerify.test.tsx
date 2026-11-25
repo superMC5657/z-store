@@ -108,4 +108,103 @@ describe('star characterization (real AppDetailModal path)', () => {
     expect(screen.getByRole('button', { name: '取消 GitHub 标星' })).toBeTruthy();
     expect(toasts.some((t) => t.includes('标星'))).toBe(true);
   });
+
+  it('re-fetches starred status when oauthUser login changes (F-32)', async () => {
+    hooks.fetchStarredStatus
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+
+    const { rerender } = render(
+      <AppDetailModal
+        app={fixtureApp()}
+        isInstalled={false}
+        platformLoading={false}
+        oauthUser={null}
+        onClose={() => {}}
+        onInstall={async () => {}}
+        onLaunch={() => {}}
+      />,
+    );
+    await waitFor(() => {
+      expect(hooks.fetchStarredStatus).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByRole('button', { name: 'GitHub 标星 (Star)' })).toBeTruthy();
+
+    rerender(
+      <AppDetailModal
+        app={fixtureApp()}
+        isInstalled={false}
+        platformLoading={false}
+        oauthUser={fixtureUser()}
+        onClose={() => {}}
+        onInstall={async () => {}}
+        onLaunch={() => {}}
+      />,
+    );
+    await waitFor(() => {
+      expect(hooks.fetchStarredStatus).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByRole('button', { name: '取消 GitHub 标星' })).toBeTruthy();
+  });
+
+  it('discards stale starApp resolution after switching app in-place (F-32)', async () => {
+    let resolveStar!: (v: { starred: boolean; in_list: boolean }) => void;
+    hooks.starApp.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveStar = resolve;
+        }),
+    );
+    hooks.fetchStarredStatus.mockResolvedValue(false);
+
+    const appA = fixtureApp();
+    const appB: AppDetailViewModel = {
+      ...fixtureApp(),
+      id: 'otherowner/otherrepo',
+      name: 'Other App',
+      owner: 'otherowner',
+      repo: 'otherrepo',
+    };
+
+    const { rerender } = render(
+      <AppDetailModal
+        app={appA}
+        isInstalled={false}
+        platformLoading={false}
+        oauthUser={fixtureUser()}
+        onClose={() => {}}
+        onInstall={async () => {}}
+        onLaunch={() => {}}
+      />,
+    );
+    await waitFor(() => {
+      expect(hooks.fetchStarredStatus).toHaveBeenCalledWith(appA.id);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'GitHub 标星 (Star)' }));
+
+    // Switch in-place to App B before App A's starApp resolves
+    rerender(
+      <AppDetailModal
+        app={appB}
+        isInstalled={false}
+        platformLoading={false}
+        oauthUser={fixtureUser()}
+        onClose={() => {}}
+        onInstall={async () => {}}
+        onLaunch={() => {}}
+      />,
+    );
+    await waitFor(() => {
+      expect(hooks.fetchStarredStatus).toHaveBeenCalledWith(appB.id);
+    });
+
+    await act(async () => {
+      resolveStar({ starred: true, in_list: true });
+      await Promise.resolve();
+    });
+
+    // App B must NOT inherit App A's starred state
+    expect(screen.getByRole('button', { name: 'GitHub 标星 (Star)' })).toBeTruthy();
+  });
 });

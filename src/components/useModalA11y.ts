@@ -1,7 +1,16 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
-/** 打开中的模态弹窗栈，用于确保 Esc 与 Tab 焦点陷阱仅作用于栈顶弹窗。 */
+/** 打开中的模态弹窗栈，用于确保 Esc、Tab 焦点陷阱与视觉层叠顺序一致。 */
 const openModalStack: symbol[] = [];
+const stackListeners = new Set<() => void>();
+
+function notifyStackListeners(): void {
+  for (const listener of stackListeners) {
+    listener();
+  }
+}
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -28,18 +37,28 @@ interface ModalA11yOptions {
 
 /**
  * 模态弹窗键盘与焦点管理：打开时聚焦容器、关闭时归还焦点、循环 Tab 并仅对栈顶处理 Esc。
+ * 返回该弹窗在 `openModalStack` 中的 0-based 位置（未打开时返回 -1），供外壳计算同层 z-index。
  */
 export function useModalA11y(
   containerRef: RefObject<HTMLElement | null>,
   { open = true, onEscape }: ModalA11yOptions = {},
-): void {
+): number {
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const [stackIndex, setStackIndex] = useState<number>(() => (open ? openModalStack.length : -1));
 
-  useEffect(() => {
-    if (!open) return;
+  useIsomorphicLayoutEffect(() => {
+    if (!open) {
+      setStackIndex(-1);
+      return;
+    }
     const token = Symbol('modal');
+    const syncIndex = () => {
+      setStackIndex(openModalStack.indexOf(token));
+    };
     openModalStack.push(token);
+    stackListeners.add(syncIndex);
+    notifyStackListeners();
     const isTop = () => openModalStack[openModalStack.length - 1] === token;
 
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -82,9 +101,13 @@ export function useModalA11y(
     window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+      stackListeners.delete(syncIndex);
       const index = openModalStack.indexOf(token);
       if (index !== -1) openModalStack.splice(index, 1);
+      notifyStackListeners();
       if (previous && previous.isConnected) previous.focus({ preventScroll: true });
     };
   }, [open, containerRef]);
+
+  return stackIndex;
 }

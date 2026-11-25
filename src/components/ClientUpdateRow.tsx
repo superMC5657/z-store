@@ -221,7 +221,7 @@ export const ClientUpdateRow: React.FC = () => {
         );
       case 'error':
         return (
-          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-danger)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             <AlertTriangle size={13} />
             <span>{phase.message}</span>
             {phase.fallback && (

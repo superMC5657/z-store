@@ -271,7 +271,7 @@ export const DataBackupRow: React.FC<DataBackupRowProps> = ({ installedCount = 0
             <span
               style={{
                 fontSize: 'var(--font-sm)',
-                color: isError ? 'var(--status-error)' : 'var(--status-success)',
+                color: isError ? 'var(--status-danger)' : 'var(--status-success)',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',

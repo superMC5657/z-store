@@ -270,7 +270,8 @@ export const AppCard: React.FC<AppCardProps> = memo(({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
           onOpenDetail(app.id);
         }
       }}

@@ -1,6 +1,6 @@
 /** 测试详情弹窗的 README Markdown 渲染与 GitHub 风格警示块转换。 */
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AppDetailViewModel } from '../types';
 // Header 文案经 i18n：渲染 AppDetailModal 须初始化 i18n
 import '../i18n';
@@ -110,5 +110,33 @@ describe('readme characterization (real AppDetailModal path)', () => {
       />,
     );
     expect(screen.getAllByText('fixture for readme characterization').length).toBeGreaterThan(0);
+  });
+
+  it('handles malformed percent-encoded and metacharacter #anchors safely (F-25)', async () => {
+    const scrollSpy = vi.fn();
+    const container = renderModal(
+      [
+        '[bad](#bad%E0%A4%A)',
+        '[special](#sec%22quote%5Dbracket)',
+        '<a name=\'sec"quote]bracket\'>Target</a>',
+      ].join('\n\n'),
+    );
+    await waitFor(() => {
+      expect(hooks.fetchStarredStatus).toHaveBeenCalled();
+    });
+
+    const body = container.querySelector('.readme-markdown-body')!;
+    const badLink = body.querySelector('a[href="#bad%E0%A4%A"]')!;
+    const specialLink = body.querySelector('a[href="#sec%22quote%5Dbracket"]')!;
+    const namedTarget = body.querySelector('[name]') as HTMLElement | null;
+    if (namedTarget) {
+      namedTarget.scrollIntoView = scrollSpy;
+    }
+
+    expect(() => fireEvent.click(badLink)).not.toThrow();
+    expect(() => fireEvent.click(specialLink)).not.toThrow();
+    if (namedTarget) {
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    }
   });
 });

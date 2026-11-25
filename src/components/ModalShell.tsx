@@ -12,6 +12,14 @@ const LAYER_CLASS: Record<ModalLayer, string | null> = {
   top: 'modal-layer-top',
 };
 
+/** 与 `components-modal.css` 层级基线对齐，同层按 `openModalStack` 顺序递增，保证后开弹窗视觉置顶且不越层。 */
+const LAYER_Z_RANGE: Record<ModalLayer, { base: number; maxOffset: number }> = {
+  sub: { base: 90, maxOffset: 9 },
+  base: { base: 100, maxOffset: 99 },
+  confirm: { base: 200, maxOffset: 799 },
+  top: { base: 1000, maxOffset: 8998 },
+};
+
 export interface ModalShellProps {
   layer?: ModalLayer;
   /** 为 `false` 时点击遮罩不关闭（如导入进行中）。 */
@@ -65,7 +73,9 @@ export const ModalShell: React.FC<ModalShellProps> = ({
     assignRef(panelRefRef.current, node);
   }, []);
 
-  useModalA11y(internalRef, { open: true, onEscape: onEscape ?? onClose });
+  const stackIndex = useModalA11y(internalRef, { open: true, onEscape: onEscape ?? onClose });
+  const { base: layerBaseZ, maxOffset: layerMaxOffset } = LAYER_Z_RANGE[layer];
+  const backdropZIndex = layerBaseZ + Math.min(Math.max(stackIndex, 0), layerMaxOffset);
 
   // 每次挂载时解析一次挂载点，打开期间保持不变，避免挂载点切换导致子树重挂。
   const portalTarget = useMemo(() => findAppWindow(), []);
@@ -76,6 +86,7 @@ export const ModalShell: React.FC<ModalShellProps> = ({
   const shell = (
     <div
       className={backdropClass}
+      style={{ zIndex: backdropZIndex }}
       onMouseDown={(e) => {
         mouseDownOnBackdropRef.current = e.target === e.currentTarget;
       }}

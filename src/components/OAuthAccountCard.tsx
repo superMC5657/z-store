@@ -29,24 +29,27 @@ export const OAuthAccountCard: React.FC = () => {
   // 轮询会话取消标志：unmount/手动取消置位。in-flight poll 无法 abort，
   // 返回后凭此标志丢弃结果且不重排定时器，防止卸载后轮询泄漏到 deadline。
   const pollCancelledRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const loadUser = async () => {
     setIsLoadingUser(true);
     try {
       const u = await tauriApi.getOAuthUser();
-      setUser(u);
+      if (mountedRef.current) setUser(u);
     } catch {
-      setUser(null);
+      if (mountedRef.current) setUser(null);
     } finally {
-      setIsLoadingUser(false);
+      if (mountedRef.current) setIsLoadingUser(false);
     }
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     loadUser();
     const refresh = () => loadUser();
     window.addEventListener('zstore:oauth-changed', refresh);
     return () => {
+      mountedRef.current = false;
       window.removeEventListener('zstore:oauth-changed', refresh);
       pollCancelledRef.current = true;
       stopPolling();
@@ -121,6 +124,7 @@ export const OAuthAccountCard: React.FC = () => {
     pollCancelledRef.current = false;
     try {
       const res = await tauriApi.oauthDeviceStart();
+      if (pollCancelledRef.current || !mountedRef.current) return;
       const deadline = Date.now() + res.expires_in * 1000;
       const intervalMs = Math.max(1000, res.interval * 1000);
       const verificationUri = res.verification_uri_complete || res.verification_uri;
@@ -139,9 +143,13 @@ export const OAuthAccountCard: React.FC = () => {
         // ignore：用户可点「前往授权页」手动打开
       }
     } catch (e) {
-      setError(t('oauth.login_failed', { error: String(e) }));
+      if (!pollCancelledRef.current && mountedRef.current) {
+        setError(t('oauth.login_failed', { error: String(e) }));
+      }
     } finally {
-      setIsStarting(false);
+      if (mountedRef.current) {
+        setIsStarting(false);
+      }
     }
   };
 
@@ -216,7 +224,7 @@ export const OAuthAccountCard: React.FC = () => {
                     height: '8px',
                     borderRadius: '50%',
                     backgroundColor: '#eab308',
-                    border: '2px solid var(--bg-primary, #0f172a)',
+                    border: '2px solid var(--bg-canvas)',
                   }}
                   title={t('oauth.expired_tag')}
                 />
@@ -319,7 +327,7 @@ export const OAuthAccountCard: React.FC = () => {
       )}
 
       {error && (
-        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-error)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ fontSize: 'var(--font-sm)', color: 'var(--status-danger)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <AlertCircle size={13} />
           <span>{error}</span>
         </span>

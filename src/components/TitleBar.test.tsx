@@ -119,4 +119,51 @@ describe('TitleBar 搜索输入与触发时机', () => {
     expect(onSearchChange).toHaveBeenCalledTimes(1);
     expect(onSearchChange).toHaveBeenCalledWith('codex');
   });
+
+  it('模态弹窗打开时忽略 Ctrl+K / Cmd+K，不抢夺焦点 (F-36)', () => {
+    const { input } = renderTitleBar();
+    const modal = document.createElement('div');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    const modalBtn = document.createElement('button');
+    modal.appendChild(modalBtn);
+    document.body.appendChild(modal);
+    modalBtn.focus();
+
+    try {
+      const ctrlK = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, cancelable: true });
+      window.dispatchEvent(ctrlK);
+      expect(ctrlK.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(modalBtn);
+
+      const metaK = new KeyboardEvent('keydown', { key: 'k', metaKey: true, cancelable: true });
+      window.dispatchEvent(metaK);
+      expect(metaK.defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(modalBtn);
+    } finally {
+      modal.remove();
+    }
+
+    // 弹窗关闭后 Ctrl+K 恢复聚焦搜索框
+    const ctrlKAfter = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, cancelable: true });
+    window.dispatchEvent(ctrlKAfter);
+    expect(ctrlKAfter.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('按 Escape 时关闭搜索历史下拉框并失焦 (F-36)', async () => {
+    mocks.getSearchHistory.mockResolvedValue(['rustdesk', 'vscode']);
+    const { container, input } = renderTitleBar();
+
+    // Flush initial loadSearchHistory
+    await vi.advanceTimersByTimeAsync(0);
+    fireEvent.focus(input);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(container.querySelector('.search-history-dropdown')).toBeTruthy();
+
+    input.focus();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(container.querySelector('.search-history-dropdown')).toBeNull();
+    expect(document.activeElement).not.toBe(input);
+  });
 });

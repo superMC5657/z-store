@@ -38,8 +38,8 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'var(--bg-primary, #141414)',
-          color: 'var(--text-primary, #ffffff)',
+          background: 'var(--bg-canvas)',
+          color: 'var(--text-primary)',
           padding: '24px',
         }}
       >
@@ -47,7 +47,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           style={{
             maxWidth: '520px',
             width: '100%',
-            border: '1px solid var(--border-primary, #333333)',
+            border: '1px solid var(--border-color)',
             borderRadius: '8px',
             padding: '32px',
             display: 'flex',

@@ -82,7 +82,7 @@ export const CachedAvatar: React.FC<CachedAvatarProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         boxSizing: 'border-box',
-        background: 'var(--bg-card-hover)',
+        background: 'var(--bg-acrylic-hover)',
         border: '1px solid var(--border-subtle)',
         color: 'var(--text-secondary)',
         fontSize: `${Math.max(9, Math.round(size * 0.46))}px`,

@@ -19,6 +19,7 @@ import { AppSummary, InstalledApp, UpdateItem, UpdateRule, WatchDismissedEntry }
 import { SegmentedControl } from './SegmentedControl';
 import { EmptyState } from './EmptyState';
 import { AppIconFrame } from './AppIconFrame';
+import { normalizeId } from '../services/normalizeId';
 import { resolveAppIconInfo, resolveInstalledAppName, stripVersionPrefix } from '../utils/appHelper';
 
 interface RulesManagerModalProps {
@@ -99,7 +100,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
         await onToggleRuleHidden(finalAppId, true);
         showNotice(t('rules.notice_hidden_success', { id: finalAppId }));
       } else if (ruleType === 'skip') {
-        if (updateRules.some((r) => r.is_frozen && r.app_id.toLowerCase() === finalAppId.toLowerCase())) {
+        if (updateRules.some((r) => r.is_frozen && normalizeId(r.app_id) === normalizeId(finalAppId))) {
           showNotice(t('rules.notice_skip_frozen', { id: finalAppId }), true);
           setIsSubmitting(false);
           return;
@@ -139,9 +140,9 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   };
 
   const resolveIdentity = (appId: string) => {
-    const idNorm = appId.toLowerCase();
-    const matchedApp = installedApps.find((a) => a.app_id.toLowerCase() === idNorm);
-    const catalogApp = apps.find((a) => a.id.toLowerCase() === idNorm);
+    const idNorm = normalizeId(appId);
+    const matchedApp = installedApps.find((a) => normalizeId(a.app_id) === idNorm);
+    const catalogApp = apps.find((a) => normalizeId(a.id) === idNorm);
     const iconInfo = resolveAppIconInfo(catalogApp?.id || appId, apps, matchedApp?.icon, matchedApp?.icon_bg);
     const displayName = matchedApp
       ? resolveInstalledAppName(matchedApp, apps)
@@ -153,24 +154,30 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
   const matchesQuery = (appId: string, displayName: string) =>
     !query || appId.toLowerCase().includes(query) || displayName.toLowerCase().includes(query);
 
-  const filteredRules = updateRules
+  const queryMatchedRules = updateRules
     .map((rule) => ({ rule, ...resolveIdentity(rule.app_id) }))
-    .filter(({ rule, displayName }) => {
-      if (!matchesQuery(rule.app_id, displayName)) return false;
-      if (rulesTab === 'watch') return false;
-      if (rulesTab === 'skipped') return Boolean(rule.skipped_version);
-      if (rulesTab === 'frozen') return rule.is_frozen;
-      if (rulesTab === 'hidden') return rule.is_hidden;
-      return true;
-    });
+    .filter(({ rule, displayName }) => matchesQuery(rule.app_id, displayName));
 
-  const filteredWatches = dismissedWatches
+  const queryMatchedWatches = dismissedWatches
     .map((entry) => ({ entry, ...resolveIdentity(entry.app_id) }))
-    .filter(({ entry, displayName }) =>
-      (rulesTab === 'all' || rulesTab === 'watch') && matchesQuery(entry.app_id, displayName),
-    );
+    .filter(({ entry, displayName }) => matchesQuery(entry.app_id, displayName));
+
+  const filteredRules = queryMatchedRules.filter(({ rule }) => {
+    if (rulesTab === 'watch') return false;
+    if (rulesTab === 'skipped') return Boolean(rule.skipped_version);
+    if (rulesTab === 'frozen') return rule.is_frozen;
+    if (rulesTab === 'hidden') return rule.is_hidden;
+    return true;
+  });
+
+  const filteredWatches = rulesTab === 'all' || rulesTab === 'watch' ? queryMatchedWatches : [];
 
   const totalCount = updateRules.length + dismissedWatches.length;
+  const tabAllCount = queryMatchedRules.length + queryMatchedWatches.length;
+  const tabSkippedCount = queryMatchedRules.filter(({ rule }) => Boolean(rule.skipped_version)).length;
+  const tabFrozenCount = queryMatchedRules.filter(({ rule }) => rule.is_frozen).length;
+  const tabHiddenCount = queryMatchedRules.filter(({ rule }) => rule.is_hidden).length;
+  const tabWatchCount = queryMatchedWatches.length;
 
   return (
     <ModalShell
@@ -395,7 +402,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
               label: (
                 <CountLabel
                   label={t('rules.tab_all_short')}
-                  count={totalCount}
+                  count={tabAllCount}
                   active={rulesTab === 'all'}
                 />
               ),
@@ -406,7 +413,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 <CountLabel
                   icon={<SkipForward size={11} strokeWidth={1.5} />}
                   label={t('rules.tab_skipped_short')}
-                  count={updateRules.filter((r) => Boolean(r.skipped_version)).length}
+                  count={tabSkippedCount}
                   active={rulesTab === 'skipped'}
                 />
               ),
@@ -417,7 +424,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 <CountLabel
                   icon={<Lock size={11} strokeWidth={1.5} />}
                   label={t('rules.tab_frozen_short')}
-                  count={updateRules.filter((r) => r.is_frozen).length}
+                  count={tabFrozenCount}
                   active={rulesTab === 'frozen'}
                 />
               ),
@@ -428,7 +435,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 <CountLabel
                   icon={<EyeOff size={11} strokeWidth={1.5} />}
                   label={t('rules.tab_hidden_short')}
-                  count={updateRules.filter((r) => r.is_hidden).length}
+                  count={tabHiddenCount}
                   active={rulesTab === 'hidden'}
                 />
               ),
@@ -439,7 +446,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 <CountLabel
                   icon={<Eye size={11} strokeWidth={1.5} />}
                   label={t('rules.tab_watch_short')}
-                  count={dismissedWatches.length}
+                  count={tabWatchCount}
                   active={rulesTab === 'watch'}
                 />
               ),
@@ -495,7 +502,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                 ? t('rules.badge_skipped', { version: rule.skipped_version })
                 : '';
               // 已锁定的应用不检测更新，不会出现在快照里
-              const pendingUpdate = updatesById.get(rule.app_id.toLowerCase());
+              const pendingUpdate = updatesById.get(normalizeId(rule.app_id));
               return (
                 <div key={rule.app_id} className="fluent-list-row rules-row">
                   <AppIconFrame
@@ -560,8 +567,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         type="button"
                         className="btn-fluent btn-secondary btn-sm"
                         onClick={async () => {
-                          await onClearRuleSkip(rule.app_id);
-                          showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
+                          try {
+                            await onClearRuleSkip(rule.app_id);
+                            showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
+                          } catch (err) {
+                            showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
+                          }
                         }}
                       >
                         {t('rules.restore_reminder')}
@@ -571,8 +582,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       type="button"
                       className="btn-fluent btn-secondary btn-sm"
                       onClick={async () => {
-                        await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
-                        showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
+                        try {
+                          await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
+                          showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
+                        } catch (err) {
+                          showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
+                        }
                       }}
                     >
                       {rule.is_frozen ? t('rules.unlock_version') : t('rules.lock_version')}
@@ -581,8 +596,12 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       type="button"
                       className="btn-fluent btn-secondary btn-sm"
                       onClick={async () => {
-                        await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
-                        showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
+                        try {
+                          await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
+                          showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
+                        } catch (err) {
+                          showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
+                        }
                       }}
                     >
                       {rule.is_hidden ? t('rules.unhide_app') : t('rules.hide_app')}
