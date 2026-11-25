@@ -113,4 +113,51 @@ describe('RulesManagerModal', () => {
       expect(screen.getByRole('status').textContent).toContain('ipc failure');
     });
   });
+
+  it('suppresses success notice and keeps add-rule form open when handlers return false (F-38A)', async () => {
+    const onSkipVersion = vi.fn(async () => false);
+    const onClearRuleSkip = vi.fn(async () => false);
+    const onToggleRuleFrozen = vi.fn(async () => false);
+    const onToggleRuleHidden = vi.fn(async () => false);
+
+    render(
+      <RulesManagerModal
+        isOpen
+        onClose={() => {}}
+        updateRules={[rules[0]]}
+        installedApps={installedApps}
+        updatesById={updatesById}
+        onSkipVersion={onSkipVersion}
+        onClearRuleSkip={onClearRuleSkip}
+        onToggleRuleFrozen={onToggleRuleFrozen}
+        onToggleRuleHidden={onToggleRuleHidden}
+      />,
+    );
+
+    // Row actions returning false must not display a false green success notice
+    fireEvent.click(screen.getByRole('button', { name: /跳过此版本|跳过版本|Skip/i }));
+    fireEvent.click(screen.getByRole('button', { name: /恢复提醒|Restore/i }));
+    fireEvent.click(screen.getByRole('button', { name: /锁定版本|Lock/i }));
+    fireEvent.click(screen.getByRole('button', { name: /隐藏应用|Hide/i }));
+
+    await waitFor(() => {
+      expect(onSkipVersion).toHaveBeenCalledWith('RustDesk/RustDesk', '1.3.0');
+      expect(onClearRuleSkip).toHaveBeenCalledWith('RustDesk/RustDesk');
+      expect(onToggleRuleFrozen).toHaveBeenCalledWith('RustDesk/RustDesk', true);
+      expect(onToggleRuleHidden).toHaveBeenCalledWith('RustDesk/RustDesk', true);
+    });
+    expect(screen.getByRole('status').textContent?.trim()).toBe('');
+
+    // Add Rule form returning false must not display success notice or close the form
+    fireEvent.click(screen.getByRole('button', { name: /新建规则|New Rule/i }));
+    const customInput = screen.getByPlaceholderText(/输入应用 ID|Enter app ID/i) as HTMLInputElement;
+    fireEvent.change(customInput, { target: { value: 'acme/fail-app' } });
+    fireEvent.click(screen.getByRole('button', { name: /添加规则|Add Rule/i }));
+
+    await waitFor(() => {
+      expect(onToggleRuleFrozen).toHaveBeenCalledWith('acme/fail-app', true);
+    });
+    expect(screen.getByRole('status').textContent?.trim()).toBe('');
+    expect((screen.getByPlaceholderText(/输入应用 ID|Enter app ID/i) as HTMLInputElement).value).toBe('acme/fail-app');
+  });
 });

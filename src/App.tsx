@@ -105,8 +105,8 @@ export const App: React.FC = () => {
   } = useAppSettings();
   // OAuth 登录态（详情弹窗标星门控）
   const [oauthUser, setOAuthUser] = useState<OAuthUser | null>(null);
-  // 登出/换账号即清内存里的 `@me:` 私有 Star 缓存，不论收藏页是否挂载。
-  const oauthLogin = oauthUser?.login || undefined;
+  // 登出/401 失效/换账号即清内存里的 `@me:` 私有 Star 缓存，不论收藏页是否挂载。
+  const oauthLogin = oauthUser && !oauthUser.is_expired ? oauthUser.login || undefined : undefined;
   useEffect(() => {
     noteStarredLogin(oauthLogin);
   }, [oauthLogin]);

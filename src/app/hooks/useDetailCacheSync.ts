@@ -105,7 +105,7 @@ export function useDetailCacheSync({
   const localAppsRef = useRef<readonly AppSummary[] | undefined>(localApps);
   localAppsRef.current = localApps;
 
-  // 收录库变更时清空详情内存快照，避免再次打开展示过期收录字段
+  // 收录库或 OAuth 登录态变更时清空详情内存快照，避免展示过期收录字段或登出/401 后残留私有仓库详情
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const clearCache = () => {
@@ -113,9 +113,11 @@ export function useDetailCacheSync({
     };
     window.addEventListener('zstore:custom-apps-changed', clearCache);
     window.addEventListener('zstore:catalog-synced', clearCache);
+    window.addEventListener('zstore:oauth-changed', clearCache);
     return () => {
       window.removeEventListener('zstore:custom-apps-changed', clearCache);
       window.removeEventListener('zstore:catalog-synced', clearCache);
+      window.removeEventListener('zstore:oauth-changed', clearCache);
     };
   }, []);
 

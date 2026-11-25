@@ -134,6 +134,23 @@ function makeRow(id: string, over: Partial<AppSummary> = {}): AppSummary {
 const unmounts: Array<() => void> = [];
 
 import { patchAppIconList } from '../../services/iconStore';
+import {
+  clearSearchListCache,
+  readSearchListCacheEntry,
+  writeSearchListCache,
+} from '../../services/search/searchListCache';
+import {
+  clearRepoEnrichCache,
+  readSharedRepoEnrich,
+  upsertRepoCardFromDetail,
+} from '../../services/repoEnrichCache';
+import {
+  getQueryMemory,
+  rememberQuery,
+  resetStarredMemory,
+  selfQueryKey,
+  STARRED_CACHE_NAMESPACE,
+} from '../../services/starred/starredMemory';
 
 function renderSubs(
   overrides: {
@@ -516,6 +533,72 @@ describe('useAppSubscriptions：OAuth / 导入刷新', () => {
     } finally {
       window.removeEventListener('zstore:oauth-changed', onEvt);
     }
+  });
+
+  it('OAuth 401 过期立即清除前端私有内存缓存（@me: Star 记忆、私有搜索列表与私有富卡）且保留公开缓存', async () => {
+    resetStarredMemory();
+    clearSearchListCache();
+    clearRepoEnrichCache();
+
+    const meKey = selfQueryKey('alice');
+    rememberQuery({
+      target: { key: meKey, input: '' },
+      pages: 1,
+      hasMore: false,
+      emptyPages: [],
+    });
+    writeSearchListCache(
+      { namespace: STARRED_CACHE_NAMESPACE, query: meKey, page: 1, perPage: 20 },
+      [makeRow('alice/secret-star')],
+    );
+    writeSearchListCache(
+      { query: 'secret', page: 1, perPage: 20 },
+      [makeRow('alice/secret-search')],
+      { hasPrivate: true },
+    );
+    writeSearchListCache(
+      { query: 'public', page: 1, perPage: 20 },
+      [makeRow('org/public-search')],
+    );
+    upsertRepoCardFromDetail({
+      ...makeRow('alice/secret-card'),
+      changelog: '',
+      readme_markdown: '',
+      releases: [],
+      is_private: true,
+    });
+    upsertRepoCardFromDetail({
+      ...makeRow('org/public-card'),
+      changelog: '',
+      readme_markdown: '',
+      releases: [],
+      is_private: false,
+    });
+
+    const expiredUser: OAuthUser = { login: 'alice', has_list_scope: true, is_expired: true };
+    mocks.getOAuthUser.mockResolvedValue(expiredUser);
+    renderSubs();
+    await flush();
+
+    await act(async () => {
+      oauthExpired.emit(null);
+      await flush();
+    });
+
+    expect(getQueryMemory(meKey)).toBeUndefined();
+    expect(
+      readSearchListCacheEntry({ namespace: STARRED_CACHE_NAMESPACE, query: meKey, page: 1, perPage: 20 }),
+    ).toBeUndefined();
+    expect(readSearchListCacheEntry({ query: 'secret', page: 1, perPage: 20 })).toBeUndefined();
+    expect(
+      readSearchListCacheEntry({ query: 'public', page: 1, perPage: 20 })?.rows.map((r) => r.id),
+    ).toEqual(['org/public-search']);
+    expect(readSharedRepoEnrich('alice/secret-card')).toBeUndefined();
+    expect(readSharedRepoEnrich('org/public-card')).toBeDefined();
+
+    resetStarredMemory();
+    clearSearchListCache();
+    clearRepoEnrichCache();
   });
 
   it('zstore:data-imported：设置/收藏全量回放', async () => {

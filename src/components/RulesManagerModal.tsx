@@ -30,10 +30,10 @@ interface RulesManagerModalProps {
   apps?: AppSummary[];
   /** 可用更新索引（小写 app_id → 更新项，含隐藏应用）：规则行据此提供「跳过版本」。 */
   updatesById?: ReadonlyMap<string, UpdateItem>;
-  onClearRuleSkip: (appId: string) => Promise<void>;
-  onToggleRuleFrozen: (appId: string, isFrozen: boolean) => Promise<void>;
-  onToggleRuleHidden: (appId: string, isHidden: boolean) => Promise<void>;
-  onSkipVersion?: (appId: string, version: string) => Promise<void>;
+  onClearRuleSkip: (appId: string) => Promise<boolean | void>;
+  onToggleRuleFrozen: (appId: string, isFrozen: boolean) => Promise<boolean | void>;
+  onToggleRuleHidden: (appId: string, isHidden: boolean) => Promise<boolean | void>;
+  onSkipVersion?: (appId: string, version: string) => Promise<boolean | void>;
   /** 已确认（「知道了」）的关注提醒，在「关注已读」签下列出，可恢复为待处理提醒。 */
   dismissedWatches?: WatchDismissedEntry[];
   onRestoreWatch?: (appId: string) => Promise<void>;
@@ -94,10 +94,10 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
     setIsSubmitting(true);
     try {
       if (ruleType === 'frozen') {
-        await onToggleRuleFrozen(finalAppId, true);
+        if ((await onToggleRuleFrozen(finalAppId, true)) === false) return;
         showNotice(t('rules.notice_frozen_success', { id: finalAppId }));
       } else if (ruleType === 'hidden') {
-        await onToggleRuleHidden(finalAppId, true);
+        if ((await onToggleRuleHidden(finalAppId, true)) === false) return;
         showNotice(t('rules.notice_hidden_success', { id: finalAppId }));
       } else if (ruleType === 'skip') {
         if (updateRules.some((r) => r.is_frozen && normalizeId(r.app_id) === normalizeId(finalAppId))) {
@@ -111,7 +111,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
           return;
         }
         if (onSkipVersion) {
-          await onSkipVersion(finalAppId, skipVersion.trim());
+          if ((await onSkipVersion(finalAppId, skipVersion.trim())) === false) return;
           showNotice(t('rules.notice_skip_success', { id: finalAppId, version: skipVersion.trim() }));
         }
       }
@@ -552,7 +552,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         title={t('rules.skip_version_title', { version: pendingUpdate.latest_version })}
                         onClick={async () => {
                           try {
-                            await onSkipVersion(rule.app_id, pendingUpdate.latest_version);
+                            if ((await onSkipVersion(rule.app_id, pendingUpdate.latest_version)) === false) return;
                             showNotice(t('rules.notice_skip_success', { id: rule.app_id, version: pendingUpdate.latest_version }));
                           } catch (err) {
                             showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
@@ -568,7 +568,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                         className="btn-fluent btn-secondary btn-sm"
                         onClick={async () => {
                           try {
-                            await onClearRuleSkip(rule.app_id);
+                            if ((await onClearRuleSkip(rule.app_id)) === false) return;
                             showNotice(t('rules.restore_notice_success', { id: rule.app_id }));
                           } catch (err) {
                             showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
@@ -583,7 +583,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       className="btn-fluent btn-secondary btn-sm"
                       onClick={async () => {
                         try {
-                          await onToggleRuleFrozen(rule.app_id, !rule.is_frozen);
+                          if ((await onToggleRuleFrozen(rule.app_id, !rule.is_frozen)) === false) return;
                           showNotice(rule.is_frozen ? t('rules.unlock_notice_success', { id: rule.app_id }) : t('rules.frozen_notice_success', { id: rule.app_id }));
                         } catch (err) {
                           showNotice(t('rules.notice_save_failed', { error: String(err) }), true);
@@ -597,7 +597,7 @@ export const RulesManagerModal: React.FC<RulesManagerModalProps> = ({
                       className="btn-fluent btn-secondary btn-sm"
                       onClick={async () => {
                         try {
-                          await onToggleRuleHidden(rule.app_id, !rule.is_hidden);
+                          if ((await onToggleRuleHidden(rule.app_id, !rule.is_hidden)) === false) return;
                           showNotice(rule.is_hidden ? t('rules.unhide_notice_success', { id: rule.app_id }) : t('rules.hide_notice_success', { id: rule.app_id }));
                         } catch (err) {
                           showNotice(t('rules.notice_save_failed', { error: String(err) }), true);

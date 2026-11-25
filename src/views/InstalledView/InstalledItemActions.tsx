@@ -36,8 +36,8 @@ interface InstalledItemActionsProps {
   onCopyPath?: (id: string, path: string) => void;
   onToggleMenu: (id: string, e: React.MouseEvent) => void;
   onCloseMenu: () => void;
-  onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<void>;
-  onToggleRuleHidden?: (appId: string, isHidden: boolean) => Promise<void>;
+  onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<boolean | void>;
+  onToggleRuleHidden?: (appId: string, isHidden: boolean) => Promise<boolean | void>;
   /** 该行有可用更新时传入：主按钮由「启动」换为「更新」，「启动」收进更多菜单。 */
   updateActions?: RowUpdateActions;
 }
@@ -51,7 +51,7 @@ export interface RowUpdateActions {
   isChangelogOpen: boolean;
   onToggleChangelog: () => void;
   onApply: () => void;
-  onSkip?: () => Promise<void>;
+  onSkip?: () => Promise<boolean | void>;
 }
 
 /** 卸载 / 取消管理二次确认的按钮样式与文案键。 */

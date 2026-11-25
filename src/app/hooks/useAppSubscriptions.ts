@@ -8,6 +8,7 @@ import {
   subscribeIconWrites,
 } from '../../services/iconStore';
 import { patchSearchListCacheIcon } from '../../services/search/searchListCache';
+import { forgetPrivateStarredQueries } from '../../services/starred/starredMemory';
 import { normalizeIdLowerSet } from '../../services/normalizeId';
 import { annotateIsCataloged, buildCatalogIdSet, prepareRecentViews, restampLocalMarks } from '../selectors';
 import { adoptEchoInWindow } from './useSearchState';
@@ -215,6 +216,7 @@ export function useAppSubscriptions({
     trackSubscription(
       ctx,
       tauriApi.onOAuthExpired(() => {
+        forgetPrivateStarredQueries();
         if (ctx.mounted) {
           showToastRef.current(tRef.current('toast.github_auth_expired'), 'warning');
           loadOAuthUser();

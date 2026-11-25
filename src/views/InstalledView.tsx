@@ -93,7 +93,7 @@ interface InstalledViewProps extends AppContextProps {
   onApplyUpdate?: (id: string) => Promise<void>;
   /** 批量更新：参数为当前「有更新」口径下的全部目标（不含被平台筛选或隐藏规则排除的项）。 */
   onBatchUpdateAll?: (targets: UpdateItem[]) => Promise<void>;
-  onSkipVersion?: (id: string, version: string) => Promise<void>;
+  onSkipVersion?: (id: string, version: string) => Promise<boolean | void>;
   onLaunch?: (id: string) => void;
   onUninstall?: (id: string) => void;
   onUnmanage?: (id: string) => void;
@@ -101,8 +101,8 @@ interface InstalledViewProps extends AppContextProps {
   updateRules?: UpdateRule[];
   /** 规则按钮角标；缺席时按 `updateRules.length` 计。 */
   updateRulesCount?: number;
-  onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<void>;
-  onToggleRuleHidden?: (appId: string, isHidden: boolean) => Promise<void>;
+  onToggleRuleFrozen?: (appId: string, isFrozen: boolean) => Promise<boolean | void>;
+  onToggleRuleHidden?: (appId: string, isHidden: boolean) => Promise<boolean | void>;
   onOpenRules?: () => void;
   /** 初始加载错误（非空且列表为空时呈现错误卡，与空态区分）；重试经 onRetryLoad。 */
   loadError?: string | null;

@@ -942,4 +942,38 @@ describe('useDetailCacheSync：官方主页同步', () => {
     });
     expect(params.setSelectedApp).not.toHaveBeenCalled();
   });
+
+  it('zstore:oauth-changed（登出或 401 失效）清空 appDetailMemoryCache，防止私有仓库详情从内存残留回放', async () => {
+    const { result, params } = renderSync();
+    result.current.appDetailMemoryCache.current.set(
+      'alice/private-repo',
+      makeDetail({
+        id: 'alice/private-repo',
+        owner: 'alice',
+        repo: 'private-repo',
+        readme_markdown: 'TOP SECRET README',
+        is_private: true,
+      }),
+    );
+    expect(result.current.appDetailMemoryCache.current.has('alice/private-repo')).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('zstore:oauth-changed'));
+    });
+
+    expect(result.current.appDetailMemoryCache.current.size).toBe(0);
+
+    // 再次打开时不会命中内存缓存，必须进入加载态重新向后端请求
+    mocks.getAppDetails.mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      void result.current.handleOpenDetail('alice/private-repo');
+    });
+    expect(params.setSelectedApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'alice/private-repo',
+        readme_markdown: '',
+        isLoading: true,
+      }),
+    );
+  });
 });

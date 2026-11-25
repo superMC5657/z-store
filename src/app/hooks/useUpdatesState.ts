@@ -157,7 +157,7 @@ export function useUpdatesState({
       toastMsg: string;
       toastType?: 'info' | 'success';
     },
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     try {
       await rpcCall();
       if (opts.removeUpdateId) {
@@ -177,8 +177,10 @@ export function useUpdatesState({
         catalogLists.setApps(currentQuery.trim() ? await tauriApi.searchApps(currentQuery) : fullCatalog);
       }
       showToastRef.current(opts.toastMsg, opts.toastType ?? 'info');
+      return true;
     } catch (err) {
       showToastRef.current(tRef.current('rules.notice_save_failed', { error: String(err) }), 'error');
+      return false;
     }
   };
 
@@ -198,30 +200,30 @@ export function useUpdatesState({
     }
   };
 
-  const handleSkipVersion = async (id: string, version: string) => {
-    await runRuleMutation(() => tauriApi.setAppSkipVersion(id, version), {
+  const handleSkipVersion = async (id: string, version: string): Promise<boolean> => {
+    return runRuleMutation(() => tauriApi.setAppSkipVersion(id, version), {
       removeUpdateId: id,
       toastMsg: tRef.current('toast.skip_version', { id, version }),
     });
   };
 
-  const handleClearRuleSkip = async (appId: string) => {
-    await runRuleMutation(() => tauriApi.setAppSkipVersion(appId, null), {
+  const handleClearRuleSkip = async (appId: string): Promise<boolean> => {
+    return runRuleMutation(() => tauriApi.setAppSkipVersion(appId, null), {
       refreshUpdates: true,
       toastMsg: tRef.current('toast.restore_rules', { id: appId }),
       toastType: 'success',
     });
   };
 
-  const handleToggleRuleFrozen = async (appId: string, isFrozen: boolean) => {
-    await runRuleMutation(() => tauriApi.setAppFrozen(appId, isFrozen), {
+  const handleToggleRuleFrozen = async (appId: string, isFrozen: boolean): Promise<boolean> => {
+    return runRuleMutation(() => tauriApi.setAppFrozen(appId, isFrozen), {
       refreshUpdates: true,
       toastMsg: isFrozen ? tRef.current('toast.rule_locked', { id: appId }) : tRef.current('toast.rule_unlocked', { id: appId }),
     });
   };
 
-  const handleToggleRuleHidden = async (appId: string, isHidden: boolean) => {
-    await runRuleMutation(() => tauriApi.setAppHidden(appId, isHidden), {
+  const handleToggleRuleHidden = async (appId: string, isHidden: boolean): Promise<boolean> => {
+    return runRuleMutation(() => tauriApi.setAppHidden(appId, isHidden), {
       refreshUpdates: true,
       refreshCatalog: true,
       toastMsg: isHidden ? tRef.current('toast.rule_hidden', { id: appId }) : tRef.current('toast.rule_unhidden', { id: appId }),
