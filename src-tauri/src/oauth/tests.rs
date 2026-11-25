@@ -352,7 +352,7 @@ fn manual_logout_removes_user_and_account_signals() {
     assert!(!has_token);
     assert!(!db.is_starred("o", "r").unwrap());
     assert_eq!(viewer_upvoted(&db), None);
-    assert!(db.get_starred_feed_cache("@me:alice").unwrap().is_some());
+    assert!(db.get_starred_feed_cache("@me:alice").unwrap().is_none());
 }
 
 #[test]

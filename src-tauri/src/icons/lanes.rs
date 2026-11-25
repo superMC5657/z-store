@@ -99,6 +99,7 @@ pub(crate) fn record_stream_hit_with(
     sink: &dyn IconEventSink,
 ) {
     let (_, expected_gen) = IconLane::of(&job.ctx);
+    let mut emit_target: Option<(String, i32)> = Some((url.to_string(), level));
     if let Ok(db) = db.lock() {
         // 读旧行合并：保留已有槽位与 pinned 选择，过期命中仅补空槽。
         let mut cycle = db
@@ -132,11 +133,26 @@ pub(crate) fn record_stream_hit_with(
         if fresh {
             let _ = db.sync_repo_card_icon(&job.id, &cycle.selected_url, false);
         }
+        emit_target = if was_pinned
+            || cycle.selected_url.trim().is_empty()
+            || (cycle.selected_url == old_selected && cycle.selected_url.trim() != url.trim())
+        {
+            None
+        } else {
+            Some((cycle.selected_url.clone(), cycle.level))
+        };
     }
     if current_gen() != expected_gen {
         return;
     }
-    sink.icon_ready(&super::icon_ready_payload(job, url, level, via));
+    if let Some((selected_url, selected_level)) = emit_target {
+        sink.icon_ready(&super::icon_ready_payload(
+            job,
+            &selected_url,
+            selected_level,
+            via,
+        ));
+    }
 }
 
 /// 流式命中落库与发射：世代取自任务上下文所属通道。

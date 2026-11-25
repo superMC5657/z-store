@@ -160,6 +160,7 @@ mod backfill_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
         db.save_app_detail("acme/tool", &detail).unwrap();
         let mut card = sample_summary("acme/tool", "acme", "tool", "");
@@ -354,6 +355,7 @@ mod backfill_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
         db.save_app_detail("acme/rich", &detail).unwrap();
         // 模拟缓存已超过 2 小时（> 1800s TTL）
@@ -420,6 +422,7 @@ mod backfill_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
         db.save_app_detail("acme/from-detail", &detail).unwrap();
         let coord1 = crate::icons::RepoCoord {
@@ -617,6 +620,7 @@ mod backfill_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
         crate::repositories::DetailRepository::persist_detail_bundle(
             &db,
@@ -643,6 +647,7 @@ mod backfill_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
         crate::repositories::DetailRepository::persist_detail_bundle(
             &db,
@@ -883,6 +888,7 @@ mod cached_summary_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         }
     }
 
@@ -1110,6 +1116,7 @@ mod repo_card_hydration_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
         detail.core.name = "Cached Detail App".to_string();
         db.save_app_detail("acme/cached-detail", &detail).unwrap();
@@ -1188,6 +1195,7 @@ mod recent_uncataloged_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         }
     }
 

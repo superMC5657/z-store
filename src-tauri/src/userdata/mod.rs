@@ -61,7 +61,14 @@ pub struct ImportPlan {
     pub settings: Vec<(String, String)>,
 }
 
-/// 解析并清洗导入 JSON（纯函数）：版本必须为 1；非法 ID 与非白名单
+/// 导入后需在 DB 锁外同步到运行期状态的副作用项。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ImportSideEffects {
+    pub active_mirror: Option<String>,
+    pub launch_on_startup: Option<bool>,
+}
+
+/// 解析并清洗导入 JSON（纯函数）：版本必须为 1；非法或无法归一的 ID 与非白名单
 /// 设置项直接丢弃；`settings` 值统一转字符串。
 pub fn parse_import_payload(json: &str) -> Result<ImportPlan, String> {
     let payload: ImportPayload =
@@ -77,9 +84,13 @@ pub fn parse_import_payload(json: &str) -> Result<ImportPlan, String> {
         let mut out = Vec::new();
         for v in vals {
             if let Some(s) = v.as_str() {
-                let t = s.trim().to_string();
-                if validate_app_id(&t) && !out.contains(&t) {
-                    out.push(t);
+                let t = s.trim();
+                if validate_app_id(t) {
+                    if let Some(canon) = crate::forge::canonical_app_id(t) {
+                        if !out.contains(&canon) {
+                            out.push(canon);
+                        }
+                    }
                 }
             }
         }
@@ -109,54 +120,61 @@ pub fn parse_import_payload(json: &str) -> Result<ImportPlan, String> {
     })
 }
 
-/// 解析、归一化并在单事务内合并导入用户备份数据（fail-fast，任一步失败整体回滚）。
+/// 解析、校验并在单事务内合并导入用户备份数据（fail-fast，任一设置项校验失败或写入失败整体回滚），
+/// 同时返回需在锁外同步的运行期副作用（镜像切换与开机自启）。
+pub(crate) fn import_backup_with_effects(
+    db: &crate::db::Database,
+    is_cataloged: impl Fn(&str) -> bool,
+    json: &str,
+) -> Result<(crate::models::ImportUserDataResult, ImportSideEffects), String> {
+    let plan = parse_import_payload(json)?;
+    for (key, value) in &plan.settings {
+        crate::commands::settings::validate_setting_value(key, value)?;
+    }
+
+    let mut effects = ImportSideEffects::default();
+    let result = db
+        .with_immediate_transaction(|| {
+            let mut favorites_added = 0usize;
+            let mut watched_added = 0usize;
+            let mut settings_applied = 0usize;
+
+            for id in &plan.favorites {
+                if db.add_favorite(id, is_cataloged(id))? {
+                    favorites_added += 1;
+                }
+            }
+            for id in &plan.watched {
+                if db.watch_app(id, is_cataloged(id))? {
+                    watched_added += 1;
+                }
+            }
+            for (key, value) in &plan.settings {
+                let normalized = crate::db::normalize_setting_value(key, value);
+                db.set_setting(key, &normalized)?;
+                if key == "active_mirror" {
+                    effects.active_mirror = Some(normalized);
+                } else if key == "launch_on_startup" {
+                    effects.launch_on_startup = Some(normalized == "true" || normalized == "1");
+                }
+                settings_applied += 1;
+            }
+
+            Ok(crate::models::ImportUserDataResult {
+                favorites_added,
+                watched_added,
+                settings_applied,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    Ok((result, effects))
+}
+
+/// 解析、校验并在单事务内合并导入用户备份数据（fail-fast，任一步失败整体回滚）。
 pub fn import_backup(
     db: &crate::db::Database,
     is_cataloged: impl Fn(&str) -> bool,
     json: &str,
 ) -> Result<crate::models::ImportUserDataResult, String> {
-    let plan = parse_import_payload(json)?;
-    let favorite_ids = plan
-        .favorites
-        .iter()
-        .map(|id| {
-            crate::forge::canonical_app_id(id).ok_or_else(|| format!("无法识别的应用标识: {}", id))
-        })
-        .collect::<Result<Vec<String>, String>>()?;
-    let watched_ids = plan
-        .watched
-        .iter()
-        .map(|id| {
-            crate::forge::canonical_app_id(id).ok_or_else(|| format!("无法识别的应用标识: {}", id))
-        })
-        .collect::<Result<Vec<String>, String>>()?;
-
-    db.with_immediate_transaction(|| {
-        let mut favorites_added = 0usize;
-        let mut watched_added = 0usize;
-        let mut settings_applied = 0usize;
-
-        for id in &favorite_ids {
-            if db.add_favorite(id, is_cataloged(id))? {
-                favorites_added += 1;
-            }
-        }
-        for id in &watched_ids {
-            if db.watch_app(id, is_cataloged(id))? {
-                watched_added += 1;
-            }
-        }
-        for (key, value) in &plan.settings {
-            let normalized = crate::db::normalize_setting_value(key, value);
-            db.set_setting(key, &normalized)?;
-            settings_applied += 1;
-        }
-
-        Ok(crate::models::ImportUserDataResult {
-            favorites_added,
-            watched_added,
-            settings_applied,
-        })
-    })
-    .map_err(|e| e.to_string())
+    import_backup_with_effects(db, is_cataloged, json).map(|(result, _)| result)
 }

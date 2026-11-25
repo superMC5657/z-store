@@ -74,6 +74,7 @@ fn detail(id: &str, owner: &str, repo: &str) -> AppDetail {
         releases: vec![asset("app-setup.exe", "https://example.com/app-setup.exe")],
         cached_at: None,
         is_stale: None,
+        is_private: false,
     }
 }
 

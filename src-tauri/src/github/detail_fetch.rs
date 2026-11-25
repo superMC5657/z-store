@@ -193,6 +193,9 @@ fn apply_304_repo_refresh(
     if eff_en.is_some() {
         detail.core.description_en = eff_en;
     }
+    if let Some(is_priv) = repo_info.private {
+        detail.is_private = is_priv;
+    }
 }
 
 /// 304 零开销复用 seam：release 未变 + 本地有完整缓存（releases 非空 + readme 非空）直接复用；
@@ -1130,6 +1133,10 @@ impl CatalogService {
             } else {
                 None
             },
+            is_private: repo_info
+                .as_ref()
+                .and_then(|r| r.private)
+                .unwrap_or_else(|| cached_detail.as_ref().is_some_and(|c| c.is_private)),
         };
         if let Some(ref item) = catalog_item {
             item.overlay_detail_core(&mut detail.core);
@@ -1443,6 +1450,7 @@ mod tests {
             fork: None,
             pushed_at: None,
             updated_at: None,
+            private: None,
         };
         let stats = super::resolve_detail_stats(Some(&repo_no_license), None, "o", "r");
         assert_eq!(stats.license, "unknown");
@@ -1600,6 +1608,7 @@ mod tests {
             fork: None,
             pushed_at: None,
             updated_at: None,
+            private: None,
         };
         let item = crate::github::models::CatalogItem {
             id: "OpenMW/openmw".to_string(),
@@ -1686,6 +1695,7 @@ mod tests {
             fork: None,
             pushed_at: None,
             updated_at: None,
+            private: None,
         };
         let item = crate::github::models::CatalogItem {
             id: "o/r".to_string(),
@@ -1836,6 +1846,7 @@ mod tests {
             }],
             cached_at: Some(12345),
             is_stale: Some(true),
+            is_private: false,
         };
         crate::github::detail_assets::heal_cached_detail(&mut stale_maccy, None);
         assert_eq!(stale_maccy.releases[0].os, "macos");
@@ -1886,6 +1897,7 @@ mod tests {
             fork: None,
             pushed_at: None,
             updated_at: None,
+            private: None,
         };
         super::apply_304_repo_refresh(
             &mut cached,

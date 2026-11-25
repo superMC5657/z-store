@@ -212,13 +212,23 @@ pub async fn export_backup_file(
 
 /// 合并式导入用户数据：只增不删；
 /// 设置项仅接受白名单（主题/语言/缓存保鲜期/关注频率）。
-#[tauri::command]
-pub fn import_user_data(
-    state: State<'_, AppState>,
-    json: String,
+pub(crate) fn import_user_data_inner(
+    state: &AppState,
+    json: &str,
+    apply_os_startup: bool,
 ) -> crate::AppResult<ImportUserDataResult> {
-    let db = state.db()?;
-    let result = crate::userdata::import_backup(&db, |id| state.catalog.is_cataloged(id), &json)?;
+    let (result, effects) = {
+        let db = state.db()?;
+        crate::userdata::import_backup_with_effects(&db, |id| state.catalog.is_cataloged(id), json)?
+    };
+    if let Some(mirror_id) = effects.active_mirror.as_deref() {
+        crate::commands::settings::sync_active_mirror(state, mirror_id);
+    }
+    if apply_os_startup {
+        if let Some(enabled) = effects.launch_on_startup {
+            crate::commands::settings::sync_launch_on_startup(enabled);
+        }
+    }
     if result.favorites_added > 0 || result.watched_added > 0 {
         crate::notify_affinity_updated();
     }
@@ -228,6 +238,14 @@ pub fn import_user_data(
         .field("settings", result.settings_applied);
     ev.info();
     Ok(result)
+}
+
+#[tauri::command]
+pub fn import_user_data(
+    state: State<'_, AppState>,
+    json: String,
+) -> crate::AppResult<ImportUserDataResult> {
+    import_user_data_inner(&state, &json, true)
 }
 
 #[cfg(test)]
@@ -279,5 +297,26 @@ mod export_file_tests {
                 bad
             );
         }
+    }
+
+    #[test]
+    fn import_user_data_syncs_in_memory_mirror() {
+        let state = crate::AppState {
+            db: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::db::Database::open_in_memory().unwrap(),
+            )),
+            catalog: crate::github::CatalogService::with_items(vec![]),
+            mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
+            github_token: std::sync::Mutex::new(None),
+            sync_lock: tokio::sync::Mutex::new(()),
+            startup_catalog_synced: std::sync::atomic::AtomicBool::new(false),
+        };
+        let json = r#"{"version":1,"settings":{"active_mirror":"https://mirror.example.com"}}"#;
+        let res = super::import_user_data_inner(&state, json, false).unwrap();
+        assert_eq!(res.settings_applied, 1);
+        assert_eq!(
+            state.mirror.lock().unwrap().active_mirror_prefix().as_deref(),
+            Some("https://mirror.example.com")
+        );
     }
 }

@@ -325,6 +325,7 @@ fn test_app_details_cache_crud() {
         releases: vec![],
         cached_at: None,
         is_stale: None,
+        is_private: false,
     };
 
     db.save_app_detail("rustdesk/rustdesk", &detail).unwrap();
@@ -1827,6 +1828,7 @@ fn test_prune_bounded_caches_lru_and_asset_protection() {
         releases: vec![],
         is_stale: None,
         cached_at: None,
+        is_private: false,
     };
 
     db.save_app_detail("o/protected", &mk_detail("o/protected"))

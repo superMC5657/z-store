@@ -3,6 +3,8 @@
 pub mod star;
 
 #[cfg(test)]
+mod revoke_tests;
+#[cfg(test)]
 mod tests;
 
 pub use star::{check_starred, fetch_oauth_user, star_repo, starred_api_url, unstar_repo};
@@ -389,10 +391,27 @@ pub enum RevokeReason {
     AuthExpired401,
 }
 
+/// 收集本地缓存中所有已知私有 GitHub 仓库规范 id（来自 `repo_card_cache`、`app_details` 与 `api_etag_cache`）。
+fn collect_private_repo_ids(db: &crate::db::Database) -> Vec<String> {
+    let mut ids = std::collections::BTreeSet::new();
+    for id in db.list_private_repo_card_ids().unwrap_or_default() {
+        ids.insert(id.to_lowercase());
+    }
+    for id in db.list_private_app_detail_ids().unwrap_or_default() {
+        ids.insert(id.to_lowercase());
+    }
+    for id in db.list_private_repo_etag_ids().unwrap_or_default() {
+        ids.insert(id.to_lowercase());
+    }
+    ids.into_iter().collect()
+}
+
 /// 吊销 OAuth 会话（手动登出与 401 失效唯一入口），返回并回填到 `token_cache` 的回退主机令牌。
 ///
-/// 共享清理：移除 OAuth 令牌、`/user/` 前缀 ETag、开源广场本人顶帖态；无 `github.com`
-/// 主机令牌兜底时一并清除私有快照（`@me:` Star 列表、私有富卡、私有搜索列表）。
+/// 共享清理：移除 OAuth 令牌、`/user/` 与 `/search/repositories` 前缀 ETag、开源广场本人顶帖态、
+/// 以及所有私有仓库对应的 `app_details` 与 `/repos/{owner}/{repo}*` ETag 缓存。
+/// 手动登出无论是否存在 `github.com` 主机 PAT 回退，均清除账号 A 的私有快照（`@me:` Star 列表、
+/// 私有富卡、私有搜索列表、`user_repo_signals` 与 `user_stars`）；401 失效在无主机令牌兜底时一并清除。
 pub fn revoke_oauth_session(
     db: &crate::db::Database,
     token_cache: &std::sync::Mutex<Option<String>>,
@@ -409,9 +428,16 @@ pub fn revoke_oauth_session(
         RevokeReason::AuthExpired401 => mark_oauth_user_expired(db),
     }
     let _ = db.delete_etags_by_prefix("https://api.github.com/user/");
+    let _ = db.delete_etags_by_prefix("https://api.github.com/search/repositories");
     let _ = db.clear_launchpad_viewer_upvotes();
     let fallback = stored_host_token(db, "github.com");
-    if fallback.is_none() {
+
+    // 先收集所有私有仓库 id 再删除各表，避免先删 repo_card_cache 后丢失待清理的详情与 ETag。
+    let private_ids = collect_private_repo_ids(db);
+    let _ = db.delete_private_app_details_and_ids(&private_ids);
+    let _ = db.delete_repo_etags_for_ids(&private_ids);
+
+    if reason == RevokeReason::ManualLogout || fallback.is_none() {
         let _ = db.delete_starred_feed_cache_by_scope_prefix("@me:");
         let _ = db.delete_private_repo_cards();
         let _ = db.delete_private_search_list_cache();

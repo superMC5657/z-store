@@ -74,8 +74,27 @@ async fn direct_github_lookup(
     };
     let pre = card_hydrator::preload(state, std::slice::from_ref(&target), true, |_| {}).await;
     let pre_confirmed = pre.confirmed_icon(&target);
-    let (cached_etag, cached_payload, soft_fresh_payload) =
+    let token = crate::commands::resolve_active_github_token(state);
+    let (mut cached_etag, mut cached_payload, mut soft_fresh_payload) =
         pre.etag_inputs(&target, crate::now_secs(), is_force);
+    // 纵深防御：无有效 GitHub 令牌时绝不从残留 ETag 载荷复活私有仓库。
+    if token.is_none() {
+        if soft_fresh_payload
+            .as_deref()
+            .and_then(crate::github::search::repo_json_is_private)
+            == Some(true)
+        {
+            soft_fresh_payload = None;
+        }
+        if cached_payload
+            .as_deref()
+            .and_then(crate::github::search::repo_json_is_private)
+            == Some(true)
+        {
+            cached_etag = None;
+            cached_payload = None;
+        }
+    }
     let local_hit = if is_force {
         None
     } else {
@@ -91,7 +110,6 @@ async fn direct_github_lookup(
     let (item, etag_write, touched_url, is_stale_hit) = match local_hit {
         Some((hit, _)) => (hit, None, None, false),
         None => {
-            let token = crate::commands::resolve_active_github_token(state);
             let out = state
                 .catalog
                 .fetch_online_repo_with_etag_outcome(

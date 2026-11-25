@@ -27,7 +27,15 @@ impl DetailRepository {
         etag_writes: &[EtagWrite],
     ) -> Result<()> {
         db.with_immediate_transaction(|| {
-            db.save_app_detail(app_id, detail)?;
+            let resolved_private = repo_private_flag(db, &detail.core, etag_writes);
+            let effective_private = resolved_private.unwrap_or(detail.is_private);
+            if effective_private != detail.is_private {
+                let mut detail_with_flag = detail.clone();
+                detail_with_flag.is_private = effective_private;
+                db.save_app_detail(app_id, &detail_with_flag)?;
+            } else {
+                db.save_app_detail(app_id, detail)?;
+            }
             let _ = db.update_catalog_app_from_detail(detail)?;
             let _ = db.update_custom_app_from_detail(detail)?;
             if let Some(c) = cycle {
@@ -41,7 +49,7 @@ impl DetailRepository {
                     core: detail.core.clone(),
                 },
                 confirmed_other: detail.core.platforms.is_empty(),
-                is_private: repo_private_flag(db, &detail.core, etag_writes),
+                is_private: resolved_private.or(Some(detail.is_private)),
             };
             // 已收录（精选或本地库）id 由 DAO 跳过。
             db.upsert_repo_card(&card)?;
@@ -174,7 +182,11 @@ fn overlay_confirmed_icon(db: &Database, summary: &mut AppSummary) {
 
 /// GitHub 仓库 JSON 私有标记：优先本次写入的 `/repos/{o}/{r}` 载荷，其次 `api_etag_cache` 旧载荷；
 /// 非 GitHub 源或无载荷返回 `None`（保留库内原值）。
-fn repo_private_flag(db: &Database, core: &AppCore, etag_writes: &[EtagWrite]) -> Option<bool> {
+pub(crate) fn repo_private_flag(
+    db: &Database,
+    core: &AppCore,
+    etag_writes: &[EtagWrite],
+) -> Option<bool> {
     let forge = core.forge.as_deref().unwrap_or("github");
     if !forge.eq_ignore_ascii_case("github") {
         return None;
@@ -257,6 +269,7 @@ mod tests {
             releases: vec![],
             cached_at: Some(1700000000),
             is_stale: None,
+            is_private: false,
         }
     }
 

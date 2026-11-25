@@ -484,19 +484,21 @@ async fn fetch_remote_asset(
     }))
 }
 
-/// 原子落盘：先写临时文件再 rename 入分片目录。
+/// 原子落盘：先写进程内唯一临时文件再 rename 入分片目录，避免并发写碰撞同一 `.part`。
 fn persist_asset_bytes(
     root: &std::path::Path,
     bytes: &[u8],
     final_path: &std::path::Path,
     stem: &str,
 ) -> Result<(), String> {
+    static TEMP_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp_dir = root.join("cache").join("tmp");
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
     if let Some(parent) = final_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let tmp_path = tmp_dir.join(format!("{}.part", stem));
+    let nonce = TEMP_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_path = tmp_dir.join(format!("{}.{}-{}.part", stem, std::process::id(), nonce));
     std::fs::write(&tmp_path, bytes).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp_path, final_path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp_path);
@@ -682,5 +684,38 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(a.len(), 16);
         assert!(shard_dir(std::path::Path::new("x"), &a).ends_with(&a[..2]));
+    }
+
+    #[test]
+    fn concurrent_persist_asset_bytes_uses_unique_part_files_without_collision() {
+        let root = tempfile::tempdir().unwrap();
+        let final_path = root.path().join("cache").join("assets").join("ab").join("ab12.png");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
+        let mut handles = Vec::new();
+        for i in 0..4u8 {
+            let root_buf = root.path().to_path_buf();
+            let final_buf = final_path.clone();
+            let b = std::sync::Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                b.wait();
+                persist_asset_bytes(&root_buf, &[i; 64], &final_buf, "ab12")
+            }));
+        }
+        let mut ok_count = 0usize;
+        for h in handles {
+            if h.join().unwrap().is_ok() {
+                ok_count += 1;
+            }
+        }
+        assert!(ok_count >= 1);
+        let written = std::fs::read(&final_path).unwrap();
+        assert_eq!(written.len(), 64);
+        assert!(written.iter().all(|&b| b == written[0]), "no torn writes");
+        // No leftover .part temp files in cache/tmp.
+        let tmp_entries: Vec<_> = std::fs::read_dir(root.path().join("cache").join("tmp"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert!(tmp_entries.is_empty(), "leftover .part files: {:?}", tmp_entries);
     }
 }

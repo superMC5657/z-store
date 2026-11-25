@@ -797,6 +797,15 @@ impl Database {
         self.exec_write(&sql, [])
     }
 
+    /// 列出 `repo_card_cache` 中所有私有仓库的规范 id。
+    pub fn list_private_repo_card_ids(&self) -> Result<Vec<String>> {
+        self.query_vec(
+            "SELECT id FROM repo_card_cache WHERE is_private = 1",
+            [],
+            |row| row.get(0),
+        )
+    }
+
     /// 登出 / 凭据失效：删除私有仓库富卡。
     pub fn delete_private_repo_cards(&self) -> Result<usize> {
         self.exec_write("DELETE FROM repo_card_cache WHERE is_private = 1", [])

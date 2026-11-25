@@ -154,13 +154,48 @@ fn validate_catalog_source_url(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 通用设置面的值校验：专用命令自带校验的键在此对齐同一口径，防止经 `save_setting` 绕过。
-fn validate_setting_value(key: &str, value: &str) -> Result<(), String> {
+/// 通用设置面的值校验：专用命令自带校验的键在此对齐同一口径，防止经 `save_setting` 或备份导入绕过。
+pub(crate) fn validate_setting_value(key: &str, value: &str) -> Result<(), String> {
     match key {
         "active_mirror" => crate::mirror::validate_custom_proxy(value),
         "catalog_source_url" => validate_catalog_source_url(value),
         _ => Ok(()),
     }
+}
+
+/// 同步内存中的下载镜像状态（供 `save_setting` 与 `import_user_data` 共用；调用时不得持有 `state.db()` 锁）。
+pub(crate) fn sync_active_mirror(state: &AppState, mirror_id: &str) {
+    if let Ok(mut mirror) = state.mirror.lock() {
+        let _ = mirror.set_active_mirror(mirror_id);
+    }
+}
+
+/// `save_setting` 核心逻辑（拆出供单测直测状态同步）。
+pub(crate) fn save_setting_inner(
+    state: &AppState,
+    key: &str,
+    value: &str,
+) -> crate::AppResult<bool> {
+    if !is_managed_setting_key(key) {
+        return Err(crate::AppError::new(format!("未知的设置键: {}", key)));
+    }
+    validate_setting_value(key, value).map_err(crate::AppError::new)?;
+    let value = crate::db::normalize_setting_value(key, value);
+    {
+        let db = state.db()?;
+        db.set_setting(key, &value)?;
+    }
+
+    if key == "launch_on_startup" {
+        let enabled = value == "true" || value == "1";
+        sync_launch_on_startup(enabled);
+    } else if key == "active_mirror" {
+        sync_active_mirror(state, &value);
+    } else if key == "enable_local_affinity" || key == "enable_github_affinity" {
+        crate::notify_affinity_updated();
+    }
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -169,22 +204,7 @@ pub fn save_setting(
     key: String,
     value: String,
 ) -> crate::AppResult<bool> {
-    if !is_managed_setting_key(&key) {
-        return Err(crate::AppError::new(format!("未知的设置键: {}", key)));
-    }
-    validate_setting_value(&key, &value).map_err(crate::AppError::new)?;
-    let db = state.db()?;
-    let value = crate::db::normalize_setting_value(&key, &value);
-    db.set_setting(&key, &value)?;
-
-    if key == "launch_on_startup" {
-        let enabled = value == "true" || value == "1";
-        sync_launch_on_startup(enabled);
-    } else if key == "enable_local_affinity" || key == "enable_github_affinity" {
-        crate::notify_affinity_updated();
-    }
-
-    Ok(true)
+    save_setting_inner(&state, &key, &value)
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -323,5 +343,41 @@ mod setting_gate_tests {
         ] {
             assert!(!is_managed_setting_key(key), "{} 应当被白名单拒绝", key);
         }
+    }
+
+    #[test]
+    fn save_setting_active_mirror_syncs_in_memory_mirror_manager() {
+        let state = crate::AppState {
+            db: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::db::Database::open_in_memory().unwrap(),
+            )),
+            catalog: crate::github::CatalogService::with_items(vec![]),
+            mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
+            github_token: std::sync::Mutex::new(None),
+            sync_lock: tokio::sync::Mutex::new(()),
+            startup_catalog_synced: std::sync::atomic::AtomicBool::new(false),
+        };
+        assert_eq!(state.mirror.lock().unwrap().active_mirror_prefix(), None);
+        super::save_setting_inner(&state, "active_mirror", "ghproxy").unwrap();
+        assert_eq!(
+            state.mirror.lock().unwrap().active_mirror_prefix().as_deref(),
+            Some(crate::mirror::DEFAULT_GH_PROXY)
+        );
+        assert_eq!(
+            state
+                .db()
+                .unwrap()
+                .get_setting("active_mirror")
+                .unwrap()
+                .as_deref(),
+            Some("ghproxy")
+        );
+        super::save_setting_inner(&state, "active_mirror", "https://mirror.example.com").unwrap();
+        assert_eq!(
+            state.mirror.lock().unwrap().active_mirror_prefix().as_deref(),
+            Some("https://mirror.example.com")
+        );
+        super::save_setting_inner(&state, "active_mirror", "direct").unwrap();
+        assert_eq!(state.mirror.lock().unwrap().active_mirror_prefix(), None);
     }
 }

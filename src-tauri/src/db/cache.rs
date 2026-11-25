@@ -839,6 +839,7 @@ mod cache_quota_tests {
             releases: vec![],
             is_stale: None,
             cached_at: None,
+            is_private: false,
         };
 
         db.save_app_detail("o/old-protected", &mk_detail("o/old-protected"))

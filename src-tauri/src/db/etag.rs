@@ -210,6 +210,66 @@ impl Database {
         Ok(())
     }
 
+    /// 扫描 `api_etag_cache` 中 `/repos/{owner}/{repo}` 载荷标记为私有的仓库规范 id。
+    pub fn list_private_repo_etag_ids(&self) -> Result<Vec<String>> {
+        let rows: Vec<(String, String)> = self.query_vec(
+            "SELECT endpoint_url, payload_json FROM api_etag_cache \
+             WHERE substr(LOWER(endpoint_url), 1, 29) = 'https://api.github.com/repos/' \
+               AND (payload_json LIKE '%\"private\"%' OR payload_json LIKE '%\"visibility\"%')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let mut ids = Vec::new();
+        for (url, payload) in rows {
+            if crate::github::search::repo_json_is_private(&payload) != Some(true) {
+                continue;
+            }
+            let Some(rest) = url.get(29..) else {
+                continue;
+            };
+            let rest = rest.split('?').next().unwrap_or(rest);
+            let mut parts = rest.split('/');
+            let (Some(owner), Some(repo), None) = (parts.next(), parts.next(), parts.next()) else {
+                continue;
+            };
+            if !owner.is_empty() && !repo.is_empty() {
+                ids.push(crate::forge::canonical_app_id_from_parts(owner, repo));
+            }
+        }
+        Ok(ids)
+    }
+
+    /// 清理指定仓库 id 对应的 `/repos/{owner}/{repo}` 及其子路径/查询参数 ETag 缓存（大小写不敏感）。
+    /// 仅匹配精确端点、`/{owner}/{repo}/...` 与 `/{owner}/{repo}?...`，不误删同名长前缀仓库。
+    pub fn delete_repo_etags_for_ids(&self, ids: &[String]) -> Result<usize> {
+        let mut deleted = 0usize;
+        let mut seen = std::collections::HashSet::new();
+        for raw_id in ids {
+            let Some((owner, repo)) = raw_id.trim().split_once('/') else {
+                continue;
+            };
+            let owner = owner.trim();
+            let repo = repo.trim();
+            if owner.is_empty() || repo.is_empty() || owner.contains(':') || repo.contains('/') {
+                continue;
+            }
+            let exact = crate::github::github_repo_endpoint(owner, repo).to_lowercase();
+            if !seen.insert(exact.clone()) {
+                continue;
+            }
+            let slash_prefix = format!("{}/", exact);
+            let query_prefix = format!("{}?", exact);
+            deleted += self.exec_write(
+                "DELETE FROM api_etag_cache \
+                 WHERE LOWER(endpoint_url) = ?1 \
+                    OR substr(LOWER(endpoint_url), 1, length(?2)) = ?2 \
+                    OR substr(LOWER(endpoint_url), 1, length(?3)) = ?3",
+                params![exact, slash_prefix, query_prefix],
+            )?;
+        }
+        Ok(deleted)
+    }
+
     /// 按 `last_checked_at DESC` 保留最新 `max_rows` 条 ETag 缓存，清理超限陈旧行。
     pub fn prune_api_etag_cache(&self, max_rows: usize) -> Result<usize> {
         if max_rows == 0 {

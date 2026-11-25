@@ -1542,6 +1542,7 @@ mod tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
 
         assert!(!db

@@ -150,9 +150,9 @@ pub struct SimilarAppsResponse {
     pub items: Vec<SimilarAppItem>,
 }
 
-/// `get_similar_apps` 核心同步执行逻辑（拆出供单测直测）。
+/// `get_similar_apps` 共享规划阶段：短锁取隐藏规则与待解析确认图标计划后立即释放 `state.db()`。
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn get_similar_apps_sync(
+fn plan_similar_apps(
     state: &AppState,
     app_id: &str,
     name: Option<&str>,
@@ -161,14 +161,17 @@ pub(crate) fn get_similar_apps_sync(
     description: Option<&str>,
     description_en: Option<&str>,
     limit: Option<usize>,
-) -> crate::AppResult<SimilarAppsResponse> {
+) -> crate::AppResult<(
+    crate::github::catalog_service::SimilarAppsPlan,
+    Vec<crate::icons::DeferredIcon>,
+)> {
     let clean_id = crate::commands::require_app_id(app_id)?;
     let hidden_ids: std::collections::HashSet<String> = super::hidden_rule_ids(state)?
         .into_iter()
         .map(|id| id.to_lowercase())
         .collect();
 
-    let mut plan = state.catalog.find_similar_apps(
+    let plan = state.catalog.find_similar_apps(
         &crate::github::catalog_service::SimilarAppSeed {
             clean_id: &clean_id,
             name,
@@ -181,19 +184,29 @@ pub(crate) fn get_similar_apps_sync(
         limit,
     );
 
-    if let Ok(db) = state.db() {
-        for entry in &mut plan.items {
-            if let Some(ci) = crate::icons::resolve_confirmed_icon_from_db(
-                &db,
-                &entry.app.core.id,
-                &entry.app.core.owner,
-                &entry.app.core.repo,
-            ) {
-                entry.app.core.icon = ci;
-            }
-        }
-    }
+    let jobs = if let Ok(db) = state.db() {
+        let pendings: Vec<crate::icons::PendingIcon> = plan
+            .items
+            .iter()
+            .map(|entry| {
+                crate::icons::PendingIcon::confirmed(
+                    &entry.app.core.id,
+                    &entry.app.core.owner,
+                    &entry.app.core.repo,
+                )
+            })
+            .collect();
+        crate::icons::plan_pending_icons(&db, &pendings)
+    } else {
+        Vec::new()
+    };
 
+    Ok((plan, jobs))
+}
+
+fn finish_similar_apps(
+    plan: crate::github::catalog_service::SimilarAppsPlan,
+) -> SimilarAppsResponse {
     let items = plan
         .items
         .into_iter()
@@ -208,17 +221,59 @@ pub(crate) fn get_similar_apps_sync(
         })
         .collect();
 
-    Ok(SimilarAppsResponse {
+    SimilarAppsResponse {
         target_id: plan.target_id,
         target_alternatives: plan.target_alternatives,
         items,
-    })
+    }
+}
+
+/// `get_similar_apps` 核心同步执行逻辑（拆出供单测直测；磁盘图标读与 base64 编码均在 `state.db()` 锁外完成）。
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn get_similar_apps_sync(
+    state: &AppState,
+    app_id: &str,
+    name: Option<&str>,
+    owner: Option<&str>,
+    category: Option<&str>,
+    description: Option<&str>,
+    description_en: Option<&str>,
+    limit: Option<usize>,
+) -> crate::AppResult<SimilarAppsResponse> {
+    let (mut plan, jobs) = plan_similar_apps(
+        state,
+        app_id,
+        name,
+        owner,
+        category,
+        description,
+        description_en,
+        limit,
+    )?;
+
+    if !jobs.is_empty() {
+        let icons_dir = crate::get_app_data_dir().join("icons");
+        let (icons, heals) = crate::icons::materialize_icons(&icons_dir, &jobs);
+        if !heals.is_empty() {
+            if let Ok(db) = state.db() {
+                crate::icons::apply_icon_cache_heals(&db, &heals);
+            }
+        }
+        crate::icons::patch_core_icons(
+            plan.items.iter_mut().map(|e| Some(&mut e.app.core)),
+            icons,
+        );
+    }
+
+    Ok(finish_similar_apps(plan))
 }
 
 /// 详情页「相似开源项目」推荐（零网络复用 `CatalogDerived` 词袋 IDF 与 `seed_similarity_with_idf`）。
+/// DB 规划与磁盘确认图标读取完全解耦，图标读取卸载至阻塞线程池。
 #[allow(clippy::too_many_arguments)]
 #[tauri::command(rename_all = "camelCase")]
-pub fn get_similar_apps(
+pub async fn get_similar_apps(
     state: State<'_, AppState>,
     app_id: String,
     name: Option<String>,
@@ -228,7 +283,7 @@ pub fn get_similar_apps(
     description_en: Option<String>,
     limit: Option<usize>,
 ) -> crate::AppResult<SimilarAppsResponse> {
-    get_similar_apps_sync(
+    let (mut plan, jobs) = plan_similar_apps(
         &state,
         &app_id,
         name.as_deref(),
@@ -237,7 +292,18 @@ pub fn get_similar_apps(
         description.as_deref(),
         description_en.as_deref(),
         limit,
-    )
+    )?;
+
+    if !jobs.is_empty() {
+        crate::icons::resolve_and_patch_icons(
+            &state,
+            jobs,
+            plan.items.iter_mut().map(|e| Some(&mut e.app.core)),
+        )
+        .await;
+    }
+
+    Ok(finish_similar_apps(plan))
 }
 
 #[cfg(test)]
@@ -554,5 +620,63 @@ mod repo_card_hydration_tests {
         )
         .unwrap();
         assert!(empty_res.items.is_empty());
+    }
+
+    #[test]
+    fn similar_apps_icon_materialization_runs_outside_db_lock() {
+        let state = test_state();
+        let mut seed = curated("rustdesk/rustdesk");
+        seed.name = "RustDesk".to_string();
+        seed.category = "system".to_string();
+        seed.description = "远程桌面控制工具 remote desktop control".to_string();
+
+        let mut peer = curated("rustdesk/rustdesk-server");
+        peer.name = "RustDesk Server".to_string();
+        peer.category = "system".to_string();
+        peer.description = "远程桌面自建中继服务 remote desktop relay".to_string();
+        state.catalog.update_items(vec![seed, peer]);
+
+        let dir = tempfile::tempdir().unwrap();
+        let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR";
+        std::fs::write(dir.path().join("peer.png"), png).unwrap();
+        let mut cycle =
+            crate::db::AppIconCycle::new("rustdesk/rustdesk-server", "rustdesk", "rustdesk-server");
+        cycle.level = 3;
+        cycle.l3_url = "https://example.com/peer.png".to_string();
+        cycle.selected_url = cycle.l3_url.clone();
+        cycle.cache_file = "peer.png".to_string();
+        cycle.updated_at = crate::now_secs();
+        state.db().unwrap().upsert_icon_cycle(&cycle).unwrap();
+
+        let (mut plan, jobs) = plan_similar_apps(
+            &state,
+            "rustdesk/rustdesk",
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(4),
+        )
+        .unwrap();
+        assert_eq!(plan.items.len(), 1);
+        assert_eq!(jobs.len(), 1);
+
+        // 证明规划完成后 state.db 锁已释放，磁盘读与 base64 编码在锁外执行。
+        let _held_elsewhere = state
+            .db
+            .try_lock()
+            .expect("plan_similar_apps must release state.db lock before disk I/O");
+        let (icons, _heals) = crate::icons::materialize_icons(dir.path(), &jobs);
+        crate::icons::patch_core_icons(
+            plan.items.iter_mut().map(|e| Some(&mut e.app.core)),
+            icons,
+        );
+        let res = finish_similar_apps(plan);
+        assert!(res.items[0]
+            .app
+            .core
+            .icon
+            .starts_with("data:image/png;base64,"));
     }
 }

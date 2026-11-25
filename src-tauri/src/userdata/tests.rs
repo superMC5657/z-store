@@ -18,8 +18,8 @@ fn test_validate_app_id() {
 fn test_parse_import_payload_merge_rules() {
     let json = r#"{
         "version": 1,
-        "favorites": ["rustdesk", " vlc ", "bad id!", 123, "rustdesk"],
-        "watched": ["localsend", ""],
+        "favorites": ["RustDesk/RustDesk", " videolan/vlc ", "bareword", "bad id!", 123, "rustdesk/rustdesk"],
+        "watched": ["localsend/localsend", "foo", ""],
         "settings": {
             "theme": "dark",
             "language": "en",
@@ -32,9 +32,12 @@ fn test_parse_import_payload_merge_rules() {
     let plan = parse_import_payload(json).expect("合法导入 JSON 应当解析成功");
     assert_eq!(
         plan.favorites,
-        vec!["rustdesk".to_string(), "vlc".to_string()]
+        vec![
+            "rustdesk/rustdesk".to_string(),
+            "videolan/vlc".to_string()
+        ]
     );
-    assert_eq!(plan.watched, vec!["localsend".to_string()]);
+    assert_eq!(plan.watched, vec!["localsend/localsend".to_string()]);
     // 仅白名单设置项通过（除 github_token 外全量通过），数值/布尔转字符串
     let mut keys: Vec<&str> = plan.settings.iter().map(|(k, _)| k.as_str()).collect();
     keys.sort_unstable();
@@ -170,30 +173,59 @@ fn test_import_backup_merges_favorites_watch_and_settings_against_in_memory_db()
 }
 
 #[test]
-fn test_import_backup_rejects_invalid_canonical_id_and_rolls_back_partial_writes() {
+fn test_import_backup_skips_malformed_ids_and_validates_settings_atomically() {
     use crate::db::Database;
 
     let db = Database::open_in_memory().expect("内存数据库应当可用");
-    // fail-fast：单条非 canonical 标识直接拒绝，零写入
-    let bad_json = r#"{
+    // 1. 缺斜杠等畸形 ID（如 "bareword"）优雅跳过，不中断其余合法条目与设置导入
+    let mixed_json = r#"{
         "version": 1,
-        "favorites": ["rustdesk/rustdesk", "bareword"],
-        "settings": { "theme": "light" }
+        "favorites": ["rustdesk/rustdesk", "bareword", "foo"],
+        "watched": ["slashless"],
+        "settings": {
+            "theme": "light",
+            "active_mirror": "direct",
+            "launch_on_startup": true
+        }
     }"#;
-    assert!(import_backup(&db, |_| false, bad_json).is_err());
-    assert!(db.get_favorites().unwrap().is_empty());
-    assert!(db.get_setting("theme").unwrap().is_none());
+    let (res, effects) =
+        import_backup_with_effects(&db, |_| false, mixed_json).expect("畸形 ID 应当被优雅跳过");
+    assert_eq!(res.favorites_added, 1);
+    assert_eq!(res.watched_added, 0);
+    assert_eq!(res.settings_applied, 3);
+    assert_eq!(db.get_favorites().unwrap(), vec!["rustdesk/rustdesk"]);
+    assert_eq!(effects.active_mirror.as_deref(), Some("direct"));
+    assert_eq!(effects.launch_on_startup, Some(true));
 
-    // 事务性锁值：合入中途失败整体回滚
-    let err = db
+    // 2. 不安全设置项（非 HTTPS/环回镜像、UNC/危险协议清单源）必须 fail-fast 拒绝且零写入
+    for bad_settings_json in [
+        r#"{"version":1,"favorites":["a/b"],"settings":{"active_mirror":"http://evil.local"}}"#,
+        r#"{"version":1,"favorites":["a/b"],"settings":{"active_mirror":"https://127.0.0.1"}}"#,
+        r#"{"version":1,"favorites":["a/b"],"settings":{"catalog_source_url":"\\\\attacker\\share\\c.json"}}"#,
+        r#"{"version":1,"favorites":["a/b"],"settings":{"catalog_source_url":"smb://attacker/share"}}"#,
+        r#"{"version":1,"favorites":["a/b"],"settings":{"catalog_source_url":"https://user:pw@example.com/c.json"}}"#,
+    ] {
+        let fresh_db = Database::open_in_memory().unwrap();
+        assert!(
+            import_backup(&fresh_db, |_| false, bad_settings_json).is_err(),
+            "unsafe backup must be rejected: {bad_settings_json}"
+        );
+        assert!(fresh_db.get_favorites().unwrap().is_empty());
+        assert!(fresh_db.get_setting("active_mirror").unwrap().is_none());
+        assert!(fresh_db.get_setting("catalog_source_url").unwrap().is_none());
+    }
+
+    // 3. 事务性锁值：合入中途失败整体回滚
+    let fresh_db = Database::open_in_memory().unwrap();
+    let err = fresh_db
         .with_immediate_transaction(|| -> rusqlite::Result<()> {
-            db.add_favorite("rustdesk/rustdesk", true)?;
+            fresh_db.add_favorite("rustdesk/rustdesk", true)?;
             Err(rusqlite::Error::InvalidParameterName(
                 "注入的写入失败".to_string(),
             ))
         })
         .expect_err("注入的写入失败应当上浮");
     assert!(err.to_string().contains("注入的写入失败"));
-    assert!(db.get_favorites().unwrap().is_empty());
-    assert!(db.get_watched_apps().unwrap().is_empty());
+    assert!(fresh_db.get_favorites().unwrap().is_empty());
+    assert!(fresh_db.get_watched_apps().unwrap().is_empty());
 }

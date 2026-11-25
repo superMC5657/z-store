@@ -1340,6 +1340,7 @@ mod tests {
             releases: Vec::new(),
             cached_at: None,
             is_stale: None,
+            is_private: false,
         }
     }
 

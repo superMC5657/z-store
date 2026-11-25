@@ -493,6 +493,59 @@ async fn get_or_fetch_icon_rejects_non_image_data_uri() {
     );
 }
 
+#[tokio::test]
+async fn get_or_fetch_icon_deduplicates_concurrent_downloads_via_singleflight() {
+    use crate::test_support::{serve, Reply};
+    let png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR";
+    let server = serve(move |_| Reply::ok(&png[..]).header("Content-Type", "image/png")).await;
+    let url = format!("{}/singleflight-icon.png", server.base);
+    let root = tempfile::tempdir().unwrap();
+    let client = reqwest::Client::new();
+    let state = crate::AppState {
+        db: std::sync::Arc::new(std::sync::Mutex::new(Database::open_in_memory().unwrap())),
+        catalog: crate::github::CatalogService::new_empty(),
+        mirror: std::sync::Mutex::new(crate::mirror::MirrorManager::new()),
+        github_token: std::sync::Mutex::new(None),
+        sync_lock: tokio::sync::Mutex::new(()),
+        startup_catalog_synced: std::sync::atomic::AtomicBool::new(false),
+    };
+
+    let (a, b) = tokio::join!(
+        get_or_fetch_icon_in(
+            &state,
+            root.path(),
+            &client,
+            Some("acme/app".to_string()),
+            url.clone()
+        ),
+        get_or_fetch_icon_in(
+            &state,
+            root.path(),
+            &client,
+            Some("acme/app".to_string()),
+            url.clone()
+        ),
+    );
+    let a = a.expect("first caller ok");
+    let b = b.expect("second caller ok");
+    assert_eq!(a, b);
+    assert!(a.starts_with("data:image/png;base64,"));
+    assert_eq!(
+        server.hits(),
+        1,
+        "concurrent get_or_fetch_icon must share one ICON_CACHE_FLIGHTS download"
+    );
+    let cycle = state
+        .db()
+        .unwrap()
+        .get_icon_cycle("acme/app")
+        .unwrap()
+        .expect("cycle row recorded");
+    assert_eq!(cycle.selected_url, url);
+    assert!(!cycle.cache_file.is_empty());
+    assert!(root.path().join(&cycle.cache_file).is_file());
+}
+
 // ---------------------------------------------------------------------------
 // IconFetch 世代通道
 // ---------------------------------------------------------------------------
@@ -621,6 +674,71 @@ fn gen_advanced_between_write_and_emit_suppresses_event() {
     let cycle = db.lock().unwrap().get_icon_cycle("o/r").unwrap().unwrap();
     assert_eq!(cycle.selected_url, l3);
     assert!(sink.0.lock().unwrap().is_empty());
+}
+
+#[test]
+fn pinned_and_cataloged_l1_cycles_do_not_emit_raw_probed_icon() {
+    let db = std::sync::Mutex::new(Database::open_in_memory().unwrap());
+
+    // 1. Pinned L4: fresh L2 probe fills l2_url slot but must NOT emit raw L2 to overwrite UI.
+    let l4 = "https://raw.githubusercontent.com/o/r/main/readme-logo.png";
+    let l2 = "https://cdn.simpleicons.org/r";
+    let mut pinned = crate::db::AppIconCycle::new("o/r", "o", "r");
+    pinned.is_cataloged = false;
+    pinned.level = 4;
+    pinned.l4_url = l4.to_string();
+    pinned.selected_url = l4.to_string();
+    pinned.pinned = true;
+    db.lock().unwrap().upsert_icon_cycle(&pinned).unwrap();
+
+    let sink = CollectSink::default();
+    record_stream_hit_with(&db, &lane_job(7), l2, 2, "live", &|| 7, &sink);
+    let after_pinned = db.lock().unwrap().get_icon_cycle("o/r").unwrap().unwrap();
+    assert_eq!(after_pinned.l2_url, l2);
+    assert_eq!(after_pinned.selected_url, l4);
+    assert_eq!(after_pinned.level, 4);
+    assert!(
+        sink.0.lock().unwrap().is_empty(),
+        "pinned cycle must not emit lower/probed icon"
+    );
+
+    // 2. Pinned L5 badge: fresh L3 probe fills l3_url slot but must NOT emit.
+    let mut badge = crate::db::AppIconCycle::new("o/r", "o", "r");
+    badge.is_cataloged = false;
+    badge.level = 5;
+    badge.selected_url = String::new();
+    badge.pinned = true;
+    db.lock().unwrap().upsert_icon_cycle(&badge).unwrap();
+
+    let l3 = "https://raw.githubusercontent.com/o/r/main/icon.png";
+    record_stream_hit_with(&db, &lane_job(8), l3, 3, "live", &|| 8, &sink);
+    let after_badge = db.lock().unwrap().get_icon_cycle("o/r").unwrap().unwrap();
+    assert_eq!(after_badge.l3_url, l3);
+    assert_eq!(after_badge.level, 5);
+    assert!(after_badge.selected_url.is_empty());
+    assert!(
+        sink.0.lock().unwrap().is_empty(),
+        "pinned L5 badge must not emit probed icon"
+    );
+
+    // 3. Cataloged L1: fresh L3 probe fills l3_url slot but preserves L1 and does NOT emit L3.
+    let l1 = "https://catalog.example/o-r.png";
+    let mut cat = crate::db::AppIconCycle::new("o/r", "o", "r");
+    cat.is_cataloged = true;
+    cat.level = 1;
+    cat.l1_url = l1.to_string();
+    cat.selected_url = l1.to_string();
+    db.lock().unwrap().upsert_icon_cycle(&cat).unwrap();
+
+    record_stream_hit_with(&db, &lane_job(9), l3, 3, "live", &|| 9, &sink);
+    let after_cat = db.lock().unwrap().get_icon_cycle("o/r").unwrap().unwrap();
+    assert_eq!(after_cat.l3_url, l3);
+    assert_eq!(after_cat.selected_url, l1);
+    assert_eq!(after_cat.level, 1);
+    assert!(
+        sink.0.lock().unwrap().is_empty(),
+        "cataloged L1 must not emit probed L3 icon"
+    );
 }
 
 fn stream_cycle(selected_level: i32, selected_url: &str, pinned: bool) -> crate::db::AppIconCycle {

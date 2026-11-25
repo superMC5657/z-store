@@ -60,6 +60,7 @@ fn row_to_app_detail(row: &rusqlite::Row<'_>) -> Result<AppDetail> {
     let readme_variants_json: Option<String> = row.get(20)?;
     let releases_json: String = row.get(21)?;
     let cached_at: i64 = row.get(22)?;
+    let is_private: i64 = row.get(23)?;
 
     Ok(AppDetail {
         core: AppCore {
@@ -94,13 +95,14 @@ fn row_to_app_detail(row: &rusqlite::Row<'_>) -> Result<AppDetail> {
         releases: parse_releases(&releases_json),
         cached_at: Some(cached_at),
         is_stale: None,
+        is_private: is_private != 0,
     })
 }
 
 const SELECT_DETAIL_COLS: &str = "app_id, name, owner, repo, description, description_en, \
     icon, icon_bg, stars, forks, license, latest_version, category, category_name, \
     forge, forge_host, homepage, platforms_json, changelog, readme_markdown, \
-    readme_variants_json, releases_json, cached_at";
+    readme_variants_json, releases_json, cached_at, is_private";
 
 impl Database {
     /// 读取 `app_details` 表中应用详情（`ttl_seconds` 为 `Some` 时执行 TTL 门控）。
@@ -154,7 +156,7 @@ impl Database {
                 format!(
                     "SELECT app_id, name, owner, repo, description, description_en, \
                      icon, icon_bg, stars, forks, license, latest_version, category, category_name, \
-                     forge, forge_host, homepage, platforms_json, '', '', NULL, {releases_col}, cached_at \
+                     forge, forge_host, homepage, platforms_json, '', '', NULL, {releases_col}, cached_at, is_private \
                      FROM app_details WHERE app_id IN ({ph})"
                 )
             },
@@ -195,13 +197,13 @@ impl Database {
                 icon, icon_bg, stars, forks, license, latest_version,
                 category, category_name, forge, forge_host, homepage,
                 platforms_json, changelog, readme_markdown,
-                readme_variants_json, releases_json, cached_at
+                readme_variants_json, releases_json, cached_at, is_private
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11, ?12,
                 ?13, ?14, ?15, ?16, ?17,
                 ?18, ?19, ?20,
-                ?21, ?22, ?23
+                ?21, ?22, ?23, ?24
             )
             ON CONFLICT(app_id) DO UPDATE SET
                 name = excluded.name,
@@ -225,7 +227,8 @@ impl Database {
                 readme_markdown = excluded.readme_markdown,
                 readme_variants_json = excluded.readme_variants_json,
                 releases_json = excluded.releases_json,
-                cached_at = excluded.cached_at;
+                cached_at = excluded.cached_at,
+                is_private = excluded.is_private;
             "#,
             params![
                 clean_id,
@@ -251,6 +254,7 @@ impl Database {
                 readme_variants_json,
                 releases_json,
                 now,
+                detail.is_private as i64,
             ],
         )?;
         Ok(())
@@ -332,6 +336,30 @@ impl Database {
         Ok(deleted)
     }
 
+    /// 列出 `app_details` 中所有标记为私有的 `app_id`。
+    pub fn list_private_app_detail_ids(&self) -> Result<Vec<String>> {
+        self.query_vec(
+            "SELECT app_id FROM app_details WHERE is_private = 1",
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    /// 登出 / 凭据失效：删除 `app_details` 中所有标记为私有的行，以及指定私有 id 集合对应的行。
+    pub fn delete_private_app_details_and_ids(&self, ids: &[String]) -> Result<usize> {
+        let mut deleted = self.exec_write("DELETE FROM app_details WHERE is_private = 1", [])?;
+        let keys: Vec<String> = dedup_clean_refs(ids)
+            .into_iter()
+            .map(|id| id.to_lowercase())
+            .collect();
+        for chunk in keys.chunks(super::BATCH_CHUNK) {
+            let ph = vec!["?"; chunk.len()].join(",");
+            let sql = format!("DELETE FROM app_details WHERE LOWER(app_id) IN ({ph})");
+            deleted += self.exec_write_uncached(&sql, rusqlite::params_from_iter(chunk.iter()))?;
+        }
+        Ok(deleted)
+    }
+
     /// 测试专用：清空 `app_details` 表。
     #[cfg(test)]
     pub fn clear_app_details(&self) -> Result<()> {
@@ -380,6 +408,7 @@ mod tests {
             releases: Vec::new(),
             cached_at: Some(123),
             is_stale: None,
+            is_private: false,
         };
         db.save_app_detail("acme/tool", &detail).unwrap();
 

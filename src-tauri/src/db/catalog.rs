@@ -437,6 +437,7 @@ mod tests {
             releases: vec![],
             cached_at: Some(1700000000),
             is_stale: None,
+            is_private: false,
         };
 
         assert!(db.update_catalog_app_from_detail(&detail).unwrap());

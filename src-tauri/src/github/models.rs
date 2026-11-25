@@ -369,6 +369,8 @@ pub(crate) struct GitHubRepoResponse {
     pub pushed_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+    #[serde(default)]
+    pub private: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -721,6 +723,7 @@ mod tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: false,
         };
 
         let mut item = curated_openmw();

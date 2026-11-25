@@ -67,7 +67,7 @@ impl<T> Drop for FlightGuard<'_, T> {
         let mut guard = self.flights.lock();
         if guard
             .get(&self.key)
-            .is_some_and(|existing| Arc::ptr_eq(existing, &self.cell))
+            .is_some_and(|existing| Arc::ptr_eq(existing, &self.cell) && Arc::strong_count(existing) == 2)
         {
             guard.remove(&self.key);
         }
@@ -110,5 +110,77 @@ mod tests {
         let timed_out = tokio::time::timeout(std::time::Duration::from_millis(10), pending).await;
         assert!(timed_out.is_err());
         assert_eq!(flights.len(), 0, "cancelled future must not leak its entry");
+    }
+
+    #[tokio::test]
+    async fn waiter_cancellation_keeps_in_flight_key_for_subsequent_callers() {
+        let flights = Arc::new(Flights::<u32>::new());
+        let runs = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+
+        let f_a = Arc::clone(&flights);
+        let runs_a = Arc::clone(&runs);
+        let started_a = Arc::clone(&started);
+        let release_a = Arc::clone(&release);
+        let handle_a = tokio::spawn(async move {
+            let guard = f_a.join("k".to_string());
+            *guard
+                .cell()
+                .get_or_init(|| async {
+                    runs_a.fetch_add(1, Ordering::SeqCst);
+                    started_a.notify_one();
+                    release_a.notified().await;
+                    42
+                })
+                .await
+        });
+
+        started.notified().await;
+
+        // Waiter B joins and cancels while A is still in flight.
+        {
+            let guard_b = flights.join("k".to_string());
+            let timed_out = tokio::time::timeout(
+                std::time::Duration::from_millis(10),
+                guard_b.cell().get_or_init(|| async {
+                    runs.fetch_add(1, Ordering::SeqCst);
+                    99
+                }),
+            )
+            .await;
+            assert!(timed_out.is_err());
+        }
+        assert_eq!(
+            flights.len(),
+            1,
+            "dropping a cancelled waiter must NOT remove the key while owner A is still in-flight"
+        );
+
+        // Caller C joins while A is still in flight and must share A's OnceCell.
+        let f_c = Arc::clone(&flights);
+        let runs_c = Arc::clone(&runs);
+        let handle_c = tokio::spawn(async move {
+            let guard = f_c.join("k".to_string());
+            *guard
+                .cell()
+                .get_or_init(|| async {
+                    runs_c.fetch_add(1, Ordering::SeqCst);
+                    100
+                })
+                .await
+        });
+
+        tokio::task::yield_now().await;
+        release.notify_one();
+
+        assert_eq!(handle_a.await.unwrap(), 42);
+        assert_eq!(handle_c.await.unwrap(), 42);
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "only one init must execute");
+        assert_eq!(
+            flights.len(),
+            0,
+            "key must be removed once the last holder drops"
+        );
     }
 }

@@ -250,6 +250,7 @@ async fn resolve_forge_detail(
         releases: release_info.assets,
         cached_at: Some(now),
         is_stale: None,
+        is_private: false,
     };
     if let Some(ref cat) = catalog_item {
         cat.overlay_detail_core(&mut detail.core);
@@ -552,6 +553,11 @@ fn persist_github_detail(
             let _ = db.save_etag(&w.url, &w.etag, &w.payload, w.timestamp);
         }
         return (false, start_db.elapsed().as_millis());
+    }
+    if let Some(is_priv) =
+        crate::repositories::detail_repo::repo_private_flag(&db, &detail.core, etag_writes)
+    {
+        detail.is_private = is_priv;
     }
     if state.catalog.get_catalog_item(clean_id).is_none() {
         heal_placeholder_descriptions(&db, detail);

@@ -19,7 +19,7 @@ pub(crate) use confirmed::{
     ResolvedIcons,
 };
 #[cfg(test)]
-pub(crate) use confirmed::{materialize_icons_inline, patch_core_icons};
+pub(crate) use confirmed::{materialize_icons, materialize_icons_inline, patch_core_icons};
 pub use cycle::{
     adopt_probe_cache_file, apply_detail_icon_resolution, fill_probe_slot, first_available_level,
     hash_icon_filename, is_cycle_restore_fresh, is_fallback_for_level, is_icon_fresh,
@@ -329,7 +329,26 @@ pub(crate) struct IconWrite {
     meta: IconMetaSync,
 }
 
-/// 收录图标落盘：先写最终文件，写入成功后才清理同 hash 其它后缀的旧文件。
+/// 原子写盘：先写入同目录进程内唯一 `.part` 临时文件再 rename 替换目标文件，避免半写/并发碰撞。
+fn write_file_atomic(dir: &std::path::Path, filename: &str, bytes: &[u8]) -> std::io::Result<()> {
+    static ICON_PART_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nonce = ICON_PART_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_path = dir.join(format!(
+        "{}.{}-{}.part",
+        filename,
+        std::process::id(),
+        nonce
+    ));
+    let final_path = dir.join(filename);
+    std::fs::write(&tmp_path, bytes)?;
+    if let Err(e) = std::fs::rename(&tmp_path, &final_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// 收录图标落盘：先原子写最终文件，写入成功后才清理同 hash 其它后缀的旧文件。
 fn persist_catalog_icon_file(
     icons_dir: &std::path::Path,
     icon: &IconRef<'_>,
@@ -344,7 +363,7 @@ fn persist_catalog_icon_file(
     if final_filename.is_empty() {
         return None;
     }
-    std::fs::write(icons_dir.join(&final_filename), bytes).ok()?;
+    write_file_atomic(icons_dir, &final_filename, bytes).ok()?;
 
     let full = crate::sha256_digest_hex(url_trimmed.as_bytes());
     let hash_stem = &full[..16.min(full.len())];
@@ -392,7 +411,7 @@ pub(crate) fn write_icon_files(
     if fname.is_empty() {
         return None;
     }
-    std::fs::write(icons_dir.join(&fname), bytes).ok()?;
+    write_file_atomic(icons_dir, &fname, bytes).ok()?;
     cleanup_stale_cycle_variants(icons_dir, &fname);
     Some(IconWrite {
         filename: fname,
@@ -630,12 +649,73 @@ fn ensure_icons_dir() -> std::path::PathBuf {
     icons_dir
 }
 
-/// 后台图标缓存单飞表：同一远端地址并发只下载、落盘一次，结果为落盘文件名。
-static ICON_CACHE_FLIGHTS: std::sync::LazyLock<Flights<Option<String>>> =
+/// 图标单飞落盘产物：最终文件名 + 共享原始字节（供 `get_or_fetch_icon` 免二次读盘）。
+#[derive(Clone)]
+struct CachedIconFlight {
+    filename: String,
+    bytes: std::sync::Arc<Vec<u8>>,
+}
+
+/// 图标缓存单飞表：同一远端地址并发只下载、原子落盘一次。
+static ICON_CACHE_FLIGHTS: std::sync::LazyLock<Flights<Option<CachedIconFlight>>> =
     std::sync::LazyLock::new(Flights::new);
 
-/// 单飞下载并落盘 `url`：同地址并发调用共享一次下载；文件写入在阻塞线程池执行，
-/// DB 锁只覆盖 `icon_cache_meta` 同步。返回落盘文件名（失败为 `None`）。
+/// 单飞下载并原子落盘 `url`：同地址并发调用共享一次下载；文件写入在阻塞线程池执行，
+/// DB 锁只覆盖 `icon_cache_meta` 同步。返回 `(文件名, 共享字节)`（失败为 `None`）。
+async fn cache_icon_url_shared_hit(
+    db_arc: &std::sync::Mutex<crate::db::Database>,
+    client: &reqwest::Client,
+    icons_dir: &std::path::Path,
+    url: &str,
+    is_cataloged: bool,
+) -> Option<CachedIconFlight> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let flight = ICON_CACHE_FLIGHTS.join(format!("{}|{}", icons_dir.display(), url));
+    let hit = flight
+        .cell()
+        .get_or_init(|| async {
+            let bytes = std::sync::Arc::new(download_icon_bytes(client, url).await.ok()?);
+            let written = bytes.len();
+            let dir = icons_dir.to_path_buf();
+            let owned_url = url.to_string();
+            let ext = infer_ext_from_url(url).unwrap_or("png");
+            let bytes_for_write = std::sync::Arc::clone(&bytes);
+            let write = tokio::task::spawn_blocking(move || {
+                write_icon_files(
+                    &dir,
+                    &IconRef::new(&owned_url, ext),
+                    is_cataloged,
+                    &bytes_for_write,
+                )
+            })
+            .await
+            .ok()
+            .flatten()?;
+            if let Ok(db) = db_arc.lock() {
+                apply_icon_write_meta(&db, &write);
+                note_icon_write(Some(&db), icons_dir, written);
+            } else {
+                note_icon_write(None, icons_dir, written);
+            }
+            Some(CachedIconFlight {
+                filename: write.filename,
+                bytes,
+            })
+        })
+        .await
+        .clone()?;
+    if is_cataloged {
+        if let Ok(db) = db_arc.lock() {
+            let _ = db.save_icon_cache_url(&hit.filename, url);
+        }
+    }
+    Some(hit)
+}
+
+/// 单飞下载并落盘 `url`：返回落盘文件名（失败为 `None`）。
 async fn cache_icon_url_shared(
     db_arc: &std::sync::Mutex<crate::db::Database>,
     client: &reqwest::Client,
@@ -643,32 +723,9 @@ async fn cache_icon_url_shared(
     url: &str,
     is_cataloged: bool,
 ) -> Option<String> {
-    let url = url.trim();
-    if url.is_empty() {
-        return None;
-    }
-    let flight = ICON_CACHE_FLIGHTS.join(format!("{}|{}", icons_dir.display(), url));
-    flight
-        .cell()
-        .get_or_init(|| async {
-            let bytes = download_icon_bytes(client, url).await.ok()?;
-            let written = bytes.len();
-            let dir = icons_dir.to_path_buf();
-            let owned_url = url.to_string();
-            let ext = infer_ext_from_url(url).unwrap_or("png");
-            let write = tokio::task::spawn_blocking(move || {
-                write_icon_files(&dir, &IconRef::new(&owned_url, ext), is_cataloged, &bytes)
-            })
-            .await
-            .ok()
-            .flatten()?;
-            let db = db_arc.lock().ok()?;
-            apply_icon_write_meta(&db, &write);
-            note_icon_write(Some(&db), icons_dir, written);
-            Some(write.filename)
-        })
+    cache_icon_url_shared_hit(db_arc, client, icons_dir, url, is_cataloged)
         .await
-        .clone()
+        .map(|h| h.filename)
 }
 
 /// 后台异步拉取选中图标并补齐磁盘 `icons/` 与 `cache_file`（详情落盘后自愈用）。
@@ -713,16 +770,6 @@ fn cycle_result(
 
 fn empty_cycle_result(is_cataloged: bool) -> IconCycleResult {
     cycle_result(5, String::new(), String::new(), is_cataloged)
-}
-
-async fn fetch_anon_probe_bytes(
-    client: &reqwest::Client,
-    owner: &str,
-    repo: &str,
-) -> Option<(String, Vec<u8>)> {
-    let probed_url = probe_anon_simple(client, owner, repo).await?;
-    let bytes = download_icon_bytes(client, &probed_url).await.ok()?;
-    Some((probed_url, bytes))
 }
 
 async fn probe_readme(
@@ -862,8 +909,21 @@ async fn ensure_cycle_levels(
 }
 
 /// 获取并缓存远程图标为 M2 `data:` URI（7 天 TTL + SWR 兜底 + 匿名 SimpleIcons 兜底探测）。
+/// 远端拉取与原子写盘统一经 `ICON_CACHE_FLIGHTS` 单飞并在阻塞线程池完成，DB 锁仅覆盖元数据短写。
 pub async fn get_or_fetch_icon(
     state: &AppState,
+    app_id: Option<String>,
+    remote_url: String,
+) -> crate::AppResult<String> {
+    let icons_dir = ensure_icons_dir();
+    let client = new_configured_icon_client();
+    get_or_fetch_icon_in(state, &icons_dir, &client, app_id, remote_url).await
+}
+
+async fn get_or_fetch_icon_in(
+    state: &AppState,
+    icons_dir: &std::path::Path,
+    client: &reqwest::Client,
     app_id: Option<String>,
     remote_url: String,
 ) -> crate::AppResult<String> {
@@ -885,7 +945,6 @@ pub async fn get_or_fetch_icon(
         return Err("图标 data URI 不是图片".into());
     }
 
-    let icons_dir = ensure_icons_dir();
     let requested_ext = infer_ext_from_url(url_trimmed).unwrap_or("png");
     let raw_app_id = app_id.as_deref().map(str::trim).unwrap_or("");
     let canonical_id = crate::forge::canonical_lookup_id(raw_app_id);
@@ -899,7 +958,7 @@ pub async fn get_or_fetch_icon(
             db.get_icon_cycle(&canonical_id).ok().flatten()
         };
         if let Some(bytes) = load_split_cached_bytes(
-            &icons_dir,
+            icons_dir,
             &db,
             &IconRef::new(url_trimmed, requested_ext),
             is_cataloged,
@@ -910,83 +969,73 @@ pub async fn get_or_fetch_icon(
         noncatalog_cycle_cached = noncatalog_cycle;
     }
 
-    let client = new_configured_icon_client();
-    let fetched_bytes = download_icon_bytes(&client, url_trimmed).await.ok();
+    // 经 ICON_CACHE_FLIGHTS 单飞下载 + 锁外原子写盘（spawn_blocking）。
+    let shared_hit =
+        cache_icon_url_shared_hit(&state.db, client, icons_dir, url_trimmed, is_cataloged).await;
 
-    let (key_url_owned, bytes): (String, Vec<u8>) = match fetched_bytes {
-        Some(b) => (url_trimmed.to_string(), b),
+    let (key_url_owned, hit): (String, CachedIconFlight) = match shared_hit {
+        Some(h) => (url_trimmed.to_string(), h),
         None => {
-            if let Some((stale_bytes, _, _)) = read_any_cached_icon_file(
-                &icons_dir,
-                &IconRef::new(url_trimmed, requested_ext),
-                noncatalog_cycle_cached.as_ref(),
-            ) {
+            // SWR 兜底：无锁读取旧盘缓存。
+            let dir_for_swr = icons_dir.to_path_buf();
+            let url_for_swr = url_trimmed.to_string();
+            let ext_for_swr = requested_ext.to_string();
+            let cycle_for_swr = noncatalog_cycle_cached.clone();
+            if let Ok(Some((stale_bytes, _, _))) = tokio::task::spawn_blocking(move || {
+                read_any_cached_icon_file(
+                    &dir_for_swr,
+                    &IconRef::new(&url_for_swr, &ext_for_swr),
+                    cycle_for_swr.as_ref(),
+                )
+            })
+            .await
+            {
                 return Ok(bytes_to_data_uri(&stale_bytes));
             }
             let raw_id = app_id.as_deref().unwrap_or("");
-            let mut probed: Option<(String, Vec<u8>)> = None;
+            let mut probed: Option<(String, CachedIconFlight)> = None;
             if let Some(c) = crate::forge::RepositoryUrlParser::parse(raw_id) {
                 if !c.owner.is_empty() && !c.repo.is_empty() {
-                    probed = fetch_anon_probe_bytes(&client, &c.owner, &c.repo).await;
+                    if let Some(probed_url) = probe_anon_simple(client, &c.owner, &c.repo).await {
+                        if let Some(h) = cache_icon_url_shared_hit(
+                            &state.db,
+                            client,
+                            icons_dir,
+                            &probed_url,
+                            is_cataloged,
+                        )
+                        .await
+                        {
+                            probed = Some((probed_url, h));
+                        }
+                    }
                 }
             }
             match probed {
-                Some((true_url, b)) => (true_url, b),
+                Some(pair) => pair,
                 None => {
                     return Err(format!("拉取远程图标失败 ({})", url_trimmed).into());
                 }
             }
         }
     };
-    let key_url = key_url_owned.trim();
-    let inferred_ext = infer_ext_from_url(key_url).unwrap_or("png");
-    let db_opt = state.db().ok();
 
-    if is_cataloged {
-        write_icon_file(
-            &icons_dir,
-            db_opt.as_deref(),
-            &IconRef::new(url_trimmed, requested_ext),
-            true,
-            &bytes,
-        );
-    } else if !canonical_id.is_empty() {
-        if let Some(ref db) = db_opt {
-            let mut cycle = load_or_new_cycle(db, raw_app_id);
+    // 仅未收录且带合法 app_id 时短锁回写 app_icon_cycles（零磁盘 I/O）。
+    if !is_cataloged && !canonical_id.is_empty() {
+        let key_url = key_url_owned.trim();
+        if let Ok(db) = state.db() {
+            let mut cycle = load_or_new_cycle(&db, raw_app_id);
             cycle.is_cataloged = false;
             let source_level = cycle
                 .level_for_known_url(key_url)
                 .unwrap_or_else(|| level_for_detail_icon(key_url));
             merge_detail_icon(&mut cycle, source_level, key_url, false, crate::now_secs());
-            let filename = write_icon_file(
-                &icons_dir,
-                db_opt.as_deref(),
-                &IconRef::new(key_url, inferred_ext),
-                false,
-                &bytes,
-            );
-            adopt_probe_cache_file(&mut cycle, key_url, filename);
+            adopt_probe_cache_file(&mut cycle, key_url, hit.filename);
             let _ = db.upsert_icon_cycle(&cycle);
-        } else {
-            let _ = write_icon_file(
-                &icons_dir,
-                None,
-                &IconRef::new(key_url, inferred_ext),
-                false,
-                &bytes,
-            );
         }
-    } else {
-        let _ = write_icon_file(
-            &icons_dir,
-            None,
-            &IconRef::new(key_url, inferred_ext),
-            false,
-            &bytes,
-        );
     }
 
-    Ok(bytes_to_data_uri(&bytes))
+    Ok(bytes_to_data_uri(&hit.bytes))
 }
 
 async fn load_or_seed_cycle(

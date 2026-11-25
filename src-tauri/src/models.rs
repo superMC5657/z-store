@@ -77,6 +77,9 @@ pub struct AppDetail {
     /// `Some(true)` 表示瞬时失败降级返回；真实零发布时保持 `None` 以与失败态区分。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_stale: Option<bool>,
+    /// 是否为私有仓库（登出 / 401 失效时据此清理私有详情与前端富卡池）。
+    #[serde(default)]
+    pub is_private: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +128,7 @@ mod app_core_tests {
             releases: vec![],
             cached_at: None,
             is_stale: None,
+            is_private: true,
         };
         let summary = AppSummary {
             core: detail.core.clone(),
@@ -141,6 +145,7 @@ mod app_core_tests {
         assert_eq!(sv["status"], "collected");
         assert_eq!(sv["is_cataloged"], true);
         assert_eq!(dv["changelog"], "c");
+        assert_eq!(dv["is_private"], true);
 
         // 平面载荷（无 core 键、缺 Option 字段）经同一反序列化入口原样可读。
         let legacy_summary: AppSummary = serde_json::from_str(

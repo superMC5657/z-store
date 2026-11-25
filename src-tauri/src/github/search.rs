@@ -66,6 +66,21 @@ pub(crate) fn repo_json_is_private(payload_json: &str) -> Option<bool> {
     Some(is_private_flag(private, visibility))
 }
 
+/// 过滤掉搜索缓存载荷中的私有仓库条目（无令牌或 401 失效回退时的纵深防御）。
+fn strip_private_search_items(data: &mut OnlineSearchResponse) {
+    data.items.retain(|val| {
+        let Some(obj) = val.as_object() else {
+            return true;
+        };
+        let private = obj
+            .get("private")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(false);
+        let visibility = obj.get("visibility").and_then(|p| p.as_str());
+        !is_private_flag(private, visibility)
+    });
+}
+
 /// Search API 载荷 → 卡片、私有仓库规范 id 集与 `(canonical_id, endpoint_url, raw_json)` 播种三元组（`probe=false` 置空图标，零 DB）。
 async fn summaries_from_search(
     client: &reqwest::Client,
@@ -231,9 +246,12 @@ impl CatalogService {
                 })
             }
             EtagGetOutcome::NotModified => {
-                let data: OnlineSearchResponse = cached_ok
+                let mut data: OnlineSearchResponse = cached_ok
                     .and_then(|p| serde_json::from_str(p).ok())
                     .ok_or_else(|| "GitHub 搜索缓存缺失".to_string())?;
+                if token.is_none() {
+                    strip_private_search_items(&mut data);
+                }
                 let (summaries, private_ids, repo_payloads) =
                     summaries_from_search(&client, data, token).await;
                 Ok(OnlineSearchFetch {
@@ -246,12 +264,16 @@ impl CatalogService {
                 })
             }
             EtagGetOutcome::Unauthorized | EtagGetOutcome::Failed => {
-                if matches!(outcome, EtagGetOutcome::Unauthorized) {
+                let unauthorized = matches!(outcome, EtagGetOutcome::Unauthorized);
+                if unauthorized {
                     crate::check_auth_expired(401, "op=search_online");
                 }
-                if let Some(data) =
+                if let Some(mut data) =
                     cached_ok.and_then(|p| serde_json::from_str::<OnlineSearchResponse>(p).ok())
                 {
+                    if unauthorized || token.is_none() {
+                        strip_private_search_items(&mut data);
+                    }
                     let (summaries, private_ids, repo_payloads) =
                         summaries_from_search(&client, data, token).await;
                     return Ok(OnlineSearchFetch {
@@ -751,6 +773,59 @@ mod tests {
             .err()
             .unwrap();
         assert!(err.contains("404"), "{}", err);
+    }
+
+    #[tokio::test]
+    async fn keyword_search_stale_fallback_without_token_strips_private_repos() {
+        let srv = spawn_mock(HashMap::new()).await;
+        let cached = serde_json::json!({
+            "items": [
+                {
+                    "name": "secret-bool",
+                    "full_name": "org/secret-bool",
+                    "owner": { "login": "org" },
+                    "description": "private by bool",
+                    "stargazers_count": 5,
+                    "forks_count": 1,
+                    "private": true
+                },
+                {
+                    "name": "secret-vis",
+                    "full_name": "org/secret-vis",
+                    "owner": { "login": "org" },
+                    "description": "private by visibility",
+                    "stargazers_count": 3,
+                    "forks_count": 0,
+                    "visibility": "private"
+                },
+                {
+                    "name": "open-tool",
+                    "full_name": "pub/open-tool",
+                    "owner": { "login": "pub" },
+                    "description": "public repo",
+                    "stargazers_count": 99,
+                    "forks_count": 4,
+                    "private": false
+                }
+            ]
+        })
+        .to_string();
+        let out = test_service()
+            .search_github_online(
+                "tool",
+                None,
+                None,
+                None,
+                Some("\"q\""),
+                Some(&cached),
+                Some(&srv.base),
+            )
+            .await
+            .unwrap();
+        assert!(out.is_stale);
+        assert!(out.private_ids.is_empty());
+        assert_eq!(out.summaries.len(), 1);
+        assert_eq!(out.summaries[0].core.id, "pub/open-tool");
     }
 
     #[test]

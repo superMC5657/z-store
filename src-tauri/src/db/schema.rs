@@ -136,7 +136,8 @@ impl Database {
                 readme_markdown TEXT NOT NULL DEFAULT '',
                 readme_variants_json TEXT,
                 releases_json TEXT NOT NULL DEFAULT '[]',
-                cached_at INTEGER NOT NULL DEFAULT 0
+                cached_at INTEGER NOT NULL DEFAULT 0,
+                is_private INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS idx_app_details_cached_at ON app_details(cached_at DESC);
@@ -451,6 +452,15 @@ impl Database {
             "watched_apps",
             "dismissed_at",
             "ALTER TABLE watched_apps ADD COLUMN dismissed_at INTEGER",
+        )?;
+        self.ensure_column(
+            "app_details",
+            "is_private",
+            "ALTER TABLE app_details ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0",
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_app_details_private ON app_details(is_private) WHERE is_private = 1",
+            [],
         )?;
         self.run_migrations()
     }
