@@ -279,6 +279,11 @@ describe('createTrendBoardSession 生命周期与会话隔离', () => {
       });
       // 首轮在等待批量水合时即被 dispose 取消，不发出 enrich / 确认图标请求；重挂后完整重跑一轮。
       expect(enrichSpy).toHaveBeenCalledTimes(1);
+      expect(enrichSpy).toHaveBeenCalledWith(
+        [{ owner: 'acme', repo: 'beacon' }],
+        false,
+        'weekly',
+      );
       expect(confirmSpy).toHaveBeenCalledTimes(1);
     } finally {
       session.dispose();

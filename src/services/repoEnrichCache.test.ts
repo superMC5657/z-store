@@ -417,4 +417,39 @@ describe('upsertRepoCardFromDetail', () => {
     expect(peekFreshRepoCard('acme/secret')).toBeUndefined();
     expect(peekFreshRepoCard('acme/public')).toBeDefined();
   });
+
+  it('detail.is_private === true 自动登记私有仓库，clearPrivateSharedRepoCards 清除富卡、别名与 confirmedOther', () => {
+    upsertRepoCardFromDetail(
+      detail('Org/Private-Repo', {
+        owner: 'Org',
+        repo: 'Private-Repo',
+        is_private: true,
+        platforms: [],
+        description: 'secret metadata',
+      }),
+      { aliases: ['github:org/private-repo'] },
+    );
+    upsertRepoCardFromDetail(
+      detail('acme/public-detail', {
+        is_private: false,
+        platforms: ['windows'],
+        description: 'public metadata',
+      }),
+    );
+
+    expect(peekFreshRepoCard('org/private-repo')?.description).toBe('secret metadata');
+    expect(peekFreshRepoCard('github:org/private-repo')?.description).toBe('secret metadata');
+    expect(isSharedRepoConfirmedOther('org/private-repo')).toBe(true);
+    expect(isSharedRepoConfirmedOther('github:org/private-repo')).toBe(true);
+
+    // 模拟登出 / zstore://oauth-expired 触发前端共享私有富卡清理
+    clearPrivateSharedRepoCards();
+
+    expect(peekFreshRepoCard('org/private-repo')).toBeUndefined();
+    expect(peekFreshRepoCard('github:org/private-repo')).toBeUndefined();
+    expect(isSharedRepoConfirmedOther('org/private-repo')).toBe(false);
+    expect(isSharedRepoConfirmedOther('github:org/private-repo')).toBe(false);
+    // 公开仓库详情卡保持完好
+    expect(peekFreshRepoCard('acme/public-detail')?.description).toBe('public metadata');
+  });
 });

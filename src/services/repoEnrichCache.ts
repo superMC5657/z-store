@@ -787,6 +787,7 @@ export function upsertRepoCardFromDetail(
   if (isDataIcon(merged.icon)) merged.icon = '';
   const at = Date.now();
   for (const k of keys) putCard(k, at, merged);
+  if (detail.is_private === true) recordSharedPrivateRepos(keys);
   const concrete = hasConcretePlatforms(merged.platforms);
   if (!concrete) markRepoConfirmedOthers(keys);
   const heal: RepoCardHeal = {

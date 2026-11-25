@@ -147,7 +147,7 @@ describe('ipc args naming (camelCase)', () => {
     await swallow(catalog.searchApps('q', 10, 0));
     await swallow(catalog.getHomeFeed(20, 0, 1, 'balanced'));
     await swallow(catalog.searchAppsOnline('q', 'sid-1', 1, 20, true));
-    await swallow(catalog.enrichTrendRepos([{ owner: 'o', repo: 'r' }], true));
+    await swallow(catalog.enrichTrendRepos([{ owner: 'o', repo: 'r' }], true, 'daily'));
     await swallow(catalog.getAppDetails('o/r', true));
     await swallow(
       catalog.getSimilarApps({
@@ -206,7 +206,7 @@ describe('ipc args naming (camelCase)', () => {
       perPage: 20,
       forceRefresh: true,
     });
-    expect(byCmd.get('enrich_trend_repos')).toMatchObject({ forceRefresh: true });
+    expect(byCmd.get('enrich_trend_repos')).toMatchObject({ forceRefresh: true, board: 'daily' });
     expect(byCmd.get('get_platforms_lite')).toMatchObject({ forceRefresh: true });
     expect(byCmd.get('get_category_apps')).toMatchObject({ perPage: 20 });
     expect(byCmd.get('list_custom_apps')).toMatchObject({ includeArchived: true });

@@ -53,6 +53,7 @@ function trendEnrichKey(owner: string, repo: string): string {
 async function enrichTrendReposCore(
   repos: TrendRepo[],
   force: boolean,
+  board?: string,
 ): Promise<Map<string, AppSummary>> {
   const out = new Map<string, AppSummary>();
   const missing: TrendRepo[] = [];
@@ -76,10 +77,10 @@ async function enrichTrendReposCore(
   const capped = missing.slice(0, TREND_ENRICH_MAX_TOTAL);
   let summaries: (AppSummary | null)[];
   try {
-    summaries = await tauriApi.enrichTrendRepos(
-      capped.map((r) => ({ owner: r.owner, repo: r.repo })),
-      force,
-    );
+    const payload = capped.map((r) => ({ owner: r.owner, repo: r.repo }));
+    summaries = board
+      ? await tauriApi.enrichTrendRepos(payload, force, board)
+      : await tauriApi.enrichTrendRepos(payload, force);
   } catch {
     return out;
   }
@@ -107,9 +108,9 @@ async function enrichTrendReposCore(
 
 export async function enrichTrendRepos(
   repos: TrendRepo[],
-  opts?: { forceRefresh?: boolean },
+  opts?: { forceRefresh?: boolean; board?: string },
 ): Promise<Map<string, AppSummary>> {
-  return enrichTrendReposCore(repos, opts?.forceRefresh === true);
+  return enrichTrendReposCore(repos, opts?.forceRefresh === true, opts?.board);
 }
 
 /** 格式化星数显示（>=1000 显示为 `k`）。 */

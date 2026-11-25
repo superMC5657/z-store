@@ -1105,11 +1105,12 @@ export function createTrendBoardSession(
   function runEnrichment(
     toEnrich: TrendRepo[],
     force: boolean,
+    board: TrendBoardId,
     seqAtStart: number,
     epochAtStart: number,
   ): void {
     const isStale = (): boolean => epochAtStart !== sessionEpoch || enrichCycle.seq !== seqAtStart;
-    void enrichTrendRepos(toEnrich, force ? { forceRefresh: true } : undefined).then((found) => {
+    void enrichTrendRepos(toEnrich, { forceRefresh: force, board }).then((found) => {
       if (isStale() || found.size === 0) return;
       const { next, concreteKeys } = mergeEnrichFoundMirror(enrichedApps, found);
       if (next !== enrichedApps) updateEnrichedApps(next);
@@ -1289,7 +1290,7 @@ export function createTrendBoardSession(
           toEnrich.push(repo);
         }
         if (toEnrich.length === 0) return;
-        runEnrichment(toEnrich, enrichForce, seqAtStart, epochAtStart);
+        runEnrichment(toEnrich, enrichForce, activeBoard, seqAtStart, epochAtStart);
       });
     },
 

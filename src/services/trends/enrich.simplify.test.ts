@@ -157,6 +157,16 @@ describe('enrichTrendRepos forceRefresh', () => {
     expect(spy).not.toHaveBeenCalled();
     expect(out.get('acme/atlas')?.description).toBe('old');
   });
+
+  it('透传 board 参数至 tauriApi.enrichTrendRepos 以支持跨榜 stale-board 门控 (F-20)', async () => {
+    const backend = vi
+      .spyOn(tauriApi, 'enrichTrendRepos')
+      .mockImplementation(async (rs) => rs.map((r) => makeEnrichedApp({ id: `${r.owner}/${r.repo}` })));
+    const repos = [makeTrendRepo({ id: 'acme/atlas' })];
+    await enrichTrendRepos(repos, { forceRefresh: false, board: 'monthly' });
+    expect(backend).toHaveBeenCalledTimes(1);
+    expect(backend).toHaveBeenCalledWith([{ owner: 'acme', repo: 'atlas' }], false, 'monthly');
+  });
 });
 
 describe('fillMissingFromPrev 回退', () => {

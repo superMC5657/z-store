@@ -139,6 +139,7 @@ export function handleSearchAppsOnline(a: InvokeArgs): { rows: AppSummary[]; sid
 }
 
 export function handleEnrichTrendRepos(a: InvokeArgs): (AppSummary | null)[] {
+  warnUnknownArgs(['repos', 'board', 'forceRefresh'], a, 'handleEnrichTrendRepos');
   const repos = Array.isArray(a['repos']) ? (a['repos'] as Array<{ owner?: string; repo?: string }>) : [];
   return repos.map((r) => {
     const owner = String(r?.owner ?? '').trim();
@@ -280,7 +281,10 @@ export function handleGetAppIconCycle(a: InvokeArgs, cmd: string): AppIconCycleR
   if (!hit) return null;
   const key = hit.id.toLowerCase();
   const { iconLevel } = demoStore();
-  const level = cmd === 'cycle_app_icon' ? (iconLevel.get(key) ?? 0) + 1 : (iconLevel.get(key) ?? 0);
+  const totalLevels = 1;
+  const stored = iconLevel.get(key) ?? 1;
+  const current = stored >= 1 && stored <= totalLevels ? stored : 1;
+  const level = cmd === 'cycle_app_icon' ? (current % totalLevels) + 1 : current;
   if (cmd === 'cycle_app_icon') iconLevel.set(key, level);
   return {
     url: hit.icon,
@@ -288,7 +292,7 @@ export function handleGetAppIconCycle(a: InvokeArgs, cmd: string): AppIconCycleR
     source: 'catalog',
     remote_url: hit.icon,
     is_fallback: false,
-    total_levels: 1,
+    total_levels: totalLevels,
     is_cataloged: true,
   };
 }

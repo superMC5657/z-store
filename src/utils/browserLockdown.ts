@@ -217,14 +217,18 @@ export function initBrowserLockdown(openExternal?: (url: string) => unknown): vo
       if (!anchor) return;
 
       const href = anchor.getAttribute('href');
+      const trimmedHref = href ? href.trim() : '';
+      // 页内 #anchor 链接放行给页面/README 锚点跳转处理，不按外链吞掉
+      if (trimmedHref.startsWith('#')) return;
+
       const isTargetBlank = anchor.getAttribute('target') === '_blank';
-      const isHttp = href ? /^https?:\/\//i.test(href.trim()) : false;
+      const isHttp = /^https?:\/\//i.test(trimmedHref);
 
       if (isTargetBlank || isHttp) {
         e.preventDefault();
         e.stopPropagation();
-        if (href) {
-          forwardExternal(href.trim());
+        if (trimmedHref) {
+          forwardExternal(trimmedHref);
         }
       }
     },

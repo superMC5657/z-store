@@ -76,6 +76,8 @@ interface AdmitIconHitArgs extends IconHit {
   patch?: ((targetIdLower: string, icon: string) => void) | null;
   /** 已有实图查询（`''` 守卫用，缺省回退店内记忆）。 */
   getCurrentIcon?: ((targetIdLower: string) => string | undefined) | null;
+  /** 强制覆盖优先级门禁（用于手动/定格图标轮换 `admitIconCycleResult`，允许跨级正向轮换及离开 L5）。 */
+  force?: boolean;
 }
 
 interface AdmitIconHitResult {
@@ -824,7 +826,7 @@ export function __getIconStoreSizesForTests(): {
   };
 }
 
-/** 处理 L5 显式空徽章写入：清除图标记忆与展示缓存，并将空串写透列表及订阅方。 */
+/** 处理 L5 显式空徽章写入：清除图片缓冲与展示缓存，并记忆 L5 优先级后写透列表及订阅方。 */
 function applyBadgeHit(
   targets: string[],
   patch?: AdmitIconHitArgs['patch'],
@@ -836,6 +838,7 @@ function applyBadgeHit(
       // 缓存失效失败不阻塞内存写透
     }
     deleteBufferedIcon(t);
+    rememberIconLevel(t, 5);
   }
   if (typeof patch === 'function') {
     for (const t of targets) {
@@ -1030,11 +1033,12 @@ function admitEmptyHit(
   return { accepted: false, targets, reason: keep ? 'empty-keeps-real' : 'empty-noop' };
 }
 
-/** Memory-only path (`data:`/non-remote m2): invalidate + memory write + patch, no preload, no level advance. */
+/** Memory-only path (`data:`/non-remote m2): invalidate + memory write + patch, no preload, no level advance unless forced. */
 function admitMemoryOnlyHit(
   targets: string[],
   icon: string,
   pureLevel: number | undefined,
+  force: boolean,
   patch?: AdmitIconHitArgs['patch'],
 ): AdmitIconHitResult {
   const isData = icon.startsWith('data:');
@@ -1043,6 +1047,10 @@ function admitMemoryOnlyHit(
       invalidateIconCache(t);
     } catch {
       // 缓存失效失败不阻塞内存写透
+    }
+    if (force) {
+      if (pureLevel !== undefined) rememberIconLevel(t, pureLevel);
+      else iconLevelById.delete(t);
     }
     rememberBufferedIcon(t, icon);
     if (isData) {
@@ -1064,21 +1072,24 @@ function admitMemoryOnlyHit(
   };
 }
 
-/** Remote persist path (http only): advances level memory (non-m2), preloads, patches, remembers, fans out. */
+/** Remote persist path (http only): advances level memory (non-m2 or forced), preloads, patches, remembers, fans out. */
 function admitRemoteHit(
   targets: string[],
   icon: string,
   pureLevel: number | undefined,
   via: string,
   nextLevel: number | undefined,
+  force: boolean,
   patch?: AdmitIconHitArgs['patch'],
 ): AdmitIconHitResult {
   const persistUrl = pickPersistIconUrl(icon);
   if (persistUrl === '') {
     return { accepted: false, targets, icon, level: pureLevel, reason: 'non-remote-dropped' };
   }
-  if (nextLevel !== undefined && via !== 'm2') {
+  if (nextLevel !== undefined && (force || via !== 'm2')) {
     for (const t of targets) rememberIconLevel(t, nextLevel);
+  } else if (force) {
+    for (const t of targets) iconLevelById.delete(t);
   }
   invalidateTargets(targets);
   try {
@@ -1119,21 +1130,27 @@ export function admitIconHit(args: AdmitIconHitArgs): AdmitIconHitResult {
 
   const pureLevel = resolvePureLevel(args);
   const via = resolveVia(args);
+  const force = args.force === true;
   let nextLevel: number | undefined;
-  if (pureLevel !== undefined) {
-    const currentBest = findBestStoredLevel(targets);
-    if (currentBest !== undefined && compareIconPriority(pureLevel, currentBest) > 0) {
+  const currentBest = findBestStoredLevel(targets);
+  if (!force && currentBest !== undefined) {
+    if (currentBest === 5 && pureLevel !== 5) {
       return { accepted: false, targets, icon, level: pureLevel, reason: 'level-stale' };
     }
+    if (pureLevel !== undefined && compareIconPriority(pureLevel, currentBest) > 0) {
+      return { accepted: false, targets, icon, level: pureLevel, reason: 'level-stale' };
+    }
+  }
+  if (pureLevel !== undefined) {
     nextLevel = pureLevel;
   }
 
   // data: 与非远端 m2 仅写入内存；http(s) 远端走预热落盘分支
   if (isMemoryOnlyIcon(icon, via)) {
-    return admitMemoryOnlyHit(targets, icon, pureLevel, args.patch);
+    return admitMemoryOnlyHit(targets, icon, pureLevel, force, args.patch);
   }
 
-  return admitRemoteHit(targets, icon, pureLevel, via, nextLevel, args.patch);
+  return admitRemoteHit(targets, icon, pureLevel, via, nextLevel, force, args.patch);
 }
 
 /** 仅供测试：清空 `level`/图标记忆（含展示数据态与世代门控态）。 */
@@ -1161,12 +1178,11 @@ export function getBufferedIcon(key: string): string | undefined {
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
 }
 
-/** 内部：删缓冲 + level 记忆（不扇出，供 `applyBadgeHit` 批量单事件用）。 */
+/** 内部：仅删 M1 图标缓冲（不触 `iconLevelById`，由调用方决定层级记忆）。 */
 function deleteBufferedIcon(key: string): void {
   const k = normalizeId(key);
   if (!k) return;
   iconById.delete(k);
-  iconLevelById.delete(k);
 }
 
 /** 图标轮换结果（`restore_or_fetch_icon_cycle` / `cycle_app_icon`）中准入所需的字段。 */
@@ -1207,7 +1223,7 @@ export function admitIconCycleResult(
     typeof cycle.level === 'number' && Number.isFinite(cycle.level) ? cycle.level : undefined;
   const persist = pickCyclePersistIconUrl(cycle);
   if (persist !== '') {
-    return admitIconHit({ id: appId, icon: persist, level, patch: opts?.patch });
+    return admitIconHit({ id: appId, icon: persist, level, force: true, patch: opts?.patch });
   }
   const url = typeof cycle.url === 'string' ? cycle.url.trim() : '';
   if (url.startsWith('data:')) return { accepted: false, reason: 'data-transient' };

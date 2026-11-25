@@ -15,6 +15,7 @@ export function handleGetSettings(displayDefaults: {
   language?: string;
 }): Record<string, string> {
   const result: Record<string, string> = {
+    ...demoStore().settings,
     ui_scale: displayDefaults.ui_scale,
     font_size: displayDefaults.font_size,
   };
@@ -37,7 +38,12 @@ export function handleSaveSetting(a: InvokeArgs): boolean {
   return true;
 }
 
-export function handleSwitchMirror(): boolean {
+export function handleSwitchMirror(a?: InvokeArgs): boolean {
+  const mirrorId = a ? argStr(a, 'mirrorId').trim() : '';
+  if (mirrorId) {
+    demoStore().settings['active_mirror'] = mirrorId;
+    persistDemo('settings');
+  }
   return true;
 }
 
@@ -84,7 +90,7 @@ export function handleImportUserData(): ImportUserDataCounts {
   return {
     favorites_added: 0,
     watched_added: 0,
-    settings_applied: false,
+    settings_applied: 0,
   };
 }
 

@@ -8,6 +8,7 @@ import {
   getBufferedIcon,
   patchAppIconList,
   pickCyclePersistIconUrl,
+  resolveIconWithBuffer,
   resolveRemoteIconUrl,
   subscribeIconWrites,
 } from './iconStore';
@@ -103,5 +104,82 @@ describe('admitIconCycleResult', () => {
   it('空结果直接拒绝', () => {
     expect(admitIconCycleResult('o/r', null).accepted).toBe(false);
     expect(admitIconCycleResult('o/r', undefined).accepted).toBe(false);
+  });
+
+  it('手动正向轮换 L1 -> L2 -> L3 -> L4 -> L5 -> L1 均受理且实时写透', () => {
+    const urls = {
+      1: 'https://cdn.example.com/l1.png',
+      2: 'https://cdn.example.com/l2.png',
+      3: 'https://cdn.example.com/l3.png',
+      4: 'https://cdn.example.com/l4.png',
+    } as const;
+
+    for (const level of [1, 2, 3, 4] as const) {
+      const res = admitIconCycleResult('o/r', { remote_url: urls[level], level }, { patch: testPatch });
+      expect(res.accepted).toBe(true);
+      expect(res.level).toBe(level);
+      expect(list[0].icon).toBe(urls[level]);
+      expect(getBufferedIcon('o/r')).toBe(urls[level]);
+    }
+
+    // 切至 L5 首字母徽章
+    const l5 = admitIconCycleResult('o/r', { url: '', remote_url: '', level: 5 }, { patch: testPatch });
+    expect(l5.accepted).toBe(true);
+    expect(l5.reason).toBe('level5-badge');
+    expect(list[0].icon).toBe('');
+    expect(getBufferedIcon('o/r')).toBeUndefined();
+
+    // 从 L5 再次手动轮换回到 L1
+    const backToL1 = admitIconCycleResult('o/r', { remote_url: urls[1], level: 1 }, { patch: testPatch });
+    expect(backToL1.accepted).toBe(true);
+    expect(list[0].icon).toBe(urls[1]);
+    expect(getBufferedIcon('o/r')).toBe(urls[1]);
+  });
+
+  it('L5 徽章记忆生效：resolveIconWithBuffer 不复活旧图，且拦截后续非强制命中', () => {
+    const oldUrl = 'https://cdn.example.com/l2.png';
+    admitIconCycleResult('o/r', { remote_url: oldUrl, level: 2 }, { patch: testPatch });
+    expect(list[0].icon).toBe(oldUrl);
+
+    const l5 = admitIconCycleResult('o/r', { url: '', remote_url: '', level: 5 }, { patch: testPatch });
+    expect(l5.accepted).toBe(true);
+
+    // resolveIconWithBuffer 命中 L5 守卫，保留空串而非从 cur 复活旧图
+    const cur = { id: 'o/r', owner: 'o', repo: 'r', icon: oldUrl } as never as import('../types').AppSummary;
+    const incomingEmpty = { id: 'o/r', owner: 'o', repo: 'r', icon: '' } as never as import('../types').AppSummary;
+    expect(resolveIconWithBuffer(cur, incomingEmpty).icon).toBe('');
+
+    // 非强制的流式/水合命中（L1/L2/无 level）一律被 L5 拦截
+    const liveL1 = admitIconHit({ id: 'o/r', icon: 'https://cdn.example.com/live-l1.png', level: 1, patch: testPatch });
+    expect(liveL1.accepted).toBe(false);
+    expect(liveL1.reason).toBe('level-stale');
+
+    const passiveM2 = admitIconHit({ id: 'o/r', icon: 'https://cdn.example.com/m2.png', via: 'm2', patch: testPatch });
+    expect(passiveM2.accepted).toBe(false);
+    expect(passiveM2.reason).toBe('level-stale');
+
+    expect(list[0].icon).toBe('');
+    expect(getBufferedIcon('o/r')).toBeUndefined();
+
+    // 显式 force 写入（或再次手动轮换）可脱离 L5
+    const forced = admitIconHit({
+      id: 'o/r',
+      icon: 'https://cdn.example.com/forced-l3.png',
+      level: 3,
+      force: true,
+      patch: testPatch,
+    });
+    expect(forced.accepted).toBe(true);
+    expect(list[0].icon).toBe('https://cdn.example.com/forced-l3.png');
+
+    // 非强制低优（L4 劣于当前 L3）仍按单调规则拒绝
+    const downgraded = admitIconHit({
+      id: 'o/r',
+      icon: 'https://cdn.example.com/live-l4.png',
+      level: 4,
+      patch: testPatch,
+    });
+    expect(downgraded.accepted).toBe(false);
+    expect(downgraded.reason).toBe('level-stale');
   });
 });

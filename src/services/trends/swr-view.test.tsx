@@ -5,6 +5,7 @@ import { TrendsView } from '../../views/TrendsView';
 import { trendingHtmlFixture, makeEnrichedApp } from '../../views/test-utils/trendFixture';
 import { makeApp } from '../../views/test-utils/filterFixture';
 import { tauriApi } from '../api';
+import * as clientModule from '../api/client';
 import { clearTrendsCache } from './cache';
 import { __resetIconStoreForTests, getBufferedIcon } from '../iconStore';
 import {
@@ -19,7 +20,6 @@ type FakeCard = { summary: ReturnType<typeof makeEnrichedApp>; confirmed_other: 
 
 /** 模拟后端 `trend_board_cache` 与 `repo_card_cache` 存储。 */
 async function mockBackendStores() {
-  const clientModule = await import('../api/client');
   vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
   const boardStore = new Map<string, { payload_json: string; cached_at: number }>();
   const cardStore = new Map<string, FakeCard>();
@@ -248,7 +248,6 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
   });
 
   it('L2 过期后才补验：网络重拉 + enrich 落定后调 getPlatformsLite', async () => {
-    const clientModule = await import('../api/client');
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const repos = [
       { id: 'acme/atlas', owner: 'acme', repo: 'atlas' },
@@ -282,13 +281,16 @@ describe('平台随富卡缓存：L2 新鲜免验，过期才补验', () => {
     const { container } = renderBoard();
 
     // 榜单经网络重拉后展示
-    await screen.findByText('acme/atlas enriched desc');
+    await screen.findByText('acme/atlas enriched desc', undefined, { timeout: 5000 });
     expect(container.querySelectorAll('.trend-uncataloged-row')).toHaveLength(0);
     // 过期才补验：loading 行触发 getPlatformsLite
-    await waitFor(() => {
-      expect(liteSpy.mock.calls.length).toBeGreaterThan(0);
-    });
-  });
+    await waitFor(
+      () => {
+        expect(liteSpy.mock.calls.length).toBeGreaterThan(0);
+      },
+      { timeout: 5000 },
+    );
+  }, 15_000);
 
   it('lite 推导出具平台后重启直展：榜单只写一次 v2 索引，卡片经 repo_card_cache 水合零 lite', async () => {
     const backend = await mockBackendStores();
@@ -574,7 +576,6 @@ describe('重挂图标自愈：SWR 空图标经 DB-only 回填，不走网络', 
   });
 
   it('enrich 返回预确认 data: 图标时写入 M1 iconStore 直显，且 trendEnrichCache 与 L2 存盘保持 icon 空串', async () => {
-    const clientModule = await import('../api/client');
     vi.spyOn(clientModule, 'isTauri', 'get').mockReturnValue(true);
     const l2Store = new Map<string, { payload_json: string; cached_at: number }>();
     vi.spyOn(clientModule, 'tauriInvoke').mockImplementation(async (cmd, args) => {

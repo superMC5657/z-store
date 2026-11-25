@@ -170,13 +170,17 @@ export async function enrichTrendRepos(
   repos: { owner: string; repo: string }[],
   // 趋势刷新链传 true 走网络 + 流式；缺席即后端 DB-only（读 enrich 缓存）。
   forceRefresh = false,
+  board?: string,
 ): Promise<(AppSummary | null)[]> {
   const fallback = repos.map(() => null);
   try {
-    const res = await tauriInvoke<(AppSummary | null)[]>(CMD.enrichTrendRepos, {
+    const args: Record<string, unknown> = {
       repos,
       forceRefresh,
-    });
+    };
+    const trimmedBoard = typeof board === 'string' ? board.trim() : '';
+    if (trimmedBoard) args.board = trimmedBoard;
+    const res = await tauriInvoke<(AppSummary | null)[]>(CMD.enrichTrendRepos, args);
     if (!Array.isArray(res)) return fallback;
     return repos.map((_, i) => res[i] ?? null);
   } catch (err) {

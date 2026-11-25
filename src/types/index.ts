@@ -68,6 +68,8 @@ export interface AppDetail {
   platforms: string[];
   /** 显式收录标记，未命中目录时为 `false`。 */
   is_cataloged?: boolean;
+  /** 是否为私有仓库（登出/401 时据此清理内存富卡池）。 */
+  is_private?: boolean;
   /** 目录来源：`remote`（远端精选）/ `local`（本地收录补位）；未收录缺席。 */
   source?: 'remote' | 'local' | 'custom';
   /** 本地收录行状态（`collected` 系），仅徽标判定用；远端行缺席。 */
@@ -559,7 +561,7 @@ export interface UserDataBackup {
 export interface ImportUserDataCounts {
   favorites_added: number;
   watched_added: number;
-  settings_applied: boolean;
+  settings_applied: number;
 }
 
 // 趋势榜单数据层契约（SSOT）：services/trends/ 负责抓取与排序实现，本文件只承载可序列化的类型定义，

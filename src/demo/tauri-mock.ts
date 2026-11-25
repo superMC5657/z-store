@@ -379,7 +379,7 @@ async function demoInvoke(cmd: string, args?: unknown): Promise<unknown> {
 
     // -- 设置 / 代理 / 系统 ---------------------------------------------
     case 'switch_mirror':
-      return handleSwitchMirror();
+      return handleSwitchMirror(a);
     case 'test_proxy':
       return handleTestProxy();
     case 'fetch_trends_text':

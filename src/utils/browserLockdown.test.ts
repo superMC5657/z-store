@@ -118,6 +118,37 @@ describe('browserLockdown', () => {
       document.body.removeChild(link);
     });
 
+    it('does not swallow in-page #anchor links in capture phase (F-25b)', () => {
+      initBrowserLockdown((url) => tauriApi.openUrl(url));
+      const mocked = vi.mocked(tauriApi.openUrl);
+      mocked.mockClear();
+
+      const container = document.createElement('div');
+      const bubbleSpy = vi.fn((e: MouseEvent) => {
+        e.preventDefault();
+      });
+      container.addEventListener('click', bubbleSpy);
+
+      const plainAnchor = document.createElement('a');
+      plainAnchor.setAttribute('href', '#installation');
+      const blankAnchor = document.createElement('a');
+      blankAnchor.setAttribute('href', '#usage');
+      blankAnchor.setAttribute('target', '_blank');
+
+      container.appendChild(plainAnchor);
+      container.appendChild(blankAnchor);
+      document.body.appendChild(container);
+      try {
+        plainAnchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        blankAnchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        expect(bubbleSpy).toHaveBeenCalledTimes(2);
+        expect(mocked).not.toHaveBeenCalled();
+      } finally {
+        document.body.removeChild(container);
+      }
+    });
+
     it('handles side mouse buttons and wheel zooming correctly', () => {
       initBrowserLockdown((url) => tauriApi.openUrl(url));
 

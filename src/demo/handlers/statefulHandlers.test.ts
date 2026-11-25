@@ -12,7 +12,17 @@ import {
   handleWithdrawSubmitted,
   parseLicenseGate,
 } from './customApps';
-import { handleImportMatchedApps, handleScanAndMatchLocalApps } from './catalog';
+import {
+  handleGetAppIconCycle,
+  handleImportMatchedApps,
+  handleScanAndMatchLocalApps,
+} from './catalog';
+import {
+  handleGetSettings,
+  handleImportUserData,
+  handleSaveSetting,
+  handleSwitchMirror,
+} from './settings';
 import {
   handleGetInstalledApps,
   handleGetUpdateRules,
@@ -168,5 +178,59 @@ describe('local app scan mock', () => {
     }
     const rescanned = handleScanAndMatchLocalApps().map((m) => m.catalog_id);
     expect(rescanned.some((id) => high.some((m) => m.catalog_id === id))).toBe(false);
+  });
+});
+
+describe('settings & icon cycle demo parity (F-23)', () => {
+  it('handleImportUserData returns numeric settings_applied matching Rust usize', () => {
+    const res = handleImportUserData();
+    expect(typeof res.settings_applied).toBe('number');
+    expect(res).toEqual({
+      favorites_added: 0,
+      watched_added: 0,
+      settings_applied: 0,
+    });
+  });
+
+  it('handleSaveSetting and handleSwitchMirror persist across hydrate and merge into handleGetSettings', () => {
+    handleSaveSetting({ key: 'portable_dir', value: 'D:\\Apps' });
+    handleSaveSetting({ key: 'update_frequency', value: 'manual' });
+    handleSwitchMirror({ mirrorId: 'direct' });
+
+    hydrateDemoStore();
+
+    const settings = handleGetSettings({
+      ui_scale: '110',
+      font_size: '16',
+      theme: 'dark',
+      language: 'en-US',
+    });
+    expect(settings).toMatchObject({
+      portable_dir: 'D:\\Apps',
+      update_frequency: 'manual',
+      active_mirror: 'direct',
+      ui_scale: '110',
+      font_size: '16',
+      theme: 'dark',
+      language: 'en-US',
+    });
+  });
+
+  it('handleGetAppIconCycle starts at level 1 and wraps cleanly within 1..=total_levels', () => {
+    const restored = handleGetAppIconCycle(
+      { appId: 'rustdesk/rustdesk' },
+      'restore_or_fetch_icon_cycle',
+    );
+    expect(restored).not.toBeNull();
+    expect(restored!.level).toBe(1);
+    expect(restored!.total_levels).toBeGreaterThanOrEqual(1);
+
+    for (let i = 0; i < 4; i += 1) {
+      const cycled = handleGetAppIconCycle({ appId: 'rustdesk/rustdesk' }, 'cycle_app_icon');
+      expect(cycled).not.toBeNull();
+      expect(cycled!.total_levels).toBeDefined();
+      expect(cycled!.level).toBeGreaterThanOrEqual(1);
+      expect(cycled!.level).toBeLessThanOrEqual(cycled!.total_levels!);
+    }
   });
 });
