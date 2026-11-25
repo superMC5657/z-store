@@ -53,16 +53,16 @@ fn test_classify_asset_requires_exe_for_setup_exe_even_with_install_keyword() {
     let cases = [
         ("App-macos-installer.dmg", AssetKind::Dmg, "macos"),
         ("App-installer.pkg", AssetKind::Pkg, "macos"),
-        (
-            "app-linux-installer.AppImage",
-            AssetKind::AppImage,
-            "linux",
-        ),
+        ("app-linux-installer.AppImage", AssetKind::AppImage, "linux"),
         ("foo-install.deb", AssetKind::Deb, "linux"),
         ("foo-install.rpm", AssetKind::Rpm, "linux"),
         ("tool-installer.zip", AssetKind::PortableZip, "windows"),
         ("tool-macos-installer.zip", AssetKind::PortableZip, "macos"),
-        ("tool-linux-install.tar.gz", AssetKind::PortableTarball, "linux"),
+        (
+            "tool-linux-install.tar.gz",
+            AssetKind::PortableTarball,
+            "linux",
+        ),
         ("install.sh", AssetKind::Other, "all"),
         ("App-installer.exe", AssetKind::SetupExe, "windows"),
         ("App-Setup.exe", AssetKind::SetupExe, "windows"),

@@ -32,10 +32,7 @@ fn test_parse_import_payload_merge_rules() {
     let plan = parse_import_payload(json).expect("合法导入 JSON 应当解析成功");
     assert_eq!(
         plan.favorites,
-        vec![
-            "rustdesk/rustdesk".to_string(),
-            "videolan/vlc".to_string()
-        ]
+        vec!["rustdesk/rustdesk".to_string(), "videolan/vlc".to_string()]
     );
     assert_eq!(plan.watched, vec!["localsend/localsend".to_string()]);
     // 仅白名单设置项通过（除 github_token 外全量通过），数值/布尔转字符串
@@ -212,7 +209,10 @@ fn test_import_backup_skips_malformed_ids_and_validates_settings_atomically() {
         );
         assert!(fresh_db.get_favorites().unwrap().is_empty());
         assert!(fresh_db.get_setting("active_mirror").unwrap().is_none());
-        assert!(fresh_db.get_setting("catalog_source_url").unwrap().is_none());
+        assert!(fresh_db
+            .get_setting("catalog_source_url")
+            .unwrap()
+            .is_none());
     }
 
     // 3. 事务性锁值：合入中途失败整体回滚

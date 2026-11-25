@@ -157,13 +157,11 @@ impl AppScanner {
             if t.is_empty() {
                 return false;
             }
-            let allow_word =
-                t.chars().count() >= 4 && !CANDIDATE_STOP_WORDS.contains(&t);
+            let allow_word = t.chars().count() >= 4 && !CANDIDATE_STOP_WORDS.contains(&t);
             d_lower == t
                 || (allow_word && Self::contains_word_boundary(&d_lower, t))
                 || (!is_guid
-                    && (k_lower == t
-                        || (allow_word && Self::contains_word_boundary(&k_lower, t))))
+                    && (k_lower == t || (allow_word && Self::contains_word_boundary(&k_lower, t))))
         })
     }
 
@@ -1562,11 +1560,8 @@ impl AppScanner {
                                 .trim()
                                 .to_string();
 
-                            let is_match = Self::registry_entry_matches_tokens(
-                                &disp_name,
-                                &key_name,
-                                &tokens,
-                            );
+                            let is_match =
+                                Self::registry_entry_matches_tokens(&disp_name, &key_name, &tokens);
 
                             if is_match {
                                 // 1. 优先读取 InstallDate 字符串

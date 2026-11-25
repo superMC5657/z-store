@@ -158,14 +158,9 @@ pub async fn execute_installation_with_name(
         );
     start_ev.info();
 
-    let res = execute_installation_inner(
-        installer_path,
-        kind,
-        app_id,
-        app_name,
-        custom_portable_dir,
-    )
-    .await;
+    let res =
+        execute_installation_inner(installer_path, kind, app_id, app_name, custom_portable_dir)
+            .await;
     match &res {
         Ok(InstallOutcome::Installed(_)) => {
             let mut ev =

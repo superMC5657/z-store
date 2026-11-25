@@ -806,7 +806,10 @@ async fn fetch_single_checksum_manifest(
             ));
         }
         Err(_) => {
-            return Err(("timeout".to_string(), format!("timeout_{}s", timeout.as_secs())));
+            return Err((
+                "timeout".to_string(),
+                format!("timeout_{}s", timeout.as_secs()),
+            ));
         }
     };
     let status = res.status().as_u16();
@@ -1336,24 +1339,40 @@ mod tests {
         );
         let mut map = std::collections::HashMap::new();
         super::parse_checksum_manifest(&body, None, &mut map);
-        assert_eq!(map.get("app-setup.exe").map(String::as_str), Some(h1.as_str()));
+        assert_eq!(
+            map.get("app-setup.exe").map(String::as_str),
+            Some(h1.as_str())
+        );
         assert_eq!(
             map.get("My App Setup 1.0.msi").map(String::as_str),
             Some(h2.to_ascii_lowercase().as_str())
         );
-        assert_eq!(map.get("Cool App.dmg").map(String::as_str), Some(h3.as_str()));
+        assert_eq!(
+            map.get("Cool App.dmg").map(String::as_str),
+            Some(h3.as_str())
+        );
         assert_eq!(
             map.get("Quoted Name 2.0.zip").map(String::as_str),
             Some(h4.as_str())
         );
-        assert!(!map.contains_key("fake.exe"), "non-hex 64 chars must be rejected");
-        assert!(!map.contains_key("short.exe"), "non-64-char hash must be rejected");
+        assert!(
+            !map.contains_key("fake.exe"),
+            "non-hex 64 chars must be rejected"
+        );
+        assert!(
+            !map.contains_key("short.exe"),
+            "non-64-char hash must be rejected"
+        );
 
         // 1-token 纯哈希 .sha256 推导目标文件名；无目标名时忽略 1-token 行
         let mut single_map = std::collections::HashMap::new();
         super::parse_checksum_manifest(&format!("  {h5}  \n"), None, &mut single_map);
         assert!(single_map.is_empty());
-        super::parse_checksum_manifest(&format!("  {h5}  \n"), Some("tool-1.0.msi"), &mut single_map);
+        super::parse_checksum_manifest(
+            &format!("  {h5}  \n"),
+            Some("tool-1.0.msi"),
+            &mut single_map,
+        );
         assert_eq!(
             single_map.get("tool-1.0.msi").map(String::as_str),
             Some(h5.as_str())

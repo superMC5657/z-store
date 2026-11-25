@@ -334,7 +334,10 @@ pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> 
             if cp_status.success() {
                 Ok(())
             } else {
-                Err(format!("拷贝应用至 /Applications/{} 失败", app_name_for_err))
+                Err(format!(
+                    "拷贝应用至 /Applications/{} 失败",
+                    app_name_for_err
+                ))
             }
         })
         .await;

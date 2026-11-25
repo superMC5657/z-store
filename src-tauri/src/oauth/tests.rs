@@ -478,7 +478,10 @@ async fn star_endpoints_reject_traversal_and_control_segments() {
 
 async fn spawn_graphql_mock<F>(
     handler: F,
-) -> (String, std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>)
+) -> (
+    String,
+    std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+)
 where
     F: Fn(&serde_json::Value) -> (u16, serde_json::Value) + Send + Sync + 'static,
 {
@@ -715,7 +718,10 @@ async fn add_repo_to_star_list_aborts_without_overwrite_on_incomplete_pagination
     let outcome = star::add_repo_to_star_list_with_base("gho_tok", "acme", "app", &base)
         .await
         .unwrap();
-    assert!(matches!(outcome, AddToListOutcome::Failed(_)), "{outcome:?}");
+    assert!(
+        matches!(outcome, AddToListOutcome::Failed(_)),
+        "{outcome:?}"
+    );
     {
         let reqs = seen.lock().unwrap();
         assert!(

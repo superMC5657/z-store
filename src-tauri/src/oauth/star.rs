@@ -12,7 +12,10 @@ pub fn starred_api_url(owner: &str, repo: &str) -> String {
 }
 
 /// 校验 GitHub Star 接口的 `(owner, repo)` 段，拒绝 `.`、`..`、控制字符与路径/查询注入符。
-fn validate_github_repo_parts<'a>(owner: &'a str, repo: &'a str) -> Result<(&'a str, &'a str), String> {
+fn validate_github_repo_parts<'a>(
+    owner: &'a str,
+    repo: &'a str,
+) -> Result<(&'a str, &'a str), String> {
     let o = owner.trim();
     let r = repo.trim();
     if !crate::forge::coord::is_valid_repo_segment(o)
@@ -356,18 +359,13 @@ pub(crate) async fn add_repo_to_star_list_with_base(
             })
         };
 
-        let val = match post_star_list_graphql(
-            &client,
-            &gql_url,
-            &headers,
-            &payload,
-            "GraphQL 列表查询",
-        )
-        .await?
-        {
-            Ok(v) => v,
-            Err(outcome) => return Ok(outcome),
-        };
+        let val =
+            match post_star_list_graphql(&client, &gql_url, &headers, &payload, "GraphQL 列表查询")
+                .await?
+            {
+                Ok(v) => v,
+                Err(outcome) => return Ok(outcome),
+            };
 
         if val
             .get("errors")

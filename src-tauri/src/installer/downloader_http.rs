@@ -150,13 +150,7 @@ pub async fn download_with_progress(
         custom_download_dir,
         |downloaded, total, speed, status, msg| {
             DownloadProgressPayload::emit_event(
-                app_handle,
-                task_id,
-                downloaded,
-                total,
-                speed,
-                status,
-                msg,
+                app_handle, task_id, downloaded, total, speed, status, msg,
             );
         },
     )
@@ -620,7 +614,10 @@ mod tests {
         assert!(statuses.iter().any(|s| s == "tampered"));
         // 目录中既无最终文件，也无残留 `.tmp`
         let remaining: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
-        assert!(remaining.is_empty(), "tampered download must leave no files");
+        assert!(
+            remaining.is_empty(),
+            "tampered download must leave no files"
+        );
     }
 
     #[tokio::test]

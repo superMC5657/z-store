@@ -260,10 +260,7 @@ pub(crate) fn get_similar_apps_sync(
                 crate::icons::apply_icon_cache_heals(&db, &heals);
             }
         }
-        crate::icons::patch_core_icons(
-            plan.items.iter_mut().map(|e| Some(&mut e.app.core)),
-            icons,
-        );
+        crate::icons::patch_core_icons(plan.items.iter_mut().map(|e| Some(&mut e.app.core)), icons);
     }
 
     Ok(finish_similar_apps(plan))
@@ -668,10 +665,7 @@ mod repo_card_hydration_tests {
             .try_lock()
             .expect("plan_similar_apps must release state.db lock before disk I/O");
         let (icons, _heals) = crate::icons::materialize_icons(dir.path(), &jobs);
-        crate::icons::patch_core_icons(
-            plan.items.iter_mut().map(|e| Some(&mut e.app.core)),
-            icons,
-        );
+        crate::icons::patch_core_icons(plan.items.iter_mut().map(|e| Some(&mut e.app.core)), icons);
         let res = finish_similar_apps(plan);
         assert!(res.items[0]
             .app

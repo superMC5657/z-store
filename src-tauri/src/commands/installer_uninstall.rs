@@ -147,9 +147,8 @@ fn deletable_desktop_lnk(desktop: &std::path::Path, app_name: &str) -> Option<st
     }
     let canon_lnk = lnk.canonicalize().ok()?;
     let canon_desktop = desktop.canonicalize().ok()?;
-    (canon_lnk.starts_with(&canon_desktop)
-        && canon_lnk.parent() == Some(canon_desktop.as_path()))
-    .then_some(lnk)
+    (canon_lnk.starts_with(&canon_desktop) && canon_lnk.parent() == Some(canon_desktop.as_path()))
+        .then_some(lnk)
 }
 
 /// 在指定桌面目录内清理应用名与规范 id 对应的快捷方式（去重，兼顾新旧便携命名）。
@@ -286,9 +285,8 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
                         app_dir.display()
                     ));
                 }
-                std::fs::remove_dir_all(&app_dir).map_err(|e| {
-                    format!("清理便携缓存目录失败 ({}): {}", app_dir.display(), e)
-                })?;
+                std::fs::remove_dir_all(&app_dir)
+                    .map_err(|e| format!("清理便携缓存目录失败 ({}): {}", app_dir.display(), e))?;
             }
         }
         Ok(())
@@ -515,13 +513,19 @@ mod desktop_shortcut_guard_tests {
         super::cleanup_desktop_shortcuts_in(&desktop, "PicGo", "molunerfinn/picgo");
 
         assert!(!name_lnk.exists(), "app_name shortcut must be removed");
-        assert!(!id_lnk.exists(), "sanitized app_id shortcut must be removed");
+        assert!(
+            !id_lnk.exists(),
+            "sanitized app_id shortcut must be removed"
+        );
         assert!(unrelated_lnk.exists(), "unrelated shortcut must survive");
         assert!(default_app_lnk.exists(), "App.lnk must survive");
 
         // 空名称不得误删 Desktop/App.lnk
         super::cleanup_desktop_shortcuts_in(&desktop, "   ", "");
-        assert!(default_app_lnk.exists(), "empty input must not delete App.lnk");
+        assert!(
+            default_app_lnk.exists(),
+            "empty input must not delete App.lnk"
+        );
 
         fs::remove_dir_all(&desktop).unwrap();
     }

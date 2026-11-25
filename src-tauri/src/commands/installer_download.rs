@@ -307,7 +307,10 @@ mod download_fallback_tests {
         let calls = attempts.lock().unwrap();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].0, asset.download_url);
-        assert!(calls[0].1.is_empty(), "direct attempt must not bypass proxy");
+        assert!(
+            calls[0].1.is_empty(),
+            "direct attempt must not bypass proxy"
+        );
         assert!(
             calls[1].0.contains("github.com/owner/repo") && calls[1].0 != asset.download_url,
             "fallback URL must wrap original GitHub URL: {}",

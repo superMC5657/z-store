@@ -65,10 +65,9 @@ impl<T> FlightGuard<'_, T> {
 impl<T> Drop for FlightGuard<'_, T> {
     fn drop(&mut self) {
         let mut guard = self.flights.lock();
-        if guard
-            .get(&self.key)
-            .is_some_and(|existing| Arc::ptr_eq(existing, &self.cell) && Arc::strong_count(existing) == 2)
-        {
+        if guard.get(&self.key).is_some_and(|existing| {
+            Arc::ptr_eq(existing, &self.cell) && Arc::strong_count(existing) == 2
+        }) {
             guard.remove(&self.key);
         }
     }

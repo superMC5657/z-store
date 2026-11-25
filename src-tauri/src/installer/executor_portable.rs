@@ -1092,7 +1092,13 @@ mod extract_guard_tests {
         let tar_path = dir.path().join("evil.tar");
         {
             let mut f = std::fs::File::create(&tar_path).unwrap();
-            write_raw_tar_entry(&mut f, b"../escape1.txt", tar::EntryType::Regular, None, b"pwn1");
+            write_raw_tar_entry(
+                &mut f,
+                b"../escape1.txt",
+                tar::EntryType::Regular,
+                None,
+                b"pwn1",
+            );
             write_raw_tar_entry(
                 &mut f,
                 b"myapp/../../escape2.txt",
@@ -1128,7 +1134,13 @@ mod extract_guard_tests {
                 Some(b"../../outside_secret"),
                 b"",
             );
-            write_raw_tar_entry(&mut f, b"myapp/safe.txt", tar::EntryType::Regular, None, b"ok");
+            write_raw_tar_entry(
+                &mut f,
+                b"myapp/safe.txt",
+                tar::EntryType::Regular,
+                None,
+                b"ok",
+            );
             // tar 结束双 512 零块
             f.write_all(&[0u8; 1024]).unwrap();
         }
@@ -1168,7 +1180,10 @@ mod extract_guard_tests {
         install_portable_tarball_into(&tar_path, "owner/multi", &app_dir, DEFAULT_EXTRACT_LIMITS)
             .unwrap();
 
-        assert_eq!(std::fs::read(app_dir.join("bin").join("app")).unwrap(), b"binary");
+        assert_eq!(
+            std::fs::read(app_dir.join("bin").join("app")).unwrap(),
+            b"binary"
+        );
         assert_eq!(
             std::fs::read(app_dir.join("bin").join("config")).unwrap(),
             b"bin-cfg"
@@ -1234,9 +1249,8 @@ mod extract_guard_tests {
             ],
         );
 
-        let err =
-            install_portable_zip_into(&v2_bad_zip, "MyApp", &app_dir, tiny_limits(512, 100))
-                .expect_err("over-quota upgrade must fail");
+        let err = install_portable_zip_into(&v2_bad_zip, "MyApp", &app_dir, tiny_limits(512, 100))
+            .expect_err("over-quota upgrade must fail");
         assert!(err.contains("已回滚"), "{err}");
 
         // 原有 v1 全部文件必须完好无损

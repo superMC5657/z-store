@@ -360,7 +360,12 @@ mod setting_gate_tests {
         assert_eq!(state.mirror.lock().unwrap().active_mirror_prefix(), None);
         super::save_setting_inner(&state, "active_mirror", "ghproxy").unwrap();
         assert_eq!(
-            state.mirror.lock().unwrap().active_mirror_prefix().as_deref(),
+            state
+                .mirror
+                .lock()
+                .unwrap()
+                .active_mirror_prefix()
+                .as_deref(),
             Some(crate::mirror::DEFAULT_GH_PROXY)
         );
         assert_eq!(
@@ -374,7 +379,12 @@ mod setting_gate_tests {
         );
         super::save_setting_inner(&state, "active_mirror", "https://mirror.example.com").unwrap();
         assert_eq!(
-            state.mirror.lock().unwrap().active_mirror_prefix().as_deref(),
+            state
+                .mirror
+                .lock()
+                .unwrap()
+                .active_mirror_prefix()
+                .as_deref(),
             Some("https://mirror.example.com")
         );
         super::save_setting_inner(&state, "active_mirror", "direct").unwrap();

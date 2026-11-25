@@ -734,10 +734,8 @@ mod tests {
 
         // 2. 超大响应体（> MAX_ROOT_LIST_BYTES）在流式读取阶段即被拒绝
         let huge = "x".repeat(super::MAX_ROOT_LIST_BYTES + 64);
-        let server = crate::test_support::serve(move |_| {
-            crate::test_support::Reply::ok(huge.clone())
-        })
-        .await;
+        let server =
+            crate::test_support::serve(move |_| crate::test_support::Reply::ok(huge.clone())).await;
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
         let headers = reqwest::header::HeaderMap::new();
         let res = super::list_root_paths(

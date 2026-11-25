@@ -315,7 +315,12 @@ mod export_file_tests {
         let res = super::import_user_data_inner(&state, json, false).unwrap();
         assert_eq!(res.settings_applied, 1);
         assert_eq!(
-            state.mirror.lock().unwrap().active_mirror_prefix().as_deref(),
+            state
+                .mirror
+                .lock()
+                .unwrap()
+                .active_mirror_prefix()
+                .as_deref(),
             Some("https://mirror.example.com")
         );
     }

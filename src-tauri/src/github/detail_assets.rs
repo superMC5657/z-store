@@ -239,11 +239,52 @@ pub fn heal_cached_detail(
 /// 排除二进制安装包、压缩归档、签名与结构化元数据，防止误下 `sha256sum-win.exe` / `checksum-cli.zip` / `SHA256SUMS.asc`。
 pub fn is_checksum_manifest_asset(lower_name: &str) -> bool {
     const NON_MANIFEST_SUFFIXES: &[&str] = &[
-        ".exe", ".msi", ".msix", ".dmg", ".pkg", ".appimage", ".deb", ".rpm", ".apk", ".ipa",
-        ".zip", ".7z", ".rar", ".tar", ".gz", ".tgz", ".xz", ".txz", ".bz2", ".tbz2", ".zst",
-        ".iso", ".bin", ".run", ".sh", ".bat", ".cmd", ".ps1", ".dll", ".so", ".dylib", ".sig",
-        ".asc", ".gpg", ".minisig", ".pem", ".crt", ".cer", ".sbom", ".blockmap", ".zsync",
-        ".json", ".yml", ".yaml", ".xml", ".md",
+        ".exe",
+        ".msi",
+        ".msix",
+        ".dmg",
+        ".pkg",
+        ".appimage",
+        ".deb",
+        ".rpm",
+        ".apk",
+        ".ipa",
+        ".zip",
+        ".7z",
+        ".rar",
+        ".tar",
+        ".gz",
+        ".tgz",
+        ".xz",
+        ".txz",
+        ".bz2",
+        ".tbz2",
+        ".zst",
+        ".iso",
+        ".bin",
+        ".run",
+        ".sh",
+        ".bat",
+        ".cmd",
+        ".ps1",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".sig",
+        ".asc",
+        ".gpg",
+        ".minisig",
+        ".pem",
+        ".crt",
+        ".cer",
+        ".sbom",
+        ".blockmap",
+        ".zsync",
+        ".json",
+        ".yml",
+        ".yaml",
+        ".xml",
+        ".md",
     ];
     if NON_MANIFEST_SUFFIXES
         .iter()
@@ -622,7 +663,8 @@ mod tests {
             !checksum_asset_platform_eligible_for("app-win-x64.msi.sha256", "macos", "aarch64").0
         );
         assert!(
-            !checksum_asset_platform_eligible_for("app-darwin-x64.dmg.sha256", "macos", "aarch64").0
+            !checksum_asset_platform_eligible_for("app-darwin-x64.dmg.sha256", "macos", "aarch64")
+                .0
         );
 
         // Linux aarch64：放行 linux-aarch64，拒绝 linux-x64 与 Windows

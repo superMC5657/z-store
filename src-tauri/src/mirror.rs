@@ -10,7 +10,10 @@ fn url_host(raw_url: &str) -> Option<String> {
     if !matches!(parsed.scheme(), "http" | "https") {
         return None;
     }
-    let host = parsed.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    let host = parsed
+        .host_str()?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
     (!host.is_empty()).then_some(host)
 }
 
@@ -232,7 +235,9 @@ impl MirrorManager {
 
     /// 解析测速目标 URL 与是否为镜像模式：`direct`/空 -> 官方 `https://github.com`，
     /// `"ghproxy"` -> `DEFAULT_GH_PROXY`，自定义地址经 `validate_custom_proxy` 校验。
-    pub(crate) fn resolve_latency_test_url(proxy_url: Option<&str>) -> Result<(String, bool), String> {
+    pub(crate) fn resolve_latency_test_url(
+        proxy_url: Option<&str>,
+    ) -> Result<(String, bool), String> {
         let clean_url = proxy_url
             .map(|s| s.trim())
             .filter(|s| !s.is_empty() && *s != "direct");

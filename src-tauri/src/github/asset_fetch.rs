@@ -689,7 +689,12 @@ mod tests {
     #[test]
     fn concurrent_persist_asset_bytes_uses_unique_part_files_without_collision() {
         let root = tempfile::tempdir().unwrap();
-        let final_path = root.path().join("cache").join("assets").join("ab").join("ab12.png");
+        let final_path = root
+            .path()
+            .join("cache")
+            .join("assets")
+            .join("ab")
+            .join("ab12.png");
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(4));
         let mut handles = Vec::new();
         for i in 0..4u8 {
@@ -716,6 +721,10 @@ mod tests {
             .unwrap()
             .filter_map(Result::ok)
             .collect();
-        assert!(tmp_entries.is_empty(), "leftover .part files: {:?}", tmp_entries);
+        assert!(
+            tmp_entries.is_empty(),
+            "leftover .part files: {:?}",
+            tmp_entries
+        );
     }
 }

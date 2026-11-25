@@ -893,7 +893,10 @@ mod shortcut_name_tests {
             ),
             "正向整词边界匹配"
         );
-        assert!(m("my-tool.app", "Other", "mytoolapp"), "去分隔符紧凑全等命中");
+        assert!(
+            m("my-tool.app", "Other", "mytoolapp"),
+            "去分隔符紧凑全等命中"
+        );
         assert!(m("Go", "Go", "golang/go"), "短名精确全等允许");
         assert!(m("Git", "Git", "git-for-windows/git"), "短名精确全等允许");
         assert!(!m("   ", "PicGo", "x/y"), "空 DisplayName 不匹配");
@@ -971,7 +974,9 @@ mod shortcut_name_tests {
             super::RegUninstallCandidate {
                 display_name: "Git version 2.45.0".to_string(),
                 install_location: None,
-                display_icon: Some(r#""C:\Program Files\Git\mingw64\share\git\git.ico",0"#.to_string()),
+                display_icon: Some(
+                    r#""C:\Program Files\Git\mingw64\share\git\git.ico",0"#.to_string(),
+                ),
                 uninstall_string: r#""C:\Program Files\Git\unins000.exe" /SILENT"#.to_string(),
             },
         ];

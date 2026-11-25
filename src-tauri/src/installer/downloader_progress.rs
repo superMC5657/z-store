@@ -116,13 +116,7 @@ impl<'a> SkipDone<'a> {
         mut emit: impl FnMut(u64, u64, u64, &str, Option<String>),
     ) -> Result<(PathBuf, String), String> {
         let (verified_state, verified_msg) = verify_terminal_state(self.expected, &self.hash);
-        emit(
-            self.size,
-            self.size,
-            0,
-            &verified_state,
-            Some(verified_msg),
-        );
+        emit(self.size, self.size, 0, &verified_state, Some(verified_msg));
         let mut ev = self.meta.wide_event("skipped", true);
         ev.field("bytes", self.size)
             .dev("host", self.meta.dl_host)
