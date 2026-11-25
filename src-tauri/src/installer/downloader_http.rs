@@ -141,6 +141,37 @@ pub async fn download_with_progress(
     expected_sha256: Option<&str>,
     custom_download_dir: Option<&Path>,
 ) -> Result<(PathBuf, String), String> {
+    download_with_progress_core(
+        task_id,
+        download_url,
+        bypass_proxy_hosts,
+        asset_name,
+        expected_sha256,
+        custom_download_dir,
+        |downloaded, total, speed, status, msg| {
+            DownloadProgressPayload::emit_event(
+                app_handle,
+                task_id,
+                downloaded,
+                total,
+                speed,
+                status,
+                msg,
+            );
+        },
+    )
+    .await
+}
+
+async fn download_with_progress_core(
+    task_id: &str,
+    download_url: &str,
+    bypass_proxy_hosts: &[String],
+    asset_name: &str,
+    expected_sha256: Option<&str>,
+    custom_download_dir: Option<&Path>,
+    mut emit: impl FnMut(u64, u64, u64, &str, Option<String>),
+) -> Result<(PathBuf, String), String> {
     let net_conf = &crate::config::get_project_config().network;
     let client = resolve_download_client(bypass_proxy_hosts)?;
     let chunk_timeout = std::time::Duration::from_secs(net_conf.chunk_timeout_seconds);
@@ -202,14 +233,13 @@ pub async fn download_with_progress(
                 if let Ok((_, actual)) = sha256_of_file(&final_path).await {
                     if should_skip_download(local_len, &actual, expected) {
                         return SkipDone {
-                            app_handle,
                             meta: trace_meta,
                             path: final_path,
                             hash: actual,
                             size: local_len,
                             expected: expected_sha256,
                         }
-                        .finish();
+                        .finish_with(&mut emit);
                     }
                 }
             }
@@ -226,15 +256,7 @@ pub async fn download_with_progress(
             if !r.status().is_success() {
                 let err_msg = format!("下载请求失败，HTTP 状态码: {}", r.status());
                 log_download_fail(trace_meta, &short_reason(&err_msg));
-                DownloadProgressPayload::emit_event(
-                    app_handle,
-                    task_id,
-                    0,
-                    0,
-                    0,
-                    "error",
-                    Some(err_msg.clone()),
-                );
+                emit(0, 0, 0, "error", Some(err_msg.clone()));
                 return Err(err_msg);
             }
             r
@@ -244,15 +266,7 @@ pub async fn download_with_progress(
             let reason = http_err_reason(&e);
             let err_msg = format!("无法连接下载服务器: {}", reason);
             log_download_fail(trace_meta, &reason);
-            DownloadProgressPayload::emit_event(
-                app_handle,
-                task_id,
-                0,
-                0,
-                0,
-                "error",
-                Some(err_msg.clone()),
-            );
+            emit(0, 0, 0, "error", Some(err_msg.clone()));
             return Err(err_msg);
         }
     };
@@ -291,15 +305,7 @@ pub async fn download_with_progress(
                 let elapsed_secs = last_emit.elapsed().as_secs_f64().max(0.001);
                 let speed = ((downloaded - last_bytes) as f64 / elapsed_secs) as u64;
 
-                DownloadProgressPayload::emit_event(
-                    app_handle,
-                    task_id,
-                    downloaded,
-                    total_bytes,
-                    speed,
-                    "downloading",
-                    None,
-                );
+                emit(downloaded, total_bytes, speed, "downloading", None);
 
                 last_emit = Instant::now();
                 last_bytes = downloaded;
@@ -313,30 +319,14 @@ pub async fn download_with_progress(
         Err(PersistError::Create(e)) => {
             let err_msg = format!("创建临时文件失败: {}", e);
             log_download_fail(trace_meta, &short_reason(&err_msg));
-            DownloadProgressPayload::emit_event(
-                app_handle,
-                task_id,
-                0,
-                0,
-                0,
-                "error",
-                Some(err_msg.clone()),
-            );
+            emit(0, 0, 0, "error", Some(err_msg.clone()));
             return Err(err_msg);
         }
         Err(PersistError::Stream { downloaded, source }) => {
             let reason = http_err_reason(&source);
             let err_msg = format!("下载数据流中断: {}", reason);
             log_download_fail(trace_meta, &reason);
-            DownloadProgressPayload::emit_event(
-                app_handle,
-                task_id,
-                downloaded,
-                total_bytes,
-                0,
-                "error",
-                Some(err_msg.clone()),
-            );
+            emit(downloaded, total_bytes, 0, "error", Some(err_msg.clone()));
             return Err(err_msg);
         }
         Err(PersistError::Timeout { downloaded }) => {
@@ -345,15 +335,7 @@ pub async fn download_with_progress(
                 net_conf.chunk_timeout_seconds
             );
             log_download_fail(trace_meta, &short_reason(&err_msg));
-            DownloadProgressPayload::emit_event(
-                app_handle,
-                task_id,
-                downloaded,
-                total_bytes,
-                0,
-                "error",
-                Some(err_msg.clone()),
-            );
+            emit(downloaded, total_bytes, 0, "error", Some(err_msg.clone()));
             return Err(err_msg);
         }
         Err(PersistError::Write {
@@ -362,15 +344,7 @@ pub async fn download_with_progress(
         }) => {
             let err_msg = format!("写入磁盘失败: {}", e);
             log_download_fail(trace_meta, &short_reason(&err_msg));
-            DownloadProgressPayload::emit_event(
-                app_handle,
-                task_id,
-                downloaded,
-                total_bytes,
-                0,
-                "error",
-                Some(err_msg.clone()),
-            );
+            emit(downloaded, total_bytes, 0, "error", Some(err_msg.clone()));
             return Err(err_msg);
         }
         Err(PersistError::Tampered {
@@ -378,9 +352,7 @@ pub async fn download_with_progress(
             expected,
             actual,
         }) => {
-            DownloadProgressPayload::emit_event(
-                app_handle,
-                task_id,
+            emit(
                 downloaded,
                 downloaded,
                 0,
@@ -423,23 +395,13 @@ pub async fn download_with_progress(
                 .unwrap_or_else(|| "未知错误".to_string())
         );
         log_download_fail(trace_meta, &short_reason(&err_msg));
-        DownloadProgressPayload::emit_event(
-            app_handle,
-            task_id,
-            downloaded,
-            total_bytes,
-            0,
-            "error",
-            Some(err_msg.clone()),
-        );
+        emit(downloaded, total_bytes, 0, "error", Some(err_msg.clone()));
         return Err(err_msg);
     }
 
     let (verified_state, verified_msg) = verify_terminal_state(expected_sha256, &actual_hash);
 
-    DownloadProgressPayload::emit_event(
-        app_handle,
-        task_id,
+    emit(
         downloaded,
         downloaded,
         0,
@@ -546,5 +508,161 @@ mod tests {
         );
         // 官方直连（无豁免）的键不含上游 forge host。
         assert!(!download_pool_key(&proxied, &none).contains("github.com"));
+    }
+
+    async fn spawn_one_shot_http(
+        status_line: &'static str,
+        body: Vec<u8>,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_bg = std::sync::Arc::clone(&hits);
+
+        tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                hits_bg.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut req_buf = [0u8; 1024];
+                let _ = sock.read(&mut req_buf).await;
+                let headers = format!(
+                    "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    status_line,
+                    body.len()
+                );
+                let _ = sock.write_all(headers.as_bytes()).await;
+                let _ = sock.write_all(&body).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        (format!("http://{}/pkg.bin", addr), hits)
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    #[tokio::test]
+    async fn download_with_progress_verified_and_local_sha256_skip() {
+        let payload = b"zstore-verified-installer-payload".to_vec();
+        let expected = sha256_hex(&payload);
+        let (url, hits) = spawn_one_shot_http("200 OK", payload.clone()).await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let bypass = vec!["127.0.0.1".to_string()];
+        let mut statuses = Vec::new();
+        let (path, hash) = super::download_with_progress_core(
+            "owner/app",
+            &url,
+            &bypass,
+            "app-1.0.0.zip",
+            Some(&expected),
+            Some(dir.path()),
+            |_, _, _, status, _| statuses.push(status.to_string()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(hash, expected);
+        assert_eq!(std::fs::read(&path).unwrap(), payload);
+        assert_eq!(statuses.last().map(String::as_str), Some("verified"));
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        // 二次下载同 SHA-256 资产：本地命中零网络跳过（hits 不递增）
+        let mut skip_statuses = Vec::new();
+        let (path2, hash2) = super::download_with_progress_core(
+            "owner/app",
+            &url,
+            &bypass,
+            "app-1.0.0.zip",
+            Some(&expected),
+            Some(dir.path()),
+            |_, _, _, status, _| skip_statuses.push(status.to_string()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(path2, path);
+        assert_eq!(hash2, expected);
+        assert_eq!(skip_statuses, vec!["verified"]);
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "local SHA-256 match must skip HTTP completely"
+        );
+    }
+
+    #[tokio::test]
+    async fn download_with_progress_blocks_tampered_sha256_and_cleans_tmp() {
+        let payload = b"tampered-bytes".to_vec();
+        let wrong_sha = sha256_hex(b"expected-official-bytes");
+        let (url, _) = spawn_one_shot_http("200 OK", payload).await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let bypass = vec!["127.0.0.1".to_string()];
+        let mut statuses = Vec::new();
+        let err = super::download_with_progress_core(
+            "owner/app",
+            &url,
+            &bypass,
+            "app-bad.zip",
+            Some(&wrong_sha),
+            Some(dir.path()),
+            |_, _, _, status, _| statuses.push(status.to_string()),
+        )
+        .await
+        .expect_err("SHA-256 mismatch must fail");
+
+        assert!(err.contains("安全拦截"), "{err}");
+        assert!(statuses.iter().any(|s| s == "tampered"));
+        // 目录中既无最终文件，也无残留 `.tmp`
+        let remaining: Vec<_> = std::fs::read_dir(dir.path()).unwrap().flatten().collect();
+        assert!(remaining.is_empty(), "tampered download must leave no files");
+    }
+
+    #[tokio::test]
+    async fn download_with_progress_unverified_and_http_error_emit_expected_states() {
+        let payload = b"unverified-ok-bytes".to_vec();
+        let expected = sha256_hex(&payload);
+        let (ok_url, _) = spawn_one_shot_http("200 OK", payload).await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let bypass = vec!["127.0.0.1".to_string()];
+        let mut ok_statuses = Vec::new();
+        let (_, hash) = super::download_with_progress_core(
+            "owner/unv",
+            &ok_url,
+            &bypass,
+            "unv.zip",
+            None,
+            Some(dir.path()),
+            |_, _, _, status, _| ok_statuses.push(status.to_string()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(hash, expected);
+        assert_eq!(
+            ok_statuses.last().map(String::as_str),
+            Some("completed_unverified")
+        );
+
+        let (err_url, _) = spawn_one_shot_http("404 Not Found", b"missing".to_vec()).await;
+        let mut err_statuses = Vec::new();
+        let err = super::download_with_progress_core(
+            "owner/miss",
+            &err_url,
+            &bypass,
+            "miss.zip",
+            None,
+            Some(dir.path()),
+            |_, _, _, status, _| err_statuses.push(status.to_string()),
+        )
+        .await
+        .expect_err("HTTP 404 must fail");
+        assert!(err.contains("404"), "{err}");
+        assert_eq!(err_statuses.last().map(String::as_str), Some("error"));
     }
 }

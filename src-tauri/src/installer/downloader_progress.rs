@@ -1,4 +1,3 @@
-use crate::models::DownloadProgressPayload;
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -104,7 +103,6 @@ impl<'a> DownloadTraceMeta<'a> {
 /// 已下载命中的终态收尾上下文：补发与正常成功一致的终态事件
 /// （`verified`/`completed_unverified`）并直接返回，不发起/不消费网络 body。
 pub struct SkipDone<'a> {
-    pub app_handle: &'a tauri::AppHandle,
     pub meta: DownloadTraceMeta<'a>,
     pub path: PathBuf,
     pub hash: String,
@@ -113,11 +111,12 @@ pub struct SkipDone<'a> {
 }
 
 impl<'a> SkipDone<'a> {
-    pub fn finish(self) -> Result<(PathBuf, String), String> {
+    pub fn finish_with(
+        self,
+        mut emit: impl FnMut(u64, u64, u64, &str, Option<String>),
+    ) -> Result<(PathBuf, String), String> {
         let (verified_state, verified_msg) = verify_terminal_state(self.expected, &self.hash);
-        DownloadProgressPayload::emit_event(
-            self.app_handle,
-            self.meta.task_id,
+        emit(
             self.size,
             self.size,
             0,

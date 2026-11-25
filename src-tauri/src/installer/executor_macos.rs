@@ -141,6 +141,116 @@ impl Drop for DmgMountGuard {
     }
 }
 
+static MACOS_STAGE_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 在目标应用目录同级生成唯一暂存/备份 `.app` 路径，确保同卷原子 `rename`。
+fn sibling_bundle_path(apps_dir: &Path, app_name: &std::ffi::OsStr, tag: &str) -> PathBuf {
+    let nonce = MACOS_STAGE_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    apps_dir.join(format!(
+        ".{}.zstore-{}-{}-{}",
+        app_name.to_string_lossy(),
+        tag,
+        std::process::id(),
+        nonce
+    ))
+}
+
+/// 原子替换目标 `.app`：已有旧版本时先改名为 `.bak`，再切入新暂存包；
+/// 任一步失败立即恢复 `.bak`，避免升级中断删毁可用旧版本。
+fn swap_staged_bundle_with<F>(
+    staging_app: &Path,
+    dest_app: &Path,
+    apps_dir: &Path,
+    app_name: &std::ffi::OsStr,
+    mut rename_fn: F,
+) -> Result<(), String>
+where
+    F: FnMut(&Path, &Path) -> std::io::Result<()>,
+{
+    if !dest_app.exists() {
+        rename_fn(staging_app, dest_app)
+            .map_err(|e| format!("提交应用至 {} 失败: {}", dest_app.display(), e))?;
+        return Ok(());
+    }
+
+    let backup_app = sibling_bundle_path(apps_dir, app_name, "bak");
+    rename_fn(dest_app, &backup_app).map_err(|e| {
+        format!(
+            "无法备份已存在的旧版本 {}（权限不足或应用正在运行）: {}。已中止安装，避免损坏旧版本",
+            dest_app.display(),
+            e
+        )
+    })?;
+
+    if let Err(swap_err) = rename_fn(staging_app, dest_app) {
+        return match rename_fn(&backup_app, dest_app) {
+            Ok(()) => Err(format!(
+                "替换新版本 {} 失败，已恢复旧版本: {}",
+                dest_app.display(),
+                swap_err
+            )),
+            Err(restore_err) => Err(format!(
+                "替换新版本 {} 失败 ({})，且恢复旧版本失败 ({})；旧版本备份保留在 {}",
+                dest_app.display(),
+                swap_err,
+                restore_err,
+                backup_app.display()
+            )),
+        };
+    }
+
+    let _ = std::fs::remove_dir_all(&backup_app);
+    Ok(())
+}
+
+/// 先将 `.app` 完整拷贝到同级暂存目录，再在阻塞线程池原子切入目标路径；
+/// 拷贝或切换任一步失败均清理暂存目录且保留原有可用 `.app`。
+async fn stage_and_swap_app_bundle<F, Fut>(
+    src_app: &Path,
+    apps_dir: &Path,
+    app_name: &std::ffi::OsStr,
+    copy_fn: F,
+) -> Result<(), String>
+where
+    F: FnOnce(PathBuf, PathBuf) -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    let staging_app = sibling_bundle_path(apps_dir, app_name, "stage");
+    let dest_app = apps_dir.join(app_name);
+
+    if let Err(copy_err) = copy_fn(src_app.to_path_buf(), staging_app.clone()).await {
+        let cleanup_path = staging_app.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if cleanup_path.exists() {
+                let _ = std::fs::remove_dir_all(&cleanup_path);
+            }
+        })
+        .await;
+        return Err(copy_err);
+    }
+
+    let apps_dir_owned = apps_dir.to_path_buf();
+    let app_name_owned = app_name.to_os_string();
+    let staging_for_swap = staging_app.clone();
+    let swap_res = tokio::task::spawn_blocking(move || {
+        let res = swap_staged_bundle_with(
+            &staging_for_swap,
+            &dest_app,
+            &apps_dir_owned,
+            &app_name_owned,
+            |from, to| std::fs::rename(from, to),
+        );
+        if res.is_err() && staging_for_swap.exists() {
+            let _ = std::fs::remove_dir_all(&staging_for_swap);
+        }
+        res
+    })
+    .await
+    .map_err(|e| format!("原子替换应用线程异常: {}", e))?;
+
+    swap_res
+}
+
 /// macOS DMG 安装体。
 #[cfg(target_os = "macos")]
 pub async fn install_dmg(installer_path: &Path) -> Result<InstallOutcome, String> {
@@ -212,47 +322,31 @@ pub async fn install_macos_dmg(installer_path: &Path) -> Result<String, String> 
         .ok_or_else(|| "无法获取 .app 目录名称".to_string())?
         .to_os_string();
 
-    // 4. 拷贝至 /Applications 或用户 ~/Applications 目录
-    // 旧版本删除失败必须中止：吞错继续 cp -R 会在已存在目录下生成
-    // `X.app/X.app` 嵌套坏安装（应用无法启动且残留难以清理）。
+    // 4. 先完整拷贝至 /Applications 同级暂存包，再原子切换（失败回滚 .bak 保留旧版本）
     let sys_apps = PathBuf::from("/Applications");
-    let dest_app = sys_apps.join(&app_name);
-
-    if dest_app.exists() {
-        std::fs::remove_dir_all(&dest_app).map_err(|e| {
-            format!(
-                "无法移除已存在的旧版本 {}（权限不足或文件被占用）: {}。已中止安装，避免嵌套坏安装",
-                dest_app.display(),
-                e
-            )
-        })?;
-        if dest_app.exists() {
-            return Err(format!(
-                "旧版本 {} 移除指令执行后仍存在，已中止安装避免嵌套复制",
-                dest_app.display()
-            ));
-        }
-    }
-
-    let copy_argv = dmg_copy_argv(&target_app, &dest_app);
-    let cp_status = super::run_argv(&copy_argv)
-        .await
-        .map_err(|e| format!("拷贝应用至 /Applications 失败: {}", e))?;
+    let app_name_for_err = app_name.to_string_lossy().to_string();
+    let install_res =
+        stage_and_swap_app_bundle(&target_app, &sys_apps, &app_name, |src, dst| async move {
+            let copy_argv = dmg_copy_argv(&src, &dst);
+            let cp_status = super::run_argv(&copy_argv)
+                .await
+                .map_err(|e| format!("拷贝应用至 /Applications 失败: {}", e))?;
+            if cp_status.success() {
+                Ok(())
+            } else {
+                Err(format!("拷贝应用至 /Applications/{} 失败", app_name_for_err))
+            }
+        })
+        .await;
 
     // 5. 卸载 DMG 释放挂载点
     mount.detach().await;
 
-    if cp_status.success() {
-        Ok(format!(
-            "已成功解包并安装至 /Applications/{}",
-            app_name.to_string_lossy()
-        ))
-    } else {
-        Err(format!(
-            "拷贝应用至 /Applications/{} 失败",
-            app_name.to_string_lossy()
-        ))
-    }
+    install_res?;
+    Ok(format!(
+        "已成功解包并安装至 /Applications/{}",
+        app_name.to_string_lossy()
+    ))
 }
 
 #[cfg(test)]
@@ -312,5 +406,118 @@ mod app_bundle_tests {
         guard.detach().await;
         let calls = calls.lock().unwrap();
         assert_eq!(calls.len(), 1, "显式 detach 后 Drop 不得重复卸载");
+    }
+
+    #[tokio::test]
+    async fn dmg_upgrade_copy_failure_preserves_existing_v1_bundle() {
+        let apps = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let src_app = src.path().join("MyApp.app");
+        std::fs::create_dir_all(&src_app).unwrap();
+
+        // 预先存在的 v1 应用包
+        let dest_app = apps.path().join("MyApp.app");
+        std::fs::create_dir_all(dest_app.join("Contents")).unwrap();
+        std::fs::write(dest_app.join("Contents").join("version"), b"v1.0.0").unwrap();
+
+        let err = super::stage_and_swap_app_bundle(
+            &src_app,
+            apps.path(),
+            std::ffi::OsStr::new("MyApp.app"),
+            |_src, dst| async move {
+                // 模拟拷贝中途写入部分内容后失败（如磁盘满/镜像损坏）
+                std::fs::create_dir_all(&dst).unwrap();
+                std::fs::write(dst.join("partial"), b"half").unwrap();
+                Err("cp failed: disk full".to_string())
+            },
+        )
+        .await
+        .expect_err("copy failure must abort upgrade");
+
+        assert!(err.contains("disk full"), "{err}");
+        assert_eq!(
+            std::fs::read(dest_app.join("Contents").join("version")).unwrap(),
+            b"v1.0.0",
+            "existing v1 .app must remain completely intact when copy fails"
+        );
+        // 暂存目录必须已清理，不得残留
+        let entries: Vec<_> = std::fs::read_dir(apps.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("MyApp.app")]);
+    }
+
+    #[tokio::test]
+    async fn dmg_upgrade_success_atomically_replaces_v1_without_leftover_dirs() {
+        let apps = tempfile::tempdir().unwrap();
+        let src = tempfile::tempdir().unwrap();
+        let src_app = src.path().join("MyApp.app");
+        std::fs::create_dir_all(&src_app).unwrap();
+
+        let dest_app = apps.path().join("MyApp.app");
+        std::fs::create_dir_all(dest_app.join("Contents")).unwrap();
+        std::fs::write(dest_app.join("Contents").join("version"), b"v1.0.0").unwrap();
+        std::fs::write(dest_app.join("Contents").join("old_only"), b"old").unwrap();
+
+        super::stage_and_swap_app_bundle(
+            &src_app,
+            apps.path(),
+            std::ffi::OsStr::new("MyApp.app"),
+            |_src, dst| async move {
+                std::fs::create_dir_all(dst.join("Contents")).unwrap();
+                std::fs::write(dst.join("Contents").join("version"), b"v2.0.0").unwrap();
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(dest_app.join("Contents").join("version")).unwrap(),
+            b"v2.0.0"
+        );
+        assert!(!dest_app.join("Contents").join("old_only").exists());
+        let entries: Vec<_> = std::fs::read_dir(apps.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("MyApp.app")]);
+    }
+
+    #[test]
+    fn dmg_swap_failure_restores_v1_from_backup() {
+        let apps = tempfile::tempdir().unwrap();
+        let dest_app = apps.path().join("MyApp.app");
+        let staging_app = apps.path().join(".MyApp.app.zstore-stage-test");
+        std::fs::create_dir_all(&dest_app).unwrap();
+        std::fs::write(dest_app.join("version"), b"v1").unwrap();
+        std::fs::create_dir_all(&staging_app).unwrap();
+        std::fs::write(staging_app.join("version"), b"v2").unwrap();
+
+        let mut step = 0usize;
+        let err = super::swap_staged_bundle_with(
+            &staging_app,
+            &dest_app,
+            apps.path(),
+            std::ffi::OsStr::new("MyApp.app"),
+            |from, to| {
+                step += 1;
+                if step == 2 {
+                    // 第 1 步 dest -> bak 成功，第 2 步 staging -> dest 注入失败，第 3 步 bak -> dest 恢复
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "injected swap failure",
+                    ));
+                }
+                std::fs::rename(from, to)
+            },
+        )
+        .expect_err("injected swap error must fail");
+
+        assert!(err.contains("已恢复旧版本"), "{err}");
+        assert_eq!(std::fs::read(dest_app.join("version")).unwrap(), b"v1");
     }
 }

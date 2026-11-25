@@ -25,13 +25,7 @@ pub fn classify_asset(filename: &str) -> (AssetKind, &'static str, &'static str)
 
     if name_lower.ends_with(".msi") {
         (AssetKind::Msi, "windows", arch)
-    } else if name_lower.ends_with("-setup.exe")
-        || name_lower.ends_with("_setup.exe")
-        || name_lower.ends_with("-installer.exe")
-        || name_lower.ends_with("_installer.exe")
-        || name_lower.contains("install")
-        || name_lower.ends_with(".exe")
-    {
+    } else if name_lower.ends_with(".exe") {
         (AssetKind::SetupExe, "windows", arch)
     } else if name_lower.ends_with(".deb") {
         (AssetKind::Deb, "linux", arch)

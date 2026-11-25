@@ -8,14 +8,44 @@ pub(crate) fn resolve_managed_app_id(raw: &str) -> Result<String, String> {
     super::require_app_id(raw)
 }
 
+/// 判断安装方式是否为便携解压版（`.zip` 与 `.tar.*` 统一走便携清理路径）。
+pub(crate) fn is_portable_install_method(method: &str) -> bool {
+    matches!(method, "portable_zip" | "portable_tarball")
+}
+
+/// 枚举当前应用可能拥有的便携隔离目录（自定义 `portable_dir` 优先，兼顾默认目录）。
+pub(crate) fn resolve_owned_portable_dirs(
+    app_id: &str,
+    custom_portable_dir: Option<&str>,
+) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(base) = custom_portable_dir {
+        let trimmed = base.trim();
+        if !trimmed.is_empty() {
+            dirs.push(crate::installer::dirs_or_fallback_with_base(
+                app_id,
+                Some(trimmed),
+            ));
+        }
+    }
+    let default_dir = crate::installer::dirs_or_fallback(app_id);
+    if !dirs.contains(&default_dir) {
+        dirs.push(default_dir);
+    }
+    dirs
+}
+
 /// 校验候选目录是否位于 ZStore 自建的隔离便携目录内（规范化后逐级路径比较）。
 pub(crate) fn is_owned_portable_dir(
     candidate: &std::path::Path,
     owned_dir: &std::path::Path,
 ) -> bool {
-    let canon_candidate =
-        std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
-    let canon_owned = std::fs::canonicalize(owned_dir).unwrap_or_else(|_| owned_dir.to_path_buf());
+    let Ok(canon_candidate) = std::fs::canonicalize(candidate) else {
+        return false;
+    };
+    let Ok(canon_owned) = std::fs::canonicalize(owned_dir) else {
+        return false;
+    };
     if canon_candidate.starts_with(&canon_owned) {
         return true;
     }
@@ -36,10 +66,31 @@ pub(crate) fn is_owned_portable_dir(
     }
 }
 
-/// 清理便携应用路径：自有隔离目录整目录删除，共享目录仅删除对应文件；失败返回 Err 以保留记录。
-pub(crate) fn cleanup_portable_path(
+/// 校验待删除的自有便携隔离目录确为真实目录（非符号链接）且规范化后仍严格落于其父根目录内。
+fn is_safe_owned_dir_for_removal(owned_dir: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(owned_dir) else {
+        return false;
+    };
+    if !meta.file_type().is_dir() {
+        return false;
+    }
+    let Some(parent) = owned_dir.parent() else {
+        return false;
+    };
+    let Ok(canon_owned) = std::fs::canonicalize(owned_dir) else {
+        return false;
+    };
+    let Ok(canon_parent) = std::fs::canonicalize(parent) else {
+        return false;
+    };
+    canon_owned != canon_parent && canon_owned.starts_with(&canon_parent)
+}
+
+/// 清理便携应用路径（多自有目录口径）：命中任一自有隔离目录时整目录删除（避免子目录残留），
+/// 共享目录仅删除对应文件；失败返回 Err 以保留记录。
+pub(crate) fn cleanup_portable_path_in(
     install_path: &std::path::Path,
-    owned_dir: &std::path::Path,
+    owned_dirs: &[std::path::PathBuf],
 ) -> Result<(), String> {
     let dir = if install_path.is_file() {
         install_path.parent()
@@ -50,9 +101,20 @@ pub(crate) fn cleanup_portable_path(
     };
     if let Some(d) = dir {
         if d.exists() {
-            if is_owned_portable_dir(d, owned_dir) {
-                std::fs::remove_dir_all(d)
-                    .map_err(|e| format!("清理便携目录失败 ({}): {}", d.display(), e))?;
+            if let Some(matched_owned) = owned_dirs
+                .iter()
+                .find(|owned| owned.exists() && is_owned_portable_dir(d, owned))
+            {
+                if is_safe_owned_dir_for_removal(matched_owned) {
+                    std::fs::remove_dir_all(matched_owned).map_err(|e| {
+                        format!("清理便携目录失败 ({}): {}", matched_owned.display(), e)
+                    })?;
+                } else {
+                    return Err(format!(
+                        "拒绝清理不安全的便携目录路径: {}",
+                        matched_owned.display()
+                    ));
+                }
             } else if install_path.is_file() && install_path.exists() {
                 std::fs::remove_file(install_path).map_err(|e| {
                     format!("删除清单记录文件失败 ({}): {}", install_path.display(), e)
@@ -63,33 +125,64 @@ pub(crate) fn cleanup_portable_path(
     Ok(())
 }
 
+/// 清理便携应用路径：自有隔离目录整目录删除，共享目录仅删除对应文件；失败返回 Err 以保留记录。
+#[cfg(test)]
+pub(crate) fn cleanup_portable_path(
+    install_path: &std::path::Path,
+    owned_dir: &std::path::Path,
+) -> Result<(), String> {
+    cleanup_portable_path_in(install_path, &[owned_dir.to_path_buf()])
+}
+
 /// 解析并校验位于 Desktop 目录内的快捷方式路径，防止路径穿越误删外部文件。
 #[cfg(target_os = "windows")]
 fn deletable_desktop_lnk(desktop: &std::path::Path, app_name: &str) -> Option<std::path::PathBuf> {
+    if app_name.trim().is_empty() {
+        return None;
+    }
     let name = crate::installer::sanitize_shortcut_name(app_name);
     let lnk = desktop.join(format!("{}.lnk", name));
-    if !lnk.exists() {
+    if !lnk.is_file() {
         return None;
     }
     let canon_lnk = lnk.canonicalize().ok()?;
     let canon_desktop = desktop.canonicalize().ok()?;
-    canon_lnk.starts_with(canon_desktop).then_some(lnk)
+    (canon_lnk.starts_with(&canon_desktop)
+        && canon_lnk.parent() == Some(canon_desktop.as_path()))
+    .then_some(lnk)
+}
+
+/// 在指定桌面目录内清理应用名与规范 id 对应的快捷方式（去重，兼顾新旧便携命名）。
+#[cfg(target_os = "windows")]
+fn cleanup_desktop_shortcuts_in(desktop: &std::path::Path, app_name: &str, app_id: &str) {
+    let mut seen: Vec<String> = Vec::new();
+    for raw in [app_name, app_id] {
+        if raw.trim().is_empty() {
+            continue;
+        }
+        let key = crate::installer::sanitize_shortcut_name(raw).to_lowercase();
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        if let Some(lnk) = deletable_desktop_lnk(desktop, raw) {
+            if let Err(e) = std::fs::remove_file(&lnk) {
+                let mut ev = crate::z_log::WideEvent::new("installer", "shortcut cleanup failed");
+                ev.field("reason", crate::log_support::short_reason(&e.to_string()))
+                    .dev(
+                        "file",
+                        crate::log_support::file_base(&lnk.to_string_lossy()),
+                    );
+                ev.warn();
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
-fn cleanup_desktop_shortcut(app_name: &str) {
+fn cleanup_desktop_shortcuts(app_name: &str, app_id: &str) {
     let desktop = crate::installer::paths::user_desktop_dir();
-    if let Some(lnk) = deletable_desktop_lnk(&desktop, app_name) {
-        if let Err(e) = std::fs::remove_file(&lnk) {
-            let mut ev = crate::z_log::WideEvent::new("installer", "shortcut cleanup failed");
-            ev.field("reason", crate::log_support::short_reason(&e.to_string()))
-                .dev(
-                    "file",
-                    crate::log_support::file_base(&lnk.to_string_lossy()),
-                );
-            ev.warn();
-        }
-    }
+    cleanup_desktop_shortcuts_in(&desktop, app_name, app_id);
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -100,9 +193,14 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
     let mut start_ev = crate::z_log::WideEvent::new("installer", "uninstall start");
     start_ev.field("id", &app_id).field("t", &trace);
     start_ev.info();
-    let installed_app = {
+    let (installed_app, custom_portable_dir) = {
         let db = state.db()?;
-        db.get_installed_app(&app_id).map_err(|e| e.to_string())?
+        let installed = db.get_installed_app(&app_id).map_err(|e| e.to_string())?;
+        let portable_dir = db.get_setting("portable_dir").ok().flatten().and_then(|s| {
+            let t = s.trim().to_string();
+            (!t.is_empty()).then_some(t)
+        });
+        (installed, portable_dir)
     };
 
     let app = match installed_app {
@@ -135,13 +233,14 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
         }
     };
 
-    // 便携版清理：仅在自有隔离目录内整目录删除，失败则中止以保留记录。
-    if app.install_method == "portable_zip" {
-        let (path, owned) = (
-            std::path::PathBuf::from(&app.install_path),
-            crate::installer::dirs_or_fallback(&app.app_id),
-        );
-        crate::installer::run_blocking(move || cleanup_portable_path(&path, &owned)).await??;
+    let owned_portable_dirs =
+        resolve_owned_portable_dirs(&app.app_id, custom_portable_dir.as_deref());
+
+    // 便携版清理（zip 与 tarball 统一处理）：仅在自有隔离目录内整目录删除，失败则中止以保留记录。
+    if is_portable_install_method(&app.install_method) {
+        let path = std::path::PathBuf::from(&app.install_path);
+        let owned = owned_portable_dirs.clone();
+        crate::installer::run_blocking(move || cleanup_portable_path_in(&path, &owned)).await??;
     } else {
         // 安装版与系统导入版：定位并执行官方卸载程序
         let resolved_uninst = {
@@ -172,20 +271,33 @@ pub async fn uninstall_app(state: State<'_, AppState>, app_id: String) -> AppRes
         }
     }
 
-    // 清理默认便携缓存目录（失败上浮以保留记录）
-    let app_dir = crate::installer::dirs_or_fallback(&app.app_id);
+    // 清理残余自有便携缓存目录（便携版覆盖自定义与默认目录，其余覆盖默认目录；均经 containment 校验）
+    let dirs_to_clean = if is_portable_install_method(&app.install_method) {
+        owned_portable_dirs
+    } else {
+        vec![crate::installer::dirs_or_fallback(&app.app_id)]
+    };
     crate::installer::run_blocking(move || -> Result<(), String> {
-        if app_dir.exists() {
-            std::fs::remove_dir_all(&app_dir)
-                .map_err(|e| format!("清理默认便携缓存目录失败 ({}): {}", app_dir.display(), e))?;
+        for app_dir in dirs_to_clean {
+            if app_dir.exists() {
+                if !is_safe_owned_dir_for_removal(&app_dir) {
+                    return Err(format!(
+                        "拒绝清理不安全的便携目录路径: {}",
+                        app_dir.display()
+                    ));
+                }
+                std::fs::remove_dir_all(&app_dir).map_err(|e| {
+                    format!("清理便携缓存目录失败 ({}): {}", app_dir.display(), e)
+                })?;
+            }
         }
         Ok(())
     })
     .await??;
 
-    // 清理桌面快捷方式
+    // 清理桌面快捷方式（同时清理 app_name 与 app_id 两种安全消毒名称）
     #[cfg(target_os = "windows")]
-    cleanup_desktop_shortcut(&app.app_name);
+    cleanup_desktop_shortcuts(&app.app_name, &app.app_id);
 
     // 卸载核验通过后再移除数据库记录
     let db = state.db()?;
@@ -278,6 +390,46 @@ mod portable_uninstall_safety_tests {
         assert!(!super::is_owned_portable_dir(&sibling, &owned));
         let _ = fs::remove_dir_all(&base);
     }
+
+    #[test]
+    fn portable_method_covers_zip_and_tarball() {
+        assert!(super::is_portable_install_method("portable_zip"));
+        assert!(super::is_portable_install_method("portable_tarball"));
+        assert!(!super::is_portable_install_method("msi"));
+        assert!(!super::is_portable_install_method("setup_exe"));
+        assert!(!super::is_portable_install_method("system_import"));
+    }
+
+    #[test]
+    fn uninstall_custom_portable_dir_cleans_nested_owned_dir_without_touching_siblings() {
+        let base = tempfile::tempdir().unwrap();
+        let custom_base = base.path().join("custom-portable");
+        let owned_dirs =
+            super::resolve_owned_portable_dirs("owner/mytool", Some(custom_base.to_str().unwrap()));
+        let custom_app_dir = custom_base.join("owner-mytool");
+        let nested_bin = custom_app_dir.join("bin");
+        let other_app_dir = custom_base.join("owner-other");
+        fs::create_dir_all(&nested_bin).unwrap();
+        fs::create_dir_all(&other_app_dir).unwrap();
+
+        let exe = nested_bin.join("mytool.exe");
+        let sibling_dll = custom_app_dir.join("lib.dll");
+        let other_file = other_app_dir.join("keep.txt");
+        fs::write(&exe, b"exe").unwrap();
+        fs::write(&sibling_dll, b"dll").unwrap();
+        fs::write(&other_file, b"keep").unwrap();
+
+        super::cleanup_portable_path_in(&exe, &owned_dirs).unwrap();
+
+        assert!(
+            !custom_app_dir.exists(),
+            "custom portable dir (including outer folder & sibling DLLs) must be fully removed"
+        );
+        assert!(
+            other_file.exists(),
+            "other portable app in the same custom base must survive"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -345,6 +497,32 @@ mod desktop_shortcut_guard_tests {
     fn missing_shortcut_resolves_none() {
         let desktop = temp_dir_with("missing");
         assert!(super::deletable_desktop_lnk(&desktop, "ghost app").is_none());
+        fs::remove_dir_all(&desktop).unwrap();
+    }
+
+    #[test]
+    fn cleanup_removes_both_app_name_and_sanitized_app_id_shortcuts() {
+        let desktop = temp_dir_with("both");
+        let name_lnk = desktop.join("PicGo.lnk");
+        let id_lnk = desktop.join("molunerfinnpicgo.lnk");
+        let unrelated_lnk = desktop.join("Other.lnk");
+        let default_app_lnk = desktop.join("App.lnk");
+        fs::write(&name_lnk, b"lnk").unwrap();
+        fs::write(&id_lnk, b"lnk").unwrap();
+        fs::write(&unrelated_lnk, b"lnk").unwrap();
+        fs::write(&default_app_lnk, b"lnk").unwrap();
+
+        super::cleanup_desktop_shortcuts_in(&desktop, "PicGo", "molunerfinn/picgo");
+
+        assert!(!name_lnk.exists(), "app_name shortcut must be removed");
+        assert!(!id_lnk.exists(), "sanitized app_id shortcut must be removed");
+        assert!(unrelated_lnk.exists(), "unrelated shortcut must survive");
+        assert!(default_app_lnk.exists(), "App.lnk must survive");
+
+        // 空名称不得误删 Desktop/App.lnk
+        super::cleanup_desktop_shortcuts_in(&desktop, "   ", "");
+        assert!(default_app_lnk.exists(), "empty input must not delete App.lnk");
+
         fs::remove_dir_all(&desktop).unwrap();
     }
 }

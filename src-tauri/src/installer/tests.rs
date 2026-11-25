@@ -48,6 +48,34 @@ fn test_classify_asset() {
 }
 
 #[test]
+fn test_classify_asset_requires_exe_for_setup_exe_even_with_install_keyword() {
+    // 回归 F-04：含 "install"/"installer" 的非 .exe 资产绝不得误分类为 Windows SetupExe
+    let cases = [
+        ("App-macos-installer.dmg", AssetKind::Dmg, "macos"),
+        ("App-installer.pkg", AssetKind::Pkg, "macos"),
+        (
+            "app-linux-installer.AppImage",
+            AssetKind::AppImage,
+            "linux",
+        ),
+        ("foo-install.deb", AssetKind::Deb, "linux"),
+        ("foo-install.rpm", AssetKind::Rpm, "linux"),
+        ("tool-installer.zip", AssetKind::PortableZip, "windows"),
+        ("tool-macos-installer.zip", AssetKind::PortableZip, "macos"),
+        ("tool-linux-install.tar.gz", AssetKind::PortableTarball, "linux"),
+        ("install.sh", AssetKind::Other, "all"),
+        ("App-installer.exe", AssetKind::SetupExe, "windows"),
+        ("App-Setup.exe", AssetKind::SetupExe, "windows"),
+        ("plain-tool.exe", AssetKind::SetupExe, "windows"),
+    ];
+    for (name, expected_kind, expected_os) in cases {
+        let (kind, os, _) = classify_asset(name);
+        assert_eq!(kind, expected_kind, "asset kind mismatch for {}", name);
+        assert_eq!(os, expected_os, "asset os mismatch for {}", name);
+    }
+}
+
+#[test]
 fn test_classify_tarball_binary() {
     // 二进制 tarball 统一归类为 PortableTarball（源码过滤由 detail 层负责）。
     let (kind, os, arch) = classify_asset("pi-darwin-arm64.tar.gz");
@@ -371,12 +399,21 @@ fn test_select_best_asset_fail_closed_no_cross_os_fallback() {
 
 #[test]
 fn test_uninstall_unix_path_never_shells_command_string() {
-    // Unix 卸载路径绝不能将来自数据库的命令字符串直接传给 `sh -c`；
-    // 必须通过 parse_uninstaller_command 解析出的 argv 参数列表进行调用。
-    let src = include_str!("executor.rs");
+    // Unix/Windows 卸载路径位于 executor_uninstall.rs，绝不能将数据库/注册表命令串传给
+    // `sh -c` 或 `cmd`，必须通过 parse_uninstaller_command 解析出的 argv 列表直接调用。
+    let src = include_str!("executor_uninstall.rs");
     assert!(
-        !src.contains("\"-c\", uninstaller_cmd"),
-        "Unix uninstaller still passes command string to sh -c"
+        src.contains("fn execute_uninstallation_inner")
+            && src.contains("parse_uninstaller_command(uninstaller_cmd)"),
+        "test must inspect the real uninstall implementation in executor_uninstall.rs"
+    );
+    assert!(
+        !src.contains("\"-c\", uninstaller_cmd")
+            && !src.contains("Command::new(\"sh\")")
+            && !src.contains("Command::new(\"/bin/sh\")")
+            && !src.contains("Command::new(\"cmd\")")
+            && !src.contains("Command::new(\"cmd.exe\")"),
+        "Uninstaller must execute parsed argv directly, never via shell"
     );
 }
 

@@ -3,6 +3,25 @@ use crate::models::InstalledApp;
 use crate::{AppResult, AppState};
 use tauri::{AppHandle, State};
 
+/// 无官方 SHA-256 校验清单时的安装门禁：默认拒绝，仅在用户显式确认（`allow_unverified == Some(true)`）后放行。
+pub(crate) fn check_unverified_asset_gate(
+    asset: &crate::models::ReleaseAsset,
+    allow_unverified: Option<bool>,
+) -> Result<(), String> {
+    let has_checksum = asset
+        .sha256
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if !has_checksum && allow_unverified != Some(true) {
+        return Err(
+            "unverified-asset-required: 该资产未提供官方 SHA-256 校验清单，无法验证文件完整性，已默认拒绝安装。可在确认弹窗了解风险后显式继续，或改用带 checksums 清单的版本"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// 安装应用核心命令。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn install_app(
@@ -41,17 +60,7 @@ pub async fn install_app(
     .await?;
 
     // 默认拒绝无 SHA-256 校验清单的资产，仅在用户显式确认（allow_unverified）后放行。
-    let has_checksum = asset
-        .sha256
-        .as_deref()
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
-    if !has_checksum && allow_unverified != Some(true) {
-        return Err(
-            "unverified-asset-required: 该资产未提供官方 SHA-256 校验清单，无法验证文件完整性，已默认拒绝安装。可在确认弹窗了解风险后显式继续，或改用带 checksums 清单的版本"
-                .into(),
-        );
-    }
+    check_unverified_asset_gate(&asset, allow_unverified)?;
 
     // 3. 经用户配置镜像加速下载 + SHA-256 完整性强校验（与仅下载共用通道）
     let custom_download_dir = super::installer_download::resolve_download_dir(&state);
@@ -68,10 +77,11 @@ pub async fn install_app(
     let (kind, _, _) = crate::installer::classify_asset(&asset.name);
     let effective_portable_dir = custom_install_dir.or(custom_portable_dir);
     // 平台跳过等非成功结果映射为 Err 中断，避免写入已安装记录。
-    let _install_note = crate::installer::execute_installation(
+    let _install_note = crate::installer::executor::execute_installation_with_name(
         &dest_path,
         &kind,
         &detail.core.id,
+        Some(&detail.core.name),
         effective_portable_dir.as_deref(),
     )
     .await?
@@ -193,4 +203,52 @@ pub async fn install_app(
     }
 
     Ok(installed_app)
+}
+
+#[cfg(test)]
+mod unverified_gate_tests {
+    use super::check_unverified_asset_gate;
+    use crate::models::ReleaseAsset;
+
+    fn mk_asset(sha256: Option<&str>) -> ReleaseAsset {
+        ReleaseAsset {
+            name: "app-setup.exe".to_string(),
+            download_url: "https://github.com/owner/repo/releases/download/v1.0.0/app-setup.exe"
+                .to_string(),
+            size_bytes: 1024,
+            sha256: sha256.map(str::to_string),
+            os: "windows".to_string(),
+            arch: "x86_64".to_string(),
+            kind: "setup_exe".to_string(),
+        }
+    }
+
+    #[test]
+    fn unverified_asset_is_blocked_unless_explicitly_allowed() {
+        let no_sha = mk_asset(None);
+        let err_none = check_unverified_asset_gate(&no_sha, None)
+            .expect_err("missing sha256 with allow_unverified=None must be rejected");
+        assert!(err_none.starts_with("unverified-asset-required:"));
+
+        let err_false = check_unverified_asset_gate(&no_sha, Some(false))
+            .expect_err("missing sha256 with allow_unverified=Some(false) must be rejected");
+        assert!(err_false.starts_with("unverified-asset-required:"));
+
+        let blank_sha = mk_asset(Some("   "));
+        assert!(check_unverified_asset_gate(&blank_sha, None).is_err());
+
+        // 用户显式确认 allow_unverified=Some(true) 时放行
+        assert!(check_unverified_asset_gate(&no_sha, Some(true)).is_ok());
+        assert!(check_unverified_asset_gate(&blank_sha, Some(true)).is_ok());
+    }
+
+    #[test]
+    fn verified_asset_passes_regardless_of_allow_unverified() {
+        let with_sha = mk_asset(Some(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        ));
+        assert!(check_unverified_asset_gate(&with_sha, None).is_ok());
+        assert!(check_unverified_asset_gate(&with_sha, Some(false)).is_ok());
+        assert!(check_unverified_asset_gate(&with_sha, Some(true)).is_ok());
+    }
 }

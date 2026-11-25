@@ -126,10 +126,22 @@ pub(crate) async fn run_argv(argv: &[String]) -> Result<std::process::ExitStatus
 }
 
 /// 安装执行入口：成功 info / 正常取消 info / 异常失败 error。
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn execute_installation(
     installer_path: &Path,
     kind: &AssetKind,
     app_id: &str,
+    custom_portable_dir: Option<&str>,
+) -> Result<InstallOutcome, String> {
+    execute_installation_with_name(installer_path, kind, app_id, None, custom_portable_dir).await
+}
+
+/// 安装执行入口（携带应用展示名，供便携版桌面快捷方式统一命名）。
+pub async fn execute_installation_with_name(
+    installer_path: &Path,
+    kind: &AssetKind,
+    app_id: &str,
+    app_name: Option<&str>,
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
     let started = std::time::Instant::now();
@@ -146,7 +158,14 @@ pub async fn execute_installation(
         );
     start_ev.info();
 
-    let res = execute_installation_inner(installer_path, kind, app_id, custom_portable_dir).await;
+    let res = execute_installation_inner(
+        installer_path,
+        kind,
+        app_id,
+        app_name,
+        custom_portable_dir,
+    )
+    .await;
     match &res {
         Ok(InstallOutcome::Installed(_)) => {
             let mut ev =
@@ -227,11 +246,13 @@ macro_rules! run_on_target {
 fn owned_portable_args(
     installer_path: &Path,
     app_id: &str,
+    app_name: Option<&str>,
     custom_portable_dir: Option<&str>,
-) -> (std::path::PathBuf, String, Option<String>) {
+) -> (std::path::PathBuf, String, Option<String>, Option<String>) {
     (
         installer_path.to_path_buf(),
         app_id.to_string(),
+        app_name.map(str::to_string),
         custom_portable_dir.map(str::to_string),
     )
 }
@@ -240,6 +261,7 @@ async fn execute_installation_inner(
     installer_path: &Path,
     kind: &AssetKind,
     app_id: &str,
+    app_name: Option<&str>,
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
     match kind {
@@ -253,17 +275,29 @@ async fn execute_installation_inner(
         ),
         // 同步解压与桌面快捷方式创建（PowerShell）卸到阻塞线程池，不占用异步运行时线程。
         AssetKind::PortableZip => {
-            let (path, id, dir) = owned_portable_args(installer_path, app_id, custom_portable_dir);
+            let (path, id, name, dir) =
+                owned_portable_args(installer_path, app_id, app_name, custom_portable_dir);
             tokio::task::spawn_blocking(move || {
-                portable::install_portable_zip(&path, &id, dir.as_deref())
+                portable::install_portable_zip_with_name(
+                    &path,
+                    &id,
+                    name.as_deref(),
+                    dir.as_deref(),
+                )
             })
             .await
             .map_err(|e| e.to_string())?
         }
         AssetKind::PortableTarball => {
-            let (path, id, dir) = owned_portable_args(installer_path, app_id, custom_portable_dir);
+            let (path, id, name, dir) =
+                owned_portable_args(installer_path, app_id, app_name, custom_portable_dir);
             tokio::task::spawn_blocking(move || {
-                portable::install_portable_tarball(&path, &id, dir.as_deref())
+                portable::install_portable_tarball_with_name(
+                    &path,
+                    &id,
+                    name.as_deref(),
+                    dir.as_deref(),
+                )
             })
             .await
             .map_err(|e| e.to_string())?

@@ -2,6 +2,156 @@ use super::InstallOutcome;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static STAGE_NONCE: AtomicU64 = AtomicU64::new(0);
+
+/// 在目标目录同级构造唯一临时目录路径（同卷保障原子 `rename`）。
+fn sibling_temp_dir(dest_dir: &Path, tag: &str) -> Result<PathBuf, String> {
+    let parent = dest_dir
+        .parent()
+        .ok_or_else(|| format!("目标便携目录缺少父目录: {}", dest_dir.display()))?;
+    let base_name = dest_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("app");
+    let nonce = STAGE_NONCE.fetch_add(1, Ordering::Relaxed);
+    Ok(parent.join(format!(
+        ".{}.zstore-{}-{}-{}",
+        base_name,
+        tag,
+        std::process::id(),
+        nonce
+    )))
+}
+
+/// 暂存目录 RAII 守卫：未转正前任何错误返回或 panic 均自动清理，避免残留半成品目录。
+struct StagingDirGuard(Option<PathBuf>);
+
+impl StagingDirGuard {
+    fn new(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+
+    fn path(&self) -> &Path {
+        self.0.as_deref().unwrap_or_else(|| Path::new(""))
+    }
+
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for StagingDirGuard {
+    fn drop(&mut self) {
+        if let Some(p) = self.0.take() {
+            if p.exists() {
+                let _ = std::fs::remove_dir_all(p);
+            }
+        }
+    }
+}
+
+/// 同卷目录重命名（Windows 下短暂文件索引占用时有界重试）。
+fn rename_dir_with_retry(from: &Path, to: &Path) -> io::Result<()> {
+    let mut last_err: Option<io::Error> = None;
+    for attempt in 0..5 {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let transient = cfg!(target_os = "windows")
+                    && (e.kind() == io::ErrorKind::PermissionDenied
+                        || matches!(e.raw_os_error(), Some(5 | 32)));
+                last_err = Some(e);
+                if !transient || attempt == 4 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| io::Error::other("rename failed")))
+}
+
+/// 原子替换目录：
+/// - 首次安装直接 `rename(source -> dest)`；
+/// - 覆盖升级先 `rename(dest -> .bak)`，再 `rename(source -> dest)`，任一步失败立即恢复 `.bak`，
+///   确保升级中断绝不破坏既有可用版本。
+fn atomic_swap_dir_with<F>(
+    source_dir: &Path,
+    dest_dir: &Path,
+    mut rename_fn: F,
+) -> Result<(), String>
+where
+    F: FnMut(&Path, &Path) -> io::Result<()>,
+{
+    if !dest_dir.exists() {
+        rename_fn(source_dir, dest_dir).map_err(|e| {
+            format!(
+                "提交解压目录失败 ({} -> {}): {}",
+                source_dir.display(),
+                dest_dir.display(),
+                e
+            )
+        })?;
+        return Ok(());
+    }
+
+    let backup_dir = sibling_temp_dir(dest_dir, "bak")?;
+    rename_fn(dest_dir, &backup_dir).map_err(|e| {
+        format!(
+            "无法替换已存在的旧版本目录（可能应用正在运行或文件被占用）({}): {}",
+            dest_dir.display(),
+            e
+        )
+    })?;
+
+    if let Err(swap_err) = rename_fn(source_dir, dest_dir) {
+        return match rename_fn(&backup_dir, dest_dir) {
+            Ok(()) => Err(format!(
+                "切换新版本目录失败，已恢复旧版本 ({}): {}",
+                dest_dir.display(),
+                swap_err
+            )),
+            Err(restore_err) => Err(format!(
+                "切换新版本目录失败 ({})，且恢复旧版本失败 ({})；旧版本备份保留在 {}",
+                swap_err,
+                restore_err,
+                backup_dir.display()
+            )),
+        };
+    }
+
+    let _ = std::fs::remove_dir_all(&backup_dir);
+    Ok(())
+}
+
+fn atomic_swap_dir(source_dir: &Path, dest_dir: &Path) -> Result<(), String> {
+    atomic_swap_dir_with(source_dir, dest_dir, rename_dir_with_retry)
+}
+
+/// 若暂存目录仅含唯一顶层真实目录（非软链、且无并列顶层文件/目录），返回该单根目录以便剥离；
+/// 多根结构（如 `bin/`、`lib/`、`etc/`）或含顶层文件时返回 `None`，完整保留原目录结构。
+fn single_top_level_dir(staging_dir: &Path) -> Option<PathBuf> {
+    let mut entries = std::fs::read_dir(staging_dir).ok()?;
+    let first = entries.next()?.ok()?.path();
+    if entries.next().is_some() {
+        return None;
+    }
+    let is_real_dir = std::fs::symlink_metadata(&first)
+        .map(|m| m.file_type().is_dir())
+        .unwrap_or(false);
+    is_real_dir.then_some(first)
+}
+
+/// 便携版桌面快捷方式命名：优先应用展示名，缺失或空白时回退规范 `app_id`。
+pub(crate) fn portable_shortcut_label<'a>(app_name: Option<&'a str>, app_id: &'a str) -> &'a str {
+    match app_name {
+        Some(name) if !name.trim().is_empty() => name,
+        _ => app_id,
+    }
+}
 
 /// 解压防护上限：累计未压缩字节与条目数，zip/tar 炸弹防磁盘耗尽。
 /// 8 GiB 覆盖现存最大便携应用解压体积；条目 65536 远超正常发行包。
@@ -171,19 +321,35 @@ fn note_main_exe(main_exe: &mut Option<PathBuf>, outpath: &Path) {
     }
 }
 
-/// 便携 ZIP 解压安装体（跨平台）。
+/// 便携 ZIP 解压安装体（跨平台；默认以 `app_id` 为快捷方式名）。
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn install_portable_zip(
     installer_path: &Path,
     app_id: &str,
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
+    install_portable_zip_with_name(installer_path, app_id, None, custom_portable_dir)
+}
+
+/// 便携 ZIP 解压安装体（带展示名，供桌面快捷方式统一命名）。
+pub fn install_portable_zip_with_name(
+    installer_path: &Path,
+    app_id: &str,
+    app_name: Option<&str>,
+    custom_portable_dir: Option<&str>,
+) -> Result<InstallOutcome, String> {
     let app_dir = crate::installer::paths::dirs_or_fallback_with_base(app_id, custom_portable_dir);
-    install_portable_zip_into(installer_path, app_id, &app_dir, DEFAULT_EXTRACT_LIMITS)
+    install_portable_zip_into(
+        installer_path,
+        portable_shortcut_label(app_name, app_id),
+        &app_dir,
+        DEFAULT_EXTRACT_LIMITS,
+    )
 }
 
 fn install_portable_zip_into(
     installer_path: &Path,
-    app_id: &str,
+    shortcut_label: &str,
     app_dir: &Path,
     limits: ExtractLimits,
 ) -> Result<InstallOutcome, String> {
@@ -196,8 +362,16 @@ fn install_portable_zip_into(
         )
     })?;
 
+    if let Some(parent) = app_dir.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("创建便携父目录失败 ({}): {}", parent.display(), e))?;
+    }
+    let staging_path = sibling_temp_dir(app_dir, "stage")?;
+    let mut staging_guard = StagingDirGuard::new(staging_path);
+    let staging_dir = staging_guard.path().to_path_buf();
+
     let mut tracker = ExtractTracker::new(limits);
-    let main_exe = match unpack_zip_entries(&mut archive, app_dir, &mut tracker) {
+    let staged_main_exe = match unpack_zip_entries(&mut archive, &staging_dir, &mut tracker) {
         Ok(main_exe) => main_exe,
         Err(reason) => {
             tracker.rollback();
@@ -205,12 +379,21 @@ fn install_portable_zip_into(
         }
     };
 
+    atomic_swap_dir(&staging_dir, app_dir)?;
+    staging_guard.disarm();
+
+    let main_exe = staged_main_exe.and_then(|p| {
+        p.strip_prefix(&staging_dir)
+            .ok()
+            .map(|rel| app_dir.join(rel))
+    });
+
     #[cfg(target_os = "windows")]
     if let Some(ref exe) = main_exe {
-        crate::installer::paths::create_desktop_shortcut(app_id, exe);
+        crate::installer::paths::create_desktop_shortcut(shortcut_label, exe);
     }
     #[cfg(not(target_os = "windows"))]
-    let _ = (&main_exe, app_id);
+    let _ = (&main_exe, shortcut_label);
 
     Ok(InstallOutcome::Installed(format!(
         "已解压至便携目录: {:?}",
@@ -249,6 +432,24 @@ fn unpack_zip_entries<R: Read + io::Seek>(
     Ok(main_exe)
 }
 
+/// 跨平台归档条目路径安全校验：拒绝绝对路径、Windows 盘符前缀及任意 `/` 或 `\` 分隔的 `..`。
+fn is_unsafe_archive_path(entry_path: &Path) -> bool {
+    if entry_path.components().any(|comp| {
+        matches!(
+            comp,
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir
+        )
+    }) {
+        return true;
+    }
+    let raw = entry_path.to_string_lossy();
+    let bytes = raw.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return true;
+    }
+    raw.split(['/', '\\']).any(|seg| seg == "..")
+}
+
 /// tar 条目路径防穿越拼接（对齐 zip `enclosed_name` 语义）：
 /// 拒绝绝对路径 / Prefix / RootDir / 任何 `..`，仅拼接 Normal/CurDir。
 fn enclosed_join(base: &Path, entry_path: &Path) -> Option<PathBuf> {
@@ -266,14 +467,14 @@ fn enclosed_join(base: &Path, entry_path: &Path) -> Option<PathBuf> {
 
 fn unpack_tar_entries<R: Read>(
     archive: &mut tar::Archive<R>,
-    app_dir: &Path,
+    staging_dir: &Path,
     tracker: &mut ExtractTracker,
 ) -> Result<Option<PathBuf>, String> {
-    tracker.create_dir(app_dir)?;
+    tracker.create_dir(staging_dir)?;
     let mut main_exe: Option<PathBuf> = None;
     let entries = archive.entries().map_err(|e| e.to_string())?;
     for entry_res in entries {
-        // 条目计数前置于一切过滤：目录 / 软链 / 穿越条目同样占配额。
+        // 条目计数前置于一切过滤：目录 / 软链 / 硬链 / 穿越条目同样占配额。
         tracker.count_entry()?;
         let mut entry = entry_res.map_err(|e| e.to_string())?;
         let entry_path = entry.path().map_err(|e| e.to_string())?.into_owned();
@@ -282,18 +483,11 @@ fn unpack_tar_entries<R: Read>(
             continue;
         }
         // 穿越校验前置：绝对路径 / Prefix / RootDir / 任何 `..` 直接跳过。
-        // 必须在剥顶层目录之前判定，否则 `../x` 剥掉首组件后将绕过检查。
-        let traverses = entry_path.components().any(|comp| {
-            matches!(
-                comp,
-                Component::Prefix(_) | Component::RootDir | Component::ParentDir
-            )
-        });
-        if traverses {
+        if is_unsafe_archive_path(&entry_path) {
             continue;
         }
-        // 剥顶层目录（strip-first-component，与 zip 归一）：过滤 `CurDir` 后去掉首个组件；
-        // 单组件目录即顶层本身，跳过；单组件文件说明归档无顶层目录，予以保留。
+        // 完整保留归档内相对层级落入暂存目录；单顶层公共目录剥离推迟到全部解包完成后统一判定，
+        // 避免无条件剥首段把 `bin/` + `lib/` + `etc/` 多根包拍扁冲突。
         let normals: Vec<std::ffi::OsString> = entry_path
             .components()
             .filter_map(|c| match c {
@@ -304,15 +498,8 @@ fn unpack_tar_entries<R: Read>(
         if normals.is_empty() {
             continue;
         }
-        let rel: PathBuf = if normals.len() == 1 {
-            if entry_type.is_dir() {
-                continue;
-            }
-            PathBuf::from(&normals[0])
-        } else {
-            normals[1..].iter().collect()
-        };
-        let Some(outpath) = enclosed_join(app_dir, &rel) else {
+        let rel: PathBuf = normals.iter().collect();
+        let Some(outpath) = enclosed_join(staging_dir, &rel) else {
             continue;
         };
         if entry_type.is_dir() {
@@ -338,21 +525,37 @@ fn unpack_tar_entries<R: Read>(
     Ok(main_exe)
 }
 
-/// 便携 Tarball 解压安装体（跨平台；上层只会传入本平台命中的包）：
-/// 支持 `.tar.gz/.tgz` (gzip)、`.tar.xz` (xz)、`.tar` (plain)；
-/// `.tar.bz2` 暂不支持，返回明确错误（不引入 bzip2 依赖）。
+/// 便携 Tarball 解压安装体（跨平台；默认以 `app_id` 为快捷方式名）。
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn install_portable_tarball(
     installer_path: &Path,
     app_id: &str,
     custom_portable_dir: Option<&str>,
 ) -> Result<InstallOutcome, String> {
+    install_portable_tarball_with_name(installer_path, app_id, None, custom_portable_dir)
+}
+
+/// 便携 Tarball 解压安装体（跨平台；带展示名，供桌面快捷方式统一命名）：
+/// 支持 `.tar.gz/.tgz` (gzip)、`.tar.xz` (xz)、`.tar` (plain)；
+/// `.tar.bz2` 暂不支持，返回明确错误（不引入 bzip2 依赖）。
+pub fn install_portable_tarball_with_name(
+    installer_path: &Path,
+    app_id: &str,
+    app_name: Option<&str>,
+    custom_portable_dir: Option<&str>,
+) -> Result<InstallOutcome, String> {
     let app_dir = crate::installer::paths::dirs_or_fallback_with_base(app_id, custom_portable_dir);
-    install_portable_tarball_into(installer_path, app_id, &app_dir, DEFAULT_EXTRACT_LIMITS)
+    install_portable_tarball_into(
+        installer_path,
+        portable_shortcut_label(app_name, app_id),
+        &app_dir,
+        DEFAULT_EXTRACT_LIMITS,
+    )
 }
 
 fn install_portable_tarball_into(
     installer_path: &Path,
-    app_id: &str,
+    shortcut_label: &str,
     app_dir: &Path,
     limits: ExtractLimits,
 ) -> Result<InstallOutcome, String> {
@@ -382,9 +585,17 @@ fn install_portable_tarball_into(
             ));
         };
 
+    if let Some(parent) = app_dir.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("创建便携父目录失败 ({}): {}", parent.display(), e))?;
+    }
+    let staging_path = sibling_temp_dir(app_dir, "stage")?;
+    let mut staging_guard = StagingDirGuard::new(staging_path);
+    let staging_dir = staging_guard.path().to_path_buf();
+
     let mut archive = tar::Archive::new(reader);
     let mut tracker = ExtractTracker::new(limits);
-    let main_exe = match unpack_tar_entries(&mut archive, app_dir, &mut tracker) {
+    let staged_main_exe = match unpack_tar_entries(&mut archive, &staging_dir, &mut tracker) {
         Ok(main_exe) => main_exe,
         Err(reason) => {
             tracker.rollback();
@@ -397,12 +608,26 @@ fn install_portable_tarball_into(
         }
     };
 
+    // 仅当全部条目共享唯一顶层公共目录时剥离该目录，多根或含顶层文件时完整保留原结构。
+    let promote_dir = single_top_level_dir(&staging_dir).unwrap_or_else(|| staging_dir.clone());
+    atomic_swap_dir(&promote_dir, app_dir)?;
+    if promote_dir == staging_dir {
+        staging_guard.disarm();
+    }
+    // 若 promote_dir 为 staging_dir 子目录，staging_guard 析构时清理空壳外层暂存目录。
+
+    let main_exe = staged_main_exe.and_then(|p| {
+        p.strip_prefix(&promote_dir)
+            .ok()
+            .map(|rel| app_dir.join(rel))
+    });
+
     #[cfg(target_os = "windows")]
     if let Some(ref exe) = main_exe {
-        crate::installer::paths::create_desktop_shortcut(app_id, exe);
+        crate::installer::paths::create_desktop_shortcut(shortcut_label, exe);
     }
     #[cfg(not(target_os = "windows"))]
-    let _ = (&main_exe, app_id);
+    let _ = (&main_exe, shortcut_label);
 
     Ok(InstallOutcome::Installed(format!(
         "已解压至便携目录: {:?}",
@@ -794,5 +1019,338 @@ mod extract_guard_tests {
                 .expect_err("软链条目同样受条目上限约束");
         assert!(err.contains("条目数"), "{err}");
         assert!(!app_dir.exists());
+    }
+
+    /// 构造带原始任意路径（含 `../`、绝对路径、Windows 盘符前缀）的 ustar 条目并写入流。
+    fn write_raw_tar_entry<W: Write>(
+        out: &mut W,
+        raw_path: &[u8],
+        entry_type: tar::EntryType,
+        link_name: Option<&[u8]>,
+        data: &[u8],
+    ) {
+        let mut hdr = tar::Header::new_ustar();
+        hdr.set_entry_type(entry_type);
+        hdr.set_size(data.len() as u64);
+        hdr.set_mode(0o644);
+        {
+            let bytes = hdr.as_mut_bytes();
+            let n = raw_path.len().min(100);
+            bytes[..n].copy_from_slice(&raw_path[..n]);
+            if let Some(link) = link_name {
+                let ln = link.len().min(100);
+                bytes[157..157 + ln].copy_from_slice(&link[..ln]);
+            }
+        }
+        hdr.set_cksum();
+        out.write_all(hdr.as_bytes()).unwrap();
+        out.write_all(data).unwrap();
+        let rem = data.len() % 512;
+        if rem != 0 {
+            out.write_all(&vec![0u8; 512 - rem]).unwrap();
+        }
+    }
+
+    #[test]
+    fn zip_slip_absolute_and_windows_prefix_entries_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip_path = dir.path().join("slip.zip");
+        write_zip(
+            &zip_path,
+            &[
+                ("../escape1.txt", b"pwn1"),
+                ("myapp/../../escape2.txt", b"pwn2"),
+                ("/abs_escape.txt", b"pwn3"),
+                (r"C:\evil_escape.txt", b"pwn4"),
+                (r"..\win_escape.txt", b"pwn5"),
+                ("myapp/safe.txt", b"safe"),
+            ],
+        );
+
+        let base = tempfile::tempdir().unwrap();
+        let nested_parent = base.path().join("apps");
+        let app_dir = nested_parent.join("target");
+        install_portable_zip_into(&zip_path, "owner/repo", &app_dir, DEFAULT_EXTRACT_LIMITS)
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read(app_dir.join("myapp").join("safe.txt")).unwrap(),
+            b"safe"
+        );
+        assert!(!nested_parent.join("escape1.txt").exists());
+        assert!(!nested_parent.join("escape2.txt").exists());
+        assert!(!nested_parent.join("win_escape.txt").exists());
+        assert!(!base.path().join("escape1.txt").exists());
+        assert!(!base.path().join("escape2.txt").exists());
+        assert!(!app_dir.join("abs_escape.txt").exists());
+        assert!(!app_dir.join("evil_escape.txt").exists());
+    }
+
+    #[test]
+    fn tar_traversal_absolute_windows_prefix_and_hardlink_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let tar_path = dir.path().join("evil.tar");
+        {
+            let mut f = std::fs::File::create(&tar_path).unwrap();
+            write_raw_tar_entry(&mut f, b"../escape1.txt", tar::EntryType::Regular, None, b"pwn1");
+            write_raw_tar_entry(
+                &mut f,
+                b"myapp/../../escape2.txt",
+                tar::EntryType::Regular,
+                None,
+                b"pwn2",
+            );
+            write_raw_tar_entry(
+                &mut f,
+                b"/etc/zstore_evil.txt",
+                tar::EntryType::Regular,
+                None,
+                b"pwn3",
+            );
+            write_raw_tar_entry(
+                &mut f,
+                br"C:\evil\win.txt",
+                tar::EntryType::Regular,
+                None,
+                b"pwn4",
+            );
+            write_raw_tar_entry(
+                &mut f,
+                br"..\win_escape.txt",
+                tar::EntryType::Regular,
+                None,
+                b"pwn5",
+            );
+            write_raw_tar_entry(
+                &mut f,
+                b"myapp/hardlink_escape",
+                tar::EntryType::Link,
+                Some(b"../../outside_secret"),
+                b"",
+            );
+            write_raw_tar_entry(&mut f, b"myapp/safe.txt", tar::EntryType::Regular, None, b"ok");
+            // tar 结束双 512 零块
+            f.write_all(&[0u8; 1024]).unwrap();
+        }
+
+        let base = tempfile::tempdir().unwrap();
+        let nested_parent = base.path().join("apps");
+        let app_dir = nested_parent.join("target");
+        install_portable_tarball_into(&tar_path, "owner/repo", &app_dir, DEFAULT_EXTRACT_LIMITS)
+            .unwrap();
+
+        assert_eq!(std::fs::read(app_dir.join("safe.txt")).unwrap(), b"ok");
+        assert!(!app_dir.join("hardlink_escape").exists());
+        assert!(!nested_parent.join("escape1.txt").exists());
+        assert!(!nested_parent.join("escape2.txt").exists());
+        assert!(!nested_parent.join("win_escape.txt").exists());
+        assert!(!base.path().join("escape1.txt").exists());
+        assert!(!base.path().join("escape2.txt").exists());
+    }
+
+    #[test]
+    fn tar_multi_root_preserves_top_level_dirs_without_collision() {
+        // 回归 F-13：多顶层目录（bin/、lib/、etc/）绝不能无条件剥离首段导致拍扁覆盖。
+        let dir = tempfile::tempdir().unwrap();
+        let tar_path = dir.path().join("multi.tar");
+        {
+            let f = std::fs::File::create(&tar_path).unwrap();
+            let mut tb = tar::Builder::new(f);
+            append_tar_file(&mut tb, "bin/app", b"binary", 0o755);
+            append_tar_file(&mut tb, "bin/config", b"bin-cfg", 0o644);
+            append_tar_file(&mut tb, "lib/foo.so", b"shared-lib", 0o644);
+            append_tar_file(&mut tb, "etc/config", b"etc-cfg", 0o644);
+            tb.finish().unwrap();
+        }
+
+        let base = tempfile::tempdir().unwrap();
+        let app_dir = base.path().join("multi-app");
+        install_portable_tarball_into(&tar_path, "owner/multi", &app_dir, DEFAULT_EXTRACT_LIMITS)
+            .unwrap();
+
+        assert_eq!(std::fs::read(app_dir.join("bin").join("app")).unwrap(), b"binary");
+        assert_eq!(
+            std::fs::read(app_dir.join("bin").join("config")).unwrap(),
+            b"bin-cfg"
+        );
+        assert_eq!(
+            std::fs::read(app_dir.join("lib").join("foo.so")).unwrap(),
+            b"shared-lib"
+        );
+        assert_eq!(
+            std::fs::read(app_dir.join("etc").join("config")).unwrap(),
+            b"etc-cfg"
+        );
+    }
+
+    #[test]
+    fn tar_top_level_file_alongside_dir_does_not_strip_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let tar_path = dir.path().join("mixed.tar");
+        {
+            let f = std::fs::File::create(&tar_path).unwrap();
+            let mut tb = tar::Builder::new(f);
+            append_tar_file(&mut tb, "README.md", b"readme", 0o644);
+            append_tar_file(&mut tb, "bin/tool", b"tool-bin", 0o755);
+            tb.finish().unwrap();
+        }
+
+        let base = tempfile::tempdir().unwrap();
+        let app_dir = base.path().join("mixed-app");
+        install_portable_tarball_into(&tar_path, "owner/mixed", &app_dir, DEFAULT_EXTRACT_LIMITS)
+            .unwrap();
+
+        assert_eq!(std::fs::read(app_dir.join("README.md")).unwrap(), b"readme");
+        assert_eq!(
+            std::fs::read(app_dir.join("bin").join("tool")).unwrap(),
+            b"tool-bin"
+        );
+    }
+
+    #[test]
+    fn portable_zip_mid_upgrade_failure_preserves_existing_v1_files() {
+        // 回归 F-09：升级 ZIP 中途失败（即使先写同名文件再超限）绝不得破坏或删除原有 v1 文件。
+        let dir = tempfile::tempdir().unwrap();
+        let v1_zip = dir.path().join("v1.zip");
+        write_zip(
+            &v1_zip,
+            &[
+                ("myapp/app.exe", b"v1-exe"),
+                ("myapp/config.json", b"v1-config"),
+                ("myapp/only_v1.txt", b"stay-intact"),
+            ],
+        );
+
+        let base = tempfile::tempdir().unwrap();
+        let app_dir = base.path().join("owner-repo");
+        install_portable_zip_into(&v1_zip, "MyApp", &app_dir, DEFAULT_EXTRACT_LIMITS).unwrap();
+
+        let v2_bad_zip = dir.path().join("v2-bad.zip");
+        write_zip(
+            &v2_bad_zip,
+            &[
+                ("myapp/app.exe", b"v2-partial"),
+                ("myapp/huge.bin", &[b'X'; 4096]),
+            ],
+        );
+
+        let err =
+            install_portable_zip_into(&v2_bad_zip, "MyApp", &app_dir, tiny_limits(512, 100))
+                .expect_err("over-quota upgrade must fail");
+        assert!(err.contains("已回滚"), "{err}");
+
+        // 原有 v1 全部文件必须完好无损
+        assert_eq!(
+            std::fs::read(app_dir.join("myapp").join("app.exe")).unwrap(),
+            b"v1-exe"
+        );
+        assert_eq!(
+            std::fs::read(app_dir.join("myapp").join("config.json")).unwrap(),
+            b"v1-config"
+        );
+        assert_eq!(
+            std::fs::read(app_dir.join("myapp").join("only_v1.txt")).unwrap(),
+            b"stay-intact"
+        );
+        // 不得残留暂存/备份目录
+        let siblings: Vec<_> = std::fs::read_dir(base.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(siblings, vec![std::ffi::OsString::from("owner-repo")]);
+    }
+
+    #[test]
+    fn portable_tar_mid_upgrade_failure_preserves_existing_v1_and_valid_upgrade_replaces_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let v1_tar = dir.path().join("v1.tar");
+        {
+            let f = std::fs::File::create(&v1_tar).unwrap();
+            let mut tb = tar::Builder::new(f);
+            append_tar_file(&mut tb, "myapp/data.txt", b"v1-data", 0o644);
+            append_tar_file(&mut tb, "myapp/old.txt", b"v1-only", 0o644);
+            tb.finish().unwrap();
+        }
+
+        let base = tempfile::tempdir().unwrap();
+        let app_dir = base.path().join("owner-repo");
+        install_portable_tarball_into(&v1_tar, "MyApp", &app_dir, DEFAULT_EXTRACT_LIMITS).unwrap();
+
+        let v2_bad_tar = dir.path().join("v2-bad.tar");
+        {
+            let f = std::fs::File::create(&v2_bad_tar).unwrap();
+            let mut tb = tar::Builder::new(f);
+            append_tar_file(&mut tb, "myapp/data.txt", b"v2-partial", 0o644);
+            append_tar_file(&mut tb, "myapp/bomb.bin", &[b'b'; 4096], 0o644);
+            tb.finish().unwrap();
+        }
+        install_portable_tarball_into(&v2_bad_tar, "MyApp", &app_dir, tiny_limits(512, 100))
+            .expect_err("over-quota tar upgrade must fail");
+
+        assert_eq!(std::fs::read(app_dir.join("data.txt")).unwrap(), b"v1-data");
+        assert_eq!(std::fs::read(app_dir.join("old.txt")).unwrap(), b"v1-only");
+
+        // 合法 v2 升级应原子替换并清除旧版遗留文件与所有临时目录
+        let v2_good_tar = dir.path().join("v2-good.tar");
+        {
+            let f = std::fs::File::create(&v2_good_tar).unwrap();
+            let mut tb = tar::Builder::new(f);
+            append_tar_file(&mut tb, "myapp/data.txt", b"v2-data", 0o644);
+            tb.finish().unwrap();
+        }
+        install_portable_tarball_into(&v2_good_tar, "MyApp", &app_dir, DEFAULT_EXTRACT_LIMITS)
+            .unwrap();
+        assert_eq!(std::fs::read(app_dir.join("data.txt")).unwrap(), b"v2-data");
+        assert!(!app_dir.join("old.txt").exists());
+        let siblings: Vec<_> = std::fs::read_dir(base.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(siblings, vec![std::ffi::OsString::from("owner-repo")]);
+    }
+
+    #[test]
+    fn atomic_swap_dir_restores_v1_from_backup_when_commit_rename_fails() {
+        let base = tempfile::tempdir().unwrap();
+        let dest = base.path().join("owner-repo");
+        let staged = base.path().join(".owner-repo.zstore-stage-test");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join("app.txt"), b"v1-live").unwrap();
+        std::fs::create_dir_all(&staged).unwrap();
+        std::fs::write(staged.join("app.txt"), b"v2-staged").unwrap();
+
+        let mut step = 0usize;
+        let err = atomic_swap_dir_with(&staged, &dest, |from, to| {
+            step += 1;
+            if step == 2 {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "injected swap error",
+                ));
+            }
+            std::fs::rename(from, to)
+        })
+        .expect_err("injected swap error must fail");
+
+        assert!(err.contains("已恢复旧版本"), "{err}");
+        assert_eq!(std::fs::read(dest.join("app.txt")).unwrap(), b"v1-live");
+    }
+
+    #[test]
+    fn portable_shortcut_label_prefers_app_name_over_app_id() {
+        assert_eq!(
+            portable_shortcut_label(Some("PicGo"), "molunerfinn/picgo"),
+            "PicGo"
+        );
+        assert_eq!(
+            portable_shortcut_label(Some("   "), "molunerfinn/picgo"),
+            "molunerfinn/picgo"
+        );
+        assert_eq!(
+            portable_shortcut_label(None, "molunerfinn/picgo"),
+            "molunerfinn/picgo"
+        );
     }
 }

@@ -88,6 +88,7 @@ pub(crate) const CANDIDATE_STOP_WORDS: &[&str] = &[
     "system",
     "helper",
     "service",
+    "server",
     "test",
     "tests",
     "terminal",
@@ -105,17 +106,82 @@ impl AppScanner {
             && !CANDIDATE_STOP_WORDS.contains(&lower)
     }
 
+    /// UTF-8 安全的整词边界匹配：`needle` 在 `haystack` 中命中时前后不可紧邻字母或数字。
+    #[cfg(any(target_os = "windows", test))]
+    fn contains_word_boundary(haystack: &str, needle: &str) -> bool {
+        if needle.is_empty() || haystack.len() < needle.len() {
+            return false;
+        }
+        let mut start = 0;
+        while start <= haystack.len() - needle.len() {
+            let Some(pos) = haystack[start..].find(needle) else {
+                break;
+            };
+            let s = start + pos;
+            let e = s + needle.len();
+            let before_ok = s == 0
+                || !haystack[..s]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_alphanumeric);
+            let after_ok = e == haystack.len()
+                || !haystack[e..]
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_alphanumeric);
+            if before_ok && after_ok {
+                return true;
+            }
+            let step = haystack[s..].chars().next().map_or(1, char::len_utf8);
+            start = s + step;
+        }
+        false
+    }
+
+    /// 注册表条目（DisplayName / 非 GUID 键名）与搜索 token 的严格匹配判定：
+    /// 全等或正向整词边界（token 长度 >= 4 且非停用词），禁止裸子串 `.contains()` 与反向包含。
+    #[cfg(any(target_os = "windows", test))]
+    pub(crate) fn registry_entry_matches_tokens(
+        display_name: &str,
+        key_name: &str,
+        tokens: &[String],
+    ) -> bool {
+        let d_lower = display_name.trim().to_lowercase();
+        if d_lower.is_empty() {
+            return false;
+        }
+        let k_lower = key_name.trim().to_lowercase();
+        let is_guid = k_lower.starts_with('{') && k_lower.ends_with('}');
+        tokens.iter().any(|t| {
+            let t = t.trim();
+            if t.is_empty() {
+                return false;
+            }
+            let allow_word =
+                t.chars().count() >= 4 && !CANDIDATE_STOP_WORDS.contains(&t);
+            d_lower == t
+                || (allow_word && Self::contains_word_boundary(&d_lower, t))
+                || (!is_guid
+                    && (k_lower == t
+                        || (allow_word && Self::contains_word_boundary(&k_lower, t))))
+        })
+    }
+
     /// 从名称/id/repo 构建搜索词元并扩展 `ScanConfig` 的目录与可执行名候选。
+    /// 剥离 `app_id` / `repo_str` 的 `owner/` 前缀，避免 GitHub 组织名（如 `mozilla`）误命中无关软件。
     fn build_tokens(
         app_name: &str,
         app_id: &str,
         repo_str: &str,
         config: &mut ScanConfig,
     ) -> Vec<String> {
+        let id_repo = app_id.rsplit('/').next().unwrap_or(app_id).trim();
+        let repo_part = repo_str.rsplit('/').next().unwrap_or(repo_str).trim();
+
         let mut tokens = vec![
             app_name.trim().to_lowercase(),
-            app_id.trim().to_lowercase(),
-            repo_str.trim().to_lowercase(),
+            id_repo.to_lowercase(),
+            repo_part.to_lowercase(),
         ];
         for part in app_name.split_whitespace() {
             let p_lower = part.trim().to_lowercase();
@@ -123,7 +189,7 @@ impl AppScanner {
                 tokens.push(p_lower);
             }
         }
-        for part in app_id.split(['-', '/']) {
+        for part in id_repo.split('-') {
             let p_lower = part.trim().to_lowercase();
             if Self::is_search_token(&p_lower) {
                 tokens.push(p_lower);
@@ -135,13 +201,19 @@ impl AppScanner {
                 tokens.push(f_lower);
             }
         }
-        if let Some((first, _)) = app_id.rsplit_once('-') {
+        if let Some((first, _)) = id_repo.rsplit_once('-') {
             let f_lower = first.trim().to_lowercase();
             if Self::is_search_token(&f_lower) {
                 tokens.push(f_lower);
             }
         }
-        tokens.retain(|t| !t.is_empty() && Self::is_search_token(t));
+        let mut deduped = Vec::new();
+        for t in tokens {
+            if !t.is_empty() && Self::is_search_token(&t) && !deduped.contains(&t) {
+                deduped.push(t);
+            }
+        }
+        let tokens = deduped;
 
         for t in &tokens {
             if !config.install_dirs.contains(t) {
@@ -248,24 +320,15 @@ impl AppScanner {
             let root = RegKey::predef(hive);
             if let Ok(uninstall_key) = root.open_subkey(subpath) {
                 for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
-                    let k_lower = key_name.to_lowercase();
-                    let is_guid = k_lower.starts_with('{') && k_lower.ends_with('}');
                     if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
                         let disp_name: String = app_key
                             .get_value::<String, _>("DisplayName")
                             .unwrap_or_default()
                             .trim()
                             .to_string();
-                        let d_lower = disp_name.to_lowercase();
 
-                        let is_match = !d_lower.is_empty()
-                            && tokens.iter().any(|t| {
-                                d_lower == *t
-                                    || (t.len() >= 4 && d_lower.contains(t))
-                                    || (d_lower.len() >= 4 && t.contains(&d_lower))
-                                    || (!is_guid
-                                        && (k_lower == *t || (t.len() >= 4 && k_lower.contains(t))))
-                            });
+                        let is_match =
+                            Self::registry_entry_matches_tokens(&disp_name, &key_name, tokens);
 
                         if is_match {
                             // A. 检查 DisplayIcon
@@ -378,7 +441,12 @@ impl AppScanner {
     #[cfg(target_os = "windows")]
     fn shortcut_scan(tokens: &[String], roots: &ShortcutRoots) -> Option<String> {
         roots.start_menu_first().into_iter().find_map(|listing| {
-            Self::first_lnk_match(listing, |fname| tokens.iter().any(|t| fname.contains(t)))
+            Self::first_lnk_match(listing, |fname| {
+                let stem = fname.strip_suffix(".lnk").unwrap_or(fname);
+                tokens
+                    .iter()
+                    .any(|t| stem == t || Self::contains_word_boundary(stem, t))
+            })
         })
     }
 
@@ -1459,7 +1527,7 @@ impl AppScanner {
             if !name_clean.is_empty() {
                 tokens.push(name_clean.clone());
             }
-            if let Some((_, repo)) = app_id.split_once('/') {
+            if let Some((_, repo)) = app_id.rsplit_once('/') {
                 let r_lower = repo.trim().to_lowercase();
                 if !r_lower.is_empty() && !tokens.contains(&r_lower) {
                     tokens.push(r_lower);
@@ -1487,25 +1555,18 @@ impl AppScanner {
                 let root = RegKey::predef(hive);
                 if let Ok(uninstall_key) = root.open_subkey(subpath) {
                     for key_name in uninstall_key.enum_keys().map_while(Result::ok) {
-                        let k_lower = key_name.to_lowercase();
-                        let is_guid = k_lower.starts_with('{') && k_lower.ends_with('}');
                         if let Ok(app_key) = uninstall_key.open_subkey(&key_name) {
                             let disp_name: String = app_key
                                 .get_value::<String, _>("DisplayName")
                                 .unwrap_or_default()
                                 .trim()
                                 .to_string();
-                            let d_lower = disp_name.to_lowercase();
 
-                            let is_match = !d_lower.is_empty()
-                                && tokens.iter().any(|t| {
-                                    d_lower == *t
-                                        || (t.len() >= 4 && d_lower.contains(t))
-                                        || (d_lower.len() >= 4 && t.contains(&d_lower))
-                                        || (!is_guid
-                                            && (k_lower == *t
-                                                || (t.len() >= 4 && k_lower.contains(t))))
-                                });
+                            let is_match = Self::registry_entry_matches_tokens(
+                                &disp_name,
+                                &key_name,
+                                &tokens,
+                            );
 
                             if is_match {
                                 // 1. 优先读取 InstallDate 字符串
@@ -1633,5 +1694,88 @@ mod path_resolution_tests {
         assert!(AppScanner::scan_lnk_dir(&dir.path().join("missing"), |_| true).is_none());
         let file_root = dir.path().join("note.txt");
         assert!(AppScanner::scan_lnk_dir(&file_root, |_| true).is_none());
+    }
+
+    #[test]
+    fn build_tokens_excludes_owner_prefix_and_generic_server_segment() {
+        // 回归 F-16：mozilla/pdf.js 不得产出 mozilla；org/code-server 不得产出 org/code/server。
+        let mut cfg1 = ScanConfig::from("pdf.js");
+        let pdf_tokens = AppScanner::build_tokens("PDF.js", "mozilla/pdf.js", "pdf.js", &mut cfg1);
+        assert!(
+            !pdf_tokens.iter().any(|t| t == "mozilla" || t.contains('/')),
+            "owner prefix must not enter tokens: {:?}",
+            pdf_tokens
+        );
+        assert!(pdf_tokens.iter().any(|t| t == "pdf.js"));
+        assert!(
+            !AppScanner::registry_entry_matches_tokens(
+                "Mozilla Firefox (x64 en-US)",
+                "Mozilla Firefox 128.0",
+                &pdf_tokens,
+            ),
+            "mozilla/pdf.js must not match Mozilla Firefox"
+        );
+
+        let mut cfg2 = ScanConfig::from("code-server");
+        let cs_tokens =
+            AppScanner::build_tokens("code-server", "org/code-server", "code-server", &mut cfg2);
+        assert!(
+            !cs_tokens
+                .iter()
+                .any(|t| matches!(t.as_str(), "org" | "code" | "server") || t.contains('/')),
+            "owner and generic stop-word segments must not enter tokens: {:?}",
+            cs_tokens
+        );
+        assert!(cs_tokens.iter().any(|t| t == "code-server"));
+        assert!(
+            !AppScanner::registry_entry_matches_tokens(
+                "Microsoft SQL Server 2022",
+                "SQLServer2022",
+                &cs_tokens,
+            ),
+            "org/code-server must not match SQL Server"
+        );
+        assert!(
+            AppScanner::registry_entry_matches_tokens(
+                "code-server 4.90.0",
+                "{1234-5678}",
+                &cs_tokens,
+            ),
+            "legitimate word-boundary display name must still match"
+        );
+    }
+
+    #[test]
+    fn registry_entry_matching_enforces_word_boundaries_and_no_reverse_substring() {
+        let picgo_tokens = vec!["picgo".to_string()];
+        assert!(AppScanner::registry_entry_matches_tokens(
+            "PicGo",
+            "{GUID}",
+            &picgo_tokens
+        ));
+        assert!(AppScanner::registry_entry_matches_tokens(
+            "PicGo 2.4.0",
+            "{GUID}",
+            &picgo_tokens
+        ));
+        assert!(
+            !AppScanner::registry_entry_matches_tokens(
+                "SuperPicGoPro",
+                "SuperPicGoPro",
+                &picgo_tokens
+            ),
+            "mid-word substring must not match"
+        );
+
+        let vscode_tokens = vec!["visual studio code".to_string()];
+        assert!(AppScanner::registry_entry_matches_tokens(
+            "Microsoft Visual Studio Code (User)",
+            "{GUID}",
+            &vscode_tokens
+        ));
+        assert!(
+            !AppScanner::registry_entry_matches_tokens("Code", "Code", &vscode_tokens),
+            "short unrelated DisplayName must not reverse-match longer token"
+        );
     }
 }
