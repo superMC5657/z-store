@@ -28,6 +28,7 @@ import {
 } from '../app/selectors';
 import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
 import { queueAssembledRowIcons } from '../services/iconStore';
+import { normalizeId } from '../services/normalizeId';
 import type { LaunchpadEntry, LaunchpadSortMode } from '../types';
 import { hasDiscussion, useLaunchpadFeed } from './LaunchpadView/useLaunchpadFeed';
 import { scrollBehavior } from '../lib/motion';
@@ -110,14 +111,22 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
     [feed, matches, sortMode],
   );
 
-  // 深链定位：数据就绪后高亮并滚动到对应卡片。
+  // 深链定位：数据就绪后消费一次性焦点目标，写入本地 highlightId。
   useEffect(() => {
     if (!focusAppId || !feed) return;
-    const key = focusAppId.toLowerCase();
-    setHighlightId(key);
+    setHighlightId(focusAppId.toLowerCase());
     onFocusConsumed?.();
+  }, [focusAppId, feed, onFocusConsumed]);
+
+  // 高亮滚动与自动清除定时器独立由 highlightId 驱动，避免 onFocusConsumed 清空 focusAppId 时立即取消定时器。
+  useEffect(() => {
+    if (!highlightId) return;
     const timer = window.setTimeout(() => {
-      const el = document.querySelector(`[data-launchpad-id="${CSS.escape(key)}"]`);
+      const escaped =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? CSS.escape(highlightId)
+          : highlightId.replace(/["\\]/g, '\\$&');
+      const el = document.querySelector(`[data-launchpad-id="${escaped}"]`);
       el?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'center' });
     }, 60);
     const clear = window.setTimeout(() => setHighlightId(null), 4000);
@@ -125,7 +134,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
       window.clearTimeout(timer);
       window.clearTimeout(clear);
     };
-  }, [focusAppId, feed, onFocusConsumed]);
+  }, [highlightId]);
 
   const closeDiscussion = useCallback(() => setDiscussionAppId(null), []);
 
@@ -180,7 +189,7 @@ export const LaunchpadView: React.FC<LaunchpadViewProps> = (props) => {
         platformLoading={isPlatformLoading(entry.summary, platformResolvedOtherIds)}
         isInstalled={selectIsInstalled(id, installedIds)}
         isManaged={selectManagedState(id, managedIds)}
-        isInstalling={installingIds?.has(id) ?? false}
+        isInstalling={installingIds?.has(normalizeId(id)) ?? false}
         isStarring={launchpad.isStarring(id)}
         isUpvoting={launchpad.isUpvoting(id)}
         upvoted={Boolean(entry.viewer_has_upvoted)}

@@ -1245,4 +1245,35 @@ describe('图标唯一通道：icon-ready → admitIconHit（无窗口总线）'
     const next = patchIconMirror(prev, 'acme/atlas', '');
     expect(next['acme/atlas'].icon).toBe('');
   });
+
+  it('精选 apps 为空时仍正常渲染有效未收录趋势行而非隐藏为空态（F-30b）', async () => {
+    trendingHtml = trendingHtmlFixture();
+    enrichSpy = vi.spyOn(tauriApi, 'enrichTrendRepos').mockImplementation(async (repos) =>
+      repos.map((r) =>
+        makeEnrichedApp({
+          id: `${r.owner}/${r.repo}`,
+          platforms: [],
+        }),
+      ),
+    );
+    const { container } = render(
+      <TrendsView
+        apps={[]}
+        allApps={[]}
+        selectedPlatforms={new Set(['other'])}
+        platformResolvedOtherIds={new Set(['acme/atlas'])}
+        favoriteIds={new Set<string>()}
+        installedIds={new Set<string>()}
+        installingIds={new Set<string>()}
+        onOpenDetail={() => {}}
+        onQuickInstall={() => {}}
+        onToggleFavorite={() => {}}
+        onResetPlatformFilter={() => {}}
+      />,
+    );
+    await clickTrendsRefresh();
+    await screen.findByText('acme/atlas enriched desc');
+    expect(container.querySelector('.trends-empty')).toBeNull();
+    expect(container.querySelector('.section-title .count-badge')?.textContent).toBe('3');
+  });
 });

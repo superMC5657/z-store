@@ -188,6 +188,37 @@ describe('useCustomApps：移入抑制集 customIds', () => {
     expect(rendered.result.current.customIds.has('moved/one')).toBe(true);
     await waitFor(() => expect(mocks.listCustomApps.mock.calls.length).toBeGreaterThan(reloadsBefore));
   });
+
+  it('删除草稿后 reloadCustomApps 清理 movedInIds，移入收录入口恢复可用', async () => {
+    const draftWire = {
+      id: 'moved/one',
+      item: { id: 'moved/one', owner: 'Moved', repo: 'One', platforms: [] },
+      status: 'draft',
+      pr_url: null,
+      created_at: 0,
+      updated_at: 0,
+      archived: false,
+    };
+    mocks.listCustomApps.mockResolvedValue([]);
+    const { rendered } = renderCustomApps();
+    await waitFor(() => expect(rendered.result.current.customApps).toEqual([]));
+
+    // 移入草稿：事件携带 detail.id 触发乐观移入，后端返回包含该草稿的列表
+    mocks.listCustomApps.mockResolvedValue([draftWire]);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed', { detail: { id: 'Moved/One' } }));
+    });
+    expect(rendered.result.current.customIds.has('moved/one')).toBe(true);
+    await waitFor(() => expect(rendered.result.current.customApps).toHaveLength(1));
+    expect(rendered.result.current.customIds.has('moved/one')).toBe(true);
+
+    // 删除该草稿：reloadCustomApps 返回空列表并清理 movedInIds，customIds 不再永久残留
+    mocks.listCustomApps.mockResolvedValue([]);
+    await act(async () => {
+      await rendered.result.current.handleDeleteCustomApp('moved/one');
+    });
+    expect(rendered.result.current.customIds.has('moved/one')).toBe(false);
+  });
 });
 
 describe('useCustomApps：协议白名单单飞查询', () => {

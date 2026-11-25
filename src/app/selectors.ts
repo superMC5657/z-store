@@ -935,11 +935,15 @@ export function useAppSelectors({
       : null);
   const stagedDeepLinkSha256 = stagedDeepLinkDetail?.releases.find((r) => r.sha256)?.sha256;
 
+  const hasRawSearchResults =
+    searchMergedApps.length > 0 || (isOnlineResults && annotatedOnlineApps.length > 0);
+
   return {
     fullMergedCatalogApps,
     catalogPlatformFilteredApps,
     searchPlatformFilteredApps,
     platformFilteredOnlineApps,
+    hasRawSearchResults,
     platformFilteredRecentApps,
     allFavoritesPoolApps,
     favoritesViewApps,

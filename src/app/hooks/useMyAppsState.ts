@@ -4,7 +4,7 @@
  *
  * 安装域与更新域共享同一份已装列表状态，卸载即清残留更新项，无需跨 Hook 桥接。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { AppSummary, InstalledApp, UpdateItem, UpdateRule, ViewType } from '../../types';
 import { hydrateCardsByIds } from '../../services/repoEnrichCache';
@@ -51,15 +51,37 @@ export function useMyAppsState({
   const installedState = useState<InstalledApp[]>([]);
   const [installedApps, setInstalledApps] = installedState;
 
-  const updatesDomain = useUpdatesState({ catalogLists, setInstalledApps, searchQuery, currentView, showToast, t });
+  const onAppUpdateRemovedRef = useRef<(id: string) => void>(() => {});
+  const notifyUpdateRemoved = useCallback((id: string) => {
+    onAppUpdateRemovedRef.current(id);
+  }, []);
+
   const installDomain = useInstallState({
     currentView,
     apps: catalogLists.apps,
     showToast,
     t,
-    onAppRemoved: updatesDomain.handleInstalledAppRemoved,
+    onAppRemoved: notifyUpdateRemoved,
+    onAppInstalled: notifyUpdateRemoved,
     installedState,
   });
+  const installExecutor = useMemo(
+    () => ({
+      applyUpdate: installDomain.handleUpdateApp,
+      batchApplyUpdate: installDomain.handleBatchUpdateApp,
+    }),
+    [installDomain.handleUpdateApp, installDomain.handleBatchUpdateApp],
+  );
+  const updatesDomain = useUpdatesState({
+    catalogLists,
+    setInstalledApps,
+    searchQuery,
+    currentView,
+    showToast,
+    t,
+    installExecutor,
+  });
+  onAppUpdateRemovedRef.current = updatesDomain.handleInstalledAppRemoved;
   const { loadInstalledApps } = installDomain;
 
   // 受管态门控：已装列表首读落定（成功或失败）即可信；IPC 迟迟不回时超时放行，避免中性占位永久悬挂。

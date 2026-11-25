@@ -1,6 +1,6 @@
 /** 测试 `SettingsView` 保存自定义应用收录源时的二次确认与持久化交互。 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from '../i18n';
 
 vi.mock('../services/api', () => {
@@ -256,8 +256,55 @@ describe('SettingsView proxy save failure', () => {
     await waitFor(() => {
       expect(screen.getByText(/代理保存失败/)).toBeTruthy();
     });
+    const fb = screen.getByTestId('proxy-feedback');
+    expect(fb.getAttribute('data-error')).toBe('true');
+    expect(fb.style.color).toContain('var(--status-danger)');
     expect(onSelectMirror).toHaveBeenCalledWith('https://bad.example.com');
     expect(calls).toEqual([]);
+  });
+
+  it('前一次保存成功的 3.5s 定时器不会抹掉随后的保存失败错误（F-37）', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSelectMirror = vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('bad mirror'));
+      renderSettings(baseSettings(), onSelectMirror);
+      const input = screen.getByPlaceholderText(/留空为直连/);
+      const saveBtn = screen.getByText('保存');
+
+      // 第一次成功：启动 3.5s 清空定时器
+      fireEvent.change(input, { target: { value: 'https://good.example.com' } });
+      fireEvent.click(saveBtn);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId('proxy-feedback').getAttribute('data-error')).toBe('false');
+
+      // 1s 后第二次失败：应清掉之前的成功定时器并保留错误反馈
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      fireEvent.change(input, { target: { value: 'https://bad.example.com' } });
+      fireEvent.click(saveBtn);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId('proxy-feedback').getAttribute('data-error')).toBe('true');
+
+      // 推进超过原 3.5s 窗口后错误提示依然存在
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      const fb = screen.getByTestId('proxy-feedback');
+      expect(fb.getAttribute('data-error')).toBe('true');
+      expect(fb.textContent).toContain('代理保存失败');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -8,7 +8,7 @@ import { ViewShell } from './ViewShell';
 import { AppearanceSection } from './SettingsView/sections/AppearanceSection';
 import { UpdatesRulesSection } from './SettingsView/sections/UpdatesRulesSection';
 import { StorageSection } from './SettingsView/sections/StorageSection';
-import { CatalogSyncFeedback, NetworkDataSection } from './SettingsView/sections/NetworkDataSection';
+import { CatalogSyncFeedback, NetworkDataSection, type ProxyFeedback } from './SettingsView/sections/NetworkDataSection';
 import { DataManagementSection } from './SettingsView/sections/DataManagementSection';
 import { AffinityPrivacyRow } from '../components/AffinityPrivacyRow';
 
@@ -61,8 +61,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     latency_ms: number;
     text: string;
   } | null>(null);
-  // 代理保存的瞬时反馈（成功与失败共用，成功 3.5s 后清空、失败留至下次操作）。
-  const [proxyFeedback, setProxyFeedback] = useState<string | null>(null);
+  // 代理保存的瞬时反馈（成功与失败区分样式，成功 3.5s 后清空、失败留至下次操作）。
+  const [proxyFeedback, setProxyFeedback] = useState<ProxyFeedback | null>(null);
+  const proxyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [catalogSourceUrl, setCatalogSourceUrl] = useState(
     settings.catalog_source_url || ''
@@ -98,6 +99,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     return () => {
       if (noticeTimerRef.current) {
         clearTimeout(noticeTimerRef.current);
+      }
+      if (proxyFeedbackTimerRef.current) {
+        clearTimeout(proxyFeedbackTimerRef.current);
       }
     };
   }, []);
@@ -164,13 +168,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  const clearProxyFeedbackTimer = () => {
+    if (proxyFeedbackTimerRef.current) {
+      clearTimeout(proxyFeedbackTimerRef.current);
+      proxyFeedbackTimerRef.current = null;
+    }
+  };
+
   const handleSaveProxy = async () => {
     const trimmed = proxyInput.trim();
+    clearProxyFeedbackTimer();
     try {
       if (!trimmed || trimmed === 'direct') {
         await onSelectMirror('direct');
         onUpdateSetting('active_mirror', 'direct');
-        setProxyFeedback(t('settings.proxy_saved_direct'));
+        setProxyFeedback({ text: t('settings.proxy_saved_direct'), isError: false });
         triggerChangeFeedback('proxy', t('settings.proxy_active_direct'));
       } else {
         let finalUrl = trimmed;
@@ -180,13 +192,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         }
         await onSelectMirror(finalUrl);
         onUpdateSetting('active_mirror', finalUrl);
-        setProxyFeedback(t('settings.proxy_saved_custom', { url: finalUrl }));
+        setProxyFeedback({ text: t('settings.proxy_saved_custom', { url: finalUrl }), isError: false });
         triggerChangeFeedback('proxy', t('settings.save_proxy'));
       }
-      setTimeout(() => setProxyFeedback(null), 3500);
+      proxyFeedbackTimerRef.current = setTimeout(() => {
+        proxyFeedbackTimerRef.current = null;
+        setProxyFeedback(null);
+      }, 3500);
     } catch (e) {
+      clearProxyFeedbackTimer();
       // 切换镜像失败：不落 active_mirror、不给成功反馈，错误留存至下次操作
-      setProxyFeedback(t('settings.proxy_save_failed', { error: String(e) }));
+      setProxyFeedback({ text: t('settings.proxy_save_failed', { error: String(e) }), isError: true });
     }
   };
 

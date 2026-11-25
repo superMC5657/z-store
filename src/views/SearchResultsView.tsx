@@ -17,6 +17,7 @@ import {
   selectManagedState,
 } from '../app/selectors';
 import { useMoveInToDraft } from '../app/hooks/useMoveInToDraft';
+import { normalizeId } from '../services/normalizeId';
 
 /** 本地段每次展开的条数（与在线翻页 `per_page` 一致）。 */
 const SEARCH_LOCAL_PAGE = 20;
@@ -32,6 +33,8 @@ function matchAlternativeHint(app: AppSummary, query: string): string | undefine
 interface SearchResultsViewProps extends ViewAppActions {
   /** 本地段结果（App 已做平台过滤，保序）。 */
   apps: AppSummary[];
+  /** 全量合并目录（用于在线结果收录态比对，避免仅在本地搜索未命中时误降级 is_cataloged）。 */
+  catalogApps?: readonly AppSummary[];
   searchQuery: string;
   /** 在线段有结果标记：true 表示当前查询的在线段有结果。 */
   isOnlineResults?: boolean;
@@ -56,6 +59,7 @@ interface SearchResultsViewProps extends ViewAppActions {
 export const SearchResultsView: React.FC<SearchResultsViewProps> = (props) => {
   const {
     apps,
+    catalogApps,
     platformResolvedOtherIds = EMPTY_IDS,
     installedIds = EMPTY_IDS,
     installingIds,
@@ -82,12 +86,20 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = (props) => {
   const { t } = useTranslation();
   const { isMovingIn, handleMoveIn } = useMoveInToDraft();
 
-  // 在线落定处显式标注 is_cataloged（catalog id 集 canonical 比对），本地橘黄叠加同口径。
+  // 在线落定处按全量合并目录（缺省回落 apps）显式标注 is_cataloged，本地橘黄叠加同口径；
+  // 未传入全量目录时，禁止把已由上层权威标定的 is_cataloged=true 降级回 false。
   const activeOnlineApps = isOnlineResults ? onlineApps : [];
-  const annotatedOnlineApps = useMemo(
-    () => annotateOnlineCataloged(activeOnlineApps, apps, localApps),
-    [activeOnlineApps, apps, localApps],
-  );
+  const annotatedOnlineApps = useMemo(() => {
+    const annotated = annotateOnlineCataloged(activeOnlineApps, catalogApps ?? apps, localApps);
+    if (catalogApps !== undefined) return annotated;
+    return annotated.map((row, idx) => {
+      const src = activeOnlineApps[idx];
+      if (src?.is_cataloged === true && (src as { source?: unknown }).source !== 'local' && row.is_cataloged !== true) {
+        return { ...row, is_cataloged: true };
+      }
+      return row;
+    });
+  }, [activeOnlineApps, catalogApps, apps, localApps]);
   const annotate = useRowAnnotator(apps, localApps);
 
   // ---- 本地段分页：首屏 20，按钮或哨兵 +20；换词或结果集真变化时回到首屏 ----
@@ -146,23 +158,26 @@ export const SearchResultsView: React.FC<SearchResultsViewProps> = (props) => {
   // 避免首帧 20 路并发 restoreOrFetchIconCycle 重复探图风暴。
   useRowIconBackfill(displayedLocal);
 
-  const card = (app: AppSummary, extra?: Partial<React.ComponentProps<typeof AppCard>>) => (
-    <AppCard
-      key={app.id}
-      app={app}
-      platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-      isInstalled={selectIsInstalled(app.id, installedIds)}
-      isManaged={selectManagedState(app.id, managedIds)}
-      isInstalling={installingIds?.has(app.id)}
-      isFavorite={favoriteIds.has(app.id)}
-      isWatched={watchedIds?.has(app.id)}
-      onOpenDetail={onOpenDetail}
-      onQuickInstall={onQuickInstall}
-      onToggleFavorite={onToggleFavorite}
-      onToggleWatch={onToggleWatch}
-      {...extra}
-    />
-  );
+  const card = (app: AppSummary, extra?: Partial<React.ComponentProps<typeof AppCard>>) => {
+    const appKey = normalizeId(app.id);
+    return (
+      <AppCard
+        key={app.id}
+        app={app}
+        platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
+        isInstalled={selectIsInstalled(app.id, installedIds)}
+        isManaged={selectManagedState(app.id, managedIds)}
+        isInstalling={installingIds?.has(appKey)}
+        isFavorite={favoriteIds.has(appKey)}
+        isWatched={watchedIds?.has(appKey)}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onToggleWatch={onToggleWatch}
+        {...extra}
+      />
+    );
+  };
 
   return (
     <ViewShell viewClass="home-view search-results-view">

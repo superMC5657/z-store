@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type {
   InstalledApp,
@@ -10,7 +10,13 @@ import type {
 import { tauriApi } from '../../services/api';
 import { normalizeId, normalizeIdLowerSet } from '../../services/normalizeId';
 import type { CatalogListsStore } from './useCatalogLists';
+import type { BatchInstallOutcome } from './useInstallState';
 import { listenWindowEvent, newMountCtx, releaseMountCtx, trackSubscription, useLatestRef } from './mountCtx';
+
+export interface UpdateInstallExecutor {
+  applyUpdate: (id: string) => Promise<void>;
+  batchApplyUpdate: (id: string) => Promise<BatchInstallOutcome>;
+}
 
 interface UseUpdatesStateParams {
   catalogLists: Pick<CatalogListsStore, 'setApps' | 'setFullCatalogApps'>;
@@ -19,6 +25,8 @@ interface UseUpdatesStateParams {
   currentView: ViewType;
   showToast: (msg: string, type?: 'info' | 'success' | 'warning' | 'error') => void;
   t: TFunction;
+  /** 由 `useInstallState` 提供的受锁更新执行器（复用全局 installingRef 与无校验资产确认流）。 */
+  installExecutor?: UpdateInstallExecutor;
 }
 
 /** 更新与规则状态管理：收口更新列表、规则、检查进度与相关事件订阅。 */
@@ -29,16 +37,20 @@ export function useUpdatesState({
   currentView,
   showToast,
   t,
+  installExecutor,
 }: UseUpdatesStateParams) {
   const [updates, setUpdates] = useState<UpdateItem[]>([]);
   const [updateRules, setUpdateRules] = useState<UpdateRule[]>([]);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [isUpdatingAll, setIsUpdatingAll] = useState(false);
+  const isUpdatingAllRef = useRef(false);
   const [updateCheckProgress, setUpdateCheckProgress] = useState<UpdateCheckProgressPayload | null>(null);
 
   const updatesRef = useLatestRef(updates);
   const searchQueryRef = useLatestRef(searchQuery);
   const showToastRef = useLatestRef(showToast);
   const tRef = useLatestRef(t);
+  const installExecutorRef = useLatestRef(installExecutor);
 
   // 初始加载快照 + 流式更新事件 + OAuth 切换重读 DB 快照
   useEffect(() => {
@@ -146,27 +158,35 @@ export function useUpdatesState({
       toastType?: 'info' | 'success';
     },
   ): Promise<void> => {
-    await rpcCall();
-    if (opts.removeUpdateId) {
-      const key = normalizeId(opts.removeUpdateId);
-      setUpdates((prev) => prev.filter((u) => normalizeId(u.app_id) !== key));
+    try {
+      await rpcCall();
+      if (opts.removeUpdateId) {
+        const key = normalizeId(opts.removeUpdateId);
+        setUpdates((prev) => prev.filter((u) => normalizeId(u.app_id) !== key));
+      }
+      const rules = await tauriApi.getUpdateRules();
+      setUpdateRules(rules);
+      if (opts.refreshUpdates) {
+        const freshUpdates = await tauriApi.checkForUpdates();
+        setUpdates(freshUpdates);
+      }
+      if (opts.refreshCatalog) {
+        const fullCatalog = await tauriApi.searchApps('');
+        catalogLists.setFullCatalogApps(fullCatalog);
+        const currentQuery = searchQueryRef.current;
+        catalogLists.setApps(currentQuery.trim() ? await tauriApi.searchApps(currentQuery) : fullCatalog);
+      }
+      showToastRef.current(opts.toastMsg, opts.toastType ?? 'info');
+    } catch (err) {
+      showToastRef.current(tRef.current('rules.notice_save_failed', { error: String(err) }), 'error');
     }
-    const rules = await tauriApi.getUpdateRules();
-    setUpdateRules(rules);
-    if (opts.refreshUpdates) {
-      const freshUpdates = await tauriApi.checkForUpdates();
-      setUpdates(freshUpdates);
-    }
-    if (opts.refreshCatalog) {
-      const fullCatalog = await tauriApi.searchApps('');
-      catalogLists.setFullCatalogApps(fullCatalog);
-      const currentQuery = searchQueryRef.current;
-      catalogLists.setApps(currentQuery.trim() ? await tauriApi.searchApps(currentQuery) : fullCatalog);
-    }
-    showToastRef.current(opts.toastMsg, opts.toastType ?? 'info');
   };
 
   const handleApplyUpdate = async (id: string) => {
+    if (installExecutorRef.current) {
+      await installExecutorRef.current.applyUpdate(id);
+      return;
+    }
     try {
       const updatedApp = await tauriApi.installApp(id);
       const key = normalizeId(id);
@@ -209,31 +229,50 @@ export function useUpdatesState({
   };
 
   const handleBatchUpdateAll = async (targets: UpdateItem[] = updatesRef.current) => {
-    showToastRef.current(tRef.current('toast.batch_update_starting'), 'info');
-    let successCount = 0;
-    let failCount = 0;
-    const updatedIds = new Set<string>();
+    if (isUpdatingAllRef.current) return;
+    isUpdatingAllRef.current = true;
+    setIsUpdatingAll(true);
+    try {
+      showToastRef.current(tRef.current('toast.batch_update_starting'), 'info');
+      let successCount = 0;
+      let failCount = 0;
+      const updatedIds = new Set<string>();
+      const executor = installExecutorRef.current;
 
-    for (const u of targets) {
-      try {
-        const updatedApp = await tauriApi.installApp(u.app_id);
-        const key = normalizeId(u.app_id);
-        setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), updatedApp]);
-        updatedIds.add(key);
-        successCount++;
-      } catch {
-        failCount++;
+      for (const u of targets) {
+        try {
+          if (executor) {
+            const outcome = await executor.batchApplyUpdate(u.app_id);
+            if (outcome === 'installed') {
+              updatedIds.add(normalizeId(u.app_id));
+              successCount++;
+            } else if (outcome === 'cancelled') {
+              failCount++;
+            }
+          } else {
+            const updatedApp = await tauriApi.installApp(u.app_id);
+            const key = normalizeId(u.app_id);
+            setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), updatedApp]);
+            updatedIds.add(key);
+            successCount++;
+          }
+        } catch {
+          failCount++;
+        }
       }
-    }
 
-    setUpdates((prev) => prev.filter((u) => !updatedIds.has(normalizeId(u.app_id))));
-    if (failCount === 0) {
-      showToastRef.current(tRef.current('toast.batch_update_success', { count: successCount }), 'success');
-    } else {
-      showToastRef.current(
-        tRef.current('toast.batch_update_partial', { success: successCount, fail: failCount }),
-        'warning',
-      );
+      setUpdates((prev) => prev.filter((u) => !updatedIds.has(normalizeId(u.app_id))));
+      if (failCount === 0) {
+        showToastRef.current(tRef.current('toast.batch_update_success', { count: successCount }), 'success');
+      } else {
+        showToastRef.current(
+          tRef.current('toast.batch_update_partial', { success: successCount, fail: failCount }),
+          'warning',
+        );
+      }
+    } finally {
+      isUpdatingAllRef.current = false;
+      setIsUpdatingAll(false);
     }
   };
 
@@ -284,6 +323,7 @@ export function useUpdatesState({
     updates,
     updateRules,
     isCheckingUpdates,
+    isUpdatingAll,
     updateCheckProgress,
     handleInstalledAppRemoved,
     refreshUpdatesSnapshotFromDb,

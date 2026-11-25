@@ -114,7 +114,54 @@ describe('StarredFeed', () => {
     await screen.findByText('cat-1');
 
     fireEvent.click(screen.getByRole('button', { name: '收藏已加载的已收录应用' }));
-    expect(onToggleFavorite.mock.calls).toEqual([['cat/app-1']]);
+    await waitFor(() => {
+      expect(onToggleFavorite.mock.calls).toEqual([['cat/app-1', { silent: true }]]);
+    });
+  });
+
+  it('batch favorite guards against double-click with busy flag, passes silent=true, and emits one summary toast (F-39b)', async () => {
+    const rows = pageOf('cat', 2, true);
+    vi.spyOn(tauriApi, 'listGithubStarred').mockResolvedValue({ rows, has_more: false });
+    let releaseFirst!: (ok: boolean) => void;
+    const onToggleFavorite = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => { releaseFirst = resolve; }))
+      .mockResolvedValueOnce(true);
+
+    const toasts: Array<{ text: string; type: string }> = [];
+    const onToast = (e: Event) => {
+      toasts.push((e as CustomEvent<{ text: string; type: string }>).detail);
+    };
+    window.addEventListener('zstore:toast', onToast);
+    try {
+      render(<StarredFeed {...baseProps} onToggleFavorite={onToggleFavorite} />);
+      await queryAs('octocat');
+      await screen.findByText('cat-1');
+
+      const btn = screen.getByRole('button', { name: '收藏已加载的已收录应用' }) as HTMLButtonElement;
+      fireEvent.click(btn);
+      // 忙态期间按钮禁用，双击不重复触发
+      expect(btn.disabled).toBe(true);
+      fireEvent.click(btn);
+      expect(onToggleFavorite).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        releaseFirst(true);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(onToggleFavorite).toHaveBeenCalledTimes(2));
+      expect(onToggleFavorite.mock.calls).toEqual([
+        ['cat/app-0', { silent: true }],
+        ['cat/app-1', { silent: true }],
+      ]);
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0].type).toBe('success');
+      expect(toasts[0].text).toContain('2');
+    } finally {
+      window.removeEventListener('zstore:toast', onToast);
+    }
   });
 
   it('restores loaded pages from the page cache after remount without refetching', async () => {

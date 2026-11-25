@@ -368,4 +368,22 @@ describe('useUpdatesState：大小写归一与隐藏目录同步', () => {
     expect(deps.setFullCatalogApps).toHaveBeenCalledWith(full);
     expect(deps.setApps).toHaveBeenCalledWith(hits);
   });
+
+  it('规则变更 IPC 失败时捕获异常并弹 error toast', async () => {
+    const { rendered, deps } = renderUpdates([makeUpdate('acme/atlas')]);
+    await flush();
+    mocks.setAppSkipVersion.mockRejectedValueOnce(new Error('skip fail'));
+    mocks.setAppFrozen.mockRejectedValueOnce(new Error('freeze fail'));
+    mocks.setAppHidden.mockRejectedValueOnce(new Error('hide fail'));
+
+    await act(async () => {
+      await expect(rendered.result.current.handleSkipVersion('acme/atlas', '2.0.0')).resolves.toBeUndefined();
+      await expect(rendered.result.current.handleToggleRuleFrozen('acme/atlas', true)).resolves.toBeUndefined();
+      await expect(rendered.result.current.handleToggleRuleHidden('acme/atlas', true)).resolves.toBeUndefined();
+    });
+
+    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('skip fail'), 'error');
+    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('freeze fail'), 'error');
+    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('hide fail'), 'error');
+  });
 });

@@ -17,6 +17,7 @@ import { CategoriesView } from './views/CategoriesView';
 import { InstalledView } from './views/InstalledView';
 import { FavoritesView } from './views/FavoritesView';
 import { EmptyState } from './components/EmptyState';
+import { FilterEmptyState } from './views/ViewShell';
 import { Search } from 'lucide-react';
 import { AppDetailViewModel, CollectionModalData, OAuthUser, ViewType, createNavigate } from './types';
 import { maskRecentViews } from './services/recentViewsMask';
@@ -248,6 +249,7 @@ export const App: React.FC = () => {
     fullMergedCatalogApps,
     searchPlatformFilteredApps,
     platformFilteredOnlineApps,
+    hasRawSearchResults,
     platformFilteredRecentApps,
     allFavoritesPoolApps,
     favoritesViewApps,
@@ -493,46 +495,59 @@ export const App: React.FC = () => {
         >
           <main ref={contentRef} className="content-area">
             {currentView === 'home' && (
-              // 搜索双段空态：本地段与在线段都为空时才走整页空态（保留在线搜索入口）；
-              // 任一段有结果即进 HomeView 上下分段展示（本地在上、在线在下）。
+              // 搜索双段空态：平台未选或原始搜索命中全被平台筛空时呈带重置入口的 FilterEmptyState；
+              // 否则本地段与在线段都为空时走整页空态（保留在线搜索入口）；任一段有结果即进 SearchResultsView。
               searchQuery.trim() && searchPlatformFilteredApps.length === 0 && platformFilteredOnlineApps.length === 0 ? (
-                <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
-                  <EmptyState
-                    icon={<Search size={40} strokeWidth={1.5} />}
-                    title={
-                      isSearchingLocal || isSearchingOnline
-                        ? t('search.searching_online')
-                        : onlineSearchPerformed
-                          ? t('search.no_online_results')
-                          : t('search.no_local_results')
-                    }
-                    description={
-                      isSearchingLocal || isSearchingOnline
-                        ? t('search.searching_online_desc')
-                        : onlineSearchPerformed
-                          ? t('search.online_empty_desc')
-                          : t('search.local_empty_online_hint')
-                    }
-                    action={
-                      !isSearchingLocal && !isSearchingOnline && (
-                        <button
-                          type="button"
-                          className="btn-fluent btn-primary"
-                          onClick={() =>
-                            handleSearchSubmit(searchQuery, { forceRefresh: onlineSearchPerformed })
-                          }
-                        >
-                          {onlineSearchPerformed
-                            ? t('search.retry_online')
-                            : t('search.search_online_btn')}
-                        </button>
-                      )
-                    }
-                  />
-                </div>
+                selectedPlatforms.size === 0 || (!isSearchingLocal && !isSearchingOnline && hasRawSearchResults) ? (
+                  <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
+                    <FilterEmptyState
+                      icon={<Search size={40} strokeWidth={1.5} />}
+                      title={t('featured.empty_title')}
+                      description={t('featured.empty_desc')}
+                      resetLabel={t('featured.reset_device_filter')}
+                      onReset={platformFilter.resetPlatformFilter}
+                    />
+                  </div>
+                ) : (
+                  <div className="search-empty-state" style={{ marginTop: '40px', textAlign: 'center' }}>
+                    <EmptyState
+                      icon={<Search size={40} strokeWidth={1.5} />}
+                      title={
+                        isSearchingLocal || isSearchingOnline
+                          ? t('search.searching_online')
+                          : onlineSearchPerformed
+                            ? t('search.no_online_results')
+                            : t('search.no_local_results')
+                      }
+                      description={
+                        isSearchingLocal || isSearchingOnline
+                          ? t('search.searching_online_desc')
+                          : onlineSearchPerformed
+                            ? t('search.online_empty_desc')
+                            : t('search.local_empty_online_hint')
+                      }
+                      action={
+                        !isSearchingLocal && !isSearchingOnline && (
+                          <button
+                            type="button"
+                            className="btn-fluent btn-primary"
+                            onClick={() =>
+                              handleSearchSubmit(searchQuery, { forceRefresh: onlineSearchPerformed })
+                            }
+                          >
+                            {onlineSearchPerformed
+                              ? t('search.retry_online')
+                              : t('search.search_online_btn')}
+                          </button>
+                        )
+                      }
+                    />
+                  </div>
+                )
               ) : searchQuery.trim() ? (
                 <SearchResultsView
                   apps={searchPlatformFilteredApps}
+                  catalogApps={fullMergedCatalogApps}
                   searchQuery={searchQuery}
                   isOnlineResults={isOnlineResultSet}
                   onlineApps={platformFilteredOnlineApps}
@@ -704,10 +719,10 @@ export const App: React.FC = () => {
             isInstalled={selectIsInstalled(selectedApp.id, installedIds)}
             isManaged={managedLoaded ? selectIsManaged(selectedApp.id, managedIds) : null}
             isExploreMode={currentView === 'home' || currentView === 'trends' || currentView === 'categories'}
-            isFavorite={favoriteIds.has(selectedApp.id)}
-            isWatched={watchedIds.has(selectedApp.id)}
-            isInstallingGlobal={installingAppIds.has(selectedApp.id)}
-            isUninstallingGlobal={uninstallingAppIds.has(selectedApp.id)}
+            isFavorite={favoriteIds.has(normalizeId(selectedApp.id))}
+            isWatched={watchedIds.has(normalizeId(selectedApp.id))}
+            isInstallingGlobal={installingAppIds.has(normalizeId(selectedApp.id))}
+            isUninstallingGlobal={uninstallingAppIds.has(normalizeId(selectedApp.id))}
             platformLoading={isPlatformLoading(selectedApp, platformResolvedOtherIds)}
             oauthUser={oauthUser}
             onClose={() => {

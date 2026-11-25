@@ -39,6 +39,7 @@ import {
   selectManagedState,
   selectPlatformCounts,
 } from '../app/selectors';
+import { normalizeId } from '../services/normalizeId';
 
 interface CategoriesViewProps extends ViewAppActions {
   /** 进入视图时直接打开的分类（精选页「进入分类」），缺席时停在分类大厅。 */
@@ -429,23 +430,26 @@ export const CategoriesView: React.FC<CategoriesViewProps> = (props) => {
         </>
       ) : (
         <div className="app-grid">
-          {visibleApps.map((app, index) => (
-            <AppCard
-              key={app.id}
-              app={app}
-              eager={index < 6}
-              platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-              isInstalled={selectIsInstalled(app.id, installedIds)}
-              isManaged={selectManagedState(app.id, managedIds)}
-              isInstalling={installingIds?.has(app.id)}
-              isFavorite={favoriteIds.has(app.id)}
-              isWatched={watchedIds?.has(app.id)}
-              onOpenDetail={onOpenDetail}
-              onQuickInstall={onQuickInstall}
-              onToggleFavorite={onToggleFavorite}
-              onToggleWatch={onToggleWatch}
-            />
-          ))}
+          {visibleApps.map((app, index) => {
+            const appKey = normalizeId(app.id);
+            return (
+              <AppCard
+                key={app.id}
+                app={app}
+                eager={index < 6}
+                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
+                isInstalled={selectIsInstalled(app.id, installedIds)}
+                isManaged={selectManagedState(app.id, managedIds)}
+                isInstalling={installingIds?.has(appKey)}
+                isFavorite={favoriteIds.has(appKey)}
+                isWatched={watchedIds?.has(appKey)}
+                onOpenDetail={onOpenDetail}
+                onQuickInstall={onQuickInstall}
+                onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
+              />
+            );
+          })}
           {catLoading && (
             <div style={{ width: '100%' }}>{t('categories.list_loading')}</div>
           )}

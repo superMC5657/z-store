@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { BookmarkPlus, ChevronsDown, RotateCcw, Star } from 'lucide-react';
 import { useReportPlatformCounts } from '../../app/hooks/useReportPlatformCounts';
 import { useTranslation } from 'react-i18next';
 import { AppCard } from '../../components/AppCard';
 import { EmptyState } from '../../components/EmptyState';
+import { notifyToast } from '../../useToasts';
 import type { AppSummary, OAuthUser } from '../../types';
 import { normalizeId, normalizeIdLowerSet } from '../../services/normalizeId';
 import {
@@ -127,11 +128,39 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
 
   const favoriteIdsLower = normalizeIdLowerSet(favoriteIds);
   const watchedIdsLower = normalizeIdLowerSet(watchedIds || new Set<string>());
+  const [isBatchFavoriting, setIsBatchFavoriting] = useState(false);
+  const batchFavRef = useRef(false);
   const unfavoritedCataloged = filteredRows.filter(
     (app) => isAppCataloged(app) && !favoriteIdsLower.has(normalizeId(app.id)),
   );
-  const handleFavoriteLoadedCataloged = () => {
-    for (const app of unfavoritedCataloged) onToggleFavorite(app.id);
+  const handleFavoriteLoadedCataloged = async () => {
+    if (batchFavRef.current || unfavoritedCataloged.length === 0) return;
+    batchFavRef.current = true;
+    setIsBatchFavoriting(true);
+    const targets = [...unfavoritedCataloged];
+    let added = 0;
+    let failed = 0;
+    try {
+      for (const app of targets) {
+        try {
+          const ok = await onToggleFavorite(app.id, { silent: true });
+          if (ok === false) failed += 1;
+          else added += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+    } finally {
+      batchFavRef.current = false;
+      setIsBatchFavoriting(false);
+    }
+    if (added > 0 && failed === 0) {
+      notifyToast(t('collection.preview.favorite_all_done', { count: added }), 'success');
+    } else if (added > 0 && failed > 0) {
+      notifyToast(t('collection.preview.favorite_all_partial', { added, failed }), 'warning');
+    } else if (failed > 0) {
+      notifyToast(t('collection.preview.favorite_all_failed', { failed }), 'error');
+    }
   };
 
   return (
@@ -185,8 +214,8 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
             <button
               type="button"
               className="btn-fluent btn-secondary btn-compact"
-              disabled={unfavoritedCataloged.length === 0}
-              onClick={handleFavoriteLoadedCataloged}
+              disabled={isBatchFavoriting || unfavoritedCataloged.length === 0}
+              onClick={() => void handleFavoriteLoadedCataloged()}
             >
               <BookmarkPlus size={13} />
               <span>{t('favorites.favorite_loaded_cataloged')}</span>
@@ -210,7 +239,7 @@ export const StarredFeed: React.FC<StarredFeedProps> = ({
                   platformLoading={isPlatformLoading(app, resolvedOtherIds)}
                   isInstalled={selectIsInstalled(app.id, installedIds)}
                   isManaged={selectManagedState(app.id, managedIds)}
-                  isInstalling={installingIds?.has(app.id)}
+                  isInstalling={installingIds?.has(normalizeId(app.id))}
                   isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                   isWatched={watchedIdsLower.has(normalizeId(app.id))}
                   onOpenDetail={onOpenDetail}

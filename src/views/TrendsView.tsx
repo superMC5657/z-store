@@ -216,7 +216,7 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
             resetLabel={t('trends.retry')}
             onReset={handleRetry}
           />
-        ) : apps.length === 0 || displayItems.length === 0 ? (
+        ) : displayItems.length === 0 ? (
           <FilterEmptyState
             className="trends-empty"
             icon={<TrendingUp size={40} strokeWidth={1.5} />}
@@ -241,7 +241,7 @@ export const TrendsView: React.FC<TrendsViewProps> = (props) => {
                   trendGainText={gainTextFor(item.gain)}
                   isInstalled={selectIsInstalled(item.app.id, installedIds)}
                   isManaged={selectManagedState(item.app.id, managedIds)}
-                  isInstalling={installingIds?.has(item.app.id) ?? false}
+                  isInstalling={installingIds?.has(normalizeId(item.app.id)) ?? false}
                   isFavorite={favoriteIds?.has(normalizeId(item.app.id)) ?? false}
                   isWatched={watchedIds?.has(normalizeId(item.app.id)) ?? false}
                   onOpenDetail={onOpenDetail}

@@ -2,12 +2,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary, InstalledApp, UpdateItem, ViewType } from '../../types';
+import { UNVERIFIED_ASSET_MARKER } from '../../services/api';
 import { PLATFORM_IDS, type PlatformId } from '../../lib/platformFilter';
 
 const mocks = vi.hoisted(() => ({
   getInstalledApps: vi.fn(async (): Promise<InstalledApp[]> => []),
   getUpdateRules: vi.fn(async () => []),
   getCachedUpdates: vi.fn(async (): Promise<UpdateItem[]> => []),
+  installApp: vi.fn(),
   uninstallApp: vi.fn(async () => {}),
   listen: vi.fn(async () => () => {}),
   hydrateCardsByIds: vi.fn(async () => ({ byId: new Map() })),
@@ -19,6 +21,7 @@ vi.mock('../../services/api', async () => {
     getInstalledApps: mocks.getInstalledApps,
     getUpdateRules: mocks.getUpdateRules,
     getCachedUpdates: mocks.getCachedUpdates,
+    installApp: mocks.installApp,
     uninstallApp: mocks.uninstallApp,
     onUpdateItemFound: mocks.listen,
     onUpdateCheckProgress: mocks.listen,
@@ -165,5 +168,76 @@ describe('useMyAppsState：平台过滤视图', () => {
     expect(result.current.filteredUpdates).toEqual([]);
     expect(result.current.updatableInstalledCount).toBe(0);
     expect(mocks.hydrateCardsByIds).not.toHaveBeenCalled();
+  });
+});
+
+describe('useMyAppsState：更新走无校验确认与全局锁（F-27）', () => {
+  it('单项更新命中 UNVERIFIED_ASSET_MARKER 时挂起确认，确认后 allowUnverified=true 完成并清更新项', async () => {
+    mocks.getCachedUpdates.mockResolvedValue([
+      { app_id: 'acme/win', app_name: 'win', current_version: '1.0.0', latest_version: '2.0.0', changelog: '' },
+    ]);
+    mocks.installApp
+      .mockRejectedValueOnce(`${UNVERIFIED_ASSET_MARKER}acme/win`)
+      .mockResolvedValueOnce({ ...makeInstalled('acme/win'), version: '2.0.0' });
+
+    const { result } = renderMyApps('home');
+    await waitFor(() => expect(result.current.updates).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.handleApplyUpdate('acme/win');
+    });
+
+    expect(result.current.unverifiedInstallPrompt).toEqual({ id: 'acme/win', mode: 'update' });
+    expect(result.current.updates).toHaveLength(1);
+
+    await act(async () => {
+      result.current.confirmUnverifiedInstall();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.updates).toHaveLength(0));
+    expect(mocks.installApp).toHaveBeenNthCalledWith(2, 'acme/win', undefined, undefined, true);
+    expect(result.current.installedApps.find((a) => a.app_id === 'acme/win')?.version).toBe('2.0.0');
+  });
+
+  it('批量更新维护提升的 isUpdatingAll 与全局 installingAppIds，支持无校验确认并阻止并发重入', async () => {
+    const updates: UpdateItem[] = [
+      { app_id: 'acme/win', app_name: 'win', current_version: '1.0.0', latest_version: '2.0.0', changelog: '' },
+      { app_id: 'acme/mac', app_name: 'mac', current_version: '1.0.0', latest_version: '2.0.0', changelog: '' },
+    ];
+    mocks.getCachedUpdates.mockResolvedValue(updates);
+    mocks.installApp
+      .mockRejectedValueOnce(`${UNVERIFIED_ASSET_MARKER}acme/win`)
+      .mockResolvedValueOnce({ ...makeInstalled('acme/win'), version: '2.0.0' })
+      .mockResolvedValueOnce({ ...makeInstalled('acme/mac'), version: '2.0.0' });
+
+    const { result } = renderMyApps('home');
+    await waitFor(() => expect(result.current.updates).toHaveLength(2));
+
+    let batchPromise!: Promise<void>;
+    act(() => {
+      batchPromise = result.current.handleBatchUpdateAll(updates);
+    });
+
+    await waitFor(() => {
+      expect(result.current.isUpdatingAll).toBe(true);
+      expect(result.current.unverifiedInstallPrompt).toEqual({ id: 'acme/win', mode: 'update' });
+    });
+
+    // 重入调用被 isUpdatingAllRef 拦截
+    await act(async () => {
+      await result.current.handleBatchUpdateAll(updates);
+    });
+    expect(mocks.installApp).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      result.current.confirmUnverifiedInstall();
+      await batchPromise;
+    });
+
+    expect(result.current.isUpdatingAll).toBe(false);
+    expect(result.current.updates).toHaveLength(0);
+    expect(mocks.installApp).toHaveBeenCalledTimes(3);
+    expect(mocks.installApp).toHaveBeenNthCalledWith(2, 'acme/win', undefined, undefined, true);
   });
 });

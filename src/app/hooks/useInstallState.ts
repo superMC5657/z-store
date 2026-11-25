@@ -9,6 +9,7 @@ interface UnverifiedInstallPrompt {
   id: string;
   assetName?: string;
   customInstallDir?: string;
+  mode?: 'update';
 }
 
 export type BatchInstallOutcome = 'installed' | 'cancelled' | 'skipped';
@@ -20,6 +21,8 @@ interface UseInstallStateParams {
   t: TFunction;
   /** 卸载或取消管理成功后回调（入参为调用方传入的原始 id），供调用方清理该应用的残留更新项。 */
   onAppRemoved?: (id: string) => void;
+  /** 安装或更新成功后回调（入参为调用方传入的原始 id），供调用方清理该应用的残留更新项。 */
+  onAppInstalled?: (id: string, app: InstalledApp) => void;
   /** 由上层状态域持有的已装列表（`useMyAppsState` 与更新域共享同一份）；缺省用内部状态。 */
   installedState?: [InstalledApp[], Dispatch<SetStateAction<InstalledApp[]>>];
 }
@@ -30,6 +33,7 @@ export function useInstallState({
   showToast,
   t,
   onAppRemoved,
+  onAppInstalled,
   installedState,
 }: UseInstallStateParams) {
   const ownInstalledState = useState<InstalledApp[]>([]);
@@ -62,41 +66,46 @@ export function useInstallState({
   const installingRef = useRef<Set<string>>(new Set());
 
   const addInstallingId = useCallback((id: string) => {
-    if (!installingRef.current.has(id)) {
+    const key = normalizeId(id);
+    if (!key) return;
+    if (!installingRef.current.has(key)) {
       const next = new Set(installingRef.current);
-      next.add(id);
+      next.add(key);
       installingRef.current = next;
     }
     setInstallingAppIds((prev) => {
-      if (prev.has(id)) return prev;
+      if (prev.has(key)) return prev;
       const next = new Set(prev);
-      next.add(id);
+      next.add(key);
       return next;
     });
   }, []);
 
   const removeInstallingId = useCallback((id: string) => {
-    if (installingRef.current.has(id)) {
+    const key = normalizeId(id);
+    if (!key) return;
+    if (installingRef.current.has(key)) {
       const next = new Set(installingRef.current);
-      next.delete(id);
+      next.delete(key);
       installingRef.current = next;
     }
     setInstallingAppIds((prev) => {
-      if (!prev.has(id)) return prev;
+      if (!prev.has(key)) return prev;
       const next = new Set(prev);
-      next.delete(id);
+      next.delete(key);
       return next;
     });
   }, []);
 
   // 安装应用（稳定回调：经 ref 读 installing，搜索键入/图标升级时引用不变）
   const handleInstallApp = useCallback(async (id: string, assetName?: string, customInstallDir?: string, allowUnverified?: boolean): Promise<void> => {
-    if (installingRef.current.has(id)) return;
-    addInstallingId(id);
+    const key = normalizeId(id);
+    if (!key || installingRef.current.has(key)) return;
+    addInstallingId(key);
     try {
       const installed = await tauriApi.installApp(id, assetName, customInstallDir, allowUnverified);
-      const key = normalizeId(id);
       setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), installed]);
+      onAppInstalled?.(id, installed);
       showToast(t('toast.install_success', { name: installed.app_name }), 'success');
     } catch (err) {
       const errStr = String(err);
@@ -112,19 +121,42 @@ export function useInstallState({
       }
       throw err;
     } finally {
-      removeInstallingId(id);
+      removeInstallingId(key);
     }
-  }, [addInstallingId, removeInstallingId, setUnverifiedPrompt, showToast, t]);
+  }, [addInstallingId, onAppInstalled, removeInstallingId, setInstalledApps, setUnverifiedPrompt, showToast, t]);
+
+  // 单项升级（复用全局 installingRef 锁与无校验资产确认门禁，错误由 toast 承接不向外抛未捕获异常）
+  const handleUpdateApp = useCallback(async (id: string, allowUnverified?: boolean): Promise<void> => {
+    const key = normalizeId(id);
+    if (!key || installingRef.current.has(key)) return;
+    addInstallingId(key);
+    try {
+      const updated = await tauriApi.installApp(id, undefined, undefined, allowUnverified);
+      setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), updated]);
+      onAppInstalled?.(id, updated);
+      showToast(t('toast.update_success', { name: updated.app_name || id }), 'success');
+    } catch (err) {
+      const errStr = String(err);
+      if (!allowUnverified && errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
+        setUnverifiedPrompt({ id, mode: 'update' });
+        return;
+      }
+      showToast(t('toast.update_failed', { error: errStr }), 'error');
+    } finally {
+      removeInstallingId(key);
+    }
+  }, [addInstallingId, onAppInstalled, removeInstallingId, setInstalledApps, setUnverifiedPrompt, showToast, t]);
 
   // 批量安装专用的单条执行器：命中无校验清单时挂起等待 InstallConfirmDialog 决策后再继续下一款
   const handleBatchInstallApp = useCallback(async (id: string): Promise<BatchInstallOutcome> => {
-    if (installingRef.current.has(id)) return 'skipped';
+    const key = normalizeId(id);
+    if (!key || installingRef.current.has(key)) return 'skipped';
     let needsConfirm = false;
-    addInstallingId(id);
+    addInstallingId(key);
     try {
       const installed = await tauriApi.installApp(id);
-      const key = normalizeId(id);
       setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), installed]);
+      onAppInstalled?.(id, installed);
       showToast(t('toast.install_success', { name: installed.app_name }), 'success');
       return 'installed';
     } catch (err) {
@@ -140,7 +172,7 @@ export function useInstallState({
         throw err;
       }
     } finally {
-      removeInstallingId(id);
+      removeInstallingId(key);
     }
 
     if (needsConfirm) {
@@ -161,7 +193,57 @@ export function useInstallState({
     }
 
     return 'skipped';
-  }, [addInstallingId, handleInstallApp, removeInstallingId, setUnverifiedPrompt, showToast, t]);
+  }, [addInstallingId, handleInstallApp, onAppInstalled, removeInstallingId, setInstalledApps, setUnverifiedPrompt, showToast, t]);
+
+  // 批量更新专用的单条执行器：复用全局 installingRef 锁与无校验资产确认门禁，成功/失败汇总由上层批量流程统一 toast
+  const handleBatchUpdateApp = useCallback(async (id: string): Promise<BatchInstallOutcome> => {
+    const key = normalizeId(id);
+    if (!key || installingRef.current.has(key)) return 'skipped';
+    let needsConfirm = false;
+    addInstallingId(key);
+    try {
+      const updated = await tauriApi.installApp(id);
+      setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), updated]);
+      onAppInstalled?.(id, updated);
+      return 'installed';
+    } catch (err) {
+      const errStr = String(err);
+      if (errStr.startsWith(UNVERIFIED_ASSET_MARKER)) {
+        needsConfirm = true;
+      } else {
+        throw err;
+      }
+    } finally {
+      removeInstallingId(key);
+    }
+
+    if (needsConfirm) {
+      const prevWaiter = unverifiedWaiterRef.current;
+      if (prevWaiter) {
+        unverifiedWaiterRef.current = null;
+        prevWaiter.resolve(false);
+      }
+      const confirmed = await new Promise<boolean>((resolve) => {
+        unverifiedWaiterRef.current = { resolve };
+        setUnverifiedPrompt({ id, mode: 'update' });
+      });
+      if (!confirmed) {
+        return 'cancelled';
+      }
+      if (installingRef.current.has(key)) return 'skipped';
+      addInstallingId(key);
+      try {
+        const updated = await tauriApi.installApp(id, undefined, undefined, true);
+        setInstalledApps((prev) => [...prev.filter((a) => normalizeId(a.app_id) !== key), updated]);
+        onAppInstalled?.(id, updated);
+        return 'installed';
+      } finally {
+        removeInstallingId(key);
+      }
+    }
+
+    return 'skipped';
+  }, [addInstallingId, onAppInstalled, removeInstallingId, setInstalledApps, setUnverifiedPrompt]);
 
   // 无校验资产警示弹窗取消（同时唤醒阻塞中的批量安装流程）
   const dismissUnverifiedInstall = useCallback(() => {
@@ -184,9 +266,13 @@ export function useInstallState({
       return;
     }
     if (pending) {
-      void handleInstallApp(pending.id, pending.assetName, pending.customInstallDir, true);
+      if (pending.mode === 'update') {
+        void handleUpdateApp(pending.id, true);
+      } else {
+        void handleInstallApp(pending.id, pending.assetName, pending.customInstallDir, true);
+      }
     }
-  }, [handleInstallApp, setUnverifiedPrompt]);
+  }, [handleInstallApp, handleUpdateApp, setUnverifiedPrompt]);
 
   // 快捷安装（稳定回调，供 memo 卡片复用）
   const handleQuickInstall = useCallback(async (id: string) => {
@@ -211,10 +297,14 @@ export function useInstallState({
     const key = normalizeId(id);
     const app = installedApps.find((a) => normalizeId(a.app_id) === key);
     const appName = app?.app_name || id;
-    await tauriApi.unmanageApp(id);
-    setInstalledApps((prev) => prev.filter((a) => normalizeId(a.app_id) !== key));
-    onAppRemoved?.(id);
-    showToast(t('toast.unmanage_success', { name: appName }), 'info');
+    try {
+      await tauriApi.unmanageApp(id);
+      setInstalledApps((prev) => prev.filter((a) => normalizeId(a.app_id) !== key));
+      onAppRemoved?.(id);
+      showToast(t('toast.unmanage_success', { name: appName }), 'info');
+    } catch (err) {
+      showToast(t('affinity_privacy.action_failed', { error: String(err) }), 'error');
+    }
   };
 
   // 加载已装列表（进入「我的应用」触发，亦作错误重试与检查更新重读入口）；并发挂载单飞复用。
@@ -247,12 +337,12 @@ export function useInstallState({
 
   // 卸载应用（触发官方卸载器 -> 等待完成 -> 校验移除 -> 从列表删除）
   const handleUninstallApp = async (id: string) => {
-    if (uninstallingAppIds.has(id)) return;
     const key = normalizeId(id);
+    if (!key || uninstallingAppIds.has(key)) return;
     const app = installedApps.find((a) => normalizeId(a.app_id) === key);
     const appName = app?.app_name || apps.find((a) => normalizeId(a.id) === key)?.name || id;
 
-    setUninstallingAppIds((prev) => new Set(prev).add(id));
+    setUninstallingAppIds((prev) => new Set(prev).add(key));
     try {
       await tauriApi.uninstallApp(id);
       // 精准增量从本地管理列表中移除
@@ -269,7 +359,7 @@ export function useInstallState({
     } finally {
       setUninstallingAppIds((prev) => {
         const next = new Set(prev);
-        next.delete(id);
+        next.delete(key);
         return next;
       });
     }
@@ -286,7 +376,9 @@ export function useInstallState({
     loadInstalledApps,
     installingRef,
     handleInstallApp,
+    handleUpdateApp,
     handleBatchInstallApp,
+    handleBatchUpdateApp,
     handleQuickInstall,
     handleLaunchApp,
     handleUnmanageApp,

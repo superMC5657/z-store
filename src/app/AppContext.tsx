@@ -25,7 +25,7 @@ export interface LibraryState {
 export interface AppActions {
   onOpenDetail: (id: string) => void;
   onQuickInstall: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
+  onToggleFavorite: (id: string, options?: { silent?: boolean }) => Promise<boolean> | boolean | void;
   onToggleWatch: (id: string) => void;
   onResetPlatformFilter: () => void;
   onOpenDeveloper: (login: string) => void;

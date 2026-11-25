@@ -1,3 +1,4 @@
+import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import i18n from '../i18n';
@@ -614,6 +615,59 @@ describe('LaunchpadView', () => {
     expect(wizardDialog.className).toContain('launchpad-submit-modal');
     fireEvent.keyDown(window, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('深链 focusAppId 消费清空后不取消 60ms 滚动与 4000ms 高亮清除定时器（F-28）', async () => {
+    vi.useFakeTimers();
+    try {
+      api.getLaunchpadFeed.mockResolvedValue(feed([], [entry('acme/hyper')]));
+      const scrollSpy = vi.fn();
+      const origScroll = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollSpy;
+      try {
+        const Harness: React.FC = () => {
+          const [focus, setFocus] = React.useState<string | null>('acme/hyper');
+          return (
+            <LaunchpadView
+              focusAppId={focus}
+              onFocusConsumed={() => setFocus(null)}
+              selectedPlatforms={new Set<PlatformId>(PLATFORM_IDS)}
+              installedIds={new Set<string>()}
+              oauthUser={user}
+              onOpenDetail={vi.fn()}
+              onQuickInstall={vi.fn()}
+              onOpenDeveloper={vi.fn()}
+              onOpenAccount={vi.fn()}
+              onResetPlatformFilter={vi.fn()}
+              onDisplayPlatformCounts={vi.fn()}
+            />
+          );
+        };
+        render(<Harness />);
+        // 让初始异步 feed resolve 并触发 focusAppId 消费
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+        const card = screen.getByTestId('launchpad-card-acme/hyper');
+        expect(card.className).toContain('launchpad-card-highlight');
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(70);
+        });
+        expect(scrollSpy).toHaveBeenCalledTimes(1);
+        expect(card.className).toContain('launchpad-card-highlight');
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(4000);
+        });
+        expect(card.className).not.toContain('launchpad-card-highlight');
+      } finally {
+        Element.prototype.scrollIntoView = origScroll;
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

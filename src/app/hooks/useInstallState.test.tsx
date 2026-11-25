@@ -346,3 +346,47 @@ describe('useInstallState：批量安装无校验确认门禁', () => {
     expect(results).toEqual(['cancelled', 'installed']);
   });
 });
+
+describe('useInstallState：大小写归一锁与取消管理错误捕获', () => {
+  it('混合大小写安装/卸载共用归一化键，阻断并发重复安装', async () => {
+    const { rendered } = renderInstall();
+    let release!: (v: InstalledApp) => void;
+    mocks.installApp.mockImplementationOnce(
+      () => new Promise<InstalledApp>((resolve) => { release = resolve; }),
+    );
+
+    let first!: Promise<void>;
+    act(() => {
+      first = rendered.result.current.handleInstallApp('RustDesk/RustDesk');
+    });
+
+    expect(rendered.result.current.installingAppIds.has('rustdesk/rustdesk')).toBe(true);
+    await act(async () => {
+      // 小写变体并发调用应被全局锁去重拦截
+      await rendered.result.current.handleInstallApp('rustdesk/rustdesk');
+    });
+    expect(mocks.installApp).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release(makeInstalled('rustdesk/rustdesk'));
+      await first;
+    });
+    expect(rendered.result.current.installingAppIds.size).toBe(0);
+  });
+
+  it('unmanageApp IPC 失败时弹出错误 toast，不抛未捕获异常且保留已装项', async () => {
+    const { rendered, deps } = renderInstall();
+    act(() => {
+      rendered.result.current.setInstalledApps([makeInstalled('acme/atlas')]);
+    });
+    mocks.unmanageApp.mockRejectedValueOnce(new Error('db locked'));
+
+    await act(async () => {
+      await expect(rendered.result.current.handleUnmanageApp('acme/atlas')).resolves.toBeUndefined();
+    });
+
+    expect(rendered.result.current.installedApps).toHaveLength(1);
+    expect(deps.onAppRemoved).not.toHaveBeenCalled();
+    expect(deps.showToast).toHaveBeenCalledWith(expect.stringContaining('db locked'), 'error');
+  });
+});

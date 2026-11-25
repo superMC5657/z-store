@@ -70,7 +70,7 @@ async function bootstrap(): Promise<void> {
           alignItems: 'center',
           justifyContent: 'center',
           gap: '12px',
-          background: 'var(--bg-primary, #141414)',
+          background: 'var(--bg-canvas, #141414)',
           color: 'var(--text-primary, #ffffff)',
         }}
       >

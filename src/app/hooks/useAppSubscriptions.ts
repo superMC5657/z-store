@@ -8,6 +8,7 @@ import {
   subscribeIconWrites,
 } from '../../services/iconStore';
 import { patchSearchListCacheIcon } from '../../services/search/searchListCache';
+import { normalizeIdLowerSet } from '../../services/normalizeId';
 import { annotateIsCataloged, buildCatalogIdSet, prepareRecentViews, restampLocalMarks } from '../selectors';
 import { adoptEchoInWindow } from './useSearchState';
 import type { CatalogListsStore } from './useCatalogLists';
@@ -108,7 +109,7 @@ export function useAppSubscriptions({
       window.dispatchEvent(new CustomEvent('zstore:custom-apps-changed'));
     };
 
-    reloadCatalogApps(false);
+    reloadCatalogApps(true);
     const catalogSyncedReady = tauriApi.onCatalogSynced(() => {
       if (!startupCtx.mounted) return;
       liveSyncReceived = true;
@@ -124,11 +125,14 @@ export function useAppSubscriptions({
       })
       .catch(() => {});
 
-    tauriApi.getFavorites().then((favs) => setFavoriteIds(new Set(favs)));
+    tauriApi.getFavorites().then((favs) => {
+      if (startupCtx.mounted) setFavoriteIds(normalizeIdLowerSet(favs));
+    });
     tauriApi
       .getRecentlyViewedApps()
       .then((recents) => {
-        const withLocal = prepareRecentViews(recents, fullCatalogAppsRef.current, appsRef.current, localApps);
+        if (!startupCtx.mounted) return;
+        const withLocal = prepareRecentViews(recents, fullCatalogAppsRef.current, appsRef.current, localAppsRef.current);
         setRecentlyViewedApps(withLocal);
       })
       .catch(() => {});
@@ -227,7 +231,7 @@ export function useAppSubscriptions({
         ]);
         if (!ctx.mounted) return;
         applyPersistedSettingsRef.current(persisted);
-        setFavoriteIds(new Set(favs));
+        setFavoriteIds(normalizeIdLowerSet(favs));
       } catch {
         // 忽略：后端未就绪时保持现状
       }

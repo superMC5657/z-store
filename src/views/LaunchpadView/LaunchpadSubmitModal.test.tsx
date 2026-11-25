@@ -214,4 +214,26 @@ describe('LaunchpadSubmitModal', () => {
     expect(openedUrl.searchParams.get('custom_icon_url')).toBe('https://cdn.simpleicons.org/hyper');
     expect(openedUrl.searchParams.has('homepage')).toBe(false);
   });
+
+  it('预检在途期间用户输入的应用名不会被异步回包 repo_name 覆盖（F-39a）', async () => {
+    let resolvePreflight!: (v: LaunchpadPreflightResult) => void;
+    api.preflightLaunchpadSubmission.mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePreflight = resolve; }),
+    );
+    render(<LaunchpadSubmitModal onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText(/开源仓库地址/), { target: { value: 'acme/hyper' } });
+    fireEvent.click(screen.getByTestId('launchpad-preflight-run'));
+
+    // 预检进行中，用户手动输入自定义应用名
+    const nameInput = screen.getByLabelText(/应用名称/) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'My Custom Name' } });
+
+    await act(async () => {
+      resolvePreflight({ ...PASS_RESULT, repo_name: 'hyper-from-github' });
+      await Promise.resolve();
+    });
+
+    expect(nameInput.value).toBe('My Custom Name');
+  });
 });

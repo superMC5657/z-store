@@ -182,8 +182,10 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
   const favoriteExtraInflightRef = useRef<Set<string>>(new Set());
   // 记录收录标记表（归一小写键 → is_cataloged，行打标唯一依据；目录 apps 仅补充去重）。
   const recordCatalogedRef = useRef<Map<string, boolean>>(new Map());
-  // 本地橘黄：统一经 selectors 搬运标记（蓝优先，去重不动）。
-  const withLocalMarkOuter = (row: AppSummary): AppSummary => annotateLocalSource(row, apps);
+  const appsRef = useRef(apps);
+  appsRef.current = apps;
+  // 本地橘黄：统一经 selectors 搬运标记（蓝优先，去重不动），经 ref 读取最新目录避免闭包陈旧。
+  const withLocalMarkOuter = (row: AppSummary): AppSummary => annotateLocalSource(row, appsRef.current);
 
   // Per-row manual loader: explicit Load info for one uncataloged id (detail + icon cycle).
   const loadUncatalogedDetail = useCallback(async (favId: string): Promise<void> => {
@@ -193,10 +195,12 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
     if (!key || favoriteExtraInflightRef.current.has(key)) return;
     favoriteExtraInflightRef.current.add(key);
     try {
+      let fetched = false;
       let summary: AppSummary;
       try {
         const detail = await tauriApi.getAppDetails(raw);
         summary = favoriteSummaryFromDetail(detail);
+        fetched = true;
       } catch {
         summary = makeFavoritePlaceholderSummary(raw);
       }
@@ -207,9 +211,15 @@ export function useUncatalogedJoin({ favoriteIds, watchedIds, apps, extraSlot }:
       const k = normalizeId(summary.id);
       if (k) {
         setUncatalogedExtraApps((prev) => {
-          for (const e of prev) {
-            if (normalizeId(e.id) === k) return prev;
-          }
+          let found = false;
+          const next = prev.map((e) => {
+            if (normalizeId(e.id) === k) {
+              found = true;
+              return fetched ? summary : e;
+            }
+            return e;
+          });
+          if (found) return fetched ? next : prev;
           return [...prev, summary];
         });
       }

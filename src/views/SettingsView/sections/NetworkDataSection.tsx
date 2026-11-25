@@ -15,6 +15,11 @@ export interface CatalogSyncFeedback {
   isError: boolean;
 }
 
+export interface ProxyFeedback {
+  text: string;
+  isError: boolean;
+}
+
 interface NetworkDataSectionProps {
   proxyInput: string;
   setProxyInput: (val: string) => void;
@@ -24,7 +29,7 @@ interface NetworkDataSectionProps {
     latency_ms: number;
     text: string;
   } | null;
-  proxyFeedback: string | null;
+  proxyFeedback: ProxyFeedback | null;
   highlightRow: string | null;
   activeNotice: { key: string; text: string } | null;
   handleTestProxy: () => void;
@@ -95,8 +100,16 @@ export const NetworkDataSection: React.FC<NetworkDataSectionProps> = ({
               </span>
             )}
             {proxyFeedback && (
-              <span style={{ fontSize: 'var(--font-sm)', color: '#10b981', fontWeight: 500 }}>
-                {proxyFeedback}
+              <span
+                data-testid="proxy-feedback"
+                data-error={proxyFeedback.isError ? 'true' : 'false'}
+                style={{
+                  fontSize: 'var(--font-sm)',
+                  color: proxyFeedback.isError ? 'var(--status-danger)' : 'var(--status-success, #10b981)',
+                  fontWeight: 500,
+                }}
+              >
+                {proxyFeedback.text}
               </span>
             )}
             {activeNotice?.key === 'proxy' && (

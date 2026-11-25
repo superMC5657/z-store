@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import '../i18n';
 import {
+  AlertTriangle,
   ArrowRight,
   Clock,
   Compass,
@@ -9,6 +10,7 @@ import {
   LayoutGrid,
   Lock,
   Play,
+  RefreshCw,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -19,12 +21,14 @@ import {
 } from 'lucide-react';
 import { AppCard } from '../components/AppCard';
 import { AppIcon } from '../components/AppIcon';
+import { EmptyState } from '../components/EmptyState';
 import { VerifiedBadge, resolveVerifiedBadgeVariant } from '../components/VerifiedBadge';
 import type { AppSummary, FeaturedPick, FeaturedShelf, FeedbackScope } from '../types';
 import { EMPTY_IDS, FilterEmptyState, ViewAppActions, ViewShell, noopAction, resolvePlatformReset } from './ViewShell';
 import { useAppContextProps } from '../app/AppContext';
 import { isPlatformLoading } from '../lib/platformFilter';
 import { isInstalled as selectIsInstalled, selectManagedState } from '../app/selectors';
+import { normalizeId } from '../services/normalizeId';
 import { tauriApi } from '../services/api';
 import { visitSeed } from '../services/visitSeed';
 import { notifyToast } from '../useToasts';
@@ -75,7 +79,7 @@ export const FeaturedView: React.FC<FeaturedViewProps> = (props) => {
   const { t, i18n } = useTranslation();
   const seed = useMemo(() => visitSeed(), []);
   const allowedIds = useMemo(() => apps.map((a) => a.id), [apps]);
-  const { page, loading, reload, dismissedIds, dismiss } = useFeaturedPage(allowedIds, seed);
+  const { page, loading, failed, reload, dismissedIds, dismiss } = useFeaturedPage(allowedIds, seed);
   const annotate = useRowAnnotator(apps, localApps);
 
   const appById = useMemo(() => {
@@ -173,25 +177,28 @@ export const FeaturedView: React.FC<FeaturedViewProps> = (props) => {
     );
   }
 
-  const card = (app: AppSummary, reasonText?: string, withDismiss = false, eager = false) => (
-    <AppCard
-      key={app.id}
-      app={app}
-      eager={eager}
-      reasonText={reasonText}
-      onDismiss={withDismiss ? handleDismiss : undefined}
-      platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-      isInstalled={selectIsInstalled(app.id, installedIds)}
-      isManaged={selectManagedState(app.id, managedIds)}
-      isInstalling={installingIds?.has(app.id)}
-      isFavorite={favoriteIds.has(app.id)}
-      isWatched={watchedIds?.has(app.id)}
-      onOpenDetail={onOpenDetail}
-      onQuickInstall={onQuickInstall}
-      onToggleFavorite={onToggleFavorite}
-      onToggleWatch={onToggleWatch}
-    />
-  );
+  const card = (app: AppSummary, reasonText?: string, withDismiss = false, eager = false) => {
+    const appKey = normalizeId(app.id);
+    return (
+      <AppCard
+        key={app.id}
+        app={app}
+        eager={eager}
+        reasonText={reasonText}
+        onDismiss={withDismiss ? handleDismiss : undefined}
+        platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
+        isInstalled={selectIsInstalled(app.id, installedIds)}
+        isManaged={selectManagedState(app.id, managedIds)}
+        isInstalling={installingIds?.has(appKey)}
+        isFavorite={favoriteIds.has(appKey)}
+        isWatched={watchedIds?.has(appKey)}
+        onOpenDetail={onOpenDetail}
+        onQuickInstall={onQuickInstall}
+        onToggleFavorite={onToggleFavorite}
+        onToggleWatch={onToggleWatch}
+      />
+    );
+  };
 
   const shelfHeader = (shelf: FeaturedShelf) => {
     switch (shelf.kind) {
@@ -300,6 +307,24 @@ export const FeaturedView: React.FC<FeaturedViewProps> = (props) => {
         </div>
       )}
 
+      {!page && !loading && failed && (
+        <EmptyState
+          icon={<AlertTriangle size={40} strokeWidth={1.5} />}
+          title={t('latest.list_error')}
+          action={
+            <button
+              type="button"
+              className="btn-fluent btn-secondary"
+              data-testid="featured-retry"
+              onClick={reload}
+            >
+              <RefreshCw size={14} strokeWidth={1.5} aria-hidden="true" />
+              <span>{t('latest.retry')}</span>
+            </button>
+          }
+        />
+      )}
+
       {hero.length > 0 && (
         <>
           <div className="section-header">
@@ -314,7 +339,7 @@ export const FeaturedView: React.FC<FeaturedViewProps> = (props) => {
               row={toRow(mainHero)}
               reasonText={formatReasons(t, mainHero.reasons, appById)}
               installed={selectIsInstalled(mainHero.app.id, installedIds)}
-              installing={Boolean(installingIds?.has(mainHero.app.id))}
+              installing={Boolean(installingIds?.has(normalizeId(mainHero.app.id)))}
               language={i18n.language}
               onOpenDetail={onOpenDetail}
               onQuickInstall={onQuickInstall}
@@ -423,7 +448,11 @@ const HeroBanner: React.FC<HeroBannerProps> = ({
       data-testid="featured-hero"
       onClick={() => onOpenDetail(row.id)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onOpenDetail(row.id);
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (e.key === ' ') e.preventDefault();
+          onOpenDetail(row.id);
+        }
       }}
       role="button"
       tabIndex={0}

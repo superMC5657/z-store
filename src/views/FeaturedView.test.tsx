@@ -291,4 +291,40 @@ describe('FeaturedView: platform filter empty state', () => {
     expect(onReset).toHaveBeenCalled();
     expect(tauriApi.getFeaturedPage).not.toHaveBeenCalled();
   });
+
+  it('HeroBanner 嵌套按钮键盘事件不冒泡触发 onOpenDetail，直接按 Space 阻止滚动并打开详情（F-36）', async () => {
+    const onOpenDetail = vi.fn();
+    renderView({ onOpenDetail });
+    const hero = await screen.findByTestId('featured-hero');
+    const dismissBtn = hero.querySelector('[data-testid^="dismiss-app-"]') as HTMLButtonElement;
+    expect(dismissBtn).toBeTruthy();
+
+    fireEvent.keyDown(dismissBtn, { key: 'Enter' });
+    fireEvent.keyDown(dismissBtn, { key: ' ' });
+    expect(onOpenDetail).not.toHaveBeenCalled();
+
+    const ev = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    hero.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(onOpenDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('精选页加载失败时展示错误空态与重试按钮，点击重试恢复展示（F-38）', async () => {
+    vi.mocked(tauriApi.getFeaturedPage)
+      .mockRejectedValueOnce(new Error('network fail'))
+      .mockResolvedValueOnce({
+        profile_state: 'off',
+        signal_count: 0,
+        top_categories: [],
+        hero: [pick(0)],
+        shelves: [],
+      });
+
+    renderView();
+    const retryBtn = await screen.findByTestId('featured-retry');
+    expect(retryBtn).toBeTruthy();
+
+    fireEvent.click(retryBtn);
+    expect(await screen.findByTestId('featured-hero')).toBeTruthy();
+  });
 });

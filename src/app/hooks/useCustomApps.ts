@@ -41,11 +41,16 @@ export function useCustomApps(options: UseCustomAppsOptions = {}) {
   // 待收录草稿后端列表（null = 未加载/非 Tauri 预览）。
   const [customApps, setCustomApps] = useState<DraftEntry[] | null>(null);
 
+  const reloadSeqRef = useRef(0);
   const reloadCustomApps = useCallback(async () => {
+    const seq = ++reloadSeqRef.current;
     try {
       const wires = await tauriApi.listCustomApps(true);
+      if (seq !== reloadSeqRef.current) return;
       setCustomApps(wires.map(entryFromWire));
+      setMovedInIds((prev) => (prev.size === 0 ? prev : new Set<string>()));
     } catch {
+      if (seq !== reloadSeqRef.current) return;
       // 非 Tauri 预览/后端未就绪：保持 null，待收录页按空列表渲染
       setCustomApps(null);
     }

@@ -98,6 +98,8 @@ export function useDetailCacheSync({
   } = catalogLists;
   const appDetailMemoryCache = useRef<Map<string, AppDetail>>(new Map());
   const activeDetailIdRef = useRef<string | null>(null);
+  const detailReqSeqRef = useRef(0);
+  const detailReqSeqByIdRef = useRef<Map<string, number>>(new Map());
   const selectedAppRef = useRef<AppDetailViewModel | null>(null);
   selectedAppRef.current = selectedApp;
   const localAppsRef = useRef<readonly AppSummary[] | undefined>(localApps);
@@ -368,6 +370,8 @@ export function useDetailCacheSync({
   const handleOpenDetail = useCallback(async (id: string, forceRefresh = false) => {
     const idClean = id.trim().toLowerCase();
     activeDetailIdRef.current = id;
+    const reqSeq = ++detailReqSeqRef.current;
+    detailReqSeqByIdRef.current.set(idClean, reqSeq);
 
     if (!forceRefresh) {
       const cached = appDetailMemoryCache.current.get(idClean);
@@ -463,6 +467,7 @@ export function useDetailCacheSync({
 
         // 后台静默发起 ETag 条件探查：版本未变（304）后端毫秒级短路，版本变化则静默平滑更新
         tauriApi.getAppDetails(id, false).then((updatedDetail) => {
+          if (detailReqSeqByIdRef.current.get(idClean) !== reqSeq) return;
           patchDetailMemoryAndLists(idClean, updatedDetail, true);
         }).catch(() => {
           // 静默忽略后台探查异常，保留已展示的快照
@@ -560,8 +565,10 @@ export function useDetailCacheSync({
 
     try {
       const fullDetail = await tauriApi.getAppDetails(id, forceRefresh);
+      if (detailReqSeqByIdRef.current.get(idClean) !== reqSeq) return;
       patchDetailMemoryAndLists(idClean, fullDetail, false);
     } catch (e) {
+      if (reqSeq !== detailReqSeqRef.current) return;
       if (activeDetailIdRef.current === id) {
         setSelectedApp((prev) =>
           prev
@@ -570,6 +577,7 @@ export function useDetailCacheSync({
         );
       }
     }
+    if (reqSeq !== detailReqSeqRef.current) return;
     await loadRecentViews();
   }, [annotateEntry, appsRef, loadRecentViews, onlineAppsRef, recentsRef, setSelectedApp, patchDetailMemoryAndLists]);
 

@@ -31,6 +31,7 @@ export function useFeaturedPage(allowedIds: readonly string[], visitSeed: number
     const run = () => {
       const seq = ++issuedRef.current;
       setLoading(true);
+      setFailed(false);
       tauriApi
         .getFeaturedPage(visitSeed, idsRef.current)
         .then((res) => {

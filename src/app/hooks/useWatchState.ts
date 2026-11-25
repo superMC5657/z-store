@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import type { WatchDismissedEntry, WatchUpdatedPayload } from '../../types';
 import { tauriApi } from '../../services/api';
-import { normalizeId } from '../../services/normalizeId';
+import { normalizeId, normalizeIdLowerSet } from '../../services/normalizeId';
 import { listenWindowEvent, newMountCtx, releaseMountCtx, trackSubscription, useLatestRef } from './mountCtx';
 
 interface UseWatchStateParams {
@@ -39,7 +39,7 @@ export function useWatchState({ isRulesModalOpen, showToast, t }: UseWatchStateP
       .then((entries) => {
         if (!ctx.mounted) return;
         const ids = (Array.isArray(entries) ? entries : []).map((e) => e.app_id);
-        setWatchedIds(new Set(ids));
+        setWatchedIds(normalizeIdLowerSet(ids));
       })
       .catch(() => {});
     tauriApi
@@ -71,7 +71,7 @@ export function useWatchState({ isRulesModalOpen, showToast, t }: UseWatchStateP
         const entries = await tauriApi.getWatchedApps().catch(() => [] as { app_id: string }[]);
         if (!ctx.mounted) return;
         const ids = (Array.isArray(entries) ? entries : []).map((w) => w.app_id);
-        setWatchedIds(new Set(ids));
+        setWatchedIds(normalizeIdLowerSet(ids));
       } catch {
         // 忽略：后端未就绪时保持现状
       }

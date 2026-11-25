@@ -646,4 +646,38 @@ describe('App cross-view counts match visible content', () => {
     expect(seenCounts).not.toContain('3');
     expect(seenCounts).not.toContain(null);
   });
+
+  it('search view renders FilterEmptyState with reset when platforms are empty or filter out raw search hits (F-29)', async () => {
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify([]));
+    render(<App />);
+
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'win-tool' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    // 平台全不选时：呈现带重置入口的 FilterEmptyState，而不是困在「未找到本地结果」
+    const resetBtn = await waitFor(() => {
+      const btn = document.querySelector('.search-empty-state .filter-empty-reset') as HTMLButtonElement | null;
+      if (!btn) throw new Error('filter-empty-reset missing in search empty state');
+      return btn;
+    });
+    fireEvent.click(resetBtn);
+    await screen.findByText('WinTool');
+
+    // 仅选 macos 时搜索 windows 专属应用：原始搜索有结果但被平台筛空，同样呈现 FilterEmptyState 重置入口
+    cleanup();
+    window.localStorage.setItem(PLATFORM_FILTER_STORAGE_KEY, JSON.stringify(['macos']));
+    render(<App />);
+    const input2 = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.change(input2, { target: { value: 'win-tool' } });
+    fireEvent.keyDown(input2, { key: 'Enter', code: 'Enter' });
+
+    const resetBtn2 = await waitFor(() => {
+      const btn = document.querySelector('.search-empty-state .filter-empty-reset') as HTMLButtonElement | null;
+      if (!btn) throw new Error('filter-empty-reset missing when raw hits filtered out');
+      return btn;
+    });
+    fireEvent.click(resetBtn2);
+    await screen.findByText('WinTool');
+  });
 });

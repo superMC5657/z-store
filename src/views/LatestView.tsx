@@ -29,6 +29,7 @@ import {
   selectPlatformCounts,
 } from '../app/selectors';
 import { queueAssembledRowIcons } from '../services/iconStore';
+import { normalizeId } from '../services/normalizeId';
 
 type LatestTimeWindow = '7d' | '30d' | '90d';
 
@@ -308,24 +309,27 @@ export const LatestView: React.FC<LatestViewProps> = (props) => {
         </div>
       ) : (
         <div className="app-grid">
-          {visibleApps.map((app, index) => (
-            <AppCard
-              key={app.id}
-              app={app}
-              eager={index < 6}
-              platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
-              isInstalled={selectIsInstalled(app.id, installedIds)}
-              isManaged={selectManagedState(app.id, managedIds)}
-              isInstalling={installingIds?.has(app.id)}
-              isFavorite={favoriteIds.has(app.id)}
-              isWatched={watchedIds?.has(app.id)}
-              showAddedAtBadge={true}
-              onOpenDetail={onOpenDetail}
-              onQuickInstall={onQuickInstall}
-              onToggleFavorite={onToggleFavorite}
-              onToggleWatch={onToggleWatch}
-            />
-          ))}
+          {visibleApps.map((app, index) => {
+            const appKey = normalizeId(app.id);
+            return (
+              <AppCard
+                key={app.id}
+                app={app}
+                eager={index < 6}
+                platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
+                isInstalled={selectIsInstalled(app.id, installedIds)}
+                isManaged={selectManagedState(app.id, managedIds)}
+                isInstalling={installingIds?.has(appKey)}
+                isFavorite={favoriteIds.has(appKey)}
+                isWatched={watchedIds?.has(appKey)}
+                showAddedAtBadge={true}
+                onOpenDetail={onOpenDetail}
+                onQuickInstall={onQuickInstall}
+                onToggleFavorite={onToggleFavorite}
+                onToggleWatch={onToggleWatch}
+              />
+            );
+          })}
 
           {loading && (
             <div style={{ width: '100%', padding: '16px 0', textAlign: 'center', color: 'var(--text-secondary)' }}>

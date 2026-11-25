@@ -578,4 +578,45 @@ describe('InstalledView myApps domain prop contract', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试加载' }));
     expect(loadInstalledApps).toHaveBeenCalledTimes(1);
   });
+
+  it('切出视图重挂后仍保留 myApps 提升的 isUpdatingAll 与 installingAppIds 禁用态', async () => {
+    await i18n.changeLanguage('zh-CN');
+    const handleBatchUpdateAll = vi.fn(async () => {});
+    const handleApplyUpdate = vi.fn(async () => {});
+    const myApps = {
+      filteredInstalledApps: [INSTALLED_LIST[0]],
+      installingAppIds: new Set<string>(['neovim/neovim']),
+      uninstallingAppIds: new Set<string>(),
+      filteredUpdates: UPDATES,
+      isCheckingUpdates: false,
+      isUpdatingAll: true,
+      updateCheckProgress: null,
+      checkUpdatesAndRefresh: vi.fn(async () => {}),
+      handleApplyUpdate,
+      handleBatchUpdateAll,
+      handleSkipVersion: vi.fn(async () => {}),
+      handleLaunchApp: vi.fn(),
+      handleUninstallApp: vi.fn(async () => {}),
+      handleUnmanageApp: vi.fn(async () => {}),
+      updateRules: [],
+      handleToggleRuleFrozen: vi.fn(async () => {}),
+      handleToggleRuleHidden: vi.fn(async () => {}),
+      installLoadError: null,
+      loadInstalledApps: vi.fn(async () => {}),
+      installedApps: [INSTALLED_LIST[0]],
+      installedPlatformRows: [],
+    } as unknown as Parameters<typeof InstalledView>[0]['myApps'];
+
+    const first = render(<InstalledView myApps={myApps} apps={[makeApp({ id: 'neovim/neovim', name: 'Neovim' })]} />);
+    first.unmount();
+
+    // 模拟切换侧栏后重新挂载 InstalledView：按钮仍处于更新中禁用态
+    render(<InstalledView myApps={myApps} apps={[makeApp({ id: 'neovim/neovim', name: 'Neovim' })]} />);
+    const updateAllBtn = screen.getByRole('button', { name: '正在更新中...' }) as HTMLButtonElement;
+    const checkBtn = screen.getByRole('button', { name: '检查更新' }) as HTMLButtonElement;
+    const rowUpdateBtn = screen.getByRole('button', { name: '更新中...' }) as HTMLButtonElement;
+    expect(updateAllBtn.disabled).toBe(true);
+    expect(checkBtn.disabled).toBe(true);
+    expect(rowUpdateBtn.disabled).toBe(true);
+  });
 });

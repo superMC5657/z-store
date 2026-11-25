@@ -45,7 +45,7 @@ import { PathText } from './InstalledView/PathText';
 import { CheckProgressBanner } from './InstalledView/CheckProgressBanner';
 import { lazyNamed } from '../lib/lazyNamed';
 import { queueAssembledRowIcons } from '../services/iconStore';
-import { parseCanonicalCoord } from '../services/normalizeId';
+import { normalizeId, parseCanonicalCoord } from '../services/normalizeId';
 import { AppIconFrame } from '../components/AppIconFrame';
 import { ManageHeader } from './manage/ManageHeader';
 import { ManageFilterBar, type ManageFilterTab } from './manage/ManageFilterBar';
@@ -86,6 +86,7 @@ interface InstalledViewProps extends AppContextProps {
   /** 可用更新快照（读库或手动检查结果）；命中的已装行就地呈现版本差与更新动作。 */
   updates?: UpdateItem[];
   isChecking?: boolean;
+  isUpdatingAll?: boolean;
   checkProgress?: UpdateCheckProgressPayload | null;
   /** 联网检查更新：本页唯一的网络入口。 */
   onCheckUpdates?: () => Promise<void>;
@@ -121,9 +122,11 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     onFocusConsumed,
     installedApps: rawInstalledApps,
     apps = EMPTY_APPS,
+    installingIds,
     uninstallingAppIds: rawUninstallingAppIds,
     updates: rawUpdates,
     isChecking: rawIsChecking,
+    isUpdatingAll: rawIsUpdatingAll,
     checkProgress: rawCheckProgress,
     onCheckUpdates: rawOnCheckUpdates,
     onApplyUpdate: rawOnApplyUpdate,
@@ -148,9 +151,11 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
     onDisplayPlatformCounts,
   } = useAppContextProps(props);
   const installedApps = rawInstalledApps ?? myApps?.filteredInstalledApps ?? EMPTY_INSTALLED;
+  const effectiveInstallingIds = installingIds ?? myApps?.installingAppIds;
   const uninstallingAppIds = rawUninstallingAppIds ?? myApps?.uninstallingAppIds;
   const updates = rawUpdates ?? myApps?.filteredUpdates ?? EMPTY_UPDATES;
   const isChecking = rawIsChecking ?? myApps?.isCheckingUpdates ?? false;
+  const hasLiftedBatchState = rawIsUpdatingAll !== undefined || myApps !== undefined;
   const checkProgress = rawCheckProgress !== undefined ? rawCheckProgress : myApps?.updateCheckProgress;
   const onCheckUpdates = rawOnCheckUpdates ?? myApps?.checkUpdatesAndRefresh;
   const onApplyUpdate = rawOnApplyUpdate ?? myApps?.handleApplyUpdate;
@@ -191,8 +196,9 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<InstalledSortOrder>('recent');
   const [expandedChangelogId, setExpandedChangelogId] = useState<string | null>(null);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [isUpdatingAll, setIsUpdatingAll] = useState(false);
+  const [localUpdatingId, setLocalUpdatingId] = useState<string | null>(null);
+  const [localIsUpdatingAll, setLocalIsUpdatingAll] = useState(false);
+  const isUpdatingAll = rawIsUpdatingAll ?? myApps?.isUpdatingAll ?? localIsUpdatingAll;
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const catalogById = useMemo(() => buildCatalogLookup(apps), [apps]);
@@ -301,26 +307,36 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
 
   const handleApplyUpdate = async (id: string) => {
     if (!onApplyUpdate) return;
+    const key = normalizeId(id);
+    if (effectiveInstallingIds?.has(key) || localUpdatingId === key) return;
+    if (myApps) {
+      await onApplyUpdate(id);
+      return;
+    }
     try {
-      setUpdatingId(id);
+      setLocalUpdatingId(key);
       await onApplyUpdate(id);
     } finally {
-      setUpdatingId(null);
+      setLocalUpdatingId(null);
     }
   };
 
   const handleUpdateAll = async () => {
-    if (!onBatchUpdateAll) return;
+    if (!onBatchUpdateAll || isUpdatingAll) return;
+    if (hasLiftedBatchState) {
+      await onBatchUpdateAll(updatableItems);
+      return;
+    }
     try {
-      setIsUpdatingAll(true);
+      setLocalIsUpdatingAll(true);
       await onBatchUpdateAll(updatableItems);
     } finally {
-      setIsUpdatingAll(false);
+      setLocalIsUpdatingAll(false);
     }
   };
 
   const handleTriggerUninstall = (id: string) => {
-    if (uninstallingAppIds?.has(id)) return;
+    if (uninstallingAppIds?.has(normalizeId(id))) return;
     if (confirmingUninstallId === id) {
       onUninstall(id);
       setConfirmingUninstallId(null);
@@ -555,11 +571,12 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
             const isChangelogOpen = Boolean(update) && expandedChangelogId === app.app_id;
             const isMenuOpen = activeMenuId === app.app_id;
             const isCopied = copiedId === app.app_id;
+            const appKey = normalizeId(app.app_id);
             const updateActions: RowUpdateActions | undefined =
               update && onApplyUpdate
                 ? {
                     item: update,
-                    isUpdating: updatingId === app.app_id,
+                    isUpdating: Boolean(effectiveInstallingIds?.has(appKey)) || localUpdatingId === appKey,
                     isBlocked: isUpdatingAll || isChecking,
                     isChangelogOpen,
                     onToggleChangelog: () =>
@@ -682,7 +699,7 @@ export const InstalledView: React.FC<InstalledViewProps> = (props) => {
                       isFrozen={isFrozen}
                       isHidden={false}
                       isMenuOpen={isMenuOpen}
-                      isUninstallingLoading={uninstallingAppIds?.has(app.app_id)}
+                      isUninstallingLoading={uninstallingAppIds?.has(appKey)}
                       confirmingUninstallId={confirmingUninstallId}
                       confirmingUnmanageId={confirmingUnmanageId}
                       onTriggerUninstall={handleTriggerUninstall}

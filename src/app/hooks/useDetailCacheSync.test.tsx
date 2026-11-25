@@ -884,4 +884,62 @@ describe('useDetailCacheSync：官方主页同步', () => {
       }),
     );
   });
+
+  it('并发乱序响应守卫：较早发起的请求晚于强制刷新返回或报错时，绝不覆盖更新后的详情与缓存', async () => {
+    let resolveFirst!: (d: AppDetail) => void;
+    let rejectFirst!: (err: unknown) => void;
+    let resolveSecond!: (d: AppDetail) => void;
+
+    mocks.getAppDetails
+      .mockImplementationOnce(() => new Promise<AppDetail>((res) => { resolveFirst = res; }))
+      .mockImplementationOnce(() => new Promise<AppDetail>((res) => { resolveSecond = res; }));
+
+    const { result, params } = renderSync();
+
+    let firstPromise!: Promise<void>;
+    let secondPromise!: Promise<void>;
+    act(() => {
+      firstPromise = result.current.handleOpenDetail('acme/atlas', false);
+      secondPromise = result.current.handleOpenDetail('acme/atlas', true);
+    });
+
+    // 第二次（更新的）请求先完成
+    await act(async () => {
+      resolveSecond(makeDetail({ id: 'acme/atlas', latest_version: 'v2.0.0', stars: 999 }));
+      await secondPromise;
+    });
+    expect(result.current.appDetailMemoryCache.current.get('acme/atlas')?.latest_version).toBe('v2.0.0');
+
+    params.setSelectedApp.mockClear();
+    // 第一次（陈旧的）请求后完成：必须被 reqSeq 守卫丢弃
+    await act(async () => {
+      resolveFirst(makeDetail({ id: 'acme/atlas', latest_version: 'v1.0.0-stale', stars: 1 }));
+      await firstPromise;
+    });
+    expect(result.current.appDetailMemoryCache.current.get('acme/atlas')?.latest_version).toBe('v2.0.0');
+    expect(params.setSelectedApp).not.toHaveBeenCalled();
+
+    // 同样验证较早请求后 reject 时不会写入 loadError 覆盖新详情
+    let resolveFresh!: (d: AppDetail) => void;
+    mocks.getAppDetails
+      .mockImplementationOnce(() => new Promise<AppDetail>((_res, rej) => { rejectFirst = rej; }))
+      .mockImplementationOnce(() => new Promise<AppDetail>((res) => { resolveFresh = res; }));
+
+    let errReq!: Promise<void>;
+    let okReq!: Promise<void>;
+    act(() => {
+      errReq = result.current.handleOpenDetail('acme/atlas', true);
+      okReq = result.current.handleOpenDetail('acme/atlas', true);
+    });
+    await act(async () => {
+      resolveFresh(makeDetail({ id: 'acme/atlas', latest_version: 'v3.0.0' }));
+      await okReq;
+    });
+    params.setSelectedApp.mockClear();
+    await act(async () => {
+      rejectFirst(new Error('stale network failure'));
+      await errReq;
+    });
+    expect(params.setSelectedApp).not.toHaveBeenCalled();
+  });
 });

@@ -169,8 +169,8 @@ export const LaunchpadSubmitModal: React.FC<LaunchpadSubmitModalProps> = ({
       if (reqSeqRef.current !== reqId) return;
       setPreflight(res);
       setCheckedKey(runKey);
-      if (res.repo_name && !appName.trim()) {
-        setAppName(res.repo_name);
+      if (res.repo_name) {
+        setAppName((prev) => (prev.trim() ? prev : res.repo_name));
       }
     } catch (err) {
       if (reqSeqRef.current !== reqId) return;

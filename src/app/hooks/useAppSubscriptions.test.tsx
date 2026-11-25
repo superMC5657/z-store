@@ -565,4 +565,37 @@ describe('useAppSubscriptions：迟到订阅守卫', () => {
     const after = searchIconUpgraded.size() + catalogSynced.size() + oauthExpired.size();
     expect(after).toBe(0);
   });
+
+  it('冷启动竞态：getRecentlyViewedApps 先于 searchApps 返回后，目录就绪时自动重标 is_cataloged=true', async () => {
+    let resolveCatalog!: (rows: AppSummary[]) => void;
+    mocks.searchApps.mockImplementationOnce(
+      () => new Promise<AppSummary[]>((resolve) => { resolveCatalog = resolve; }),
+    );
+    const recentRow = makeRow('acme/atlas', { is_cataloged: undefined });
+    mocks.getRecentlyViewedApps.mockResolvedValueOnce([recentRow]);
+    mocks.getFavorites.mockResolvedValueOnce(['Acme/Atlas']);
+
+    const { deps } = renderSubs();
+    await flush();
+
+    // 收藏集合自动归一小写
+    expect(deps.setFavoriteIds).toHaveBeenCalledWith(new Set(['acme/atlas']));
+
+    // 目录尚未到达时 recents 先以空目录打标为 false
+    expect(deps.setRecentlyViewedApps).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'acme/atlas', is_cataloged: false }),
+    ]);
+
+    deps.setRecentlyViewedApps.mockClear();
+    await act(async () => {
+      resolveCatalog([makeRow('acme/atlas')]);
+      await flush();
+    });
+
+    // 初始目录加载完成后自动触发 recents 重标为 is_cataloged=true
+    const updater = deps.setRecentlyViewedApps.mock.calls.at(-1)?.[0] as (prev: AppSummary[]) => AppSummary[];
+    expect(typeof updater).toBe('function');
+    const restamped = updater([{ ...recentRow, is_cataloged: false }]);
+    expect(restamped[0].is_cataloged).toBe(true);
+  });
 });

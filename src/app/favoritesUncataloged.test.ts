@@ -1,5 +1,5 @@
 /** 测试收藏未收录行的占位合成、图标热替口径与 left-join 驱逐逻辑。 */
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppSummary } from '../types';
@@ -325,5 +325,64 @@ describe('useUncatalogedJoin batch filtering & eviction short-circuit', () => {
     expect(batchSpy).not.toHaveBeenCalled();
     expect(favEntriesSpy).not.toHaveBeenCalled();
     expect(watchedSpy).not.toHaveBeenCalled();
+  });
+
+  it('loadUncatalogedDetail 替换已有占位行而非原样丢弃，并经 ref 读取最新目录本地标记', async () => {
+    vi.spyOn(tauriApi, 'getCachedAppDetailsBatch').mockResolvedValue([]);
+    vi.spyOn(tauriApi, 'getFavoriteEntries').mockResolvedValue([
+      { app_id: 'acme/uncat', is_cataloged: false, favorited_at: 1 },
+    ]);
+    vi.spyOn(tauriApi, 'getWatchedApps').mockResolvedValue([]);
+    vi.spyOn(tauriApi, 'restoreOrFetchIconCycle').mockResolvedValue({ url: '', level: 5 });
+    const detailSpy = vi.spyOn(tauriApi, 'getAppDetails').mockResolvedValue({
+      id: 'acme/uncat',
+      name: 'Uncat Rich',
+      owner: 'acme',
+      repo: 'uncat',
+      icon: 'https://cdn.example.com/uncat.png',
+      icon_bg: '#111111',
+      description: 'Fetched rich description',
+      description_en: 'Fetched rich description',
+      stars: 420,
+      forks: 12,
+      license: 'MIT',
+      latest_version: 'v1.2.3',
+      changelog: '',
+      is_verified: false,
+      readme_markdown: '',
+      releases: [],
+      category: 'dev',
+      category_name: '开发工具',
+      forge: 'github',
+      forge_host: 'github.com',
+      homepage: null,
+      platforms: ['windows', 'linux'],
+    });
+
+    const { rerender, result } = renderHook(
+      ({ apps }: { apps: AppSummary[] }) =>
+        useJoinWithLocalSlot(new Set(['acme/uncat']), new Set(), apps),
+      { initialProps: { apps: [] as AppSummary[] } },
+    );
+
+    // 初始占位行已插入
+    await waitFor(() => {
+      expect(result.current.uncatalogedExtraApps).toHaveLength(1);
+      expect(result.current.uncatalogedExtraApps[0].stars).toBe(0);
+    });
+
+    // 更新 apps 后调用 loadUncatalogedDetail（验证不闭合陈旧 apps = []）
+    rerender({ apps: [row('other/app', ['windows'])] });
+
+    await act(async () => {
+      await result.current.loadUncatalogedDetail('acme/uncat');
+    });
+
+    expect(detailSpy).toHaveBeenCalledWith('acme/uncat');
+    expect(result.current.uncatalogedExtraApps).toHaveLength(1);
+    expect(result.current.uncatalogedExtraApps[0].description).toBe('Fetched rich description');
+    expect(result.current.uncatalogedExtraApps[0].stars).toBe(420);
+    expect(result.current.uncatalogedExtraApps[0].latest_version).toBe('v1.2.3');
+    expect(result.current.uncatalogedExtraApps[0].platforms).toEqual(['windows', 'linux']);
   });
 });

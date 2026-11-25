@@ -250,7 +250,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
                 platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                 isInstalled={selectIsInstalled(app.id, installedIds)}
                 isManaged={selectManagedState(app.id, managedIds)}
-                isInstalling={installingIds?.has(app.id)}
+                isInstalling={installingIds?.has(normalizeId(app.id))}
                 isFavorite={true}
                 isWatched={watchedIdsLower.has(normalizeId(app.id))}
                 showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
@@ -302,7 +302,7 @@ export const FavoritesView: React.FC<FavoritesViewProps> = (props) => {
                   platformLoading={isPlatformLoading(app, platformResolvedOtherIds)}
                   isInstalled={selectIsInstalled(app.id, installedIds)}
                   isManaged={selectManagedState(app.id, managedIds)}
-                  isInstalling={installingIds?.has(app.id)}
+                  isInstalling={installingIds?.has(normalizeId(app.id))}
                   isFavorite={favoriteIdsLower.has(normalizeId(app.id))}
                   isWatched={true}
                   showLoadDetail={onLoadUncatalogedDetail !== undefined && isFavoritePlaceholderRow(app)}
