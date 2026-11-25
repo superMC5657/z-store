@@ -1,5 +1,5 @@
 /** 回归测试 AppDetailModal 原地切换应用时的状态重置与过期异步结果丢弃（F-32 / F-31）。 */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AppDetailViewModel, ReleaseAsset } from '../../types';
 import '../../i18n';
@@ -40,8 +40,17 @@ import { AppDetailModal } from './index';
 
 (globalThis as Record<string, unknown>)['IS_REACT_ACT_ENVIRONMENT'] = true;
 
+// jsdom 默认 UA 携带宿主机平台信息，固定为 Windows 宿主以保证跨平台 CI 行为一致。
+const HOST_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)';
+let userAgentSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+beforeEach(() => {
+  userAgentSpy = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(HOST_UA);
+});
+
 afterEach(() => {
   cleanup();
+  userAgentSpy?.mockRestore();
   vi.clearAllMocks();
 });
 
